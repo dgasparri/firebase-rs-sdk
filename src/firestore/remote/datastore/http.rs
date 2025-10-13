@@ -133,13 +133,13 @@ impl Datastore for HttpDatastore {
             Ok(DocumentSnapshot::new(
                 key.clone(),
                 Some(map_value),
-                SnapshotMetadata::default(),
+                SnapshotMetadata::new(false, false),
             ))
         } else {
             Ok(DocumentSnapshot::new(
                 key.clone(),
                 None,
-                SnapshotMetadata::default(),
+                SnapshotMetadata::new(false, false),
             ))
         }
     }

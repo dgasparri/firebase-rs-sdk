@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use crate::firestore::api::operations::{self, DocumentSnapshot, SetOptions};
+use crate::firestore::api::operations::{self, SetOptions};
+use crate::firestore::api::snapshot::{DocumentSnapshot, TypedDocumentSnapshot};
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::DocumentKey;
 use std::sync::Arc;
@@ -8,7 +9,9 @@ use std::sync::Arc;
 use crate::firestore::remote::datastore::{Datastore, HttpDatastore, InMemoryDatastore, TokenProviderArc};
 use crate::firestore::value::{FirestoreValue, MapValue};
 
-use super::Firestore;
+use super::{
+    ConvertedCollectionReference, ConvertedDocumentReference, Firestore, FirestoreDataConverter,
+};
 
 #[derive(Clone, Debug)]
 pub struct FirestoreClient {
@@ -73,6 +76,51 @@ impl FirestoreClient {
         self.set_doc(doc_ref.path().canonical_string().as_str(), data, None)?;
         self.get_doc(doc_ref.path().canonical_string().as_str())
     }
+
+    pub fn get_doc_with_converter<C>(
+        &self,
+        reference: &ConvertedDocumentReference<C>,
+    ) -> FirestoreResult<TypedDocumentSnapshot<C>>
+    where
+        C: FirestoreDataConverter,
+    {
+        let path = reference.path().canonical_string();
+        let snapshot = self.get_doc(path.as_str())?;
+        let converter = reference.converter();
+        Ok(snapshot.into_typed(converter))
+    }
+
+    pub fn set_doc_with_converter<C>(
+        &self,
+        reference: &ConvertedDocumentReference<C>,
+        data: C::Model,
+        options: Option<SetOptions>,
+    ) -> FirestoreResult<()>
+    where
+        C: FirestoreDataConverter,
+    {
+        let converter = reference.converter();
+        let map = converter.to_map(&data)?;
+        let path = reference.path().canonical_string();
+        self.set_doc(path.as_str(), map, options)
+    }
+
+    pub fn add_doc_with_converter<C>(
+        &self,
+        collection: &ConvertedCollectionReference<C>,
+        data: C::Model,
+    ) -> FirestoreResult<TypedDocumentSnapshot<C>>
+    where
+        C: FirestoreDataConverter,
+    {
+        let doc_ref = collection.doc(None)?;
+        let converter = doc_ref.converter();
+        let map = converter.to_map(&data)?;
+        let path = doc_ref.path().canonical_string();
+        self.set_doc(path.as_str(), map, None)?;
+        let snapshot = self.get_doc(path.as_str())?;
+        Ok(snapshot.into_typed(converter))
+    }
 }
 
 #[cfg(test)]
@@ -81,6 +129,7 @@ mod tests {
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::firestore::api::get_firestore;
+    use crate::firestore::value::ValueKind;
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -118,5 +167,81 @@ mod tests {
             snapshot.data().unwrap().get("name"),
             Some(&FirestoreValue::from_string("Ada"))
         );
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct Person {
+        first: String,
+        last: String,
+    }
+
+    #[derive(Clone, Debug)]
+    struct PersonConverter;
+
+    impl super::FirestoreDataConverter for PersonConverter {
+        type Model = Person;
+
+        fn to_map(
+            &self,
+            value: &Self::Model,
+        ) -> FirestoreResult<BTreeMap<String, FirestoreValue>> {
+            let mut map = BTreeMap::new();
+            map.insert("first".to_string(), FirestoreValue::from_string(&value.first));
+            map.insert("last".to_string(), FirestoreValue::from_string(&value.last));
+            Ok(map)
+        }
+
+        fn from_map(&self, value: &MapValue) -> FirestoreResult<Self::Model> {
+            let first = match value.fields().get("first").and_then(|v| match v.kind() {
+                ValueKind::String(s) => Some(s.clone()),
+                _ => None,
+            }) {
+                Some(name) => name,
+                None => {
+                    return Err(crate::firestore::error::invalid_argument(
+                        "missing first field",
+                    ))
+                }
+            };
+            let last = match value.fields().get("last").and_then(|v| match v.kind() {
+                ValueKind::String(s) => Some(s.clone()),
+                _ => None,
+            }) {
+                Some(name) => name,
+                None => {
+                    return Err(crate::firestore::error::invalid_argument(
+                        "missing last field",
+                    ))
+                }
+            };
+            Ok(Person { first, last })
+        }
+    }
+
+    #[test]
+    fn typed_set_and_get_document() {
+        let client = build_client();
+        let collection = client.firestore.collection("people").unwrap();
+        let converted = collection.with_converter(PersonConverter);
+        let doc_ref = converted.doc(Some("ada")).unwrap();
+
+        let person = Person {
+            first: "Ada".into(),
+            last: "Lovelace".into(),
+        };
+
+        client
+            .set_doc_with_converter(&doc_ref, person.clone(), None)
+            .expect("typed set");
+
+        let snapshot = client
+            .get_doc_with_converter(&doc_ref)
+            .expect("typed get");
+        assert!(snapshot.exists());
+        assert!(snapshot.from_cache());
+        assert!(!snapshot.has_pending_writes());
+
+        let decoded = snapshot.data().expect("converter result").unwrap();
+        assert_eq!(decoded, person);
     }
 }

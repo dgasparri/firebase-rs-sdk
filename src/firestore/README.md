@@ -19,6 +19,8 @@ present in this repository.
   bridges now feed the HTTP client, including token invalidation/retry on `Unauthenticated` responses.
 - **App Check bridge** – `FirebaseAppCheckInternal::token_provider()` exposes App Check credentials as a Firestore
   `TokenProvider`, making it straightforward to attach App Check headers when configuring the HTTP datastore.
+- **Typed converters** – Collection and document references accept `with_converter(...)`, and typed snapshots expose
+  converter-aware `data()` helpers that match the JS modular API.
 - **Snapshot metadata** – `DocumentSnapshot` now carries `SnapshotMetadata`, exposing `from_cache` and
   `has_pending_writes` flags compatible with the JS API.
 
@@ -125,3 +127,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 If App Check is not enabled for your app, pass `None` as the third argument to
 `with_http_datastore_authenticated`.
+
+### Using Converters
+
+```rust
+#[derive(Clone)]
+struct UserConverter;
+
+impl FirestoreDataConverter for UserConverter {
+    type Model = User;
+
+    fn to_map(
+        &self,
+        value: &Self::Model,
+    ) -> FirestoreResult<BTreeMap<String, FirestoreValue>> {
+        // Encode your model into Firestore fields.
+        todo!()
+    }
+
+    fn from_map(&self, value: &MapValue) -> FirestoreResult<Self::Model> {
+        // Decode Firestore fields into your model.
+        todo!()
+    }
+}
+
+let users = firestore.collection("typed-users")?.with_converter(UserConverter);
+let doc = users.doc(Some("ada"))?;
+client.set_doc_with_converter(&doc, User::new("Ada"), None)?;
+let typed_snapshot = client.get_doc_with_converter(&doc)?;
+let user: Option<User> = typed_snapshot.data()?;
+```

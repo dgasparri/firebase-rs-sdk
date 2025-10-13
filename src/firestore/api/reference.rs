@@ -1,11 +1,13 @@
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
 use crate::firestore::model::{DocumentKey, ResourcePath};
 
 use super::Firestore;
+use super::FirestoreDataConverter;
 
 #[derive(Clone, Debug)]
 pub struct CollectionReference {
@@ -56,6 +58,16 @@ impl CollectionReference {
         let path = self.path.child([id]);
         DocumentReference::new(self.firestore.clone(), path)
     }
+
+    pub fn with_converter<C>(&self, converter: C) -> ConvertedCollectionReference<C>
+    where
+        C: FirestoreDataConverter,
+    {
+        ConvertedCollectionReference {
+            inner: self.clone(),
+            converter: Arc::new(converter),
+        }
+    }
 }
 
 impl Display for CollectionReference {
@@ -98,6 +110,13 @@ impl DocumentReference {
         let full_path = self.key.path().child(sub_path.as_vec().clone());
         CollectionReference::new(self.firestore.clone(), full_path)
     }
+
+    pub fn with_converter<C>(&self, converter: C) -> ConvertedDocumentReference<C>
+    where
+        C: FirestoreDataConverter,
+    {
+        ConvertedDocumentReference::new(self.clone(), Arc::new(converter))
+    }
 }
 
 impl Display for DocumentReference {
@@ -116,6 +135,96 @@ fn generate_auto_id() -> String {
         .map(char::from)
         .take(20)
         .collect()
+}
+
+#[derive(Clone)]
+pub struct ConvertedCollectionReference<C>
+where
+    C: FirestoreDataConverter,
+{
+    inner: CollectionReference,
+    converter: Arc<C>,
+}
+
+impl<C> ConvertedCollectionReference<C>
+where
+    C: FirestoreDataConverter,
+{
+    pub fn firestore(&self) -> &Firestore {
+        self.inner.firestore()
+    }
+
+    pub fn path(&self) -> &ResourcePath {
+        self.inner.path()
+    }
+
+    pub fn id(&self) -> &str {
+        self.inner.id()
+    }
+
+    pub fn doc(&self, document_id: Option<&str>) -> FirestoreResult<ConvertedDocumentReference<C>> {
+        let document = self.inner.doc(document_id)?;
+        Ok(ConvertedDocumentReference::new(
+            document,
+            Arc::clone(&self.converter),
+        ))
+    }
+
+    pub fn raw(&self) -> &CollectionReference {
+        &self.inner
+    }
+}
+
+#[derive(Clone)]
+pub struct ConvertedDocumentReference<C>
+where
+    C: FirestoreDataConverter,
+{
+    reference: DocumentReference,
+    converter: Arc<C>,
+}
+
+impl<C> ConvertedDocumentReference<C>
+where
+    C: FirestoreDataConverter,
+{
+    fn new(reference: DocumentReference, converter: Arc<C>) -> Self {
+        Self {
+            reference,
+            converter,
+        }
+    }
+
+    pub fn firestore(&self) -> &Firestore {
+        self.reference.firestore()
+    }
+
+    pub fn id(&self) -> &str {
+        self.reference.id()
+    }
+
+    pub fn path(&self) -> &ResourcePath {
+        self.reference.path()
+    }
+
+    pub fn parent(&self) -> CollectionReference {
+        self.reference.parent()
+    }
+
+    pub fn raw(&self) -> &DocumentReference {
+        &self.reference
+    }
+
+    pub fn converter(&self) -> Arc<C> {
+        Arc::clone(&self.converter)
+    }
+
+    pub fn with_converter<D>(&self, converter: D) -> ConvertedDocumentReference<D>
+    where
+        D: FirestoreDataConverter,
+    {
+        ConvertedDocumentReference::new(self.reference.clone(), Arc::new(converter))
+    }
 }
 
 #[cfg(test)]

@@ -24,7 +24,7 @@ impl Datastore for InMemoryDatastore {
         Ok(DocumentSnapshot::new(
             key.clone(),
             data,
-            SnapshotMetadata::default(),
+            SnapshotMetadata::new(true, false),
         ))
     }
 
