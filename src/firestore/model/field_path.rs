@@ -27,12 +27,23 @@ impl FieldPath {
         FieldPath::new(path.split('.'))
     }
 
+    pub fn last_segment(&self) -> &str {
+        self.segments
+            .last()
+            .expect("FieldPath always has at least one segment")
+            .as_str()
+    }
+
     pub fn segments(&self) -> &[String] {
         &self.segments
     }
 
     pub fn canonical_string(&self) -> String {
         self.segments.join(".")
+    }
+
+    pub fn to_vec(&self) -> Vec<String> {
+        self.segments.clone()
     }
 }
 

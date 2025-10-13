@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
@@ -28,6 +29,13 @@ impl ResourcePath {
         Self::new(segments)
     }
 
+    pub fn with_offset(segments: Vec<String>, offset: usize) -> Self {
+        if offset >= segments.len() {
+            return Self::root();
+        }
+        Self::new(segments[offset..].to_vec())
+    }
+
     pub fn from_string(path: &str) -> FirestoreResult<Self> {
         if path.trim().is_empty() {
             return Ok(Self::root());
@@ -50,6 +58,10 @@ impl ResourcePath {
 
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&str> {
+        self.segments.get(index).map(|s| s.as_str())
     }
 
     pub fn segment(&self, index: usize) -> Option<&str> {
@@ -75,6 +87,24 @@ impl ResourcePath {
         Some(Self::new(segments))
     }
 
+    pub fn without_last(&self) -> Self {
+        self.pop_last().unwrap_or_else(Self::root)
+    }
+
+    pub fn pop_first(&self) -> Self {
+        self.pop_first_n(1)
+    }
+
+    pub fn pop_first_n(&self, count: usize) -> Self {
+        if count == 0 {
+            return self.clone();
+        }
+        if count >= self.segments.len() {
+            return Self::root();
+        }
+        Self::new(self.segments[count..].to_vec())
+    }
+
     pub fn last_segment(&self) -> Option<&str> {
         self.segments.last().map(|s| s.as_str())
     }
@@ -85,6 +115,26 @@ impl ResourcePath {
 
     pub fn canonical_string(&self) -> String {
         self.segments.join("/")
+    }
+
+    pub fn is_prefix_of(&self, other: &Self) -> bool {
+        if self.len() > other.len() {
+            return false;
+        }
+        self.segments
+            .iter()
+            .zip(other.segments.iter())
+            .all(|(l, r)| l == r)
+    }
+
+    pub fn comparator(left: &Self, right: &Self) -> Ordering {
+        for (l, r) in left.segments.iter().zip(right.segments.iter()) {
+            match l.cmp(r) {
+                Ordering::Equal => continue,
+                non_eq => return non_eq,
+            }
+        }
+        left.len().cmp(&right.len())
     }
 }
 

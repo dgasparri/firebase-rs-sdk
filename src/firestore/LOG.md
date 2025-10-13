@@ -324,3 +324,181 @@ Explored
 
   Natural follow-up once tokens land end-to-end: add emulator header handling and richer refresh heuristics for both
   credential providers.
+
+  Thinking
+  I’m preparing a final message that explains the new snapshot module with metadata, updates to datastores, and
+  operations changes including file references with specific line mentions. I'll highlight changes to DocumentSnapshot
+  constructors and that tests ran but failed due to sandbox restrictions blocking network calls, especially for
+  httpmock. I’ll also note the README updates and caution about the default metadata hookup still being false. Next,
+  I’ll suggest finishing the work by linking metadata to real data sources.
+
+> Added a dedicated snapshot module so DocumentSnapshot now carries SnapshotMetadata and exposes from_cache/
+  has_pending_writes flags consistent with the JS API (src/firestore/api/snapshot.rs:12). Updated both datastore
+  backends to construct snapshots with this metadata scaffold (src/firestore/remote/datastore/in_memory.rs:4, src/
+  firestore/remote/datastore/http.rs:7) and reworked the API exports/tests to pull in the new definitions (src/
+  firestore/api/mod.rs:1, src/firestore/api/operations.rs:1). The Firestore README now documents the snapshot metadata
+  milestone (src/firestore/README.md:9).
+
+  Tests: cargo fmt; cargo test (fails in sandbox because hyper/httpmock cannot bind to 127.0.0.1 under seccomp).
+
+  Next steps you may want to consider: 1) Plumb real cache/pending-write flags once the remote datastore surfaces
+  metadata; 2) Extend the new snapshot module with converter-aware accessors to mirror JS withConverter ergonomics.
+
+  what do you mean with converter-aware accessors?
+
+> In the JS SDK, if you call .withConverter(myConverter) on a DocumentReference or Query, the resulting snapshots expose
+  extra helpers like snapshot.data() and snapshot.get() that automatically pass the raw Firestore data through the
+  user‑supplied converter. Right now our Rust DocumentSnapshot only exposes the raw BTreeMap<String, FirestoreValue>.
+
+  By “converter‑aware accessors” I meant adding Rust equivalents—methods (or trait hooks) that, when a converter has
+  been attached to the reference/query, return your strongly typed model instead of the raw map. That would mirror the
+  modular JS API and let callers opt into typed serialization while keeping the metadata/path handling we’ve already
+  implemented.
+
+▌ ok, let's implement both, the converter-aware accssors and the cache/pending-write
+
+• Updated Plan
+  └ □ Design snapshot converter hooks and metadata source; update snapshot struct to store converter-aware state.
+    □ Plumb metadata flags from datastores and add converter-aware APIs/tests.
+    □ Integrate with Firestore client factories, update docs/readme, run fmt/tests.
+
+• Explored
+  └ Search with_converter
+
+  Analyzing snapshot metadata and converters (18s • Esc to interrupt)
+
+
+  Thinking
+  I'll put together a clear summary outlining key code changes, file references with line numbers, test results
+  including failures due to HTTP mock sandbox issues, and suggested next steps. This will be neatly formatted with
+  bullets to make it easy to scan and understand.
+
+> - Added a reusable converter abstraction so callers can translate between domain models and Firestore maps via
+  FirestoreDataConverter and the built-in PassthroughConverter (src/firestore/api/converter.rs:6-32).
+  - Reworked document references and snapshots to carry converter context and metadata: with_converter now yields
+  typed references, TypedDocumentSnapshot exposes converter-aware data(), and snapshots surface real from_cache/
+  has_pending_writes flags (src/firestore/api/reference.rs:62-227, src/firestore/api/snapshot.rs:12-166).
+  - Extended FirestoreClient with typed read/write helpers and regression tests that validate converter round-trips
+  while asserting metadata coming from the in-memory datastore (src/firestore/api/document.rs:3-211).
+  - Wired metadata defaults through both datastores and documented the new converter flow in the Firestore README for
+  easy discovery (src/firestore/remote/datastore/in_memory.rs:1-35, src/firestore/remote/datastore/http.rs:7-145, src/
+  firestore/README.md:7-159).
+
+  Tests:
+
+  - cargo fmt
+  - cargo test (fails under sandbox because httpmock cannot bind to 127.0.0.1; all Firestore-specific tests passed
+  before the network-bound fixtures ran)
+
+
+  I'll outline steps to systematically port tests from the JS codebase using mocha to Rust's cargo test framework,
+  starting with an inventory and mapping of existing tests to Rust modules, then addressing dependencies and mocks, and
+  possibly creating bridging test harnesses for module parity. I'll also consider which utilities may need rewriting and
+  prioritize unit tests for already ported modules while keeping integration tests and emulator bridging on the roadmap.
+
+• Explored
+  └ List unit
+
+> Thinking
+  I’m putting together a detailed plan to port Firestore JavaScript tests to Rust, focusing first on unit tests and
+  mapping JS test modules to Rust equivalents. The plan includes phases for prioritizing high-value tests, building
+  a Rust test support crate, replicating JS test helpers, and eventually handling integration tests with emulator
+  dependencies. I'll incorporate references to existing test utilities, propose creating test directories under tests/
+  firestore, and suggest using features like rstest to organize testing while acknowledging current network limitations.
+
+• Explored
+  └ Read helpers.ts
+
+> Thinking
+  I’m organizing a thorough plan to port tests by categorizing directories, mapping to Rust modules, and defining
+  phased efforts from unit to integration tests aligned with current module porting. I’ll include setup of a shared
+  test_support harness, handling test utilities, and propose a directory structure in Rust, with clear steps and gating
+  for priorities like watchers and emulator use. This plan will help guide a systematic migration with well-defined
+  tasks and timelines.
+
+> Test Suite Overview
+
+  - packages/firestore/test/unit/** – fine‑grained specs for model primitives, serializer logic, local persistence,
+  query engine pieces, API surface, and various utilities. Heavy reuse of helpers in test/util/helpers.ts, test/unit/
+  util/*.ts, and generated spec JSON.
+  - packages/firestore/test/lite/** – parity checks for the lite entry points (subset of API coverage, overlaps with
+  unit lite-api tests).
+  - packages/firestore/test/integration/** – emulator-driven end‑to‑end tests covering network, multi-client
+  coordination, persistence, and bundles. Depend on async queue, RPC stubs, and Firestore emulator instances.
+  - Shared infra: test/util (document builders, fake serializers, comparator helpers), test/unit/bootstrap.ts
+  (configures mocha/chai, fake timers), and scripts that synthesize JSON spec cases used by watch/write pipelines.
+
+  Porting Plan
+
+  1. Map Unit Suites to Rust Modules
+      - Inventory each test/unit subdirectory and match to current Rust code (model, value, remote::serializer,
+  api::reference, etc.).
+      - Document gaps (e.g., JS core/view tests need Rust equivalents once that layer exists) so we can time the port
+  with feature availability.
+  2. Establish a Rust Test Harness
+      - Under src/firestore/test_support create utilities mirroring test/util/helpers.ts (builders for docs, versions,
+  paths, comparators).
+      - Provide reusable fixtures for MutableDocument, SnapshotVersion, fake JsonProtoSerializer, etc., so unit tests
+  stay concise.
+  3. Phase 1: Model & Value Parity
+      - Translate test/unit/model/*.test.ts and test/unit/util/*.ts cases into Rust module tests (some already exist but
+  need expanded coverage).
+      - Ensure helper equivalence (e.g., wrapObject, byte normalization, mutation encoders).
+  4. Phase 2: API / Reference / Snapshot Tests
+      - Port test/unit/api & test/unit/lite-api scenarios that exercise DocumentReference, CollectionReference,
+  withConverter, and snapshot metadata.
+      - Use the new converter-aware Rust APIs with the in-memory datastore; add typed fixture converters to mirror JS
+  behavior.
+  5. Phase 3: Remote Serializer & Network Edge
+      - Adapt test/unit/remote/* that validate HTTP/stream serializer logic, existence filters, watch changes.
+      - Where network features are missing, gate the tests behind #[cfg(feature = "wasm-web")] or mark TODOs to unblock
+  once the corresponding Rust modules land.
+  6. Phase 4: Local Persistence & Core Engine
+      - When Rust gains local store/query engine pieces, port test/unit/local/* and test/unit/core/*, reusing the JS
+  spec JSON if practical (consider storing the generated JSON fixtures under tests/data/firestore).
+      - Build Rust equivalents for async queue/fake scheduler utilities to mirror deterministic execution.
+  7. Plan for Integration Coverage
+      - Defer test/integration/** until Rust has emulator/network features; outline future work to run against Firebase
+  emulator (likely behind an optional cargo feature with environment configuration).
+      - Capture dependencies (Auth/AppCheck token providers, RPC mocks) so the groundwork is ready.
+  8. Testing Infrastructure
+      - Organize Rust tests into tests/firestore/unit/... plus inline module tests where appropriate.
+      - Standardize assertion helpers and golden comparisons (e.g., using insta snapshots where JS tests rely on
+  stringified proto output).
+  9. Tracking & Reporting
+      - Maintain a checklist mapping each JS test file to its Rust counterpart.
+      - Update src/firestore/README.md “Next Steps” with testing milestones and link the plan so progress is visible.
+
+  This sequence lets us bring over deterministic unit coverage first, using the in-memory datastore and serializer
+  scaffolding already in place, while deferring emulator-bound scenarios until the networking surface is ready.
+
+
+  Ran git status -sb
+
+> - Added reusable helpers under src/firestore/test_support/path.rs so future tests can build ResourcePath/FieldPath
+  instances succinctly.
+  - Expanded ResourcePath/DocumentKey APIs to match JS ergonomics (get, pop_first_n, without_last, is_prefix_of,
+  comparator) and added small conveniences for FieldPath.
+  - Ported the packages/firestore/test/unit/model/path.test.ts scenarios into Rust integration tests (tests/firestore/
+  model/resource_path_tests.rs), covering construction, traversal, prefix checks, and comparator ordering.
+
+  Tests:
+
+  - cargo fmt
+  - cargo test resource_path_tests (fails to run under sandbox because integration binaries are blocked; unit build
+  succeeded)
+
+  dded comprehensive Rust docs for the Firestore surface so users can discover APIs without cross-referencing the TS
+  sources:
+
+  - Documented the Firestore handle and registration helpers, covering collection/document lookup semantics (src/
+  firestore/api/database.rs:38-153).
+  - Described FirestoreClient constructors and data ops, including converter-aware helpers, mirroring the JS behavior
+  (src/firestore/api/document.rs:22-147).
+  - Clarified how collection/document references, typed references, and converters behave (src/firestore/api/
+  reference.rs:31-225), and explained the converter trait itself (src/firestore/api/converter.rs:6-35).
+  - Added snapshot metadata/context docs so callers know how to interpret cache/pending-write flags and convert data
+  (src/firestore/api/snapshot.rs:12-167).
+  - Documented SetOptions to highlight merge semantics (src/firestore/api/operations.rs:7-12).
+
+  cargo check confirms the updates build cleanly.

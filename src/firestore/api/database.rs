@@ -35,32 +35,44 @@ impl Firestore {
         }
     }
 
+    /// Returns the `FirebaseApp` this Firestore instance is scoped to.
     pub fn app(&self) -> &FirebaseApp {
         &self.inner.app
     }
 
+    /// The fully qualified database identifier (project + database name).
     pub fn database_id(&self) -> &DatabaseId {
         &self.inner.database_id
     }
 
+    /// Creates a `CollectionReference` pointing at `path`.
+    ///
+    /// The path is interpreted relative to the Firestore root using forward
+    /// slashes to separate segments (e.g. `"users/alovelace/repos"`).
     pub fn collection(&self, path: &str) -> FirestoreResult<CollectionReference> {
         let resource = ResourcePath::from_string(path)?;
         CollectionReference::new(self.clone(), resource)
     }
 
+    /// Creates a `DocumentReference` pointing at `path`.
+    ///
+    /// The path must contain an even number of segments (collection/doc pairs).
     pub fn doc(&self, path: &str) -> FirestoreResult<DocumentReference> {
         let resource = ResourcePath::from_string(path)?;
         DocumentReference::new(self.clone(), resource)
     }
 
+    /// Clones a Firestore handle that has been wrapped in an `Arc`.
     pub fn from_arc(arc: Arc<Self>) -> Self {
         arc.as_ref().clone()
     }
 
+    /// Returns the project identifier backing this database.
     pub fn project_id(&self) -> &str {
         self.inner.database_id.project_id()
     }
 
+    /// Returns the logical database name (usually `"(default)"`).
     pub fn database(&self) -> &str {
         self.inner.database_id.database()
     }
@@ -135,6 +147,10 @@ pub fn register_firestore_component() {
     ensure_registered();
 }
 
+/// Resolves (or lazily instantiates) the Firestore service for the provided app.
+///
+/// When `app` is `None` the default Firebase app is used. Multiple calls with
+/// the same app yield the same shared `Arc<Firestore>` handle.
 pub fn get_firestore(app: Option<FirebaseApp>) -> FirestoreResult<Arc<Firestore>> {
     ensure_registered();
     let app = match app {

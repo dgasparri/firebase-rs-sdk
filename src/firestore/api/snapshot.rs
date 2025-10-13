@@ -36,6 +36,7 @@ impl SnapshotMetadata {
     }
 }
 
+/// Snapshot of a document's contents.
 #[derive(Clone, Debug)]
 pub struct DocumentSnapshot {
     key: DocumentKey,
@@ -58,6 +59,9 @@ impl DocumentSnapshot {
     }
 
     /// Returns the decoded document fields if the snapshot contains data.
+    ///
+    /// The returned map borrows from the snapshot; mutate a clone before
+    /// writing it back to Firestore.
     pub fn data(&self) -> Option<&BTreeMap<String, FirestoreValue>> {
         self.data.as_ref().map(|map| map.fields())
     }
@@ -82,10 +86,12 @@ impl DocumentSnapshot {
         self.metadata.has_pending_writes()
     }
 
+    /// Returns the identifier of the document represented by this snapshot.
     pub fn id(&self) -> &str {
         self.key.id()
     }
 
+    /// Creates a document reference pointing at the same location as this snapshot.
     pub fn reference(&self, firestore: Firestore) -> FirestoreResult<DocumentReference> {
         DocumentReference::new(firestore, self.key.path().clone())
     }

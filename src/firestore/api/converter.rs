@@ -4,6 +4,10 @@ use crate::firestore::error::FirestoreResult;
 use crate::firestore::value::{FirestoreValue, MapValue};
 
 /// Trait describing how to convert between user models and Firestore maps.
+///
+/// This mirrors the modular JS `FirestoreDataConverter` contract: writes use
+/// `to_map`, reads use `from_map`, and callers choose the `Model` type they
+/// want to surface.
 pub trait FirestoreDataConverter: Send + Sync + Clone + 'static {
     /// The strongly typed model associated with this converter.
     type Model: Clone;
@@ -15,7 +19,7 @@ pub trait FirestoreDataConverter: Send + Sync + Clone + 'static {
     fn from_map(&self, value: &MapValue) -> FirestoreResult<Self::Model>;
 }
 
-/// Default converter that leaves Firestore maps unchanged.
+/// Default converter that leaves Firestore maps unchanged (raw JSON-style data).
 #[derive(Clone, Default)]
 pub struct PassthroughConverter;
 

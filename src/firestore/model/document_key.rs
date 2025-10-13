@@ -22,9 +22,7 @@ impl DocumentKey {
     }
 
     pub fn collection_path(&self) -> ResourcePath {
-        self.path
-            .pop_last()
-            .expect("DocumentKey path always has parent")
+        self.path.without_last()
     }
 
     pub fn path(&self) -> &ResourcePath {

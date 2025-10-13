@@ -20,6 +20,9 @@ rustdoc
 cargo doc
 
 
+"Document the ./src/firestore public functions. You can use the original Javascript descriptions of the functions,
+▌ found in ./packages/firestore and ./packages/firebase/firestore folders, and in the ./docs-devsite/firestore* files"
+
 ## Modules:
 
 - Firebase is the API

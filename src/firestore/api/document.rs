@@ -20,19 +20,30 @@ pub struct FirestoreClient {
 }
 
 impl FirestoreClient {
+    /// Creates a client backed by the supplied datastore implementation.
     pub fn new(firestore: Firestore, datastore: Arc<dyn Datastore>) -> Self {
         Self { firestore, datastore }
     }
 
+    /// Returns a client that stores documents in memory only.
+    ///
+    /// Useful for tests or demos where persistence/network access is not
+    /// required.
     pub fn with_in_memory(firestore: Firestore) -> Self {
         Self::new(firestore, Arc::new(InMemoryDatastore::new()))
     }
 
+    /// Builds a client that talks to Firestore over the REST endpoints using
+    /// anonymous credentials.
     pub fn with_http_datastore(firestore: Firestore) -> FirestoreResult<Self> {
         let datastore = HttpDatastore::from_database_id(firestore.database_id().clone())?;
         Ok(Self::new(firestore, Arc::new(datastore)))
     }
 
+    /// Builds an HTTP-backed client that attaches the provided Auth/App Check
+    /// providers to every request.
+    ///
+    /// Pass `None` for `app_check_provider` when App Check is not configured.
     pub fn with_http_datastore_authenticated(
         firestore: Firestore,
         auth_provider: TokenProviderArc,
@@ -49,11 +60,19 @@ impl FirestoreClient {
         Ok(Self::new(firestore, Arc::new(datastore)))
     }
 
+    /// Fetches the document located at `path`.
+    ///
+    /// Returns a snapshot that may or may not contain data depending on whether
+    /// the document exists.
     pub fn get_doc(&self, path: &str) -> FirestoreResult<DocumentSnapshot> {
         let key = operations::validate_document_path(path)?;
         self.datastore.get_document(&key)
     }
 
+    /// Writes the provided map of fields into the document at `path`.
+    ///
+    /// `options.merge == true` mirrors the JS API but is currently unsupported
+    /// for the HTTP datastore.
     pub fn set_doc(
         &self,
         path: &str,
@@ -66,6 +85,8 @@ impl FirestoreClient {
         self.datastore.set_document(&key, encoded, merge)
     }
 
+    /// Adds a new document to the collection located at `collection_path` and
+    /// returns the resulting snapshot.
     pub fn add_doc(
         &self,
         collection_path: &str,
@@ -77,6 +98,7 @@ impl FirestoreClient {
         self.get_doc(doc_ref.path().canonical_string().as_str())
     }
 
+    /// Reads a document using the converter attached to a typed reference.
     pub fn get_doc_with_converter<C>(
         &self,
         reference: &ConvertedDocumentReference<C>,
@@ -90,6 +112,7 @@ impl FirestoreClient {
         Ok(snapshot.into_typed(converter))
     }
 
+    /// Writes a typed model to the location referenced by `reference`.
     pub fn set_doc_with_converter<C>(
         &self,
         reference: &ConvertedDocumentReference<C>,
@@ -105,6 +128,7 @@ impl FirestoreClient {
         self.set_doc(path.as_str(), map, options)
     }
 
+    /// Creates a document with auto-generated ID using the provided converter.
     pub fn add_doc_with_converter<C>(
         &self,
         collection: &ConvertedCollectionReference<C>,

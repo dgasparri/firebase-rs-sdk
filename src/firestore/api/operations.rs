@@ -4,8 +4,12 @@ use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::DocumentKey;
 use crate::firestore::value::{FirestoreValue, MapValue};
 
+/// Options that configure the behaviour of `set_doc` writes.
 #[derive(Clone, Debug)]
 pub struct SetOptions {
+    /// When `true`, `set_doc` behaves like the JS `merge: true` option.
+    ///
+    /// Merging is not yet implemented for the HTTP datastore.
     pub merge: bool,
 }
 

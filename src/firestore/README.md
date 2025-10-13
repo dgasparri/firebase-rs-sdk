@@ -53,6 +53,24 @@ majority of the Firestore feature set.
    - Translate the TS unit/integration tests, add coverage for conversions and query logic, and validate against Firebase
      emulators where possible.
 
+### Test Porting Plan
+
+1. **Unit parity pass**
+   - Mirror `packages/firestore/test/unit` suites module-by-module (model, value, api, remote, util). Build Rust helpers
+     under `src/firestore/test_support` to replace `test/util/helpers.ts` and keep assertions ergonomic.
+   - ✅ `model/path` translated (see `tests/firestore/model/resource_path_tests.rs`) alongside supporting helpers.
+2. **Converter & snapshot coverage**
+   - Port lite/api tests that exercise `withConverter`, snapshot metadata, and reference validation using the in-memory
+     datastore.
+3. **Serializer & remote edge cases**
+   - Translate JSON/proto serializer tests (`test/unit/remote`) and watch/change specs once equivalent Rust modules land.
+4. **Local/core engine tests**
+   - After local persistence and query engine exist, port `test/unit/local` and `test/unit/core`, reusing generated spec
+     JSON fixtures.
+5. **Integration staging**
+   - Plan emulator-backed integration tests once REST/gRPC networking is wired; gate them behind cargo features to avoid
+     CI flakiness.
+
 ## Immediate Porting Focus
 
 | Priority | JS source | Target Rust module | Scope | Key dependencies |
