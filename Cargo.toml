@@ -1,0 +1,75 @@
+[package]
+name = "firebase-rs-sdk-unofficial"
+version = "0.9.0"
+edition = "2021"
+description = "Unofficial Rust port of the Firebase JS SDK"
+readme = "README.md"
+repository = "https://github.com/dgasparri/firebase-rs-sdk-unofficial"
+homepage = "https://github.com/your-org/firebase-rs"
+documentation = "https://github.com/firebase/firebase-js-sdk"
+keywords = ["firebase", "sdk", "webassembly", "ai", "firestore"]
+categories = ["api-bindings", "authentication", "database", "wasm", "web-programming"]
+license = "Apache-2.0"
+license-file = "LICENSE"
+authors = ["Duccio Marco Gasparri"]
+rust-version = "1.75"
+
+# which files go into the published tarball
+# exclude = ["/packages", ".*"]
+include = [
+  "src/**",
+  "Cargo.toml",
+  "LICENSE*",
+  "README.md"
+]
+
+[features]
+default = []
+wasm-web = ["wasm-bindgen", "js-sys", "web-sys"]
+
+[dependencies]
+chrono = { version = "0.4", features = ["clock"] }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+sha1 = "0.10"
+rand = "0.8"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+percent-encoding = "2"
+url = "2"
+
+[dependencies.wasm-bindgen]
+version = "0.2"
+optional = true
+
+[dependencies.js-sys]
+version = "0.3"
+optional = true
+
+[dependencies.web-sys]
+version = "0.3"
+optional = true
+features = [
+    "Window",
+    "Storage",
+    "StorageEvent",
+    "EventTarget",
+    "BroadcastChannel",
+    "MessageEvent",
+    "console",
+]
+
+[dev-dependencies]
+serde-wasm-bindgen = "0.5"
+webbrowser = "0.8"
+
+
+[package.metadata.docs.rs]
+all-features = true
+
+# If you need the docs to compile with certain cfgs:
+# rustdoc-args = ["--cfg", "docsrs"]
+
+# Cross-targets if needed (WASM, etc.)
+# default-target = "x86_64-unknown-linux-gnu"
+# targets = ["wasm32-unknown-unknown", "x86_64-unknown-linux-gnu"]

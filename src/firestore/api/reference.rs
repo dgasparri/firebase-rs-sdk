@@ -1,0 +1,168 @@
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+use std::fmt::{Display, Formatter};
+
+use crate::firestore::error::{invalid_argument, FirestoreResult};
+use crate::firestore::model::{DocumentKey, ResourcePath};
+
+use super::Firestore;
+
+#[derive(Clone, Debug)]
+pub struct CollectionReference {
+    firestore: Firestore,
+    path: ResourcePath,
+}
+
+impl CollectionReference {
+    pub(crate) fn new(firestore: Firestore, path: ResourcePath) -> FirestoreResult<Self> {
+        if path.len() % 2 == 0 {
+            return Err(invalid_argument(
+                "Collection references must point to a collection (odd number of segments)",
+            ));
+        }
+        Ok(Self { firestore, path })
+    }
+
+    pub fn firestore(&self) -> &Firestore {
+        &self.firestore
+    }
+
+    pub fn path(&self) -> &ResourcePath {
+        &self.path
+    }
+
+    pub fn id(&self) -> &str {
+        self.path
+            .last_segment()
+            .expect("Collection path always has id")
+    }
+
+    pub fn parent(&self) -> Option<DocumentReference> {
+        self.path.pop_last().and_then(|parent_path| {
+            if parent_path.is_empty() || parent_path.len() % 2 != 0 {
+                return None;
+            }
+            DocumentReference::new(self.firestore.clone(), parent_path).ok()
+        })
+    }
+
+    pub fn doc(&self, document_id: Option<&str>) -> FirestoreResult<DocumentReference> {
+        let id = document_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(generate_auto_id);
+        if id.contains('/') {
+            return Err(invalid_argument("Document ID cannot contain '/'."));
+        }
+        let path = self.path.child([id]);
+        DocumentReference::new(self.firestore.clone(), path)
+    }
+}
+
+impl Display for CollectionReference {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CollectionReference({})", self.path.canonical_string())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DocumentReference {
+    firestore: Firestore,
+    key: DocumentKey,
+}
+
+impl DocumentReference {
+    pub(crate) fn new(firestore: Firestore, path: ResourcePath) -> FirestoreResult<Self> {
+        let key = DocumentKey::from_path(path)?;
+        Ok(Self { firestore, key })
+    }
+
+    pub fn firestore(&self) -> &Firestore {
+        &self.firestore
+    }
+
+    pub fn id(&self) -> &str {
+        self.key.id()
+    }
+
+    pub fn path(&self) -> &ResourcePath {
+        self.key.path()
+    }
+
+    pub fn parent(&self) -> CollectionReference {
+        CollectionReference::new(self.firestore.clone(), self.key.collection_path())
+            .expect("Document parent path is always a collection")
+    }
+
+    pub fn collection(&self, path: &str) -> FirestoreResult<CollectionReference> {
+        let sub_path = ResourcePath::from_string(path)?;
+        let full_path = self.key.path().child(sub_path.as_vec().clone());
+        CollectionReference::new(self.firestore.clone(), full_path)
+    }
+}
+
+impl Display for DocumentReference {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DocumentReference({})",
+            self.key.path().canonical_string()
+        )
+    }
+}
+
+fn generate_auto_id() -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .map(char::from)
+        .take(20)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::api::initialize_app;
+    use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use crate::firestore::api::get_firestore;
+
+    fn unique_settings() -> FirebaseAppSettings {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        FirebaseAppSettings {
+            name: Some(format!(
+                "firestore-ref-{}",
+                COUNTER.fetch_add(1, Ordering::SeqCst)
+            )),
+            ..Default::default()
+        }
+    }
+
+    fn setup_firestore() -> Firestore {
+        let options = FirebaseOptions {
+            project_id: Some("test-project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let firestore = get_firestore(Some(app)).unwrap();
+        Firestore::from_arc(firestore)
+    }
+
+    #[test]
+    fn collection_and_document_roundtrip() {
+        let firestore = setup_firestore();
+        let collection = firestore.collection("cities").unwrap();
+        assert_eq!(collection.id(), "cities");
+        let document = collection.doc(Some("sf")).unwrap();
+        assert_eq!(document.id(), "sf");
+        assert_eq!(document.parent().id(), "cities");
+    }
+
+    #[test]
+    fn auto_id_generation() {
+        let firestore = setup_firestore();
+        let collection = firestore.collection("cities").unwrap();
+        let document = collection.doc(None).unwrap();
+        assert_eq!(document.parent().id(), "cities");
+        assert_eq!(document.id().len(), 20);
+    }
+}
