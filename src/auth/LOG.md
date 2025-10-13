@@ -735,3 +735,131 @@ write a mock server helper in a test folder common to all the modules in the lib
     20    +pub mod test_support;
 
 • Ran mkdir -p src/test_support
+
+
+
+- Added a src/test_support/ module (exposed behind #[cfg(test)]) with helpers for spinning up httpmock::MockServer instances and constructing isolated Firebase app fixtures; updated auth unit tests
+  to consume the shared utilities, eliminating duplicated setup (src/lib.rs:16, src/test_support/http.rs, src/test_support/firebase.rs, src/auth/api.rs:1109, src/auth/api/token.rs:94).
+  - AuthConfig now tracks overridable Identity Toolkit/Secure Token endpoints while AuthBuilder exposes the corresponding setters, and token refresh delegates to a configurable endpoint (src/auth/
+  api.rs:45, src/auth/api.rs:292, src/auth/model.rs:103, src/auth/api/token.rs:7); email/password auth and token-refresh tests exercise these code paths via the new mock helpers.
+  - Documented the shared test infrastructure in the Test Porting Roadmap (src/auth/README.md:127).
+
+  Tests: cargo test --lib auth::api::tests::, cargo test --lib auth::api::token::tests::.
+
+  Next steps:
+
+  1. Migrate additional API/core test suites (e.g., account management) using the shared helper to keep setup consistent.
+  2. Consider extending test_support with reusable assertion/mocking utilities as more modules adopt it.
+
+▌ ok to both
+
+> Great—I'll continue with those next steps when you're ready.
+
+▌ proceed
+
+• Explored
+  └ Search rg --files account_management packages/auth/src/api
+    Read account.rs
+
+> Thinking
+  I'm planning to update account-related functions to accept a configurable base URL instead of using a hard-coded identity toolkit endpoint. This will let tests target local servers by overriding
+  the endpoint, aligning with how Auth methods currently handle base URLs. I'll also check if these account functions are used elsewhere to avoid breaking other modules.
+
+• Explored
+  └ Search send_password_reset_email
+    Read account.rs
+
+> Thinking
+  I’m planning to create a helper to build identity toolkit URLs dynamically so functions like password reset, email verification, and account updates accept customizable base endpoints instead of
+  hard-coded strings. I’ll update function signatures and callers accordingly, then run formatting and tests. Afterward, I want to port some account management tests from the JavaScript codebase to
+  verify correctness of these flows.
+
+• Explored
+  └ Read account.test.ts
+
+  Refactoring account API for flexible endpoints (1m 15s • Esc to interrupt)
+
+Thinking
+  I'll highlight the key code changes, note the specific tests I ran, and describe new helper functions and modules added. I'll also suggest clear numbered next steps for further work on account
+  flows and API expansions to guide the user effectively.
+
+> - Auth API – All account-management flows now respect the configurable Identity Toolkit base: methods such as send_password_reset_email, confirm_password_reset, send_email_verification, and
+  delete_user pass the override through to the REST helpers, and display-name/photo clearing no longer resurrects old values (src/auth/api.rs:401, src/auth/api.rs:838).
+  - Account REST helpers – Added identity_toolkit_url and endpoint-aware variants of every account call (password reset, email verification, update, verify-password, delete) so tests and emulators
+  can target local servers (src/auth/api/account.rs:7, src/auth/api/account.rs:21).
+  - Test Support – Introduced a crate-wide test_support module with Firebase-app and mock-server utilities, exported for all tests (src/lib.rs:19, src/test_support/mod.rs:1, src/test_support/
+  firebase.rs:8, src/test_support/http.rs:4).
+  - Unit Tests – Expanded auth::api coverage to include password-reset, email-verification, profile update (including clear), deletion, and password reauth scenarios using the shared helpers (src/
+  auth/api.rs:1133, src/auth/api.rs:1300, src/auth/api.rs:1366, src/auth/api.rs:1403, src/auth/api.rs:1460, src/auth/api.rs:1481).
+  - Docs – Updated the Test Porting Roadmap with the new shared infrastructure and the newly ported account-management suites (src/auth/README.md:127).
+
+  Tests: cargo test --lib auth::api::tests::, cargo test --lib auth::api::token::tests::.
+
+  Next steps:
+
+  1. Port the remaining account-management tests (linked-account deletion, profile lookups) onto the new helper scaffolding.
+  2. Expand the same pattern to other API surfaces (createAuthUri, password-policy endpoints) to continue building Rust coverage.
+
+
+  Thinking
+  I’m putting together a concise summary highlighting the main updates like new unlink and account info methods, extended request handling, added data structs, and coverage with tests. I’ll include
+  file references with line numbers for clarity and note the tests that ran. Finally, I’ll suggest logical next steps to continue porting modules.
+
+> - Added Identity Toolkit endpoint plumb-through across account flows so every REST call now respects overrides, and surfaced new helpers unlink_providers and get_account_info on Auth for parity
+  with JS (src/auth/api.rs:401, src/auth/api.rs:489).
+  - Extended UpdateAccountRequest to emit deleteProvider and wired up an account-lookup client, ensuring provider unlinking and /accounts:lookup use the reusable base URL (src/auth/api/
+  account.rs:175, src/auth/api/account.rs:288).
+  - Captured REST response shapes for provider and account lookups so tests can assert typed data (src/auth/model.rs:206).
+  - Expanded the auth API test suite to cover password reset, email verification, profile updates, provider unlink, and account lookup using the shared mock server utilities (src/auth/api.rs:1300,
+  src/auth/api.rs:1321, src/auth/api.rs:1481).
+  - Documented the additional coverage in the Test Porting Roadmap for future tracking (src/auth/README.md:127).
+
+  Tests: cargo test --lib auth::api::tests::, cargo test --lib auth::api::token::tests::.
+
+  Next steps:
+
+  1. Port the remaining account-management tests (linked account lookups, MFA enrollments) and align any missing API surfaces.
+  2. Continue translating other Core/API suites (e.g., createAuthUri, password policy) using the shared test_support mocks.
+
+
+  
+• Updated Plan
+  └ □ Map remaining account management JS tests to missing Rust functions and add any required API coverage (delete linked providers, account info variants, MFA placeholders).
+    □ Implement additional Rust helpers, adjust models, and port test equivalents with shared mock infrastructure.
+    □ Document coverage gains and outstanding gaps in README.
+
+  Considering creating a plan (12s • Esc to interrupt)
+
+  Updated Plan
+  └ ✔ Map remaining account management JS tests to missing Rust functions and add any required API coverage (delete linked providers, account info variants, MFA placeholders).
+    ✔ Implement additional Rust helpers, adjust models, and port test equivalents with shared mock infrastructure.
+    □ Document coverage gains and outstanding gaps in README.
+
+• Edited src/auth/README.md (+1 -0)
+    132    - Extended coverage to provider unlinking and account lookup (`getAccountInfo`) to validate `accounts:update` and `accounts:lookup` interactions against the mock Identity Toolkit server.
+    133   +- Added assertions for email/password update paths so token refresh and profile mutations mirror the JS test expectations.
+    134
+
+• Updated Plan
+  └ ✔ Map remaining account management JS tests to missing Rust functions and add any required API coverage (delete linked providers, account info variants, MFA placeholders).
+    ✔ Implement additional Rust helpers, adjust models, and port test equivalents with shared mock infrastructure.
+    ✔ Document coverage gains and outstanding gaps in README.
+
+• Ran git status --short
+
+> - Brought the remaining account-management REST helpers up to snuff: every accounts:* call now accepts the configurable Identity Toolkit base, UpdateAccountRequest emits deleteProvider, and /
+  accounts:lookup responses deserialize into new AccountInfoUser models (src/auth/api/account.rs:175, src/auth/model.rs:206).
+  - Exposed Auth::unlink_providers and Auth::get_account_info, and fortified update_email / update_password to refresh tokens while honoring response semantics (src/auth/api.rs:481, src/auth/
+  api.rs:403).
+  - Expanded the shared mock-test harness to cover unlink, account lookup, and email/password update scenarios, mirroring the JS suite expectations and ensuring provider metadata survives round-trips
+  (src/auth/api.rs:1300, src/auth/api.rs:1403, src/auth/api.rs:1460).
+  - Documented the broader test coverage in the README’s Test Porting Roadmap for ongoing tracking (src/auth/README.md:127).
+
+  Tests: cargo test --lib auth::api::tests::, cargo test --lib auth::api::token::tests::.
+
+  Next steps:
+
+  1. Translate the remaining account-management suites (MFA enrollment, linked-account responses) using the same mock infrastructure.
+  2. Begin porting additional API modules (createAuthUri, password policy) with the shared helpers.
+
+  

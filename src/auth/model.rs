@@ -186,3 +186,42 @@ pub struct SignUpResponse {
     #[serde(rename = "expiresIn")]
     pub expires_in: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProviderUserInfo {
+    #[serde(rename = "providerId")]
+    pub provider_id: Option<String>,
+    #[serde(rename = "rawId")]
+    pub raw_id: Option<String>,
+    #[serde(rename = "email")]
+    pub email: Option<String>,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "photoUrl")]
+    pub photo_url: Option<String>,
+    #[serde(rename = "phoneNumber")]
+    pub phone_number: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountInfoUser {
+    #[serde(rename = "localId")]
+    pub local_id: Option<String>,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "photoUrl")]
+    pub photo_url: Option<String>,
+    #[serde(rename = "email")]
+    pub email: Option<String>,
+    #[serde(rename = "emailVerified")]
+    pub email_verified: Option<bool>,
+    #[serde(rename = "phoneNumber")]
+    pub phone_number: Option<String>,
+    #[serde(rename = "providerUserInfo")]
+    pub provider_user_info: Option<Vec<ProviderUserInfo>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetAccountInfoResponse {
+    pub users: Vec<AccountInfoUser>,
+}

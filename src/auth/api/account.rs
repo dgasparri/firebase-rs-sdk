@@ -2,7 +2,13 @@ use reqwest::blocking::{Client, Response};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::error::{AuthError, AuthResult};
-use crate::auth::model::{SignInWithPasswordRequest, SignInWithPasswordResponse};
+use crate::auth::model::{
+    GetAccountInfoResponse, ProviderUserInfo, SignInWithPasswordRequest, SignInWithPasswordResponse,
+};
+
+fn identity_toolkit_url(base: &str, path: &str, api_key: &str) -> String {
+    format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key)
+}
 
 #[derive(Debug, Serialize)]
 struct SendOobCodeRequest<'a> {
@@ -14,31 +20,41 @@ struct SendOobCodeRequest<'a> {
     id_token: Option<&'a str>,
 }
 
-pub fn send_password_reset_email(client: &Client, api_key: &str, email: &str) -> AuthResult<()> {
+pub fn send_password_reset_email(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    email: &str,
+) -> AuthResult<()> {
     let request = SendOobCodeRequest {
         request_type: "PASSWORD_RESET",
         email: Some(email),
         id_token: None,
     };
-    send_oob_code(client, api_key, &request)
+    send_oob_code(client, endpoint, api_key, &request)
 }
 
-pub fn send_email_verification(client: &Client, api_key: &str, id_token: &str) -> AuthResult<()> {
+pub fn send_email_verification(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    id_token: &str,
+) -> AuthResult<()> {
     let request = SendOobCodeRequest {
         request_type: "VERIFY_EMAIL",
         email: None,
         id_token: Some(id_token),
     };
-    send_oob_code(client, api_key, &request)
+    send_oob_code(client, endpoint, api_key, &request)
 }
 
 fn send_oob_code(
     client: &Client,
+    endpoint: &str,
     api_key: &str,
     request: &SendOobCodeRequest<'_>,
 ) -> AuthResult<()> {
-    let url =
-        format!("https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={api_key}");
+    let url = identity_toolkit_url(endpoint, "accounts:sendOobCode", api_key);
 
     let response = client
         .post(url)
@@ -63,12 +79,12 @@ struct ResetPasswordRequest<'a> {
 
 pub fn confirm_password_reset(
     client: &Client,
+    endpoint: &str,
     api_key: &str,
     oob_code: &str,
     new_password: &str,
 ) -> AuthResult<()> {
-    let url =
-        format!("https://identitytoolkit.googleapis.com/v1/accounts:resetPassword?key={api_key}");
+    let url = identity_toolkit_url(endpoint, "accounts:resetPassword", api_key);
     let request = ResetPasswordRequest {
         oob_code,
         new_password,
@@ -100,6 +116,7 @@ pub struct UpdateAccountRequest {
     pub password: Option<String>,
     pub display_name: Option<UpdateString>,
     pub photo_url: Option<UpdateString>,
+    pub delete_providers: Vec<String>,
 }
 
 impl UpdateAccountRequest {
@@ -110,6 +127,7 @@ impl UpdateAccountRequest {
             password: None,
             display_name: None,
             photo_url: None,
+            delete_providers: Vec::new(),
         }
     }
 }
@@ -128,21 +146,10 @@ struct UpdateAccountRequestBody<'a> {
     photo_url: Option<&'a str>,
     #[serde(rename = "deleteAttribute", skip_serializing_if = "Vec::is_empty")]
     delete_attribute: Vec<&'static str>,
+    #[serde(rename = "deleteProvider", skip_serializing_if = "Vec::is_empty")]
+    delete_provider: Vec<&'a str>,
     #[serde(rename = "returnSecureToken")]
     return_secure_token: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct ProviderUserInfo {
-    #[serde(rename = "providerId")]
-    pub provider_id: Option<String>,
-    #[serde(rename = "federatedId")]
-    pub federated_id: Option<String>,
-    #[serde(rename = "displayName")]
-    pub display_name: Option<String>,
-    #[serde(rename = "photoUrl")]
-    pub photo_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -167,6 +174,7 @@ pub struct UpdateAccountResponse {
 
 pub fn update_account(
     client: &Client,
+    endpoint: &str,
     api_key: &str,
     params: &UpdateAccountRequest,
 ) -> AuthResult<UpdateAccountResponse> {
@@ -187,6 +195,12 @@ pub fn update_account(
         }
     }
 
+    let delete_provider_refs: Vec<&str> = params
+        .delete_providers
+        .iter()
+        .map(|value| value.as_str())
+        .collect();
+
     let request = UpdateAccountRequestBody {
         id_token: &params.id_token,
         email: params.email.as_deref(),
@@ -194,10 +208,11 @@ pub fn update_account(
         display_name,
         photo_url,
         delete_attribute,
+        delete_provider: delete_provider_refs,
         return_secure_token: true,
     };
 
-    let url = format!("https://identitytoolkit.googleapis.com/v1/accounts:update?key={api_key}");
+    let url = identity_toolkit_url(endpoint, "accounts:update", api_key);
 
     let response = client
         .post(url)
@@ -216,12 +231,11 @@ pub fn update_account(
 
 pub fn verify_password(
     client: &Client,
+    endpoint: &str,
     api_key: &str,
     request: &SignInWithPasswordRequest,
 ) -> AuthResult<SignInWithPasswordResponse> {
-    let url = format!(
-        "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
-    );
+    let url = identity_toolkit_url(endpoint, "accounts:signInWithPassword", api_key);
     let response = client
         .post(url)
         .json(request)
@@ -243,8 +257,13 @@ struct DeleteAccountRequest<'a> {
     id_token: &'a str,
 }
 
-pub fn delete_account(client: &Client, api_key: &str, id_token: &str) -> AuthResult<()> {
-    let url = format!("https://identitytoolkit.googleapis.com/v1/accounts:delete?key={api_key}");
+pub fn delete_account(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    id_token: &str,
+) -> AuthResult<()> {
+    let url = identity_toolkit_url(endpoint, "accounts:delete", api_key);
     let request = DeleteAccountRequest { id_token };
 
     let response = client
@@ -255,6 +274,36 @@ pub fn delete_account(client: &Client, api_key: &str, id_token: &str) -> AuthRes
 
     if response.status().is_success() {
         Ok(())
+    } else {
+        Err(map_error(response))
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct GetAccountInfoRequest<'a> {
+    #[serde(rename = "idToken")]
+    id_token: &'a str,
+}
+
+pub fn get_account_info(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    id_token: &str,
+) -> AuthResult<GetAccountInfoResponse> {
+    let url = identity_toolkit_url(endpoint, "accounts:lookup", api_key);
+    let request = GetAccountInfoRequest { id_token };
+
+    let response = client
+        .post(url)
+        .json(&request)
+        .send()
+        .map_err(|err| AuthError::Network(err.to_string()))?;
+
+    if response.status().is_success() {
+        response
+            .json::<GetAccountInfoResponse>()
+            .map_err(|err| AuthError::InvalidCredential(err.to_string()))
     } else {
         Err(map_error(response))
     }

@@ -16,8 +16,9 @@ use crate::app::AppError;
 use crate::app::FirebaseApp;
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::{
-    AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider, SignInWithPasswordRequest,
-    SignInWithPasswordResponse, SignUpRequest, SignUpResponse, User, UserCredential, UserInfo,
+    AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider, GetAccountInfoResponse,
+    SignInWithPasswordRequest, SignInWithPasswordResponse, SignUpRequest, SignUpResponse, User,
+    UserCredential, UserInfo,
 };
 use crate::auth::oauth::{
     credential::OAuthCredential, InMemoryRedirectPersistence, OAuthPopupHandler,
@@ -34,8 +35,9 @@ use crate::component::{Component, ComponentContainer, ComponentType};
 use crate::firestore::remote::datastore::TokenProviderArc;
 use crate::util::{backoff, PartialObserver};
 use account::{
-    confirm_password_reset, delete_account, send_email_verification, send_password_reset_email,
-    update_account, verify_password, UpdateAccountRequest, UpdateAccountResponse, UpdateString,
+    confirm_password_reset, delete_account, get_account_info, send_email_verification,
+    send_password_reset_email, update_account, verify_password, UpdateAccountRequest,
+    UpdateAccountResponse, UpdateString,
 };
 use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
 
@@ -400,19 +402,28 @@ impl Auth {
 
     pub fn send_password_reset_email(&self, email: &str) -> AuthResult<()> {
         let api_key = self.api_key()?;
-        send_password_reset_email(&self.rest_client, &api_key, email)
+        let endpoint = self.identity_toolkit_endpoint();
+        send_password_reset_email(&self.rest_client, &endpoint, &api_key, email)
     }
 
     pub fn confirm_password_reset(&self, oob_code: &str, new_password: &str) -> AuthResult<()> {
         let api_key = self.api_key()?;
-        confirm_password_reset(&self.rest_client, &api_key, oob_code, new_password)
+        let endpoint = self.identity_toolkit_endpoint();
+        confirm_password_reset(
+            &self.rest_client,
+            &endpoint,
+            &api_key,
+            oob_code,
+            new_password,
+        )
     }
 
     pub fn send_email_verification(&self) -> AuthResult<()> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let api_key = self.api_key()?;
-        send_email_verification(&self.rest_client, &api_key, &id_token)
+        let endpoint = self.identity_toolkit_endpoint();
+        send_email_verification(&self.rest_client, &endpoint, &api_key, &id_token)
     }
 
     pub fn update_profile(
@@ -461,9 +472,26 @@ impl Auth {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let api_key = self.api_key()?;
-        delete_account(&self.rest_client, &api_key, &id_token)?;
+        let endpoint = self.identity_toolkit_endpoint();
+        delete_account(&self.rest_client, &endpoint, &api_key, &id_token)?;
         self.sign_out();
         Ok(())
+    }
+
+    pub fn unlink_providers(&self, provider_ids: &[&str]) -> AuthResult<Arc<User>> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        let mut request = UpdateAccountRequest::new(id_token);
+        request.delete_providers = provider_ids.iter().map(|id| id.to_string()).collect();
+        self.perform_account_update(user, request)
+    }
+
+    pub fn get_account_info(&self) -> AuthResult<GetAccountInfoResponse> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        get_account_info(&self.rest_client, &endpoint, &api_key, &id_token)
     }
 
     pub fn link_with_oauth_credential(
@@ -487,7 +515,8 @@ impl Auth {
         };
 
         let api_key = self.api_key()?;
-        let response = verify_password(&self.rest_client, &api_key, &request)?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let response = verify_password(&self.rest_client, &endpoint, &api_key, &request)?;
         self.apply_password_reauth(response)
     }
 
@@ -543,7 +572,8 @@ impl Auth {
         request: UpdateAccountRequest,
     ) -> AuthResult<Arc<User>> {
         let api_key = self.api_key()?;
-        let response = update_account(&self.rest_client, &api_key, &request)?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let response = update_account(&self.rest_client, &endpoint, &api_key, &request)?;
         let updated_user = self.apply_account_update(&current_user, &response)?;
         self.listeners.notify(updated_user.clone());
         Ok(updated_user)
@@ -823,31 +853,17 @@ impl Auth {
             .clone()
             .or_else(|| current_user.info().email.clone());
 
-        let display_name = response
-            .display_name
-            .as_deref()
-            .map(|value| {
-                if value.is_empty() {
-                    None
-                } else {
-                    Some(value.to_string())
-                }
-            })
-            .flatten()
-            .or_else(|| current_user.info().display_name.clone());
+        let display_name = match response.display_name.as_deref() {
+            Some(value) if value.is_empty() => None,
+            Some(value) => Some(value.to_string()),
+            None => current_user.info().display_name.clone(),
+        };
 
-        let photo_url = response
-            .photo_url
-            .as_deref()
-            .map(|value| {
-                if value.is_empty() {
-                    None
-                } else {
-                    Some(value.to_string())
-                }
-            })
-            .flatten()
-            .or_else(|| current_user.info().photo_url.clone());
+        let photo_url = match response.photo_url.as_deref() {
+            Some(value) if value.is_empty() => None,
+            Some(value) => Some(value.to_string()),
+            None => current_user.info().photo_url.clone(),
+        };
 
         let provider_id = response
             .provider_user_info
@@ -1113,6 +1129,18 @@ mod tests {
     use serde_json::json;
 
     const TEST_API_KEY: &str = "test-api-key";
+    const TEST_EMAIL: &str = "user@example.com";
+    const TEST_PASSWORD: &str = "secret";
+    const TEST_UID: &str = "uid-123";
+    const TEST_ID_TOKEN: &str = "id-token";
+    const TEST_REFRESH_TOKEN: &str = "refresh-token";
+    const REAUTH_EMAIL: &str = "reauth@example.com";
+    const REAUTH_ID_TOKEN: &str = "reauth-id-token";
+    const REAUTH_REFRESH_TOKEN: &str = "reauth-refresh-token";
+    const REAUTH_UID: &str = "reauth-uid";
+    const GOOGLE_PROVIDER_ID: &str = "google.com";
+    const UPDATED_ID_TOKEN: &str = "updated-id-token";
+    const UPDATED_REFRESH_TOKEN: &str = "updated-refresh-token";
 
     fn build_auth(server: &MockServer) -> Arc<Auth> {
         Auth::builder(test_firebase_app_with_api_key(TEST_API_KEY))
@@ -1121,6 +1149,30 @@ mod tests {
             .defer_initialization()
             .build()
             .expect("failed to build auth")
+    }
+
+    fn sign_in_user(auth: &Arc<Auth>, server: &MockServer) {
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": TEST_EMAIL,
+                    "password": TEST_PASSWORD,
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "idToken": TEST_ID_TOKEN,
+                "refreshToken": TEST_REFRESH_TOKEN,
+                "expiresIn": "3600"
+            }));
+        });
+
+        auth.sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD)
+            .expect("sign-in should succeed");
+        mock.assert();
     }
 
     #[test]
@@ -1262,6 +1314,430 @@ mod tests {
         assert!(matches!(
             result,
             Err(AuthError::Network(message)) if message.contains("INVALID_PASSWORD")
+        ));
+    }
+
+    #[test]
+    fn send_password_reset_email_sends_request_body() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:sendOobCode")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "requestType": "PASSWORD_RESET",
+                    "email": TEST_EMAIL
+                }));
+            then.status(200);
+        });
+
+        auth.send_password_reset_email(TEST_EMAIL)
+            .expect("password reset should succeed");
+
+        mock.assert();
+    }
+
+    #[test]
+    fn send_email_verification_uses_current_user_token() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:sendOobCode")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "requestType": "VERIFY_EMAIL",
+                    "idToken": TEST_ID_TOKEN
+                }));
+            then.status(200);
+        });
+
+        auth.send_email_verification()
+            .expect("email verification should succeed");
+
+        mock.assert();
+    }
+
+    #[test]
+    fn confirm_password_reset_posts_new_password() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:resetPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "oobCode": "reset-code",
+                    "newPassword": "new-secret"
+                }));
+            then.status(200);
+        });
+
+        auth.confirm_password_reset("reset-code", "new-secret")
+            .expect("confirm reset should succeed");
+
+        mock.assert();
+    }
+
+    #[test]
+    fn update_profile_sets_display_name() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:update")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "displayName": "New Name",
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "idToken": TEST_ID_TOKEN,
+                "refreshToken": TEST_REFRESH_TOKEN,
+                "expiresIn": "3600",
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "displayName": "New Name"
+            }));
+        });
+
+        let user = auth
+            .update_profile(Some("New Name"), None)
+            .expect("update profile should succeed");
+
+        mock.assert();
+        assert_eq!(user.info().display_name.as_deref(), Some("New Name"));
+        assert_eq!(
+            user.token_manager().access_token(),
+            Some(TEST_ID_TOKEN.to_string())
+        );
+    }
+
+    #[test]
+    fn update_profile_clears_display_name_when_empty_string() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let set_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:update")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "displayName": "Existing",
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "idToken": TEST_ID_TOKEN,
+                "refreshToken": TEST_REFRESH_TOKEN,
+                "expiresIn": "3600",
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "displayName": "Existing"
+            }));
+        });
+
+        auth.update_profile(Some("Existing"), None)
+            .expect("initial update should succeed");
+        set_mock.assert();
+
+        let clear_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:update")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "deleteAttribute": ["DISPLAY_NAME"],
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "idToken": TEST_ID_TOKEN,
+                "refreshToken": TEST_REFRESH_TOKEN,
+                "expiresIn": "3600",
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "displayName": ""
+            }));
+        });
+
+        let user = auth
+            .update_profile(Some(""), None)
+            .expect("clear update should succeed");
+
+        clear_mock.assert();
+        assert!(user.info().display_name.is_none());
+    }
+
+    #[test]
+    fn update_email_sets_new_email() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:update")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "email": "new@example.com",
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "idToken": UPDATED_ID_TOKEN,
+                "refreshToken": UPDATED_REFRESH_TOKEN,
+                "expiresIn": "3600",
+                "localId": TEST_UID,
+                "email": "new@example.com"
+            }));
+        });
+
+        let user = auth
+            .update_email("new@example.com")
+            .expect("update email should succeed");
+
+        mock.assert();
+        assert_eq!(user.info().email.as_deref(), Some("new@example.com"));
+        assert_eq!(
+            user.token_manager().access_token(),
+            Some(UPDATED_ID_TOKEN.to_string())
+        );
+    }
+
+    #[test]
+    fn update_password_refreshes_tokens() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:update")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "password": "new-secret",
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "idToken": UPDATED_ID_TOKEN,
+                "refreshToken": UPDATED_REFRESH_TOKEN,
+                "expiresIn": "3600",
+                "localId": TEST_UID,
+                "email": TEST_EMAIL
+            }));
+        });
+
+        let user = auth
+            .update_password("new-secret")
+            .expect("update password should succeed");
+
+        mock.assert();
+        assert_eq!(user.uid(), TEST_UID);
+        assert_eq!(
+            user.token_manager().refresh_token(),
+            Some(UPDATED_REFRESH_TOKEN.to_string())
+        );
+    }
+
+    #[test]
+    fn delete_user_clears_current_user_state() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:delete")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN
+                }));
+            then.status(200);
+        });
+
+        auth.delete_user().expect("delete user should succeed");
+
+        mock.assert();
+        assert!(auth.current_user().is_none());
+    }
+
+    #[test]
+    fn reauthenticate_with_password_updates_current_user() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": REAUTH_EMAIL,
+                    "password": TEST_PASSWORD,
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": REAUTH_UID,
+                "email": REAUTH_EMAIL,
+                "idToken": REAUTH_ID_TOKEN,
+                "refreshToken": REAUTH_REFRESH_TOKEN,
+                "expiresIn": "3600"
+            }));
+        });
+
+        let user = auth
+            .reauthenticate_with_password(REAUTH_EMAIL, TEST_PASSWORD)
+            .expect("reauth should succeed");
+
+        mock.assert();
+        assert_eq!(user.uid(), REAUTH_UID);
+        assert_eq!(user.info().email.as_deref(), Some(REAUTH_EMAIL));
+        assert_eq!(
+            user.token_manager().access_token(),
+            Some(REAUTH_ID_TOKEN.to_string())
+        );
+        assert_eq!(
+            auth.current_user().expect("current user set").uid(),
+            REAUTH_UID
+        );
+    }
+
+    #[test]
+    fn unlink_providers_sends_delete_provider() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:update")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "deleteProvider": [GOOGLE_PROVIDER_ID],
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "idToken": TEST_ID_TOKEN,
+                "refreshToken": TEST_REFRESH_TOKEN,
+                "expiresIn": "3600",
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "providerUserInfo": []
+            }));
+        });
+
+        let user = auth
+            .unlink_providers(&[GOOGLE_PROVIDER_ID])
+            .expect("unlink should succeed");
+
+        mock.assert();
+        assert_eq!(user.uid(), TEST_UID);
+        assert_eq!(user.info().provider_id, EmailAuthProvider::PROVIDER_ID);
+    }
+
+    #[test]
+    fn unlink_providers_propagates_errors() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:update")
+                .query_param("key", TEST_API_KEY);
+            then.status(400)
+                .body("{\"error\":{\"message\":\"INVALID_PROVIDER_ID\"}}");
+        });
+
+        let result = auth.unlink_providers(&[GOOGLE_PROVIDER_ID]);
+
+        mock.assert();
+        assert!(matches!(
+            result,
+            Err(AuthError::InvalidCredential(message)) if message == "INVALID_PROVIDER_ID"
+        ));
+    }
+
+    #[test]
+    fn get_account_info_returns_users() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:lookup")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN
+                }));
+            then.status(200).json_body(json!({
+                "users": [
+                    {
+                        "localId": TEST_UID,
+                        "displayName": "my-name",
+                        "email": TEST_EMAIL,
+                        "providerUserInfo": [
+                            {
+                                "providerId": GOOGLE_PROVIDER_ID,
+                                "email": TEST_EMAIL
+                            }
+                        ]
+                    }
+                ]
+            }));
+        });
+
+        let response = auth
+            .get_account_info()
+            .expect("get account info should succeed");
+
+        mock.assert();
+        assert_eq!(response.users.len(), 1);
+        assert_eq!(response.users[0].display_name.as_deref(), Some("my-name"));
+        assert_eq!(response.users[0].email.as_deref(), Some(TEST_EMAIL));
+        let providers = response.users[0]
+            .provider_user_info
+            .as_ref()
+            .expect("providers present");
+        assert_eq!(providers.len(), 1);
+        assert_eq!(
+            providers[0].provider_id.as_deref(),
+            Some(GOOGLE_PROVIDER_ID)
+        );
+    }
+
+    #[test]
+    fn get_account_info_propagates_errors() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:lookup")
+                .query_param("key", TEST_API_KEY);
+            then.status(400)
+                .body("{\"error\":{\"message\":\"INVALID_ID_TOKEN\"}}");
+        });
+
+        let result = auth.get_account_info();
+
+        mock.assert();
+        assert!(matches!(
+            result,
+            Err(AuthError::InvalidCredential(message)) if message == "INVALID_ID_TOKEN"
         ));
     }
 }
