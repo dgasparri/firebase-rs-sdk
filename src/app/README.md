@@ -73,6 +73,7 @@ The TypeScript module still includes functionality that is only partially or not
 
 ### Recent Progress
 - Registered the `platform-logger` and `heartbeat` components in Rust, delivering in-memory heartbeat storage and automatic version reporting to match the JS core registration flow (`src/app/core_components.rs`, `src/app/heartbeat.rs`, `src/app/platform_logger.rs`).
+- Ported core `initializeApp`/`getApp`/`deleteApp` scenarios from the JS test suite to Rust, covering duplicate detection, component registration, version registration, and teardown behaviour (`src/app/api.rs`).
 
 Completing these items will bring the Rust app module to parity with `@firebase/app` and ensure downstream services behave
 consistently across ports.

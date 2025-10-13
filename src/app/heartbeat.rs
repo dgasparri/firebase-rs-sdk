@@ -201,6 +201,11 @@ impl HeartbeatStorage for InMemoryHeartbeatStorage {
 static HEARTBEAT_STORE: LazyLock<Mutex<HashMap<String, HeartbeatsInStorage>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+#[cfg(test)]
+pub fn clear_heartbeat_store_for_tests() {
+    HEARTBEAT_STORE.lock().unwrap().clear();
+}
+
 #[allow(dead_code)]
 struct HeartbeatsByUserAgent {
     agent: String,

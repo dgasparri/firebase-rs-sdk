@@ -33,3 +33,8 @@ pub fn register_component(component: Component) -> bool {
     guard.insert(Arc::from(component.name().to_owned()), component);
     true
 }
+
+#[cfg(test)]
+pub fn clear_global_components_for_test() {
+    GLOBAL_COMPONENTS.lock().unwrap().clear();
+}
