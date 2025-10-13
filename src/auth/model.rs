@@ -103,6 +103,8 @@ pub struct AuthCredential {
 #[derive(Debug, Clone, Default)]
 pub struct AuthConfig {
     pub api_key: Option<String>,
+    pub identity_toolkit_endpoint: Option<String>,
+    pub secure_token_endpoint: Option<String>,
 }
 
 #[derive(Clone)]

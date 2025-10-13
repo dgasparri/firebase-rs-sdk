@@ -40,10 +40,11 @@ use account::{
 use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
 
 const DEFAULT_OAUTH_REQUEST_URI: &str = "http://localhost";
+const DEFAULT_IDENTITY_TOOLKIT_ENDPOINT: &str = "https://identitytoolkit.googleapis.com/v1";
 
 pub struct Auth {
     app: FirebaseApp,
-    config: AuthConfig,
+    config: Mutex<AuthConfig>,
     current_user: Mutex<Option<Arc<User>>>,
     listeners: AuthStateListeners,
     rest_client: Client,
@@ -55,6 +56,8 @@ pub struct Auth {
     redirect_handler: Mutex<Option<Arc<dyn OAuthRedirectHandler>>>,
     redirect_persistence: Mutex<Arc<dyn RedirectPersistence>>,
     oauth_request_uri: Mutex<String>,
+    identity_toolkit_endpoint: Mutex<String>,
+    secure_token_endpoint: Mutex<String>,
     refresh_cancel: Mutex<Option<Arc<AtomicBool>>>,
     self_ref: Mutex<Weak<Auth>>,
 }
@@ -80,11 +83,13 @@ impl Auth {
 
         let config = AuthConfig {
             api_key: Some(api_key),
+            identity_toolkit_endpoint: Some(DEFAULT_IDENTITY_TOOLKIT_ENDPOINT.to_string()),
+            secure_token_endpoint: Some(token::DEFAULT_SECURE_TOKEN_ENDPOINT.to_string()),
         };
 
         Ok(Self {
             app,
-            config,
+            config: Mutex::new(config),
             current_user: Mutex::new(None),
             listeners: AuthStateListeners::default(),
             rest_client: Client::new(),
@@ -96,6 +101,8 @@ impl Auth {
             redirect_handler: Mutex::new(None),
             redirect_persistence: Mutex::new(InMemoryRedirectPersistence::shared()),
             oauth_request_uri: Mutex::new(DEFAULT_OAUTH_REQUEST_URI.to_string()),
+            identity_toolkit_endpoint: Mutex::new(DEFAULT_IDENTITY_TOOLKIT_ENDPOINT.to_string()),
+            secure_token_endpoint: Mutex::new(token::DEFAULT_SECURE_TOKEN_ENDPOINT.to_string()),
             refresh_cancel: Mutex::new(None),
             self_ref: Mutex::new(Weak::new()),
         })
@@ -246,11 +253,9 @@ impl Auth {
     }
 
     fn endpoint_url(&self, path: &str, api_key: &str) -> AuthResult<Url> {
-        let base = format!(
-            "https://identitytoolkit.googleapis.com/v1/{}?key={}",
-            path, api_key
-        );
-        Url::parse(&base).map_err(|err| AuthError::Network(err.to_string()))
+        let base = self.identity_toolkit_endpoint();
+        let endpoint = format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key);
+        Url::parse(&endpoint).map_err(|err| AuthError::Network(err.to_string()))
     }
 
     fn build_user_from_response(&self, local_id: &str, email: &str) -> User {
@@ -267,6 +272,8 @@ impl Auth {
 
     fn api_key(&self) -> AuthResult<String> {
         self.config
+            .lock()
+            .unwrap()
             .api_key
             .clone()
             .ok_or_else(|| AuthError::InvalidCredential("Missing API key".into()))
@@ -284,7 +291,13 @@ impl Auth {
             .refresh_token()
             .ok_or_else(|| AuthError::InvalidCredential("Missing refresh token".into()))?;
         let api_key = self.api_key()?;
-        let response = token::refresh_id_token(&self.rest_client, &api_key, &refresh_token)?;
+        let secure_endpoint = self.secure_token_endpoint();
+        let response = token::refresh_id_token_with_endpoint(
+            &self.rest_client,
+            &secure_endpoint,
+            &api_key,
+            &refresh_token,
+        )?;
         let expires_in = self.parse_expires_in(&response.expires_in)?;
         user.update_tokens(
             Some(response.id_token.clone()),
@@ -324,6 +337,26 @@ impl Auth {
 
     pub fn oauth_request_uri(&self) -> String {
         self.oauth_request_uri.lock().unwrap().clone()
+    }
+
+    pub fn set_identity_toolkit_endpoint(&self, endpoint: impl Into<String>) {
+        let value = endpoint.into();
+        *self.identity_toolkit_endpoint.lock().unwrap() = value.clone();
+        self.config.lock().unwrap().identity_toolkit_endpoint = Some(value);
+    }
+
+    pub fn identity_toolkit_endpoint(&self) -> String {
+        self.identity_toolkit_endpoint.lock().unwrap().clone()
+    }
+
+    pub fn set_secure_token_endpoint(&self, endpoint: impl Into<String>) {
+        let value = endpoint.into();
+        *self.secure_token_endpoint.lock().unwrap() = value.clone();
+        self.config.lock().unwrap().secure_token_endpoint = Some(value);
+    }
+
+    fn secure_token_endpoint(&self) -> String {
+        self.secure_token_endpoint.lock().unwrap().clone()
     }
 
     pub fn set_popup_handler(&self, handler: Arc<dyn OAuthPopupHandler>) {
@@ -923,6 +956,8 @@ pub struct AuthBuilder {
     redirect_handler: Option<Arc<dyn OAuthRedirectHandler>>,
     oauth_request_uri: Option<String>,
     redirect_persistence: Option<Arc<dyn RedirectPersistence>>,
+    identity_toolkit_endpoint: Option<String>,
+    secure_token_endpoint: Option<String>,
 }
 
 impl AuthBuilder {
@@ -935,6 +970,8 @@ impl AuthBuilder {
             redirect_handler: None,
             oauth_request_uri: None,
             redirect_persistence: None,
+            identity_toolkit_endpoint: None,
+            secure_token_endpoint: None,
         }
     }
 
@@ -963,6 +1000,16 @@ impl AuthBuilder {
         self
     }
 
+    pub fn with_identity_toolkit_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.identity_toolkit_endpoint = Some(endpoint.into());
+        self
+    }
+
+    pub fn with_secure_token_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.secure_token_endpoint = Some(endpoint.into());
+        self
+    }
+
     pub fn defer_initialization(mut self) -> Self {
         self.auto_initialize = false;
         self
@@ -984,6 +1031,12 @@ impl AuthBuilder {
         }
         if let Some(persistence) = self.redirect_persistence {
             auth.set_redirect_persistence(persistence);
+        }
+        if let Some(endpoint) = self.identity_toolkit_endpoint {
+            auth.set_identity_toolkit_endpoint(endpoint);
+        }
+        if let Some(endpoint) = self.secure_token_endpoint {
+            auth.set_secure_token_endpoint(endpoint);
         }
         if self.auto_initialize {
             auth.initialize()?;
@@ -1050,4 +1103,165 @@ fn sleep_with_cancel(mut duration: Duration, cancel_flag: &AtomicBool) -> bool {
     }
 
     !cancel_flag.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
+    use httpmock::prelude::*;
+    use serde_json::json;
+
+    const TEST_API_KEY: &str = "test-api-key";
+
+    fn build_auth(server: &MockServer) -> Arc<Auth> {
+        Auth::builder(test_firebase_app_with_api_key(TEST_API_KEY))
+            .with_identity_toolkit_endpoint(server.url("/v1"))
+            .with_secure_token_endpoint(server.url("/token"))
+            .defer_initialization()
+            .build()
+            .expect("failed to build auth")
+    }
+
+    #[test]
+    fn sign_in_with_email_and_password_success() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": "user@example.com",
+                    "password": "secret",
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": "uid-123",
+                "email": "user@example.com",
+                "idToken": "id-token",
+                "refreshToken": "refresh-token",
+                "expiresIn": "3600"
+            }));
+        });
+
+        let credential = auth
+            .sign_in_with_email_and_password("user@example.com", "secret")
+            .expect("sign-in should succeed");
+
+        mock.assert();
+        assert_eq!(
+            credential.provider_id.as_deref(),
+            Some(EmailAuthProvider::PROVIDER_ID)
+        );
+        assert_eq!(credential.operation_type.as_deref(), Some("signIn"));
+        assert_eq!(credential.user.uid(), "uid-123");
+        assert_eq!(
+            credential.user.token_manager().access_token(),
+            Some("id-token".to_string())
+        );
+        assert_eq!(
+            credential.user.refresh_token(),
+            Some("refresh-token".to_string())
+        );
+    }
+
+    #[test]
+    fn create_user_with_email_and_password_success() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signUp")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": "user@example.com",
+                    "password": "secret",
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": "uid-456",
+                "email": "user@example.com",
+                "idToken": "new-id-token",
+                "refreshToken": "new-refresh-token",
+                "expiresIn": "7200"
+            }));
+        });
+
+        let credential = auth
+            .create_user_with_email_and_password("user@example.com", "secret")
+            .expect("sign-up should succeed");
+
+        mock.assert();
+        assert_eq!(
+            credential.provider_id.as_deref(),
+            Some(EmailAuthProvider::PROVIDER_ID)
+        );
+        assert_eq!(credential.operation_type.as_deref(), Some("signUp"));
+        assert_eq!(credential.user.uid(), "uid-456");
+        assert_eq!(
+            credential.user.token_manager().access_token(),
+            Some("new-id-token".to_string())
+        );
+        assert_eq!(
+            credential.user.refresh_token(),
+            Some("new-refresh-token".to_string())
+        );
+    }
+
+    #[test]
+    fn sign_in_with_invalid_expires_in_returns_error() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": "user@example.com",
+                    "password": "secret",
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": "uid-123",
+                "email": "user@example.com",
+                "idToken": "id-token",
+                "refreshToken": "refresh-token",
+                "expiresIn": "not-a-number"
+            }));
+        });
+
+        let result = auth.sign_in_with_email_and_password("user@example.com", "secret");
+
+        mock.assert();
+        assert!(matches!(
+            result,
+            Err(AuthError::InvalidCredential(message)) if message.contains("Invalid expiresIn value")
+        ));
+    }
+
+    #[test]
+    fn sign_in_propagates_http_errors() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY);
+            then.status(400)
+                .body("{\"error\":{\"message\":\"INVALID_PASSWORD\"}}");
+        });
+
+        let result = auth.sign_in_with_email_and_password("user@example.com", "wrong-password");
+
+        mock.assert();
+        assert!(matches!(
+            result,
+            Err(AuthError::Network(message)) if message.contains("INVALID_PASSWORD")
+        ));
+    }
 }

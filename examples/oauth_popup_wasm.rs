@@ -4,9 +4,7 @@ mod wasm_demo {
 
     use firebase_rs_sdk_unofficial::app::FirebaseApp;
     use firebase_rs_sdk_unofficial::auth::model::AuthCredential;
-    use firebase_rs_sdk_unofficial::auth::oauth::{
-        OAuthPopupHandler, OAuthProvider, OAuthRequest,
-    };
+    use firebase_rs_sdk_unofficial::auth::oauth::{OAuthPopupHandler, OAuthProvider, OAuthRequest};
     use firebase_rs_sdk_unofficial::auth::{Auth, AuthBuilder, AuthError, AuthResult};
     use serde_json::Value;
     use serde_wasm_bindgen::from_value;

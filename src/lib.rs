@@ -15,3 +15,6 @@ pub mod performance;
 pub mod remote_config;
 pub mod storage;
 pub mod util;
+
+#[cfg(test)]
+pub mod test_support;

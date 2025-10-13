@@ -537,3 +537,201 @@ Thinking
 
   Tests: cargo check (full cargo test blocked by offline crates.io access; run with cached crates or --offline once deps
   are mirrored).
+
+
+
+  # Testing
+
+  ## 13 October 2025
+
+  inspect ./packages/auth and create a list of all the tests implemented, then create a plan to
+▌ port all the relevant tests to the Rust code in ./src/auth
+
+• Explored
+  └ List ls
+    List ls
+    List test
+    Search rg --files -g '*test*.ts'
+    List ls
+    Search rg --files -g '*.spec.ts'
+    Read README.md
+
+> Thinking
+  I’m organizing a thorough inventory of all current tests grouped by modules and features,
+  aiming to cover API, core, platform, integration, helpers, and scripts. Then I’ll draft a
+  detailed, actionable plan for porting these tests to Rust, emphasizing priorities, mapping to
+  Rust modules, adapting for WASM where needed, and proposing suitable Rust testing tools like
+  #[cfg(test)] and wasm-bindgen-test. This plan will also consider gating browser-dependent tests
+  and integrating async and mocking frameworks for network interactions. I’ll finish by suggesting
+  updating the README after porting and outlining next steps for verification and continuous
+  upkeep.
+
+> Test Inventory – API & Core
+
+  - src/api/authentication: create_auth_uri.test.ts, token.test.ts, sms.test.ts, sign_up.test.ts,
+  recaptcha.test.ts, mfa.test.ts, idp.test.ts, email_link.test.ts, email_and_password.test.ts,
+  custom_token.test.ts.
+  - src/api/account_management: account.test.ts, email_and_password.test.ts, mfa.test.ts,
+  profile.test.ts; top-level coverage from src/api/index.test.ts.
+  - src/api/password_policy/get_password_policy.test.ts, src/api/project_config/
+  get_project_config.test.ts.
+  - src/core/auth: auth_impl.test.ts, auth_event_manager.test.ts, emulator.test.ts,
+  firebase_internal.test.ts, initialize.test.ts, middleware.test.ts, password_policy_impl.test.ts.
+  - src/core/strategies: abstract_popup_redirect_operation.test.ts, action_code_settings.test.ts,
+  anonymous.test.ts, credential.test.ts, custom_token.test.ts, email.test.ts,
+  email_and_password.test.ts, email_link.test.ts, idp.test.ts, redirect.test.ts.
+  - src/core/util/*: assert, browser, delay, emulator, event_id, instantiator, validate_origin,
+  version plus src/core/errors.test.ts and src/core/action_code_url.test.ts.
+
+  Test Inventory – User, Providers, Persistence, MFA
+
+  - src/core/user: account_info.test.ts, additional_user_info.test.ts, id_token_result.test.ts,
+  invalidation.test.ts, link_unlink.test.ts, proactive_refresh.test.ts, reauthenticate.test.ts,
+  reload.test.ts, token_manager.test.ts, user_credential_impl.test.ts, user_impl.test.ts.
+  - src/core/providers: email.test.ts, facebook.test.ts, federated.test.ts, github.test.ts,
+  google.test.ts, oauth.test.ts, saml.test.ts, twitter.test.ts.
+  - src/core/credentials: email.test.ts, oauth.test.ts, phone.test.ts, saml.test.ts; persistence
+  coverage from src/core/persistence/in_memory.test.ts and persistence_user_manager.test.ts.
+  - src/mfa: mfa_info.test.ts, mfa_resolver.test.ts, mfa_session.test.ts, mfa_user.test.ts; src/
+  mfa/assertions/totp.test.ts.
+  - src/platform_browser/mfa/assertions/phone.test.ts; platform persistence tests: persistence/
+  browser, indexed_db, local_storage, session_storage.
+  - src/platform_react_native/persistence/react_native.test.ts, src/platform_browser/providers/
+  phone.test.ts, platform_browser/strategies (phone, popup, redirect), platform_browser/util/
+  popup.test.ts, platform_browser/popup_redirect.test.ts, platform_browser/load_js.test.ts,
+  platform_browser/auth.test.ts.
+
+  Test Inventory – Platform Specialties & Integration
+
+  - src/platform_browser/recaptcha: recaptcha.test.ts, recaptcha_mock.test.ts,
+  recaptcha_loader.test.ts, recaptcha_verifier.test.ts, recaptcha_enterprise_verifier.test.ts.
+  - src/platform_browser/messagechannel: promise.test.ts, receiver.test.ts, sender.test.ts; src/
+  platform_browser/iframe: gapi.test.ts, iframe.test.ts.
+  - Cordova popup redirect suite: src/platform_cordova/popup_redirect/events.test.ts,
+  popup_redirect.test.ts, utils.test.ts; companion test/helpers/mock_fetch.test.ts.
+  - Selenium/WebDriver flows under test/integration/webdriver: anonymous.test.ts,
+  persistence.test.ts, popup.test.ts, redirect.test.ts, compat/firebaseui.test.ts; utilities util/
+  test_runner.ts, util/test_server.ts orchestrate them.
+  - High-level flows in test/integration/flows: anonymous.test.ts, custom.local.test.ts,
+  email.test.ts, firebaseserverapp.test.ts, hosting_link.test.ts, idp.local.test.ts,
+  middleware_test_generator.ts, oob.local.test.ts, password_policy.test.ts, phone.test.ts,
+  recaptcha_enterprise.test.ts, totp.test.ts.
+  - Execution harness scripts/run_node_tests.ts coordinates the Node-based suites.
+
+  Porting Plan
+
+  - Audit src/auth coverage vs JS suites, map each Rust module (API, core, persistence, oauth,
+  mfa) to the corresponding JS test groups above, and document missing functionality prerequisites
+  in src/auth/README.md.
+  - Stand up Rust unit test scaffolding: embed #[cfg(test)] modules beside source files for pure
+  logic (core util, strategies, models) and create tests/ integration crates for multi-module
+  flows; mirror JS describe blocks as Rust mod/#[test] structure with invariant parity.
+  - Reproduce REST-facing tests (src/api/**) by using deterministic HTTP mocks (wiremock/httpmock)
+  and shared fixtures to validate request payloads, error mapping, and response handling; gate
+  network-dependent scenarios behind feature flags or mock servers as needed.
+  - Port persistence and token lifecycle tests by adapting JS storage/messaging fakes to Rust
+  using in-memory backends and wasm-bindgen-test variants under the existing wasm-web feature for
+  web storage behaviours.
+  - Translate provider, OAuth, and MFA suites incrementally: start with provider constructors
+  and credential serialization, then advance to flow orchestration once equivalent Rust
+  implementations land; add feature-gated WASM tests for popup/redirect contracts and keep
+  Cordova/React Native cases as interface-contract tests until platform adapters exist.
+  - Recreate end-to-end flow coverage by introducing Rust integration tests that stitch the
+  Auth REST client, persistence, and provider flows together; for scenarios requiring external
+  automation (WebDriver), define mockable traits so Rust tests can simulate callbacks while
+  leaving true browser automation to consumer projects.
+  - Replace JS-only tooling with a cargo test profile: create custom harness binaries when
+  parallel orchestration is needed, and ensure README “Next steps” reflects the new Rust test
+  landscape after each batch is ported.
+
+
+ Thinking
+  I'll prepare a concise, clear final message starting with a brief explanation of the README
+  addition at line 107, then list key impact points and next-step suggestions in a numeric list to
+  make it easy to scan and follow.
+
+> Added a Test Porting Roadmap detailing the JS test inventory and Rust migration strategy so we
+  have a shared checklist going forward (src/auth/README.md:107).
+
+  - Tests: not run (documentation-only change).
+
+  Next steps:
+
+  1. Prioritize the “Core & API” inventory and open tasks for missing Rust coverage.
+  2. Set up REST mocking utilities so authentication/account suites can be ported with confidence.
+
+
+  Thinking
+  I’m organizing details about adding the httpmock dev dependency in Cargo.toml (noting line 65),
+  the customization of AuthBuilder endpoints to support testing with mocks, and that tests didn’t
+  run due to network limits. I’ll also mention the lack of Cargo.lock updates from test failures
+  and plan to list key file references with line numbers for clarity in a bullet-point summary.
+
+• Explored
+  └ Read Cargo.toml
+
+> Thinking
+  I'll list the key code changes with file references, note the tests weren’t run due to network
+  restrictions fetching crates, and suggest natural next steps like allowing network access for
+  tests or expanding coverage to account management endpoints.
+
+> - Enabled configurable Identity Toolkit and Secure Token endpoints so Auth can talk to emulators
+  or mocks; stored them in AuthConfig, added setters, and wired builder overrides (src/auth/
+  api.rs:45, src/auth/api.rs:342, src/auth/api.rs:1003, src/auth/model.rs:103).
+  - Added httpmock as a dev dependency and ported email/password sign-in & sign-up tests that
+  assert REST payloads and error cases against a local mock server (Cargo.toml:65, src/auth/
+  api.rs:1109).
+  - Refactored token refresh to accept custom endpoints, covered success/error mapping in new unit
+  tests, and documented the progress in the test porting roadmap (src/auth/api/token.rs:7, src/
+  auth/api/token.rs:94, src/auth/README.md:107).
+
+  Tests: not run (cargo test failed because crates.io cannot be reached under the current network
+  restrictions).
+
+  Next steps:
+
+  1. Allow a one-time network-enabled cargo test (or vendor httpmock) so the new suites compile
+  and run locally.
+  2. Apply the same httpmock approach to account-management endpoints to continue the Core & API
+  port.
+
+
+  I'll highlight the tests that ran, including those involving network access, mention the updates to dev dependencies, and provide a clear summary of the changes made. Then I'll wrap up with
+  instructions for next steps, though committing isn't required. This will give the user a concise overview of what happened and what to do next.
+
+> - Added configurable Identity Toolkit & Secure Token endpoints to Auth, storing them inside AuthConfig, exposing setters, and wiring builder overrides so tests/emulators can point at mock servers
+  (src/auth/api.rs:45, src/auth/api.rs:342, src/auth/api.rs:1003, src/auth/model.rs:103).
+  - Reworked token refresh to use refresh_id_token_with_endpoint, exposed the default Secure Token URL, and documented the change in the README test roadmap (src/auth/api/token.rs:7, src/auth/
+  api.rs:292, src/auth/README.md:107).
+  - Brought in httpmock (dev), then ported email/password sign-in and sign-up tests plus token-refresh success/error checks using mocked HTTP responses, ensuring the new configurability works end to
+  end (Cargo.toml:65, src/auth/api.rs:1109, src/auth/api/token.rs:94).
+
+  Tests: cargo test --lib auth::api::tests::, cargo test --lib auth::api::token::tests::.
+
+  Next steps:
+
+  1. Expand the same pattern to account-management and core strategy endpoints so more JS suites can land in Rust.
+  2. Consider a shared mock-server helper to cut duplication across upcoming test modules.
+
+▌ write a mock server helper in a test folder common to all the modules in the library             
+
+
+write a mock server helper in a test folder common to all the modules in the library
+
+• Explored
+  └ Read lib.rs
+
+> Thinking
+  I’m planning to add a test_support module under src/ that’s only compiled in tests, providing helpers like starting httpmock::MockServer instances and creating FirebaseApp mocks. This will
+  consolidate repeated test setup code across modules, improve reuse, and streamline existing tests by calling these helpers instead of duplicating code. I'll create submodules for http mocking and
+  Firebase app mocks, expose them from test_support, and update tests accordingly.
+
+• Ran cat -n src/lib.rs
+
+• Edited src/lib.rs (+3 -0)
+    17     pub mod util;
+    18    +
+    19    +#[cfg(test)]
+    20    +pub mod test_support;
+
+• Ran mkdir -p src/test_support

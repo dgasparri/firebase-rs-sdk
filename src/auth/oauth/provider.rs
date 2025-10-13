@@ -2,12 +2,11 @@ use std::collections::HashMap;
 
 use url::Url;
 
-
+use super::OAuthRequest;
 use crate::auth::api::Auth;
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::UserCredential;
 use crate::auth::oauth::RedirectOperation;
-use super::OAuthRequest;
 
 /// Builder-like representation of an OAuth identity provider.
 ///
