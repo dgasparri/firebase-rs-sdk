@@ -24,6 +24,7 @@ pub struct OAuthProvider {
 }
 
 impl OAuthProvider {
+    /// Creates a new provider with the given ID and authorization endpoint.
     pub fn new(provider_id: impl Into<String>, authorization_endpoint: impl Into<String>) -> Self {
         Self {
             provider_id: provider_id.into(),
@@ -35,30 +36,37 @@ impl OAuthProvider {
         }
     }
 
+    /// Returns the provider identifier (e.g. `google.com`).
     pub fn provider_id(&self) -> &str {
         &self.provider_id
     }
 
+    /// Returns the full authorization endpoint URL.
     pub fn authorization_endpoint(&self) -> &str {
         &self.authorization_endpoint
     }
 
+    /// Returns the configured OAuth scopes.
     pub fn scopes(&self) -> &[String] {
         &self.scopes
     }
 
+    /// Returns any custom query parameters used when initiating flows.
     pub fn custom_parameters(&self) -> &HashMap<String, String> {
         &self.custom_parameters
     }
 
+    /// Returns an optional user-facing display name for the provider.
     pub fn display_name(&self) -> Option<&str> {
         self.display_name.as_deref()
     }
 
+    /// Returns the preferred language hint for provider UX.
     pub fn language_code(&self) -> Option<&str> {
         self.language_code.as_deref()
     }
 
+    /// Adds a scope to the provider if it has not been added yet.
     pub fn add_scope(&mut self, scope: impl Into<String>) {
         let value = scope.into();
         if !self.scopes.contains(&value) {
@@ -66,6 +74,7 @@ impl OAuthProvider {
         }
     }
 
+    /// Replaces the provider scopes with the provided list.
     pub fn set_scopes<I, S>(&mut self, scopes: I)
     where
         I: IntoIterator<Item = S>,
@@ -75,16 +84,19 @@ impl OAuthProvider {
         self.scopes.extend(scopes.into_iter().map(Into::into));
     }
 
+    /// Overwrites the custom parameters included in authorization requests.
     pub fn set_custom_parameters(&mut self, parameters: HashMap<String, String>) -> &mut Self {
         self.custom_parameters = parameters;
         self
     }
 
+    /// Sets the user-visible display name.
     pub fn set_display_name(&mut self, value: impl Into<String>) -> &mut Self {
         self.display_name = Some(value.into());
         self
     }
 
+    /// Sets the preferred language hint passed to the provider.
     pub fn set_language_code(&mut self, value: impl Into<String>) -> &mut Self {
         self.language_code = Some(value.into());
         self
@@ -131,6 +143,7 @@ impl OAuthProvider {
     }
 
     /// Runs the configured popup handler and returns the produced credential.
+    /// Executes the sign-in flow using a popup handler.
     pub fn sign_in_with_popup(&self, auth: &Auth) -> AuthResult<UserCredential> {
         let handler = auth.popup_handler().ok_or(AuthError::NotImplemented(
             "OAuth popup handler not registered",
@@ -140,6 +153,7 @@ impl OAuthProvider {
         auth.sign_in_with_oauth_credential(credential)
     }
 
+    /// Links the current user with this provider using a popup flow.
     pub fn link_with_popup(&self, auth: &Auth) -> AuthResult<UserCredential> {
         let handler = auth.popup_handler().ok_or(AuthError::NotImplemented(
             "OAuth popup handler not registered",
@@ -163,6 +177,7 @@ impl OAuthProvider {
         Ok(())
     }
 
+    /// Initiates a redirect flow to link the current user with this provider.
     pub fn link_with_redirect(&self, auth: &Auth) -> AuthResult<()> {
         let handler = auth.redirect_handler().ok_or(AuthError::NotImplemented(
             "OAuth redirect handler not registered",

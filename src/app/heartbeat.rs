@@ -26,6 +26,7 @@ pub struct HeartbeatServiceImpl {
 }
 
 impl HeartbeatServiceImpl {
+    /// Creates a heartbeat service tied to the given app and backing storage.
     pub fn new(app: FirebaseApp, storage: Arc<dyn HeartbeatStorage>) -> Self {
         Self {
             app,
@@ -179,6 +180,7 @@ pub struct InMemoryHeartbeatStorage {
 }
 
 impl InMemoryHeartbeatStorage {
+    /// Builds an in-memory heartbeat store scoped to the provided app instance.
     pub fn new(app: &FirebaseApp) -> Self {
         let options = app.options();
         let key = format!("{}!{}", app.name(), options.app_id.unwrap_or_default());
@@ -210,6 +212,7 @@ static HEARTBEAT_STORE: LazyLock<Mutex<HashMap<String, HeartbeatsInStorage>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(test)]
+/// Clears any persisted heartbeat data in the in-memory store (test helper).
 pub fn clear_heartbeat_store_for_tests() {
     HEARTBEAT_STORE
         .lock()

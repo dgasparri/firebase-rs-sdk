@@ -10,6 +10,7 @@ pub trait OAuthProviderFactory {
 pub struct GoogleAuthProvider;
 
 impl GoogleAuthProvider {
+    /// Adds a `login_hint` custom parameter to the Google provider configuration.
     pub fn add_login_hint(provider: &mut OAuthProvider, hint: &str) {
         let mut params = provider.custom_parameters().clone();
         params.insert("login_hint".to_string(), hint.to_string());
@@ -58,6 +59,7 @@ impl OAuthProviderFactory for FacebookAuthProvider {
 pub struct GithubAuthProvider;
 
 impl GithubAuthProvider {
+    /// Sets the GitHub `login` hint to pre-fill the username field.
     pub fn set_login_hint(provider: &mut OAuthProvider, login: &str) {
         let mut params = provider.custom_parameters().clone();
         params.insert("login".to_string(), login.to_string());
@@ -117,6 +119,7 @@ impl OAuthProviderFactory for MicrosoftAuthProvider {
     }
 }
 
+/// Builds a custom parameter map containing the given OAuth access token.
 pub fn oauth_access_token_map(token: &str) -> HashMap<String, String> {
     [("oauthAccessToken".to_string(), token.to_string())]
         .into_iter()

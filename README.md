@@ -13,6 +13,8 @@ https://firebase.google.com/docs/reference/js/
 5. see auth LOG.md (You can keep it ergonomic by gating the web adapters behind a Cargo feature (wasm-web) ())
 6. CONTRIBUTING.md in the JS SDK and API documentation https://chatgpt.com/c/68eccf4b-d1c8-8328-845f-d39a4472284d
 
+Improve documentation of public API comparing it to the original library
+
 ## Modules:
 
 - Firebase is the API

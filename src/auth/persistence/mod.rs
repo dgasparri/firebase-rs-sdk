@@ -28,6 +28,7 @@ pub struct PersistenceSubscription {
 }
 
 impl PersistenceSubscription {
+    /// Creates a subscription with a cleanup callback that runs on drop.
     pub fn new<F>(cleanup: F) -> Self
     where
         F: FnOnce() + Send + 'static,
@@ -37,6 +38,7 @@ impl PersistenceSubscription {
         }
     }
 
+    /// Returns a subscription that performs no cleanup work.
     pub fn noop() -> Self {
         Self { cleanup: None }
     }
@@ -140,6 +142,7 @@ pub struct ClosurePersistence {
 }
 
 impl ClosurePersistence {
+    /// Creates a persistence backend from set/get closures.
     pub fn new<Set, Get>(set: Set, get: Get) -> Self
     where
         Set: Fn(Option<PersistedAuthState>) -> AuthResult<()> + Send + Sync + 'static,
@@ -148,6 +151,7 @@ impl ClosurePersistence {
         Self::with_subscribe(set, get, |_| Ok(PersistenceSubscription::noop()))
     }
 
+    /// Creates a persistence backend with custom set/get/subscribe behavior.
     pub fn with_subscribe<Set, Get, Subscribe>(set: Set, get: Get, subscribe: Subscribe) -> Self
     where
         Set: Fn(Option<PersistedAuthState>) -> AuthResult<()> + Send + Sync + 'static,

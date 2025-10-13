@@ -7,6 +7,7 @@ pub struct PlatformLoggerServiceImpl {
 }
 
 impl PlatformLoggerServiceImpl {
+    /// Creates the platform logger service using the component container from an app.
     pub fn new(container: ComponentContainer) -> Self {
         Self { container }
     }

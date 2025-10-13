@@ -159,6 +159,10 @@ fn server_app_hash(options: &FirebaseOptions, settings: &FirebaseServerAppSettin
     format!("serverapp-{:x}", digest)
 }
 
+/// Creates (or returns) a `FirebaseApp` instance for the provided options and settings.
+///
+/// When an app with the same normalized name already exists, the existing instance is
+/// returned as long as the configuration matches. A mismatch results in `AppError::DuplicateApp`.
 pub fn initialize_app(
     options: FirebaseOptions,
     settings: Option<FirebaseAppSettings>,
@@ -208,6 +212,9 @@ pub fn initialize_app(
     Ok(app)
 }
 
+/// Retrieves a previously initialized `FirebaseApp` by name.
+///
+/// Passing `None` looks up the default app entry.
 pub fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
     ensure_core_components_registered();
     let _guard = global_app_guard();
@@ -220,12 +227,14 @@ pub fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
     })
 }
 
+/// Returns a snapshot of all registered `FirebaseApp` instances.
 pub fn get_apps() -> Vec<FirebaseApp> {
     ensure_core_components_registered();
     let _guard = global_app_guard();
     apps_guard().values().cloned().collect()
 }
 
+/// Deletes the provided `FirebaseApp` from the global registry and tears down services.
 pub fn delete_app(app: &FirebaseApp) -> AppResult<()> {
     let _guard = global_app_guard();
     let name = app.name().to_string();
@@ -241,6 +250,7 @@ pub fn delete_app(app: &FirebaseApp) -> AppResult<()> {
     Ok(())
 }
 
+/// Creates or reuses a server-side `FirebaseServerApp` instance from options and settings.
 pub fn initialize_server_app(
     options: Option<FirebaseOptions>,
     settings: Option<FirebaseServerAppSettings>,
@@ -308,6 +318,7 @@ pub fn initialize_server_app(
     Ok(server_app)
 }
 
+/// Registers a library version component so it can be queried by other Firebase services.
 pub fn register_version(library: &str, version: &str, variant: Option<&str>) {
     let _guard = global_app_guard();
     let mut library_key = PLATFORM_LOG_STRING
@@ -356,11 +367,13 @@ pub(crate) fn clear_registered_versions_for_tests() {
         .clear();
 }
 
+/// Installs a user-supplied logger that receives Firebase diagnostic messages.
 pub fn on_log(callback: Option<LogCallback>, options: Option<LogOptions>) -> AppResult<()> {
     logger::set_user_log_handler(callback, options);
     Ok(())
 }
 
+/// Sets the global Firebase SDK log level.
 pub fn set_log_level(level: LogLevel) {
     let _ = logger::set_log_level(level);
 }

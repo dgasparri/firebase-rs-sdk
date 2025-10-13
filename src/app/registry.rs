@@ -28,6 +28,7 @@ pub(crate) fn registered_components_guard() -> MutexGuard<'static, HashMap<Arc<s
         .unwrap_or_else(|poison| poison.into_inner())
 }
 
+/// Attaches a component to the given app, logging failures for debugging.
 pub fn add_component(app: &FirebaseApp, component: &Component) {
     if app.container().add_component(component.clone()).is_err() {
         LOGGER.debug(format!(
@@ -39,10 +40,12 @@ pub fn add_component(app: &FirebaseApp, component: &Component) {
 }
 
 #[allow(dead_code)]
+/// Replaces any existing component with the same name on the given app.
 pub fn add_or_overwrite_component(app: &FirebaseApp, component: Component) {
     app.container().add_or_overwrite_component(component);
 }
 
+/// Registers a global component and propagates it to already-initialized apps.
 pub fn register_component(component: Component) -> bool {
     if !component::register_component(component.clone()) {
         return false;
@@ -65,6 +68,7 @@ pub fn register_component(component: Component) -> bool {
     true
 }
 
+/// Fetches the provider for the named component, triggering heartbeat side-effects.
 pub fn get_provider(app: &FirebaseApp, name: &str) -> Provider {
     let container = app.container();
     if let Some(service) = container
@@ -83,6 +87,7 @@ pub fn get_provider(app: &FirebaseApp, name: &str) -> Provider {
 }
 
 #[allow(dead_code)]
+/// Deletes a specific service instance from the given app by provider name.
 pub fn remove_service_instance(app: &FirebaseApp, name: &str, instance_identifier: &str) {
     get_provider(app, name).clear_instance(instance_identifier);
 }

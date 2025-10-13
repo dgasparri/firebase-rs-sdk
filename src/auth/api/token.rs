@@ -37,6 +37,7 @@ struct ErrorBody {
     message: Option<String>,
 }
 
+/// Exchanges a refresh token for a fresh ID token via the Secure Token API.
 pub fn refresh_id_token(
     client: &Client,
     api_key: &str,

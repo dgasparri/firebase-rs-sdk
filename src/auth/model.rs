@@ -27,6 +27,7 @@ pub struct User {
 }
 
 impl User {
+    /// Creates a new user bound to the given app with profile information.
     pub fn new(app: FirebaseApp, info: UserInfo) -> Self {
         Self {
             app,
@@ -37,40 +38,49 @@ impl User {
         }
     }
 
+    /// Returns the owning `FirebaseApp` for the user.
     pub fn app(&self) -> &FirebaseApp {
         &self.app
     }
 
+    /// Indicates whether the user signed in anonymously.
     pub fn is_anonymous(&self) -> bool {
         self.is_anonymous
     }
 
+    /// Flags the user as anonymous or regular.
     pub fn set_anonymous(&mut self, anonymous: bool) {
         self.is_anonymous = anonymous;
     }
 
+    /// Returns the stable Firebase UID for the user.
     pub fn uid(&self) -> &str {
         &self.info.uid
     }
 
+    /// Indicates whether the user's email has been verified.
     pub fn email_verified(&self) -> bool {
         self.email_verified
     }
 
+    /// Returns the refresh token issued for this user, if present.
     pub fn refresh_token(&self) -> Option<String> {
         self.token_manager.refresh_token()
     }
 
+    /// Returns the cached ID token or an error if none is available.
     pub fn get_id_token(&self, _force_refresh: bool) -> AuthResult<String> {
         self.token_manager
             .access_token()
             .ok_or_else(|| AuthError::InvalidCredential("Missing ID token".into()))
     }
 
+    /// Exposes the underlying token manager.
     pub fn token_manager(&self) -> &TokenManager {
         &self.token_manager
     }
 
+    /// Updates the cached tokens with fresh credentials from the backend.
     pub fn update_tokens(
         &self,
         access_token: Option<String>,
@@ -81,6 +91,7 @@ impl User {
         self.token_manager.update(update);
     }
 
+    /// Returns the immutable `UserInfo` profile snapshot.
     pub fn info(&self) -> &UserInfo {
         &self.info
     }
@@ -113,6 +124,7 @@ pub struct EmailAuthProvider;
 impl EmailAuthProvider {
     pub const PROVIDER_ID: &'static str = "password";
 
+    /// Builds an auth credential suitable for email/password sign-in flows.
     pub fn credential(email: &str, password: &str) -> AuthCredential {
         AuthCredential {
             provider_id: Self::PROVIDER_ID.to_string(),
@@ -132,10 +144,12 @@ pub struct AuthStateListeners {
 }
 
 impl AuthStateListeners {
+    /// Registers a new observer to receive auth state changes.
     pub fn add_observer(&self, observer: PartialObserver<Arc<User>>) {
         self.observers.lock().unwrap().push(observer);
     }
 
+    /// Notifies all observers with the provided user snapshot.
     pub fn notify(&self, user: Arc<User>) {
         for observer in self.observers.lock().unwrap().iter() {
             if let Some(next) = observer.next.clone() {

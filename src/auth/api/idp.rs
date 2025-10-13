@@ -41,6 +41,7 @@ pub struct SignInWithIdpRequest {
     pub id_token: Option<String>,
 }
 
+/// Signs a user in with an identity provider using the `signInWithIdp` REST endpoint.
 pub fn sign_in_with_idp(
     client: &Client,
     api_key: &str,

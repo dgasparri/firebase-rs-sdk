@@ -14,6 +14,7 @@ pub struct AuthTokenProvider {
 }
 
 impl AuthTokenProvider {
+    /// Creates a Firestore-compatible token provider backed by Firebase Auth.
     pub fn new(auth: Arc<Auth>) -> Self {
         Self {
             auth,
@@ -21,6 +22,7 @@ impl AuthTokenProvider {
         }
     }
 
+    /// Converts the provider into an `Arc` for Datastore integration.
     pub fn into_arc(self) -> TokenProviderArc {
         Arc::new(self)
     }
@@ -58,6 +60,7 @@ fn map_auth_error(error: AuthError) -> FirestoreError {
     }
 }
 
+/// Convenience helper that wraps an `Auth` instance into a token provider arc.
 pub fn auth_token_provider_arc(auth: Arc<Auth>) -> TokenProviderArc {
     AuthTokenProvider::new(auth).into_arc()
 }

@@ -38,6 +38,7 @@ impl RedirectPersistence for InMemoryRedirectPersistence {
 }
 
 impl InMemoryRedirectPersistence {
+    /// Returns a new shared in-memory redirect persistence implementation.
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::default())
     }

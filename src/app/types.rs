@@ -108,6 +108,7 @@ struct FirebaseAppInner {
 }
 
 impl FirebaseApp {
+    /// Creates a new `FirebaseApp` from options, config, and the component container.
     pub fn new(
         options: FirebaseOptions,
         config: FirebaseAppConfig,
@@ -129,18 +130,22 @@ impl FirebaseApp {
         app
     }
 
+    /// Returns the app's logical name.
     pub fn name(&self) -> &str {
         &self.inner.config.name
     }
 
+    /// Provides a cloned copy of the original Firebase options.
     pub fn options(&self) -> FirebaseOptions {
         self.inner.options.clone()
     }
 
+    /// Returns the configuration metadata associated with the app.
     pub fn config(&self) -> FirebaseAppConfig {
         self.inner.config.clone()
     }
 
+    /// Indicates whether automatic data collection is currently enabled.
     pub fn automatic_data_collection_enabled(&self) -> bool {
         *self
             .inner
@@ -149,6 +154,7 @@ impl FirebaseApp {
             .unwrap_or_else(|poison| poison.into_inner())
     }
 
+    /// Updates the automatic data collection flag for the app.
     pub fn set_automatic_data_collection_enabled(&self, value: bool) {
         *self
             .inner
@@ -157,10 +163,12 @@ impl FirebaseApp {
             .unwrap_or_else(|poison| poison.into_inner()) = value;
     }
 
+    /// Exposes the component container for advanced service registration.
     pub fn container(&self) -> ComponentContainer {
         self.inner.container.clone()
     }
 
+    /// Adds a lazily-initialized component to the app.
     pub fn add_component(&self, component: Component) -> AppResult<()> {
         self.check_destroyed()?;
         self.inner
@@ -169,12 +177,14 @@ impl FirebaseApp {
             .map_err(AppError::from)
     }
 
+    /// Adds a component, replacing any existing implementation with the same name.
     pub fn add_or_overwrite_component(&self, component: Component) -> AppResult<()> {
         self.check_destroyed()?;
         self.inner.container.add_or_overwrite_component(component);
         Ok(())
     }
 
+    /// Removes a cached service instance from the specified provider.
     pub fn remove_service_instance(&self, name: &str, identifier: Option<&str>) {
         let provider = self.inner.container.get_provider(name);
         if let Some(id) = identifier {
@@ -184,14 +194,17 @@ impl FirebaseApp {
         }
     }
 
+    /// Returns whether the app has been explicitly deleted.
     pub fn is_deleted(&self) -> bool {
         self.inner.is_deleted.load(Ordering::SeqCst)
     }
 
+    /// Marks the app as deleted (internal use).
     pub fn set_is_deleted(&self, value: bool) {
         self.inner.is_deleted.store(value, Ordering::SeqCst);
     }
 
+    /// Verifies that the app has not been deleted before performing operations.
     pub fn check_destroyed(&self) -> AppResult<()> {
         if self.is_deleted() {
             return Err(AppError::AppDeleted {
@@ -215,6 +228,7 @@ impl std::fmt::Debug for FirebaseApp {
 }
 
 impl FirebaseAppConfig {
+    /// Creates a configuration value capturing the app name and data collection setting.
     pub fn new(name: impl Into<String>, automatic: bool) -> Self {
         Self {
             name: to_arc_str(name),
@@ -235,6 +249,7 @@ struct FirebaseServerAppInner {
 }
 
 impl FirebaseServerApp {
+    /// Wraps a `FirebaseApp` with server-specific settings and reference counting.
     pub fn new(base: FirebaseApp, settings: FirebaseServerAppSettings) -> Self {
         Self {
             inner: Arc::new(FirebaseServerAppInner {
@@ -245,41 +260,50 @@ impl FirebaseServerApp {
         }
     }
 
+    /// Returns the underlying base app instance.
     pub fn base(&self) -> &FirebaseApp {
         &self.inner.base
     }
 
+    /// Returns the server-specific configuration for this app.
     pub fn settings(&self) -> FirebaseServerAppSettings {
         self.inner.settings.clone()
     }
 
+    /// Convenience accessor for the app name.
     pub fn name(&self) -> &str {
         self.inner.base.name()
     }
 
+    /// Increments the manual reference count.
     pub fn inc_ref_count(&self) {
         self.inner.ref_count.fetch_add(1, Ordering::SeqCst);
     }
 
+    /// Decrements the reference count, returning the new value.
     pub fn dec_ref_count(&self) -> usize {
         self.inner.ref_count.fetch_sub(1, Ordering::SeqCst) - 1
     }
 }
 
 #[allow(dead_code)]
+/// Returns `true` when the current target behaves like a browser environment.
 pub fn is_browser() -> bool {
     false
 }
 
 #[allow(dead_code)]
+/// Returns `true` when the current target is a web worker environment.
 pub fn is_web_worker() -> bool {
     false
 }
 
+/// Provides compile-time default app options when available.
 pub fn get_default_app_config() -> Option<FirebaseOptions> {
     None
 }
 
+/// Compares two `FirebaseOptions` instances for structural equality.
 pub fn deep_equal_options(a: &FirebaseOptions, b: &FirebaseOptions) -> bool {
     a == b
 }
@@ -334,6 +358,7 @@ pub trait FirebaseAppInternals: Send + Sync {
     );
 }
 
+/// Compares two app configs for equality.
 pub fn deep_equal_config(a: &FirebaseAppConfig, b: &FirebaseAppConfig) -> bool {
     a == b
 }

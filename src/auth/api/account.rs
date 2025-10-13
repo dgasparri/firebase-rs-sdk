@@ -20,6 +20,7 @@ struct SendOobCodeRequest<'a> {
     id_token: Option<&'a str>,
 }
 
+/// Sends a password reset email via the Identity Toolkit REST API.
 pub fn send_password_reset_email(
     client: &Client,
     endpoint: &str,
@@ -34,6 +35,7 @@ pub fn send_password_reset_email(
     send_oob_code(client, endpoint, api_key, &request)
 }
 
+/// Triggers a verification email for the provided ID token.
 pub fn send_email_verification(
     client: &Client,
     endpoint: &str,
@@ -77,6 +79,7 @@ struct ResetPasswordRequest<'a> {
     new_password: &'a str,
 }
 
+/// Confirms a password reset OOB code with the new password.
 pub fn confirm_password_reset(
     client: &Client,
     endpoint: &str,
@@ -120,6 +123,7 @@ pub struct UpdateAccountRequest {
 }
 
 impl UpdateAccountRequest {
+    /// Builds an update request seeded with the required ID token.
     pub fn new(id_token: impl Into<String>) -> Self {
         Self {
             id_token: id_token.into(),
@@ -172,6 +176,7 @@ pub struct UpdateAccountResponse {
     pub provider_user_info: Option<Vec<ProviderUserInfo>>,
 }
 
+/// Applies profile updates for the user represented by the given ID token.
 pub fn update_account(
     client: &Client,
     endpoint: &str,
@@ -229,6 +234,7 @@ pub fn update_account(
     }
 }
 
+/// Signs in a user with email and password using the REST API.
 pub fn verify_password(
     client: &Client,
     endpoint: &str,
@@ -257,6 +263,7 @@ struct DeleteAccountRequest<'a> {
     id_token: &'a str,
 }
 
+/// Permanently deletes the user account associated with the given ID token.
 pub fn delete_account(
     client: &Client,
     endpoint: &str,
@@ -285,6 +292,7 @@ struct GetAccountInfoRequest<'a> {
     id_token: &'a str,
 }
 
+/// Retrieves user profile information for the provided ID token.
 pub fn get_account_info(
     client: &Client,
     endpoint: &str,

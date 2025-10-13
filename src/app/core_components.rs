@@ -12,6 +12,7 @@ use crate::component::{Component, ComponentContainer};
 
 use std::sync::LazyLock;
 
+/// Ensures the core Firebase components are registered before app initialization.
 pub fn ensure_registered() {
     LazyLock::force(&REGISTERED);
 }

@@ -24,6 +24,7 @@ impl Clone for TokenManager {
 }
 
 impl TokenManager {
+    /// Applies token updates returned by the backend to the cached state.
     pub fn update(&self, update: TokenUpdate) {
         let mut state = self.state.lock().unwrap();
         if let Some(access_token) = update.access_token {
@@ -37,19 +38,23 @@ impl TokenManager {
         }
     }
 
+    /// Clears any cached tokens and expiration metadata.
     pub fn clear(&self) {
         let mut state = self.state.lock().unwrap();
         *state = TokenState::default();
     }
 
+    /// Returns the current access token if one is cached.
     pub fn access_token(&self) -> Option<String> {
         self.state.lock().unwrap().access_token.clone()
     }
 
+    /// Returns the refresh token if one has been stored.
     pub fn refresh_token(&self) -> Option<String> {
         self.state.lock().unwrap().refresh_token.clone()
     }
 
+    /// Determines whether the cached token is near expiry and should be refreshed.
     pub fn should_refresh(&self, tolerance: Duration) -> bool {
         let state = self.state.lock().unwrap();
         if state.access_token.is_none() {
@@ -65,10 +70,12 @@ impl TokenManager {
         }
     }
 
+    /// Returns the timestamp when the access token expires, if known.
     pub fn expiration_time(&self) -> Option<SystemTime> {
         self.state.lock().unwrap().expiration_time
     }
 
+    /// Seeds the manager with known token values.
     pub fn initialize(
         &self,
         access_token: Option<String>,
@@ -90,6 +97,7 @@ pub struct TokenUpdate {
 }
 
 impl TokenUpdate {
+    /// Creates a token update payload produced by backend responses.
     pub fn new(
         access_token: Option<String>,
         refresh_token: Option<String>,

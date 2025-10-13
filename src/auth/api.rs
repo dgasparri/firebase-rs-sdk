@@ -65,14 +65,17 @@ pub struct Auth {
 }
 
 impl Auth {
+    /// Creates a builder for configuring an `Auth` instance before construction.
     pub fn builder(app: FirebaseApp) -> AuthBuilder {
         AuthBuilder::new(app)
     }
 
+    /// Constructs an `Auth` instance using in-memory persistence.
     pub fn new(app: FirebaseApp) -> AuthResult<Self> {
         Self::new_with_persistence(app, Arc::new(InMemoryPersistence::default()))
     }
 
+    /// Constructs an `Auth` instance with a caller-provided persistence backend.
     pub fn new_with_persistence(
         app: FirebaseApp,
         persistence: Arc<dyn AuthPersistence + Send + Sync>,
@@ -110,6 +113,7 @@ impl Auth {
         })
     }
 
+    /// Finishes initialization by restoring persisted state and wiring listeners.
     pub fn initialize(self: &Arc<Self>) -> AuthResult<()> {
         *self.self_ref.lock().unwrap() = Arc::downgrade(self);
         self.restore_from_persistence()?;
@@ -117,14 +121,17 @@ impl Auth {
         Ok(())
     }
 
+    /// Returns the `FirebaseApp` associated with this Auth instance.
     pub fn app(&self) -> &FirebaseApp {
         &self.app
     }
 
+    /// Returns the currently signed-in user, if any.
     pub fn current_user(&self) -> Option<Arc<User>> {
         self.current_user.lock().unwrap().clone()
     }
 
+    /// Signs out the current user and clears persisted credentials.
     pub fn sign_out(&self) {
         self.clear_local_user_state();
         if let Err(err) = self.set_persisted_state(None) {
@@ -132,10 +139,12 @@ impl Auth {
         }
     }
 
+    /// Returns the email/password auth provider helper.
     pub fn email_auth_provider(&self) -> EmailAuthProvider {
         EmailAuthProvider
     }
 
+    /// Signs a user in using the email/password REST endpoint.
     pub fn sign_in_with_email_and_password(
         &self,
         email: &str,
@@ -171,6 +180,7 @@ impl Auth {
         })
     }
 
+    /// Creates a new user using email/password credentials.
     pub fn create_user_with_email_and_password(
         &self,
         email: &str,
@@ -210,6 +220,7 @@ impl Auth {
         })
     }
 
+    /// Registers an observer that is invoked whenever auth state changes.
     pub fn on_auth_state_changed(
         &self,
         observer: PartialObserver<Arc<User>>,
@@ -311,6 +322,7 @@ impl Auth {
         Ok(response.id_token)
     }
 
+    /// Returns the current user's ID token, refreshing when requested.
     pub fn get_token(&self, force_refresh: bool) -> AuthResult<Option<String>> {
         let user = match self.current_user() {
             Some(user) => user,
@@ -329,28 +341,34 @@ impl Auth {
         }
     }
 
+    /// Exposes this auth instance as a Firestore token provider.
     pub fn token_provider(self: &Arc<Self>) -> TokenProviderArc {
         crate::auth::token_provider::auth_token_provider_arc(self.clone())
     }
 
+    /// Overrides the default OAuth request URI used during flows.
     pub fn set_oauth_request_uri(&self, value: impl Into<String>) {
         *self.oauth_request_uri.lock().unwrap() = value.into();
     }
 
+    /// Returns the OAuth request URI for popup/redirect flows.
     pub fn oauth_request_uri(&self) -> String {
         self.oauth_request_uri.lock().unwrap().clone()
     }
 
+    /// Updates the Identity Toolkit REST endpoint.
     pub fn set_identity_toolkit_endpoint(&self, endpoint: impl Into<String>) {
         let value = endpoint.into();
         *self.identity_toolkit_endpoint.lock().unwrap() = value.clone();
         self.config.lock().unwrap().identity_toolkit_endpoint = Some(value);
     }
 
+    /// Returns the Identity Toolkit REST endpoint in use.
     pub fn identity_toolkit_endpoint(&self) -> String {
         self.identity_toolkit_endpoint.lock().unwrap().clone()
     }
 
+    /// Sets the Secure Token endpoint used for refresh operations.
     pub fn set_secure_token_endpoint(&self, endpoint: impl Into<String>) {
         let value = endpoint.into();
         *self.secure_token_endpoint.lock().unwrap() = value.clone();
@@ -361,30 +379,37 @@ impl Auth {
         self.secure_token_endpoint.lock().unwrap().clone()
     }
 
+    /// Installs an OAuth popup handler implementation.
     pub fn set_popup_handler(&self, handler: Arc<dyn OAuthPopupHandler>) {
         *self.popup_handler.lock().unwrap() = Some(handler);
     }
 
+    /// Clears any installed popup handler.
     pub fn clear_popup_handler(&self) {
         *self.popup_handler.lock().unwrap() = None;
     }
 
+    /// Retrieves the currently configured popup handler.
     pub fn popup_handler(&self) -> Option<Arc<dyn OAuthPopupHandler>> {
         self.popup_handler.lock().unwrap().clone()
     }
 
+    /// Installs an OAuth redirect handler implementation.
     pub fn set_redirect_handler(&self, handler: Arc<dyn OAuthRedirectHandler>) {
         *self.redirect_handler.lock().unwrap() = Some(handler);
     }
 
+    /// Clears any installed redirect handler.
     pub fn clear_redirect_handler(&self) {
         *self.redirect_handler.lock().unwrap() = None;
     }
 
+    /// Retrieves the currently configured redirect handler.
     pub fn redirect_handler(&self) -> Option<Arc<dyn OAuthRedirectHandler>> {
         self.redirect_handler.lock().unwrap().clone()
     }
 
+    /// Replaces the persistence mechanism used for redirect state.
     pub fn set_redirect_persistence(&self, persistence: Arc<dyn RedirectPersistence>) {
         *self.redirect_persistence.lock().unwrap() = persistence;
     }
@@ -393,6 +418,7 @@ impl Auth {
         self.redirect_persistence.lock().unwrap().clone()
     }
 
+    /// Signs in using an OAuth credential produced by popup/redirect flows.
     pub fn sign_in_with_oauth_credential(
         &self,
         credential: AuthCredential,
@@ -400,12 +426,14 @@ impl Auth {
         self.exchange_oauth_credential(credential, None)
     }
 
+    /// Sends a password reset email to the specified address.
     pub fn send_password_reset_email(&self, email: &str) -> AuthResult<()> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         send_password_reset_email(&self.rest_client, &endpoint, &api_key, email)
     }
 
+    /// Confirms a password reset OOB code and applies the new password.
     pub fn confirm_password_reset(&self, oob_code: &str, new_password: &str) -> AuthResult<()> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
@@ -418,6 +446,7 @@ impl Auth {
         )
     }
 
+    /// Sends an email verification message to the currently signed-in user.
     pub fn send_email_verification(&self) -> AuthResult<()> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
@@ -426,6 +455,7 @@ impl Auth {
         send_email_verification(&self.rest_client, &endpoint, &api_key, &id_token)
     }
 
+    /// Updates the current user's display name and photo URL.
     pub fn update_profile(
         &self,
         display_name: Option<&str>,
@@ -452,6 +482,7 @@ impl Auth {
         self.perform_account_update(user, request)
     }
 
+    /// Updates the current user's email address.
     pub fn update_email(&self, email: &str) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
@@ -460,6 +491,7 @@ impl Auth {
         self.perform_account_update(user, request)
     }
 
+    /// Updates the current user's password.
     pub fn update_password(&self, password: &str) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
@@ -468,6 +500,7 @@ impl Auth {
         self.perform_account_update(user, request)
     }
 
+    /// Deletes the current user from Firebase Auth.
     pub fn delete_user(&self) -> AuthResult<()> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
@@ -478,6 +511,7 @@ impl Auth {
         Ok(())
     }
 
+    /// Unlinks the specified providers from the current user.
     pub fn unlink_providers(&self, provider_ids: &[&str]) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
@@ -486,6 +520,7 @@ impl Auth {
         self.perform_account_update(user, request)
     }
 
+    /// Fetches the latest account info for the current user.
     pub fn get_account_info(&self) -> AuthResult<GetAccountInfoResponse> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
@@ -494,6 +529,7 @@ impl Auth {
         get_account_info(&self.rest_client, &endpoint, &api_key, &id_token)
     }
 
+    /// Links an OAuth credential with the currently signed-in user.
     pub fn link_with_oauth_credential(
         &self,
         credential: AuthCredential,
@@ -503,6 +539,7 @@ impl Auth {
         self.exchange_oauth_credential(credential, Some(id_token))
     }
 
+    /// Reauthenticates the current user with email and password.
     pub fn reauthenticate_with_password(
         &self,
         email: &str,
@@ -520,6 +557,7 @@ impl Auth {
         self.apply_password_reauth(response)
     }
 
+    /// Reauthenticates the current user with an OAuth credential.
     pub fn reauthenticate_with_oauth_credential(
         &self,
         credential: AuthCredential,
@@ -991,46 +1029,55 @@ impl AuthBuilder {
         }
     }
 
+    /// Overrides the persistence backend used by the Auth instance.
     pub fn with_persistence(mut self, persistence: Arc<dyn AuthPersistence + Send + Sync>) -> Self {
         self.persistence = Some(persistence);
         self
     }
 
+    /// Installs a popup handler prior to building the Auth instance.
     pub fn with_popup_handler(mut self, handler: Arc<dyn OAuthPopupHandler>) -> Self {
         self.popup_handler = Some(handler);
         self
     }
 
+    /// Installs a redirect handler prior to building the Auth instance.
     pub fn with_redirect_handler(mut self, handler: Arc<dyn OAuthRedirectHandler>) -> Self {
         self.redirect_handler = Some(handler);
         self
     }
 
+    /// Overrides the default OAuth request URI before building.
     pub fn with_oauth_request_uri(mut self, request_uri: impl Into<String>) -> Self {
         self.oauth_request_uri = Some(request_uri.into());
         self
     }
 
+    /// Configures the redirect persistence implementation used post-build.
     pub fn with_redirect_persistence(mut self, persistence: Arc<dyn RedirectPersistence>) -> Self {
         self.redirect_persistence = Some(persistence);
         self
     }
 
+    /// Overrides the Identity Toolkit endpoint used by the Auth instance.
     pub fn with_identity_toolkit_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.identity_toolkit_endpoint = Some(endpoint.into());
         self
     }
 
+    /// Overrides the Secure Token endpoint used for refresh operations.
     pub fn with_secure_token_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.secure_token_endpoint = Some(endpoint.into());
         self
     }
 
+    /// Prevents `build` from automatically calling `initialize`.
     pub fn defer_initialization(mut self) -> Self {
         self.auto_initialize = false;
         self
     }
 
+    /// Builds the Auth instance, applying all configured overrides.
     pub fn build(self) -> AuthResult<Arc<Auth>> {
         let persistence = self
             .persistence
@@ -1061,6 +1108,7 @@ impl AuthBuilder {
     }
 }
 
+/// Registers the Auth component so apps can resolve `Auth` instances.
 pub fn register_auth_component() {
     use std::sync::LazyLock;
     static REGISTERED: LazyLock<()> = LazyLock::new(|| {
@@ -1094,6 +1142,7 @@ fn auth_factory(
     Ok(auth as DynService)
 }
 
+/// Retrieves the `Auth` service for the provided app, initializing if needed.
 pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
     let provider = app.container().get_provider("auth");
     provider.get_immediate::<Auth>().ok_or_else(|| {
