@@ -3,12 +3,14 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::app::component::{Component, ComponentContainer, ComponentType};
 use crate::app::constants::{DEFAULT_ENTRY_NAME, PLATFORM_LOG_STRING};
+use crate::app::ensure_core_components_registered;
 use crate::app::errors::{AppError, AppResult};
 use crate::app::logger::{self, LogCallback, LogLevel, LogOptions, LOGGER};
 use crate::app::registry;
 use crate::app::types::{
     deep_equal_config, deep_equal_options, get_default_app_config, FirebaseApp, FirebaseAppConfig,
     FirebaseAppSettings, FirebaseOptions, FirebaseServerApp, FirebaseServerAppSettings,
+    VersionService,
 };
 
 pub static SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -64,6 +66,7 @@ pub fn initialize_app(
     options: FirebaseOptions,
     settings: Option<FirebaseAppSettings>,
 ) -> AppResult<FirebaseApp> {
+    ensure_core_components_registered();
     let settings = merged_settings(settings);
     let name = normalize_name(&settings)?;
     let automatic = automatic_data_collection(&settings);
@@ -97,8 +100,9 @@ pub fn initialize_app(
     use crate::component::types::{DynService, InstanceFactory};
     use std::sync::Arc;
 
+    let app_for_factory = app.clone();
     let app_factory: InstanceFactory =
-        Arc::new(|_container, _options| Ok(Arc::new(()) as DynService));
+        Arc::new(move |_container, _options| Ok(Arc::new(app_for_factory.clone()) as DynService));
     let _ = container.add_component(Component::new("app", app_factory, ComponentType::Public));
     for component in components {
         let _ = container.add_component(component);
@@ -113,6 +117,7 @@ pub fn initialize_app(
 }
 
 pub fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
+    ensure_core_components_registered();
     let lookup = name.unwrap_or(DEFAULT_ENTRY_NAME);
     if let Some(app) = registry::apps().lock().unwrap().get(lookup) {
         return Ok(app.clone());
@@ -123,6 +128,7 @@ pub fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
 }
 
 pub fn get_apps() -> Vec<FirebaseApp> {
+    ensure_core_components_registered();
     registry::apps().lock().unwrap().values().cloned().collect()
 }
 
@@ -168,7 +174,26 @@ pub fn register_version(library: &str, version: &str, variant: Option<&str>) {
     REGISTERED_VERSIONS
         .lock()
         .unwrap()
-        .insert(library_key, version.to_string());
+        .insert(library_key.clone(), version.to_string());
+
+    use crate::component::types::{DynService, InstanceFactory, InstantiationMode};
+    use crate::component::Component;
+    use std::sync::Arc;
+
+    let component_name = format!("{}-version", library_key);
+    let version_string = version.to_string();
+    let library_string = library_key.clone();
+    let factory: InstanceFactory = Arc::new(move |_, _| {
+        let service = VersionService {
+            library: library_string.clone(),
+            version: version_string.clone(),
+        };
+        Ok(Arc::new(service) as DynService)
+    });
+
+    let component = Component::new(component_name, factory, ComponentType::Version)
+        .with_instantiation_mode(InstantiationMode::Eager);
+    let _ = registry::register_component(component);
 }
 
 pub fn on_log(callback: Option<LogCallback>, options: Option<LogOptions>) -> AppResult<()> {

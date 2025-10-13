@@ -29,9 +29,9 @@ instances.
 The TypeScript module still includes functionality that is only partially or not yet ported:
 
 1. **IndexedDB persistence & heartbeat**
-   - `indexeddb.ts` and `heartbeatService.ts` manage heartbeat storage/reporting; currently missing in the Rust port.
+   - `heartbeat.rs` provides an in-memory heartbeat service, but we still need the IndexedDB-backed storage and quota management implemented by `indexeddb.ts`.
 2. **Platform logger service integration**
-   - `platformLoggerService.ts` and dynamic platform logging metadata are stubbed/not wired.
+   - The platform logger is now registered, yet richer metadata (environment-specific variants, SDK aggregation) still needs parity with `platformLoggerService.ts`.
 3. **App check for server environments**
    - `firebaseServerApp.ts` logic (hash-based naming, environment detection) is still a placeholder.
 4. **Deferred component registration updates**
@@ -46,21 +46,33 @@ The TypeScript module still includes functionality that is only partially or not
 
 ## Next Steps
 
-1. **Heartbeat & platform services**
-   - Port `heartbeatService` and `platformLoggerService`, wiring them into app initialization and the component registry.
-2. **Server app parity**
-   - Implement `initializeServerApp` fully (hash naming, token handling, cleanup semantics) to match `firebaseServerApp.ts`.
-3. **Dynamic component registration**
-   - Update `registry.rs`/`initialize_app` so apps subscribe to new global components registered after initialization.
-4. **Option validation enhancements**
-   - Bring over the deep/default comparison helpers from `types.ts` to ensure behaviour matches JS, especially around
-     measurement ID and auto data collection.
-5. **IndexedDB persistence hooks**
-   - Port the IndexedDB cache used for heartbeat data and other app-level persistence.
-6. **Comprehensive tests**
-   - Translate `api.test.ts`, `firebaseApp.test.ts`, and related suites to Rust unit tests.
+### Detailed Completion Plan
+
+1. **Heartbeat subsystem**
+   - Extend the new heartbeat service with IndexedDB-backed persistence and header construction logic that matches the JS algorithm (payload size limits, grouping, cleanup). Provide native fallbacks as needed and expose the header API to consumers.
+
+2. **Platform logger service & version components**
+   - Implement `PlatformLoggerServiceImpl` so the app container can produce the Firebase user-agent string. Ensure `register_version` registers a `ComponentType::Version` component (not just storing strings) to align with JS.
+   - Add a Rust equivalent to `registerCoreComponents`, invoked during module init, to register both platform logger and heartbeat services and to call `register_version` for the core bundle.
+
+3. **Server app parity**
+   - Replace the `initialize_server_app` stub with the logic from `firebaseServerApp.ts`: environment checks, hashed naming, FinalizationRegistry/ref-count handling, token TTL validation, and version registration (`serverapp` variant). Extend `FirebaseServerApp` model with ref counting and cleanup semantics, plus `_is_firebase_server_app` helpers.
+
+4. **Internal API coverage**
+   - Expose equivalents of `_addComponent`, `_addOrOverwriteComponent`, `_clearComponents`, `_getProvider`, `_removeServiceInstance`, and `_isFirebaseServerApp`. Update tests to use them and ensure registry broadcasts new components to existing apps.
+   - Fix the `'app'` component registration to return the actual `FirebaseApp` (matching JS `Component('app', () => this, …)`).
+
+5. **Option/environment helpers**
+   - Implement `get_default_app_config`, `is_browser`, `is_web_worker`, and deep equality utilities so auto-initialization and duplicate-detection match JS behaviour (including optional measurement ID handling and whitespace normalization).
+
+6. **Testing parity**
+   - Port `api.test.ts`, `firebaseApp.test.ts`, `firebaseServerApp.test.ts`, `internal.test.ts`, `heartbeatService.test.ts`, `indexeddb.test.ts`, and `platformLoggerService.test.ts` into Rust unit tests using the shared `test_support` scaffolding. Stub IndexedDB/browser-specific pieces with `wasm-bindgen-test` where appropriate.
+
 7. **Documentation & examples**
-   - Extend README/examples to show usage once the remaining features land.
+   - Update README/examples once the above functionality lands, documenting server-app usage, heartbeat integration, and platform logging hooks.
+
+### Recent Progress
+- Registered the `platform-logger` and `heartbeat` components in Rust, delivering in-memory heartbeat storage and automatic version reporting to match the JS core registration flow (`src/app/core_components.rs`, `src/app/heartbeat.rs`, `src/app/platform_logger.rs`).
 
 Completing these items will bring the Rust app module to parity with `@firebase/app` and ensure downstream services behave
 consistently across ports.

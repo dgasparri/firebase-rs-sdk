@@ -19,6 +19,29 @@ pub trait PlatformLoggerService: Send + Sync {
     fn platform_info_string(&self) -> String;
 }
 
+pub trait HeartbeatService: Send + Sync {
+    fn trigger_heartbeat(&self) -> AppResult<()>;
+    #[allow(dead_code)]
+    fn heartbeats_header(&self) -> AppResult<Option<String>>;
+}
+
+pub trait HeartbeatStorage: Send + Sync {
+    fn read(&self) -> AppResult<HeartbeatsInStorage>;
+    fn overwrite(&self, value: &HeartbeatsInStorage) -> AppResult<()>;
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HeartbeatsInStorage {
+    pub last_sent_heartbeat_date: Option<String>,
+    pub heartbeats: Vec<SingleDateHeartbeat>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SingleDateHeartbeat {
+    pub agent: String,
+    pub date: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FirebaseOptions {
     pub api_key: Option<String>,

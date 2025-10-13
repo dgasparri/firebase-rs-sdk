@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::app::component::{self, Component, Provider};
+use crate::app::heartbeat::HeartbeatServiceImpl;
 use crate::app::logger::LOGGER;
-use crate::app::types::{FirebaseApp, FirebaseServerApp};
+use crate::app::types::{FirebaseApp, FirebaseServerApp, HeartbeatService};
 
 pub static APPS: LazyLock<Mutex<HashMap<String, FirebaseApp>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -56,9 +57,17 @@ pub fn register_component(component: Component) -> bool {
 
 pub fn get_provider(app: &FirebaseApp, name: &str) -> Provider {
     let container = app.container();
-    let heartbeat = container.get_provider("heartbeat").get_immediate::<()>();
-    if heartbeat.is_some() {
-        // Future heartbeat triggering hook.
+    if let Some(service) = container
+        .get_provider("heartbeat")
+        .get_immediate::<HeartbeatServiceImpl>()
+    {
+        if let Err(err) = service.trigger_heartbeat() {
+            LOGGER.debug(format!(
+                "Failed to trigger heartbeat for app {}: {}",
+                app.name(),
+                err
+            ));
+        }
     }
     container.get_provider(name)
 }
