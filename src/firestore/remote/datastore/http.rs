@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use reqwest::Method;
 
-use crate::firestore::api::DocumentSnapshot;
+use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{
     invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
 };
@@ -130,9 +130,17 @@ impl Datastore for HttpDatastore {
                 .serializer
                 .decode_document_fields(&json)?
                 .unwrap_or_else(|| MapValue::new(std::collections::BTreeMap::new()));
-            Ok(DocumentSnapshot::new(key.clone(), Some(map_value)))
+            Ok(DocumentSnapshot::new(
+                key.clone(),
+                Some(map_value),
+                SnapshotMetadata::default(),
+            ))
         } else {
-            Ok(DocumentSnapshot::new(key.clone(), None))
+            Ok(DocumentSnapshot::new(
+                key.clone(),
+                None,
+                SnapshotMetadata::default(),
+            ))
         }
     }
 

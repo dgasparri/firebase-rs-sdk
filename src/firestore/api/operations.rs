@@ -4,43 +4,7 @@ use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::DocumentKey;
 use crate::firestore::value::{FirestoreValue, MapValue};
 
-use super::Firestore;
-
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct DocumentSnapshot {
-    key: DocumentKey,
-    data: Option<MapValue>,
-}
-
-#[allow(dead_code)]
-impl DocumentSnapshot {
-    pub fn new(key: DocumentKey, data: Option<MapValue>) -> Self {
-        Self { key, data }
-    }
-
-    pub fn exists(&self) -> bool {
-        self.data.is_some()
-    }
-
-    pub fn data(&self) -> Option<&BTreeMap<String, FirestoreValue>> {
-        self.data.as_ref().map(|map| map.fields())
-    }
-
-    pub fn id(&self) -> &str {
-        self.key.id()
-    }
-
-    pub fn reference(
-        &self,
-        firestore: Firestore,
-    ) -> FirestoreResult<super::reference::DocumentReference> {
-        super::reference::DocumentReference::new(firestore, self.key.path().clone())
-    }
-}
-
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct SetOptions {
     pub merge: bool,
 }
@@ -65,11 +29,12 @@ pub fn validate_document_path(path: &str) -> FirestoreResult<DocumentKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::firestore::api::snapshot::{DocumentSnapshot, SnapshotMetadata};
 
     #[test]
     fn snapshot_presence() {
         let key = DocumentKey::from_string("coll/doc").unwrap();
-        let snapshot = DocumentSnapshot::new(key, None);
+        let snapshot = DocumentSnapshot::new(key, None, SnapshotMetadata::default());
         assert!(!snapshot.exists());
     }
 

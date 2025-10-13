@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::Datastore;
-use crate::firestore::api::DocumentSnapshot;
+use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::DocumentKey;
 use crate::firestore::value::MapValue;
@@ -21,7 +21,11 @@ impl Datastore for InMemoryDatastore {
     fn get_document(&self, key: &DocumentKey) -> FirestoreResult<DocumentSnapshot> {
         let store = self.documents.lock().unwrap();
         let data = store.get(&key.path().canonical_string()).cloned();
-        Ok(DocumentSnapshot::new(key.clone(), data))
+        Ok(DocumentSnapshot::new(
+            key.clone(),
+            data,
+            SnapshotMetadata::default(),
+        ))
     }
 
     fn set_document(&self, key: &DocumentKey, data: MapValue, _merge: bool) -> FirestoreResult<()> {

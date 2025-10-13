@@ -17,6 +17,10 @@ present in this repository.
 - **Network scaffolding** – A retrying `HttpDatastore` now wraps the Firestore REST endpoints with JSON
   serialization/deserialization, HTTP error mapping, and pluggable auth/App Check token providers. Auth and App Check
   bridges now feed the HTTP client, including token invalidation/retry on `Unauthenticated` responses.
+- **App Check bridge** – `FirebaseAppCheckInternal::token_provider()` exposes App Check credentials as a Firestore
+  `TokenProvider`, making it straightforward to attach App Check headers when configuring the HTTP datastore.
+- **Snapshot metadata** – `DocumentSnapshot` now carries `SnapshotMetadata`, exposing `from_cache` and
+  `has_pending_writes` flags compatible with the JS API.
 
 This is enough to explore API ergonomics and stand up tests, but it lacks real network, persistence, query logic, and the
 majority of the Firestore feature set.
