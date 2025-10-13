@@ -15,6 +15,11 @@ https://firebase.google.com/docs/reference/js/
 
 Improve documentation of public API comparing it to the original library
 
+rustdoc
+/// for item docs, //! for module/crate docs
+cargo doc
+
+
 ## Modules:
 
 - Firebase is the API

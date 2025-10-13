@@ -278,3 +278,49 @@ I'll wrap up with a final message that references the exact lines added in the R
 > Not necessarily—those next steps were just suggestions if you plan to keep pushing on the networked datastore soon. If you’d rather tackle something else (queries, snapshots, etc.), feel free.
   The current wiring already uses no-op token providers, so it’s safe to leave auth/app-check integration for later unless you specifically need authenticated calls. Let me know what you’d like to
   prioritize next!
+
+
+
+  Thinking
+  I see many files with changes beyond what I worked on, likely pre-existing. I want to confirm I didn’t alter those
+  unintentionally and ensure the final summary notes that other local modifications remain untouched. I’ll also update
+  the plan to mark steps 2 and 3 as completed to keep things organized.
+
+• Updated Plan
+  └ ✔ Implement App Check token provider that conforms to Firestore TokenProvider (incl. tests).
+    ✔ Wire providers into Firestore HTTP datastore and retry handling, adjust APIs and docs.
+    ✔ Format, run tests, and update README with new guidance.
+
+• Explored
+  └ Read token_provider.rs, interop.rs, mod.rs, document.rs, http.rs, README.md
+
+
+Explored
+  └ Read token_provider.rs, interop.rs, mod.rs, document.rs, http.rs, README.md
+
+> Thinking
+  I’m preparing a detailed final message that highlights the new App Check token provider integration, including the
+  new token_provider method on FirebaseAppCheckInternal and updates in FirestoreClient and RetrySettings. I’ll mention
+  the new file src/app_check/token_provider.rs and reference relevant line numbers. I’ll also note the tests we ran with
+  cargo test that failed due to sandbox restrictions blocking httpmock from binding to localhost, explaining the context
+  of these failures. Additionally, I’ll acknowledge pre-existing unrelated repo modifications and mention we ran cargo
+  fmt. The message will conclude with suggested next steps like porting emulator header logic, structured clearly and
+  concisely as requested.
+
+> Added an App Check credential bridge so Firestore’s HTTP client can use real tokens and recover from auth errors. New
+  AppCheckTokenProvider implements the Firestore TokenProvider contract, includes helper app_check_token_provider_arc,
+  and comes with unit coverage for happy-path and error mapping (src/app_check/token_provider.rs:10-153).
+  FirebaseAppCheckInternal now exposes a ready-made token provider hook (src/app_check/interop.rs:61-64), allowing
+  consumers to hand the same provider to Firestore.
+
+  FirestoreClient::with_http_datastore_authenticated accepts an optional App Check provider and forwards it through the
+  builder (src/firestore/api/document.rs:33-46). Retry logic now treats Unauthenticated as transient and has regression
+  tests to prove it (src/firestore/remote/datastore/http.rs:207-257). The Firestore README reflects the new wiring and
+  shows how to pass App Check credentials (src/firestore/README.md:17-123).
+
+  Formatting: cargo fmt
+
+  Tests: cargo test (fails in sandbox – local Hyper/httpmock servers cannot bind to 127.0.0.1 under seccomp)
+
+  Natural follow-up once tokens land end-to-end: add emulator header handling and richer refresh heuristics for both
+  credential providers.

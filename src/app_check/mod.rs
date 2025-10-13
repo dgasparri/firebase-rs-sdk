@@ -4,6 +4,7 @@ mod interop;
 mod logger;
 mod providers;
 mod state;
+mod token_provider;
 mod types;
 
 pub use api::*;
@@ -12,6 +13,7 @@ pub use interop::FirebaseAppCheckInternal;
 pub use providers::{
     CustomProvider, CustomProviderOptions, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider,
 };
+pub use token_provider::{app_check_token_provider_arc, AppCheckTokenProvider};
 pub use types::{
     AppCheck, AppCheckInternalListener, AppCheckOptions, AppCheckProvider, AppCheckToken,
     AppCheckTokenListener, AppCheckTokenResult, ListenerHandle, ListenerType,

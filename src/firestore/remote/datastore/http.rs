@@ -216,6 +216,7 @@ impl RetrySettings {
                 | FirestoreErrorCode::Unavailable
                 | FirestoreErrorCode::DeadlineExceeded
                 | FirestoreErrorCode::ResourceExhausted
+                | FirestoreErrorCode::Unauthenticated
         )
     }
 
@@ -227,5 +228,31 @@ impl RetrySettings {
         } else {
             delay
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::firestore::error::{internal_error, unauthenticated};
+
+    #[test]
+    fn retries_unauthenticated_errors() {
+        let settings = RetrySettings {
+            max_attempts: 3,
+            ..Default::default()
+        };
+        let error = unauthenticated("expired");
+        assert!(settings.should_retry(0, &error));
+    }
+
+    #[test]
+    fn stops_retrying_after_max_attempts() {
+        let settings = RetrySettings {
+            max_attempts: 1,
+            ..Default::default()
+        };
+        let error = internal_error("boom");
+        assert!(!settings.should_retry(0, &error));
     }
 }

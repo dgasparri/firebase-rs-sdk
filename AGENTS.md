@@ -14,6 +14,8 @@ IMPORTANT: if some of the features of the JS APIs are specific for the web/brows
 
 For each module there is a file `./src/{module}/README.md` that has a "Next steps" section highlighting some of the required next steps to complete the porting and implement all the relevant features. Sometimes there is also a "Immediate Porting Focus" section for a more detailed list of things to do. Refer to that file when working on a module. When you are finished porting a feature, always update the README.md file with the new informations.
 
+Ignore the files named LOG.md in any folder they are found, they are intended only for human recall and can provide false, inaccurate, irrelevant or not updated information.
+
 Tests should be imported in the way Rust requires them, at the end of the single file for unit tests, and in the tests folder.
 
 ## Coding Style & Naming Conventions

@@ -32,11 +32,17 @@ impl FirestoreClient {
 
     pub fn with_http_datastore_authenticated(
         firestore: Firestore,
-        token_provider: TokenProviderArc,
+        auth_provider: TokenProviderArc,
+        app_check_provider: Option<TokenProviderArc>,
     ) -> FirestoreResult<Self> {
-        let datastore = HttpDatastore::builder(firestore.database_id().clone())
-            .with_auth_provider(token_provider)
-            .build()?;
+        let mut builder = HttpDatastore::builder(firestore.database_id().clone())
+            .with_auth_provider(auth_provider);
+
+        if let Some(provider) = app_check_provider {
+            builder = builder.with_app_check_provider(provider);
+        }
+
+        let datastore = builder.build()?;
         Ok(Self::new(firestore, Arc::new(datastore)))
     }
 

@@ -5,6 +5,9 @@ use crate::app_check::errors::AppCheckResult;
 use crate::app_check::types::{
     AppCheck, AppCheckInternalListener, AppCheckTokenResult, ListenerHandle, ListenerType,
 };
+use crate::firestore::remote::datastore::TokenProviderArc;
+
+use super::token_provider::app_check_token_provider_arc;
 
 #[derive(Clone)]
 pub struct FirebaseAppCheckInternal {
@@ -53,6 +56,11 @@ impl FirebaseAppCheckInternal {
             let (_, handle) = listeners.remove(pos);
             handle.unsubscribe();
         }
+    }
+
+    /// Exposes the internal App Check instance as a Firestore token provider.
+    pub fn token_provider(&self) -> TokenProviderArc {
+        app_check_token_provider_arc(self.clone())
     }
 }
 

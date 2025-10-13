@@ -15,7 +15,8 @@ present in this repository.
 - **Document façade stub** – A simple in-memory datastore backs `FirestoreClient::get_doc/set_doc/add_doc`, exercising
   the value encoding pipeline and providing scaffolding for future network integration.
 - **Network scaffolding** – A retrying `HttpDatastore` now wraps the Firestore REST endpoints with JSON
-  serialization/deserialization, HTTP error mapping, and pluggable auth/App Check token providers (currently no-op).
+  serialization/deserialization, HTTP error mapping, and pluggable auth/App Check token providers. Auth and App Check
+  bridges now feed the HTTP client, including token invalidation/retry on `Unauthenticated` responses.
 
 This is enough to explore API ergonomics and stand up tests, but it lacks real network, persistence, query logic, and the
 majority of the Firestore feature set.
@@ -51,7 +52,7 @@ majority of the Firestore feature set.
 | Priority | JS source | Target Rust module | Scope | Key dependencies |
 |----------|-----------|--------------------|-------|------------------|
 | P0 | `packages/firestore/src/remote/datastore.ts`, `remote/persistent_stream.ts` | Extend `src/firestore/remote/datastore/http.rs`, add `listen`/`write` streaming scaffolding | Layer real listen/write streaming on top of the HTTP bridge (or gRPC when ready), reuse retry/backoff, and surface structured responses. | Needs auth/App Check providers returning real tokens plus async stream abstraction. |
-| P0 | `packages/firestore/src/remote/datastore.ts` (token handling) | `src/firestore/remote/datastore/mod.rs`, `http.rs` | Integrate Firebase Auth/App Check token providers, emulator headers, and retryable unauthenticated handling. | Depends on porting credential providers from `packages/firestore/src/api/credentials.ts` and wiring to existing `crate::auth`. |
+| P0 | `packages/firestore/src/remote/datastore.ts` (token handling) | `src/firestore/remote/datastore/mod.rs`, `http.rs` | ✅ Auth/App Check token providers now feed the HTTP datastore with automatic retry on `Unauthenticated`; still need emulator headers and richer refresh flows. | Depends on porting credential providers from `packages/firestore/src/api/credentials.ts` and wiring to existing `crate::auth`. |
 | P0 | `packages/firestore/src/api/snapshot.ts`, `api/reference_impl.ts`, `core/firestore_client.ts` | Split `src/firestore/api/operations.rs` into `snapshot/` modules with converter support | Add typed metadata flags, `with_converter`, and map the HTTP responses to rich snapshots. | Requires serializer parity, encoded reference paths, and converter traits. |
 | P1 | `packages/firestore/src/api/transaction.ts`, `api/write_batch.ts`, `core/transaction_runner.ts` | New `src/firestore/api/write.rs`, `src/firestore/core/transaction.rs` | Implement mutations/batches/transactions with merge and precondition semantics against the HTTP datastore. | Builds on serializer support for mutations plus `CommitRequest`/`Rollback` RPCs. |
 | P1 | `packages/firestore/src/api/filter.ts`, `core/query.ts`, `core/view.ts`, `remote/watch_change.ts` | `src/firestore/api/query.rs`, `src/firestore/core/query/` | Port query builders, bounds, ordering, and attach them to real listen results. | Requires streaming remote store, target serialization, and comparator logic. |
@@ -67,12 +68,15 @@ Firestore client suitable for real workloads.
 ## Example Usage
 
 ```rust
-use firebase-rs-sdk-unofficial-porting::auth::api::auth_for_app;
 use firebase-rs-sdk-unofficial-porting::app::api::initialize_app;
 use firebase-rs-sdk-unofficial-porting::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase-rs-sdk-unofficial-porting::firestore::api::{FirestoreClient, get_firestore};
+use firebase-rs-sdk-unofficial-porting::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
+use firebase-rs-sdk-unofficial-porting::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
+use firebase-rs-sdk-unofficial-porting::auth::api::auth_for_app;
+use firebase-rs-sdk-unofficial-porting::firestore::api::{get_firestore, FirestoreClient};
 use firebase-rs-sdk-unofficial-porting::firestore::value::FirestoreValue;
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: replace with your project configuration
@@ -83,10 +87,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
     let auth = auth_for_app(app.clone())?;
+
+    // Optional: wire App Check tokens into Firestore.
+    let app_check_provider = custom_provider(|| token_with_ttl("fake-token", Duration::from_secs(60)));
+    let app_check = initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider))?;
+    let app_check_internal = FirebaseAppCheckInternal::new(app_check);
+
     let firestore = get_firestore(Some(app.clone()))?;
     let client = FirestoreClient::with_http_datastore_authenticated(
         firebase-rs-sdk-unofficial-porting::firestore::api::Firestore::from_arc(firestore.clone()),
         auth.token_provider(),
+        Some(app_check_internal.token_provider()),
     )?;
 
     let mut ada = BTreeMap::new();
@@ -107,3 +118,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+If App Check is not enabled for your app, pass `None` as the third argument to
+`with_http_datastore_authenticated`.
