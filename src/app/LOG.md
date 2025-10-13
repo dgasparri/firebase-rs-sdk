@@ -54,3 +54,34 @@ Updated Plan
   - Refreshed src/app/README.md with current status, detailed next steps, and a progress note describing the new services.
 
   Tests: cargo test --lib app::
+
+
+  Thinking
+  I'm gathering a final summary that highlights the addition of new core modules like platform logger and heartbeat, the updates to registry and version handling, new traits, and related tests. I'll
+  also include the test command run and README updates to give a complete picture before wrapping up.
+
+> - Added core wiring so Firebase App now auto-registers the platform-logger and heartbeat components, exposes a usable PlatformLoggerService, and provides an in-memory heartbeat service with
+  storage hooks; the 'app' provider now returns the real FirebaseApp, version registration emits proper VERSION components, and the registry triggers heartbeats when services are fetched (src/app/
+  core_components.rs, src/app/platform_logger.rs, src/app/heartbeat.rs, src/app/api.rs, src/app/mod.rs, src/app/registry.rs, src/app/types.rs).
+  - Ported key initializeApp/getApp/deleteApp scenarios from api.test.ts, covering duplicate detection, auto data collection, component registration, version registration, and teardown behaviour in
+  Rust (src/app/api.rs).
+  - Documented the modules’ new capabilities and test progress in the App README (src/app/README.md).
+
+  Tests: cargo test --lib app::.
+
+   I'll detail how the test guard ensures sequential tests and how we repositioned it to prevent deadlock. I'll highlight
+  the new serialization helper and mention that tests pass with some preexisting warnings. I'll include command usage
+  and relevant file line references to keep the message clear and self-contained.
+
+> App Lock Fix
+
+  - Ensured core components register before taking the global app mutex so we no longer re-enter the same lock path when
+  versions/components spin up (src/app/api.rs:162-208).
+  - Limited the scope of the global guard inside initialize_server_app, only touching the shared registry once the
+  server app instance is ready to publish (src/app/api.rs:244-308).
+  - Serialized module tests with a private mutex helper to keep shared global state isolated under the default multi-
+  threaded harness (src/app/api.rs:368-575).
+
+  Tests
+
+  - cargo test --lib app::

@@ -142,11 +142,19 @@ impl FirebaseApp {
     }
 
     pub fn automatic_data_collection_enabled(&self) -> bool {
-        *self.inner.automatic_data_collection_enabled.lock().unwrap()
+        *self
+            .inner
+            .automatic_data_collection_enabled
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     pub fn set_automatic_data_collection_enabled(&self, value: bool) {
-        *self.inner.automatic_data_collection_enabled.lock().unwrap() = value;
+        *self
+            .inner
+            .automatic_data_collection_enabled
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = value;
     }
 
     pub fn container(&self) -> ComponentContainer {

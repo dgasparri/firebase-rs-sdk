@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use crate::app::component::{self, Component, Provider};
 use crate::app::heartbeat::HeartbeatServiceImpl;
@@ -16,12 +16,28 @@ pub fn apps() -> &'static Mutex<HashMap<String, FirebaseApp>> {
     &APPS
 }
 
+pub(crate) fn apps_guard() -> MutexGuard<'static, HashMap<String, FirebaseApp>> {
+    APPS.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
 pub fn server_apps() -> &'static Mutex<HashMap<String, FirebaseServerApp>> {
     &SERVER_APPS
 }
 
+pub(crate) fn server_apps_guard() -> MutexGuard<'static, HashMap<String, FirebaseServerApp>> {
+    SERVER_APPS
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
 pub fn registered_components() -> &'static Mutex<HashMap<Arc<str>, Component>> {
     component::global_components()
+}
+
+pub(crate) fn registered_components_guard() -> MutexGuard<'static, HashMap<Arc<str>, Component>> {
+    component::global_components()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
 }
 
 pub fn add_component(app: &FirebaseApp, component: &Component) {
@@ -44,12 +60,18 @@ pub fn register_component(component: Component) -> bool {
         return false;
     }
 
-    for app in apps().lock().unwrap().values() {
-        add_component(app, &component);
+    {
+        let apps = apps_guard();
+        for app in apps.values() {
+            add_component(app, &component);
+        }
     }
 
-    for server_app in server_apps().lock().unwrap().values() {
-        add_component(server_app.base(), &component);
+    {
+        let server_apps = server_apps_guard();
+        for server_app in server_apps.values() {
+            add_component(server_app.base(), &component);
+        }
     }
 
     true

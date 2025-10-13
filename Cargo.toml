@@ -37,6 +37,7 @@ rand = "0.8"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 percent-encoding = "2"
 url = "2"
+sha2 = { version = "0.10.9", features = ["std"] }
 
 [dependencies.wasm-bindgen]
 version = "0.2"

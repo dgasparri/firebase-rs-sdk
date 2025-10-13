@@ -26,7 +26,9 @@ pub fn global_components() -> &'static Mutex<HashMap<Arc<str>, Component>> {
 }
 
 pub fn register_component(component: Component) -> bool {
-    let mut guard = GLOBAL_COMPONENTS.lock().unwrap();
+    let mut guard = GLOBAL_COMPONENTS
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     if guard.contains_key(component.name()) {
         return false;
     }
@@ -36,5 +38,8 @@ pub fn register_component(component: Component) -> bool {
 
 #[cfg(test)]
 pub fn clear_global_components_for_test() {
-    GLOBAL_COMPONENTS.lock().unwrap().clear();
+    GLOBAL_COMPONENTS
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .clear();
 }

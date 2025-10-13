@@ -35,7 +35,10 @@ impl HeartbeatServiceImpl {
     }
 
     fn load_cache(&self) -> AppResult<HeartbeatsInStorage> {
-        let mut guard = self.cache.lock().unwrap();
+        let mut guard = self
+            .cache
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         if let Some(cache) = guard.clone() {
             return Ok(cache);
         }
@@ -45,7 +48,10 @@ impl HeartbeatServiceImpl {
     }
 
     fn update_cache(&self, value: HeartbeatsInStorage) {
-        let mut guard = self.cache.lock().unwrap();
+        let mut guard = self
+            .cache
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         *guard = Some(value);
     }
 
@@ -182,7 +188,9 @@ impl InMemoryHeartbeatStorage {
 
 impl HeartbeatStorage for InMemoryHeartbeatStorage {
     fn read(&self) -> AppResult<HeartbeatsInStorage> {
-        let store = HEARTBEAT_STORE.lock().unwrap();
+        let store = HEARTBEAT_STORE
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         Ok(store
             .get(&self.key)
             .cloned()
@@ -192,7 +200,7 @@ impl HeartbeatStorage for InMemoryHeartbeatStorage {
     fn overwrite(&self, value: &HeartbeatsInStorage) -> AppResult<()> {
         HEARTBEAT_STORE
             .lock()
-            .unwrap()
+            .unwrap_or_else(|poison| poison.into_inner())
             .insert(self.key.clone(), value.clone());
         Ok(())
     }
@@ -203,7 +211,10 @@ static HEARTBEAT_STORE: LazyLock<Mutex<HashMap<String, HeartbeatsInStorage>>> =
 
 #[cfg(test)]
 pub fn clear_heartbeat_store_for_tests() {
-    HEARTBEAT_STORE.lock().unwrap().clear();
+    HEARTBEAT_STORE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .clear();
 }
 
 #[allow(dead_code)]
