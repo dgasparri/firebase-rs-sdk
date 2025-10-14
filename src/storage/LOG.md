@@ -307,3 +307,36 @@ Updated Plan
 
   1. Implement Auth/App Check token retrieval and attach headers during request execution.
   2. Add string/stream upload helpers and richer UploadTask observer/snapshot support.
+
+
+Updated Plan
+  └ ✔ Inspect storage request flow to identify where Auth/App Check headers should be attached.
+    ✔ Implement token retrieval from Auth/App Check providers and inject headers before executing requests.
+    ✔ Update storage README and add targeted tests validating header injection logic.
+    ✔ Format code and run relevant tests to ensure changes pass.
+
+• Explored
+  └ Read service.rs, README.md
+
+• Ran git status -sb
+
+> Thinking
+  I'll focus on describing just the key files we actually modified—service.rs, its tests, and the README—highlighting
+  important line ranges and explaining what we added, like auth token injection and test coverage. I'll also include a
+  brief note on running tests and suggest next steps related to token refresh on 401 responses.
+
+> Storage Auth Headers
+
+  - Injected authentication/App Check metadata during request preparation, honoring emulator overrides and provider
+  tokens while stamping version/app ID headers on every call (src/storage/service.rs:202-298).
+  - Added regression tests covering emulator-override auth headers and App Check integration with a bespoke component
+  factory (src/storage/service.rs:309-360).
+  - Documented the new behaviour and adjusted the rollout plan to focus on token-refresh resiliency (src/storage/
+  README.md:108-137).
+
+  Tests:
+
+  - cargo test storage::service
+
+  Next steps: 1) extend the retry path to invalidate tokens on 401/403 and surface dedicated storage error codes when
+  auth/app-check failures occur.

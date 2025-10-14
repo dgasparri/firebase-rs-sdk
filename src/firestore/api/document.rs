@@ -6,7 +6,9 @@ use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::DocumentKey;
 use std::sync::Arc;
 
-use crate::firestore::remote::datastore::{Datastore, HttpDatastore, InMemoryDatastore, TokenProviderArc};
+use crate::firestore::remote::datastore::{
+    Datastore, HttpDatastore, InMemoryDatastore, TokenProviderArc,
+};
 use crate::firestore::value::{FirestoreValue, MapValue};
 
 use super::{
@@ -22,7 +24,10 @@ pub struct FirestoreClient {
 impl FirestoreClient {
     /// Creates a client backed by the supplied datastore implementation.
     pub fn new(firestore: Firestore, datastore: Arc<dyn Datastore>) -> Self {
-        Self { firestore, datastore }
+        Self {
+            firestore,
+            datastore,
+        }
     }
 
     /// Returns a client that stores documents in memory only.
@@ -205,12 +210,12 @@ mod tests {
     impl super::FirestoreDataConverter for PersonConverter {
         type Model = Person;
 
-        fn to_map(
-            &self,
-            value: &Self::Model,
-        ) -> FirestoreResult<BTreeMap<String, FirestoreValue>> {
+        fn to_map(&self, value: &Self::Model) -> FirestoreResult<BTreeMap<String, FirestoreValue>> {
             let mut map = BTreeMap::new();
-            map.insert("first".to_string(), FirestoreValue::from_string(&value.first));
+            map.insert(
+                "first".to_string(),
+                FirestoreValue::from_string(&value.first),
+            );
             map.insert("last".to_string(), FirestoreValue::from_string(&value.last));
             Ok(map)
         }
@@ -258,9 +263,7 @@ mod tests {
             .set_doc_with_converter(&doc_ref, person.clone(), None)
             .expect("typed set");
 
-        let snapshot = client
-            .get_doc_with_converter(&doc_ref)
-            .expect("typed get");
+        let snapshot = client.get_doc_with_converter(&doc_ref).expect("typed get");
         assert!(snapshot.exists());
         assert!(snapshot.from_cache());
         assert!(!snapshot.has_pending_writes());

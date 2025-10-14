@@ -4,6 +4,13 @@ https://firebase.google.com/docs/web/setup
 https://firebase.google.com/docs/reference/js/
 
 
+This directory hosts the early-stage Rust port of the Firebase Firestore SDK. The goal is to mirror the JavaScript
+implementation while exposing idiomatic Rust APIs that interoperate with the shared component/app infrastructure already
+present in this repository.
+
+read and follow the insturctions in ./AGENTS.md . In the last session we were working on the storage module, and you
+▌ suggested to "Implement Auth/App Check token retrieval and attach headers during request execution." Do it
+
 ## Todo
 
 1. Implement the tests from ./packages/app

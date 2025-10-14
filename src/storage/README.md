@@ -105,12 +105,14 @@ fn main() {
 - Expanded metadata and type models: `ObjectMetadata` now tracks MD5/CRC/ETag values, parses download tokens into a
   typed collection, and exposes helpers for byte sizes. `UploadMetadata`/`SettableMetadata` provide builder-style
   ergonomics for configuring uploads and metadata updates while serialising to the REST-friendly camelCase payloads.
+- Authentication and App Check headers are now injected automatically: emulator overrides feed `Authorization`
+  headers, while live environments consult the Auth/App Check providers to emit `Authorization`,
+  `X-Firebase-AppCheck`, `X-Firebase-Storage-Version`, and `X-Firebase-GMPID` metadata on every request.
 
 ## Still To Do
 
-1. **Auth/App Check plumbing** – `FirebaseStorageImpl` receives the providers, but token retrieval is unimplemented.
-   Inject async token fetchers and thread them into request execution so authenticated requests and emulator overrides
-   respect user/app-check state.
+1. **Token refresh & error awareness** – Now that headers are attached, add handling for auth/app-check failures by
+   forcing token refreshes on 401/403 responses and mapping them to dedicated `StorageErrorCode`s.
 2. **String/stream uploads** – Add helpers for `upload_string`, streaming uploads, and byte-range resumptions so the API
    mirrors the JS surface for textual and streaming sources.
 3. **Task observers & snapshots** – Model `UploadTaskSnapshot`, observer callbacks, and state transitions so clients can
@@ -122,11 +124,11 @@ fn main() {
 
 ## Next steps - Detailed completion plan
 
-1. **Authentication tokens & headers**
-   - Implement token fetchers for Auth and App Check providers and inject them into request execution, ensuring headers
-     are attached and refreshed when requests retry.
-   - Extend the retry/error handling logic to recognise auth-specific status codes and bubble up meaningful
-     `StorageErrorCode`s.
+1. **Auth/App Check resiliency**
+   - Teach the request pipeline to invalidate and refresh tokens when the backend returns 401/403 or the emulator hints
+     at auth issues.
+   - Surface distinct storage error codes for auth/app-check failures so callers can prompt users to reauthenticate.
+   - When server-app support lands, read `FirebaseServerAppSettings` overrides to honour pre-provisioned tokens.
 2. **Upload ergonomics**
    - Layer high-level helpers for string and stream sources on top of the new upload primitives.
    - Extend `UploadTask` with pause/resume/cancel semantics and persisted session recovery to match the JS SDK.
