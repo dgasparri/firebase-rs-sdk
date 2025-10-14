@@ -92,18 +92,24 @@
 //!
 //! Using Converters:
 //!
-//! ```rust,compile_fail
-//! use firebase_rs_sdk_unofficial::auth::model::User;
-//! use firebase_rs_sdk_unofficial::firestore::api::{FirestoreDataConverter, FirestoreResult};
-//! use firebase_rs_sdk_unofficial::firestore::value::FirestoreValue;
+//! ```rust,no_run
+//! use firebase_rs_sdk_unofficial::app::FirebaseApp;
+//! use firebase_rs_sdk_unofficial::firestore::api::{Firestore, FirestoreDataConverter};
+//! use firebase_rs_sdk_unofficial::firestore::FirestoreClient;
+//! use firebase_rs_sdk_unofficial::firestore::error::FirestoreResult;
+//! use firebase_rs_sdk_unofficial::firestore::value::{FirestoreValue, MapValue};
 //! use std::collections::BTreeMap;
 //!
-//!
+//! #[derive(Clone)]
+//! struct MyUser {
+//!    name: String,
+//! }
+//! 
 //! #[derive(Clone)]
 //! struct UserConverter;
 //!
 //! impl FirestoreDataConverter for UserConverter {
-//!     type Model = User;
+//!     type Model = MyUser;
 //!
 //!     fn to_map(
 //!         &self,
@@ -118,12 +124,15 @@
 //!         todo!()
 //!     }
 //! }
-//!
-//! let users = firestore.collection("typed-users")?.with_converter(UserConverter);
-//! let doc = users.doc(Some("ada"))?;
-//! client.set_doc_with_converter(&doc, User::new("Ada"), None)?;
-//! let typed_snapshot = client.get_doc_with_converter(&doc)?;
-//! let user: Option<User> = typed_snapshot.data()?;
+//! 
+//! fn example_with_converter(firestore: &Firestore, client: &FirestoreClient) -> FirestoreResult<Option<MyUser>> {
+//!     let users = firestore.collection("typed-users")?.with_converter(UserConverter);
+//!     let doc = users.doc(Some("ada"))?;
+//!     client.set_doc_with_converter(&doc, MyUser { name: "Ada".to_string() }, None)?;
+//!     let typed_snapshot = client.get_doc_with_converter(&doc)?;
+//!     let user: Option<MyUser> = typed_snapshot.data()?;
+//!     Ok(user)
+//! }
 //! ```
 
 pub mod api;

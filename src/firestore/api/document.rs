@@ -3,19 +3,18 @@ use std::collections::BTreeMap;
 use crate::firestore::api::operations::{self, SetOptions};
 use crate::firestore::api::snapshot::{DocumentSnapshot, TypedDocumentSnapshot};
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::model::DocumentKey;
 use std::sync::Arc;
 
 use crate::firestore::remote::datastore::{
     Datastore, HttpDatastore, InMemoryDatastore, TokenProviderArc,
 };
-use crate::firestore::value::{FirestoreValue, MapValue};
+use crate::firestore::value::{FirestoreValue};
 
 use super::{
     ConvertedCollectionReference, ConvertedDocumentReference, Firestore, FirestoreDataConverter,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct FirestoreClient {
     firestore: Firestore,
     datastore: Arc<dyn Datastore>,
@@ -158,6 +157,7 @@ mod tests {
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::firestore::api::get_firestore;
+    use crate::firestore::value::MapValue;
     use crate::firestore::value::ValueKind;
 
     fn unique_settings() -> FirebaseAppSettings {

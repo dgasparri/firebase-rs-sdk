@@ -36,16 +36,15 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 ## Example Usage
 
 ```rust
-use firebase-rs-sdk-unofficial-porting::app::api::initialize_app;
-use firebase-rs-sdk-unofficial-porting::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase-rs-sdk-unofficial-porting::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
-use firebase-rs-sdk-unofficial-porting::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
-use firebase-rs-sdk-unofficial-porting::auth::api::auth_for_app;
-use firebase-rs-sdk-unofficial-porting::firestore::api::{get_firestore, FirestoreClient};
-use firebase-rs-sdk-unofficial-porting::firestore::value::FirestoreValue;
+use firebase_rs_sdk_unofficial::app::api::initialize_app;
+use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk_unofficial::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
+use firebase_rs_sdk_unofficial::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
+use firebase_rs_sdk_unofficial::auth::api::auth_for_app;
+use firebase_rs_sdk_unofficial::firestore::api::{get_firestore, FirestoreClient};
+use firebase_rs_sdk_unofficial::firestore::value::FirestoreValue;
 use std::collections::BTreeMap;
 use std::time::Duration;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: replace with your project configuration
     let options = FirebaseOptions {
@@ -55,26 +54,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
     let auth = auth_for_app(app.clone())?;
-
     // Optional: wire App Check tokens into Firestore.
     let app_check_provider = custom_provider(|| token_with_ttl("fake-token", Duration::from_secs(60)));
     let app_check = initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider))?;
     let app_check_internal = FirebaseAppCheckInternal::new(app_check);
-
     let firestore = get_firestore(Some(app.clone()))?;
     let client = FirestoreClient::with_http_datastore_authenticated(
-        firebase-rs-sdk-unofficial-porting::firestore::api::Firestore::from_arc(firestore.clone()),
+        firebase_rs_sdk_unofficial::firestore::api::Firestore::from_arc(firestore.clone()),
         auth.token_provider(),
         Some(app_check_internal.token_provider()),
     )?;
-
     let mut ada = BTreeMap::new();
     ada.insert("first".into(), FirestoreValue::from_string("Ada"));
     ada.insert("last".into(), FirestoreValue::from_string("Lovelace"));
     ada.insert("born".into(), FirestoreValue::from_integer(1815));
     let ada_snapshot = client.add_doc("users", ada)?;
     println!("Document written with ID: {}", ada_snapshot.id());
-
     let mut alan = BTreeMap::new();
     alan.insert("first".into(), FirestoreValue::from_string("Alan"));
     alan.insert("middle".into(), FirestoreValue::from_string("Mathison"));
@@ -82,7 +77,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     alan.insert("born".into(), FirestoreValue::from_integer(1912));
     let alan_snapshot = client.add_doc("users", alan)?;
     println!("Document written with ID: {}", alan_snapshot.id());
-
     Ok(())
 }
 ```
@@ -93,12 +87,21 @@ If App Check is not enabled for your app, pass `None` as the third argument to
 ### Using Converters
 
 ```rust
+use firebase_rs_sdk_unofficial::app::FirebaseApp;
+use firebase_rs_sdk_unofficial::firestore::api::{Firestore, FirestoreDataConverter};
+use firebase_rs_sdk_unofficial::firestore::FirestoreClient;
+use firebase_rs_sdk_unofficial::firestore::error::FirestoreResult;
+use firebase_rs_sdk_unofficial::firestore::value::{FirestoreValue, MapValue};
+use std::collections::BTreeMap;
+#[derive(Clone)]
+struct MyUser {
+   name: String,
+}
+
 #[derive(Clone)]
 struct UserConverter;
-
 impl FirestoreDataConverter for UserConverter {
-    type Model = User;
-
+    type Model = MyUser;
     fn to_map(
         &self,
         value: &Self::Model,
@@ -106,18 +109,20 @@ impl FirestoreDataConverter for UserConverter {
         // Encode your model into Firestore fields.
         todo!()
     }
-
     fn from_map(&self, value: &MapValue) -> FirestoreResult<Self::Model> {
         // Decode Firestore fields into your model.
         todo!()
     }
 }
 
-let users = firestore.collection("typed-users")?.with_converter(UserConverter);
-let doc = users.doc(Some("ada"))?;
-client.set_doc_with_converter(&doc, User::new("Ada"), None)?;
-let typed_snapshot = client.get_doc_with_converter(&doc)?;
-let user: Option<User> = typed_snapshot.data()?;
+fn example_with_converter(firestore: &Firestore, client: &FirestoreClient) -> FirestoreResult<Option<MyUser>> {
+    let users = firestore.collection("typed-users")?.with_converter(UserConverter);
+    let doc = users.doc(Some("ada"))?;
+    client.set_doc_with_converter(&doc, MyUser { name: "Ada".to_string() }, None)?;
+    let typed_snapshot = client.get_doc_with_converter(&doc)?;
+    let user: Option<MyUser> = typed_snapshot.data()?;
+    Ok(user)
+}
 ```
 
 
