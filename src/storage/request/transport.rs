@@ -106,7 +106,15 @@ impl HttpClient {
     }
 
     fn try_once<O>(&self, info: &RequestInfo<O>) -> Result<ResponsePayload, RequestError> {
-        let url = self.prepare_url(&info.url).map_err(RequestError::Fatal)?;
+        let mut url = self.prepare_url(&info.url).map_err(RequestError::Fatal)?;
+        if !info.query_params.is_empty() {
+            {
+                let mut pairs = url.query_pairs_mut();
+                for (k, v) in &info.query_params {
+                    pairs.append_pair(k, v);
+                }
+            }
+        }
 
         let mut request_builder = self.client.request(info.method.clone(), url);
         request_builder = request_builder.timeout(info.timeout);

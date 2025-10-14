@@ -2,6 +2,7 @@ pub mod api;
 mod constants;
 pub mod error;
 mod location;
+mod metadata;
 mod path;
 pub mod reference;
 pub mod request;
@@ -18,5 +19,6 @@ pub use error::{
     no_default_bucket, unsupported_environment, StorageError, StorageErrorCode, StorageResult,
 };
 pub use location::Location;
+pub use metadata::ObjectMetadata;
 pub use reference::StorageReference;
 pub use service::FirebaseStorageImpl;

@@ -10,7 +10,7 @@ use crate::storage::constants::{
 use crate::storage::error::{no_default_bucket, StorageResult};
 use crate::storage::location::Location;
 use crate::storage::reference::StorageReference;
-use crate::storage::request::{BackoffConfig, HttpClient};
+use crate::storage::request::{BackoffConfig, HttpClient, RequestInfo};
 use crate::storage::util::is_url;
 
 #[derive(Clone)]
@@ -183,6 +183,11 @@ impl FirebaseStorageImpl {
         let timeout = Duration::from_millis(self.max_upload_retry_time());
         let config = BackoffConfig::upload_operation(timeout);
         HttpClient::new(self.is_using_emulator(), config)
+    }
+
+    pub fn run_request<O>(&self, info: RequestInfo<O>) -> StorageResult<O> {
+        let client = self.http_client()?;
+        client.execute(info)
     }
 }
 

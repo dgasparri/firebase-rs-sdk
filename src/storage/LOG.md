@@ -26,3 +26,78 @@ I'm figuring out which files like request.ts and connection.ts are involved in t
 
 Ideally next I’ll layer request-info builders for metadata/JSON parsing and start porting specific request types like
 `getMetadata` and `list` so higher-level references can consume the new transport.
+
+
+Thinking
+  I'm gathering the key file and line number changes from the new and modified source files to clearly reference them in
+  the final summary. I'll also include notes about test runs and documentation updates, then produce a concise wrap-up
+  with future implementation hints.
+
+> Request Stack Scaffolding
+
+  - Added a reusable exponential backoff engine plus request descriptors so higher layers can describe Storage HTTP
+  calls (src/storage/request/backoff.rs:1-117, src/storage/request/info.rs:11-99).
+  - Built a blocking HttpClient wrapper around reqwest that applies jittered retries, honours success/ retry status
+  codes, and surfaces structured responses for downstream parsers (src/storage/request/transport.rs:1-176).
+  - Exposed the new request module and wired FirebaseStorageImpl helpers to construct operation vs. upload clients using
+  the app’s retry settings (src/storage/mod.rs:1-9, src/storage/service.rs:176-185).
+  - Extended storage utilities and README to reflect retry-aware behaviour and document the remaining metadata/
+  serialization work (src/storage/util.rs:1-28, src/storage/README.md:9-36).
+
+  Tests
+
+  - cargo check
+  - cargo test storage::request::backoff::tests::first_delay_is_zero
+
+  Next ideas
+
+  1. Layer metadata/JSON serializers and request-info builders to mirror requestinfo.ts/requests.ts.
+  2. Begin porting concrete operations (get_metadata, list) on top of the new transport, including success/error
+  parsing.
+
+Thinking
+  I'm gathering the key file and line number changes from the new and modified source files to clearly reference them in
+  the final summary. I'll also include notes about test runs and documentation updates, then produce a concise wrap-up
+  with future implementation hints.
+
+> Request Stack Scaffolding
+
+  - Added a reusable exponential backoff engine plus request descriptors so higher layers can describe Storage HTTP
+  calls (src/storage/request/backoff.rs:1-117, src/storage/request/info.rs:11-99).
+  - Built a blocking HttpClient wrapper around reqwest that applies jittered retries, honours success/ retry status
+  codes, and surfaces structured responses for downstream parsers (src/storage/request/transport.rs:1-176).
+  - Exposed the new request module and wired FirebaseStorageImpl helpers to construct operation vs. upload clients using
+  the app’s retry settings (src/storage/mod.rs:1-9, src/storage/service.rs:176-185).
+  - Extended storage utilities and README to reflect retry-aware behaviour and document the remaining metadata/
+  serialization work (src/storage/util.rs:1-28, src/storage/README.md:9-36).
+
+  Tests
+
+  - cargo check
+  - cargo test storage::request::backoff::tests::first_delay_is_zero
+
+  Next ideas
+
+  1. Layer metadata/JSON serializers and request-info builders to mirror requestinfo.ts/requests.ts.
+  2. Begin porting concrete operations (get_metadata, list) on top of the new transport, including success/error
+  parsing.
+
+Thinking
+  I’m mapping out tasks to handle metadata and JSON serialization plus request builders. First, I’ll identify key
+  TypeScript files like list.ts and metadata.ts, then look into Rust modules such as storage/reference.rs to understand
+  how to craft HTTP requests for storage operations. I want to start simple by implementing minimal metadata structures
+  and requests to fetch object metadata. Let’s see how the current code handles this!
+
+• Explored
+  └ Read reference.rs
+
+> Thinking
+  I'm planning to integrate request stacks into operations by implementing a metadata type in TypeScript and Rust,
+  starting small with a basic FullMetadata or raw JSON mapping. I’ll create a StorageRequest struct wrapping RequestInfo
+  and add a send_request method to FirebaseStorageImpl to execute requests via the HTTP client. For now, I’ll focus on
+  building a get_metadata_request function that constructs the correct URL and returns metadata as serde_json::Value,
+  replicating JS URL-building utilities like makeStorageUrl. This sets the groundwork for smoothly bridging requests
+  with future operations.
+
+• Explored
+  └ Read url.ts

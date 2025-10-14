@@ -1,5 +1,7 @@
 use crate::storage::location::Location;
+use crate::storage::metadata::ObjectMetadata;
 use crate::storage::path::{child, last_component, parent};
+use crate::storage::request::get_metadata_request;
 use crate::storage::service::FirebaseStorageImpl;
 
 #[derive(Clone)]
@@ -56,6 +58,13 @@ impl StorageReference {
         let new_path = child(self.location.path(), segment);
         let location = Location::new(self.location.bucket(), new_path);
         StorageReference::new(self.storage.clone(), location)
+    }
+
+    /// Retrieves object metadata from Cloud Storage for this reference.
+    pub fn get_metadata(&self) -> crate::storage::error::StorageResult<ObjectMetadata> {
+        let request = get_metadata_request(&self.storage, &self.location);
+        let json = self.storage.run_request(request)?;
+        Ok(ObjectMetadata::from_value(json))
     }
 }
 

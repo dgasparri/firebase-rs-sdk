@@ -32,6 +32,7 @@ pub struct RequestInfo<O> {
     pub success_codes: Vec<u16>,
     pub additional_retry_codes: Vec<u16>,
     pub timeout: Duration,
+    pub query_params: HashMap<String, String>,
     pub response_handler: ResponseHandler<O>,
     pub error_handler: Option<ErrorHandler>,
 }
@@ -46,6 +47,7 @@ impl<O> Clone for RequestInfo<O> {
             success_codes: self.success_codes.clone(),
             additional_retry_codes: self.additional_retry_codes.clone(),
             timeout: self.timeout,
+            query_params: self.query_params.clone(),
             response_handler: Arc::clone(&self.response_handler),
             error_handler: self.error_handler.as_ref().map(Arc::clone),
         }
@@ -67,6 +69,7 @@ impl<O> RequestInfo<O> {
             success_codes: vec![200],
             additional_retry_codes: Vec::new(),
             timeout,
+            query_params: HashMap::new(),
             response_handler,
             error_handler: None,
         }
@@ -79,6 +82,11 @@ impl<O> RequestInfo<O> {
 
     pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
         self.headers = headers;
+        self
+    }
+
+    pub fn with_query_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.query_params.insert(key.into(), value.into());
         self
     }
 

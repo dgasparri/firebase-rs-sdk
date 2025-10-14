@@ -42,8 +42,8 @@ build order:
 
 ## Next Step
 
-Begin with the **request stack** (Item 2). Implementing the low-level request primitives will unlock token usage,
-metadata models, and the higher-level StorageReference APIs.
+Layer metadata/JSON helpers on top of the new request stack and port the first StorageReference operations
+(`get_metadata`, `update_metadata`, `list`) so higher-level APIs can exercise real network calls.
 
 ## Quick Start Example
 
