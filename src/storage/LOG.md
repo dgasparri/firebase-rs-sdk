@@ -21,8 +21,11 @@ I'm figuring out which files like request.ts and connection.ts are involved in t
   │  `FirebaseStorageImpl` to produce operation/upload clients using the configured retry timeouts
   │  (`src/storage/service.rs`:176-185).
   ├ Extended storage utilities with HTTP retry helpers reused by the request stack (`src/storage/util.rs`:1-28).
-  └ Updated the README to reflect the request-layer progress and note remaining work on metadata/serialization
-     (`src/storage/README.md`:9-24, 31-36).
+  ├ Updated the README to reflect the request-layer progress and note remaining work on metadata/serialization
+     (`src/storage/README.md`:9-36).
+  └ Ported metadata/list parsing plus request builders so `StorageReference::get_metadata`, `update_metadata`, and
+     `list` now hit the new transport (`src/storage/metadata/**`, `src/storage/list.rs`, `src/storage/reference.rs`,
+     `src/storage/request/builders.rs`).
 
 Ideally next I’ll layer request-info builders for metadata/JSON parsing and start porting specific request types like
 `getMetadata` and `list` so higher-level references can consume the new transport.

@@ -1,6 +1,7 @@
 pub mod api;
 mod constants;
 pub mod error;
+mod list;
 mod location;
 mod metadata;
 mod path;
@@ -18,7 +19,8 @@ pub use error::{
     internal_error, invalid_argument, invalid_default_bucket, invalid_root_operation, invalid_url,
     no_default_bucket, unsupported_environment, StorageError, StorageErrorCode, StorageResult,
 };
+pub use list::{ListOptions, ListResult};
 pub use location::Location;
-pub use metadata::ObjectMetadata;
+pub use metadata::{ObjectMetadata, SetMetadataRequest};
 pub use reference::StorageReference;
 pub use service::FirebaseStorageImpl;

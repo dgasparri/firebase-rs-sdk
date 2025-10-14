@@ -14,6 +14,8 @@ foundational pieces needed for other components to obtain a storage service and 
   `storage_ref_from_storage`, etc.).
 - Introduced the request/backoff scaffolding (`storage::request`) and convenience constructors on
   `FirebaseStorageImpl` so higher layers can issue HTTP calls with exponential retry policy.
+- Ported `get_metadata` / `update_metadata` and basic `list` support on `StorageReference`, including JSON parsing for
+  object metadata and list responses.
 
 These pieces are enough for other modules to obtain storage references and manipulate hierarchical paths, but they do
 not yet issue network requests or expose upload/download flows.
@@ -28,9 +30,8 @@ build order:
 2. **Request stack** – Port the `implementation/*` helpers (connection abstractions, metadata parsing,
    JSON serialization) so the service can materialise HTTP requests against the REST API and emulator. _(Backoff and
    HTTP wrappers landed; metadata parsing and specialised request builders still to do.)_
-3. **StorageReference operations** – Implement the full API (`get_bytes`, `get_metadata`, `update_metadata`,
-   `list/list_all`, `get_download_url`, etc.) by delegating to the request stack. This also requires wiring upload task
-   handling (`UploadTask`, resumable uploads, cancellation, observers).
+3. **StorageReference operations** – Implement the remaining APIs (`get_bytes`, `list_all`, `get_download_url`,
+   upload task handling) on top of the request stack.
 4. **Error parity** – Flesh out the error module with the full suite of error codes, HTTP status mapping, and helper
    constructors to match the TS SDK.
 5. **Metadata & type models** – Port `public-types.ts`, `metadata.ts`, and supporting structures so metadata/observer

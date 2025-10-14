@@ -1,7 +1,8 @@
+use crate::storage::list::{parse_list_result, ListOptions, ListResult};
 use crate::storage::location::Location;
 use crate::storage::metadata::ObjectMetadata;
 use crate::storage::path::{child, last_component, parent};
-use crate::storage::request::get_metadata_request;
+use crate::storage::request::{get_metadata_request, list_request};
 use crate::storage::service::FirebaseStorageImpl;
 
 #[derive(Clone)]
@@ -63,6 +64,31 @@ impl StorageReference {
     /// Retrieves object metadata from Cloud Storage for this reference.
     pub fn get_metadata(&self) -> crate::storage::error::StorageResult<ObjectMetadata> {
         let request = get_metadata_request(&self.storage, &self.location);
+        let json = self.storage.run_request(request)?;
+        Ok(ObjectMetadata::from_value(json))
+    }
+
+    /// Lists objects and prefixes immediately under this reference.
+    pub fn list(
+        &self,
+        options: Option<ListOptions>,
+    ) -> crate::storage::error::StorageResult<ListResult> {
+        let opts = options.unwrap_or_default();
+        let request = list_request(&self.storage, &self.location, &opts);
+        let json = self.storage.run_request(request)?;
+        parse_list_result(&self.storage, self.location.bucket(), json)
+    }
+
+    /// Updates mutable metadata fields for this object.
+    pub fn update_metadata(
+        &self,
+        metadata: crate::storage::SetMetadataRequest,
+    ) -> crate::storage::error::StorageResult<ObjectMetadata> {
+        let request = crate::storage::request::update_metadata_request(
+            &self.storage,
+            &self.location,
+            metadata,
+        );
         let json = self.storage.run_request(request)?;
         Ok(ObjectMetadata::from_value(json))
     }
