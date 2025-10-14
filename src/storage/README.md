@@ -2,9 +2,41 @@
 
 ## Introduction
 
-This module ports core pieces of the Firebase Storage Web SDK to Rust so applications can discover buckets, navigate
-object paths, and perform common download, metadata, and upload operations in a synchronous, `reqwest`-powered
-environment.
+This module ports core pieces of the Firebase Storage Web SDK to Rust so applications 
+can discover buckets, navigate object paths, and perform common download, metadata, 
+and upload operations in a synchronous, `reqwest`-powered environment.
+
+It provides functionality to interact with Firebase Storage, including
+uploading and downloading files, managing metadata, and handling storage references.
+
+It includes error handling, configuration options, and integration with Firebase apps.
+
+### Features:
+
+- Connect to Firebase Storage emulator
+- Get storage instance for a Firebase app
+- Register storage component
+- Manage storage references
+- Handle file uploads with progress tracking
+- List files and directories in storage
+- Manage object metadata
+- Comprehensive error handling
+
+### References to the Firebase JS SDK - storage module
+
+- QuickStart: https://firebase.google.com/docs/storage/web/start
+- API: https://firebase.google.com/docs/reference/js/storage.md#storage_package
+- Github Repo - Module: https://github.com/firebase/firebase-js-sdk/tree/master/packages/storage
+- Github Repo - API: 
+
+### Development status as of 14th October 2025
+
+- Core functionalities: Mostly implemented 
+- Tests: 27 tests (passed)
+- Documentation: Lacking documentation on most functions
+- Examples: None provided
+
+DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that it has no bugs or that it will work as intended.
 
 ## Quick Start Example
 

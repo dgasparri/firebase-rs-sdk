@@ -1,93 +1,37 @@
-# Firestore Port (Rust)
+# Firebase Firestore module
 
-This directory hosts the early-stage Rust port of the Firebase Firestore SDK. The goal is to mirror the JavaScript
-implementation while exposing idiomatic Rust APIs that interoperate with the shared component/app infrastructure already
-present in this repository.
+This module ports core pieces of the Firestore SDK to Rust so applications 
+can discover collections and create, update, retrieve and delete documents.
 
-## Current State
+It provides functionality to interact with Firestore, including retrieving and querying documents,
+working with collections, and managing real-time updates. 
 
-- **Component wiring** – `firestore::api::register_firestore_component` hooks Firestore into the global component
-  registry so apps can lazily resolve `Firestore` instances via `get_firestore` (with per-database overrides).
-- **Model layer** – Core path primitives (`ResourcePath`, `FieldPath`, `DocumentKey`, `DatabaseId`) and basic value
-  types (`FirestoreValue`, `ArrayValue`, `MapValue`, `BytesValue`, `Timestamp`, `GeoPoint`) are ported with unit tests.
-- **Minimal references** – `CollectionReference`/`DocumentReference` mirror the modular JS API, including input
-  validation and auto-ID generation.
-- **Document façade stub** – A simple in-memory datastore backs `FirestoreClient::get_doc/set_doc/add_doc`, exercising
-  the value encoding pipeline and providing scaffolding for future network integration.
-- **Network scaffolding** – A retrying `HttpDatastore` now wraps the Firestore REST endpoints with JSON
-  serialization/deserialization, HTTP error mapping, and pluggable auth/App Check token providers. Auth and App Check
-  bridges now feed the HTTP client, including token invalidation/retry on `Unauthenticated` responses.
-- **App Check bridge** – `FirebaseAppCheckInternal::token_provider()` exposes App Check credentials as a Firestore
-  `TokenProvider`, making it straightforward to attach App Check headers when configuring the HTTP datastore.
-- **Typed converters** – Collection and document references accept `with_converter(...)`, and typed snapshots expose
-  converter-aware `data()` helpers that match the JS modular API.
-- **Snapshot metadata** – `DocumentSnapshot` now carries `SnapshotMetadata`, exposing `from_cache` and
-  `has_pending_writes` flags compatible with the JS API.
+It includes error handling, configuration options, and integration with Firebase apps.
 
-This is enough to explore API ergonomics and stand up tests, but it lacks real network, persistence, query logic, and the
-majority of the Firestore feature set.
+## Features
 
-## Next Steps
+- Connect to Firestore emulator
+- Get Firestore instance for a Firebase app
+- Register Firestore component
+- Manage collections and documents
+- Build and execute queries
+- Comprehensive error handling
 
-1. **Network layer**
-   - Port the remote datastore to call Firestore’s REST/gRPC endpoints (authentication headers, request/response
-     serialization, retry/backoff).
-   - Handle stream-specific behaviour (listen/write pipelines) once basic REST calls succeed.
-2. **Snapshot & converter parity**
-   - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to match the JS SDK, including `withConverter`
-     support and typed accessors.
-3. **Write operations**
-   - Implement `set_doc`, `update_doc`, `delete_doc`, `write_batch`, and `run_transaction` semantics with proper merge
-     options and preconditions.
-4. **Query engine**
-   - Port query builders (filters, orderBy, limit, cursors) and result handling, then connect them to the remote listen
-     stream.
-5. **Local persistence**
-   - Introduce the local cache layers (memory, IndexedDB-like, LRU pruning) and multi-tab coordination, matching the JS
-     architecture.
-6. **Bundles & aggregates**
-   - Port bundle loading, named queries, and aggregate functions once core querying is functional.
-7. **Platform-specific plumbing**
-   - Mirror browser/node differences (e.g., persistence availability checks, WebChannel vs gRPC) via `platform/` modules.
-8. **Testing & parity checks**
-   - Translate the TS unit/integration tests, add coverage for conversions and query logic, and validate against Firebase
-     emulators where possible.
+## References to the Firebase JS SDK - firestore module
 
-### Test Porting Plan
+- QuickStart: <https://firebase.google.com/docs/firestore/quickstart>
+- API: <https://firebase.google.com/docs/reference/js/firestore.md#firestore_package>
+- Github Repo - Module: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/firestore>
+- Github Repo - API: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/firebase/firestore>
 
-1. **Unit parity pass**
-   - Mirror `packages/firestore/test/unit` suites module-by-module (model, value, api, remote, util). Build Rust helpers
-     under `src/firestore/test_support` to replace `test/util/helpers.ts` and keep assertions ergonomic.
-   - ✅ `model/path` translated (see `tests/firestore/model/resource_path_tests.rs`) alongside supporting helpers.
-2. **Converter & snapshot coverage**
-   - Port lite/api tests that exercise `withConverter`, snapshot metadata, and reference validation using the in-memory
-     datastore.
-3. **Serializer & remote edge cases**
-   - Translate JSON/proto serializer tests (`test/unit/remote`) and watch/change specs once equivalent Rust modules land.
-4. **Local/core engine tests**
-   - After local persistence and query engine exist, port `test/unit/local` and `test/unit/core`, reusing generated spec
-     JSON fixtures.
-5. **Integration staging**
-   - Plan emulator-backed integration tests once REST/gRPC networking is wired; gate them behind cargo features to avoid
-     CI flakiness.
+## Development status as of 14th October 2025
 
-## Immediate Porting Focus
+- Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore) for details)
+- Tests: 31 tests (passed)
+- Documentation: Most public functions are documented
+- Examples: None provided
 
-| Priority | JS source | Target Rust module | Scope | Key dependencies |
-|----------|-----------|--------------------|-------|------------------|
-| P0 | `packages/firestore/src/remote/datastore.ts`, `remote/persistent_stream.ts` | Extend `src/firestore/remote/datastore/http.rs`, add `listen`/`write` streaming scaffolding | Layer real listen/write streaming on top of the HTTP bridge (or gRPC when ready), reuse retry/backoff, and surface structured responses. | Needs auth/App Check providers returning real tokens plus async stream abstraction. |
-| P0 | `packages/firestore/src/remote/datastore.ts` (token handling) | `src/firestore/remote/datastore/mod.rs`, `http.rs` | ✅ Auth/App Check token providers now feed the HTTP datastore with automatic retry on `Unauthenticated`; still need emulator headers and richer refresh flows. | Depends on porting credential providers from `packages/firestore/src/api/credentials.ts` and wiring to existing `crate::auth`. |
-| P0 | `packages/firestore/src/api/snapshot.ts`, `api/reference_impl.ts`, `core/firestore_client.ts` | Split `src/firestore/api/operations.rs` into `snapshot/` modules with converter support | Add typed metadata flags, `with_converter`, and map the HTTP responses to rich snapshots. | Requires serializer parity, encoded reference paths, and converter traits. |
-| P1 | `packages/firestore/src/api/transaction.ts`, `api/write_batch.ts`, `core/transaction_runner.ts` | New `src/firestore/api/write.rs`, `src/firestore/core/transaction.rs` | Implement mutations/batches/transactions with merge and precondition semantics against the HTTP datastore. | Builds on serializer support for mutations plus `CommitRequest`/`Rollback` RPCs. |
-| P1 | `packages/firestore/src/api/filter.ts`, `core/query.ts`, `core/view.ts`, `remote/watch_change.ts` | `src/firestore/api/query.rs`, `src/firestore/core/query/` | Port query builders, bounds, ordering, and attach them to real listen results. | Requires streaming remote store, target serialization, and comparator logic. |
-| P2 | `packages/firestore/src/local/indexeddb_*`, `local/persistence.ts`, `local/remote_document_cache.ts` | `src/firestore/local/` | Establish trait-based persistence with in-memory baseline, paving the way for disk-backed stores later. | Requires query engine integration and watch pipeline parity. |
-
-Follow this order so that the network-backed datastore unblocks richer snapshots and transactional APIs before layering on
-query/watch streaming and persistence. As each Rust module solidifies, port the matching TS unit tests from
-`packages/firestore/test/unit/` to ensure behavioural parity.
-
-Working through these steps in order will gradually move the port from a stubbed implementation to a fully compatible
-Firestore client suitable for real workloads.
+DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that it has no bugs or that it will work as intended.
 
 ## Example Usage
 
@@ -175,3 +119,91 @@ client.set_doc_with_converter(&doc, User::new("Ada"), None)?;
 let typed_snapshot = client.get_doc_with_converter(&doc)?;
 let user: Option<User> = typed_snapshot.data()?;
 ```
+
+
+
+## Current State
+
+- **Component wiring** – `firestore::api::register_firestore_component` hooks Firestore into the global component
+  registry so apps can lazily resolve `Firestore` instances via `get_firestore` (with per-database overrides).
+- **Model layer** – Core path primitives (`ResourcePath`, `FieldPath`, `DocumentKey`, `DatabaseId`) and basic value
+  types (`FirestoreValue`, `ArrayValue`, `MapValue`, `BytesValue`, `Timestamp`, `GeoPoint`) are ported with unit tests.
+- **Minimal references** – `CollectionReference`/`DocumentReference` mirror the modular JS API, including input
+  validation and auto-ID generation.
+- **Document façade stub** – A simple in-memory datastore backs `FirestoreClient::get_doc/set_doc/add_doc`, exercising
+  the value encoding pipeline and providing scaffolding for future network integration.
+- **Network scaffolding** – A retrying `HttpDatastore` now wraps the Firestore REST endpoints with JSON
+  serialization/deserialization, HTTP error mapping, and pluggable auth/App Check token providers. Auth and App Check
+  bridges now feed the HTTP client, including token invalidation/retry on `Unauthenticated` responses.
+- **App Check bridge** – `FirebaseAppCheckInternal::token_provider()` exposes App Check credentials as a Firestore
+  `TokenProvider`, making it straightforward to attach App Check headers when configuring the HTTP datastore.
+- **Typed converters** – Collection and document references accept `with_converter(...)`, and typed snapshots expose
+  converter-aware `data()` helpers that match the JS modular API.
+- **Snapshot metadata** – `DocumentSnapshot` now carries `SnapshotMetadata`, exposing `from_cache` and
+  `has_pending_writes` flags compatible with the JS API.
+
+This is enough to explore API ergonomics and stand up tests, but it lacks real network, persistence, query logic, and the
+majority of the Firestore feature set.
+
+## Next Steps
+
+1. **Network layer**
+   - Port the remote datastore to call Firestore’s REST/gRPC endpoints (authentication headers, request/response
+     serialization, retry/backoff).
+   - Handle stream-specific behaviour (listen/write pipelines) once basic REST calls succeed.
+2. **Snapshot & converter parity**
+   - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to match the JS SDK, including `withConverter`
+     support and typed accessors.
+3. **Write operations**
+   - Implement `set_doc`, `update_doc`, `delete_doc`, `write_batch`, and `run_transaction` semantics with proper merge
+     options and preconditions.
+4. **Query engine**
+   - Port query builders (filters, orderBy, limit, cursors) and result handling, then connect them to the remote listen
+     stream.
+5. **Local persistence**
+   - Introduce the local cache layers (memory, IndexedDB-like, LRU pruning) and multi-tab coordination, matching the JS
+     architecture.
+6. **Bundles & aggregates**
+   - Port bundle loading, named queries, and aggregate functions once core querying is functional.
+7. **Platform-specific plumbing**
+   - Mirror browser/node differences (e.g., persistence availability checks, WebChannel vs gRPC) via `platform/` modules.
+8. **Testing & parity checks**
+   - Translate the TS unit/integration tests, add coverage for conversions and query logic, and validate against Firebase
+     emulators where possible.
+
+### Test Porting Plan
+
+1. **Unit parity pass**
+   - Mirror `packages/firestore/test/unit` suites module-by-module (model, value, api, remote, util). Build Rust helpers
+     under `src/firestore/test_support` to replace `test/util/helpers.ts` and keep assertions ergonomic.
+   - ✅ `model/path` translated (see `tests/firestore/model/resource_path_tests.rs`) alongside supporting helpers.
+2. **Converter & snapshot coverage**
+   - Port lite/api tests that exercise `withConverter`, snapshot metadata, and reference validation using the in-memory
+     datastore.
+3. **Serializer & remote edge cases**
+   - Translate JSON/proto serializer tests (`test/unit/remote`) and watch/change specs once equivalent Rust modules land.
+4. **Local/core engine tests**
+   - After local persistence and query engine exist, port `test/unit/local` and `test/unit/core`, reusing generated spec
+     JSON fixtures.
+5. **Integration staging**
+   - Plan emulator-backed integration tests once REST/gRPC networking is wired; gate them behind cargo features to avoid
+     CI flakiness.
+
+## Immediate Porting Focus
+
+| Priority | JS source | Target Rust module | Scope | Key dependencies |
+|----------|-----------|--------------------|-------|------------------|
+| P0 | `packages/firestore/src/remote/datastore.ts`, `remote/persistent_stream.ts` | Extend `src/firestore/remote/datastore/http.rs`, add `listen`/`write` streaming scaffolding | Layer real listen/write streaming on top of the HTTP bridge (or gRPC when ready), reuse retry/backoff, and surface structured responses. | Needs auth/App Check providers returning real tokens plus async stream abstraction. |
+| P0 | `packages/firestore/src/remote/datastore.ts` (token handling) | `src/firestore/remote/datastore/mod.rs`, `http.rs` | ✅ Auth/App Check token providers now feed the HTTP datastore with automatic retry on `Unauthenticated`; still need emulator headers and richer refresh flows. | Depends on porting credential providers from `packages/firestore/src/api/credentials.ts` and wiring to existing `crate::auth`. |
+| P0 | `packages/firestore/src/api/snapshot.ts`, `api/reference_impl.ts`, `core/firestore_client.ts` | Split `src/firestore/api/operations.rs` into `snapshot/` modules with converter support | Add typed metadata flags, `with_converter`, and map the HTTP responses to rich snapshots. | Requires serializer parity, encoded reference paths, and converter traits. |
+| P1 | `packages/firestore/src/api/transaction.ts`, `api/write_batch.ts`, `core/transaction_runner.ts` | New `src/firestore/api/write.rs`, `src/firestore/core/transaction.rs` | Implement mutations/batches/transactions with merge and precondition semantics against the HTTP datastore. | Builds on serializer support for mutations plus `CommitRequest`/`Rollback` RPCs. |
+| P1 | `packages/firestore/src/api/filter.ts`, `core/query.ts`, `core/view.ts`, `remote/watch_change.ts` | `src/firestore/api/query.rs`, `src/firestore/core/query/` | Port query builders, bounds, ordering, and attach them to real listen results. | Requires streaming remote store, target serialization, and comparator logic. |
+| P2 | `packages/firestore/src/local/indexeddb_*`, `local/persistence.ts`, `local/remote_document_cache.ts` | `src/firestore/local/` | Establish trait-based persistence with in-memory baseline, paving the way for disk-backed stores later. | Requires query engine integration and watch pipeline parity. |
+
+Follow this order so that the network-backed datastore unblocks richer snapshots and transactional APIs before layering on
+query/watch streaming and persistence. As each Rust module solidifies, port the matching TS unit tests from
+`packages/firestore/test/unit/` to ensure behavioural parity.
+
+Working through these steps in order will gradually move the port from a stubbed implementation to a fully compatible
+Firestore client suitable for real workloads.
+
