@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::app::FirebaseApp;
 use crate::component::Provider;
@@ -9,6 +10,7 @@ use crate::storage::constants::{
 use crate::storage::error::{no_default_bucket, StorageResult};
 use crate::storage::location::Location;
 use crate::storage::reference::StorageReference;
+use crate::storage::request::{BackoffConfig, HttpClient};
 use crate::storage::util::is_url;
 
 #[derive(Clone)]
@@ -169,6 +171,18 @@ impl FirebaseStorageImpl {
             None => self.bucket().ok_or_else(no_default_bucket)?,
         };
         Ok(StorageReference::new(self.clone(), location))
+    }
+
+    pub fn http_client(&self) -> StorageResult<HttpClient> {
+        let timeout = Duration::from_millis(self.max_operation_retry_time());
+        let config = BackoffConfig::standard_operation().with_total_timeout(timeout);
+        HttpClient::new(self.is_using_emulator(), config)
+    }
+
+    pub fn upload_http_client(&self) -> StorageResult<HttpClient> {
+        let timeout = Duration::from_millis(self.max_upload_retry_time());
+        let config = BackoffConfig::upload_operation(timeout);
+        HttpClient::new(self.is_using_emulator(), config)
     }
 }
 

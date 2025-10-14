@@ -4,6 +4,7 @@ pub mod error;
 mod location;
 mod path;
 pub mod reference;
+pub mod request;
 pub mod service;
 mod util;
 

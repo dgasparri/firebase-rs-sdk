@@ -12,6 +12,8 @@ foundational pieces needed for other components to obtain a storage service and 
   `StorageReference` values for arbitrary child paths.
 - Mirrored the public Rust API façade with helpers that wrap the component container (`get_storage_for_app`,
   `storage_ref_from_storage`, etc.).
+- Introduced the request/backoff scaffolding (`storage::request`) and convenience constructors on
+  `FirebaseStorageImpl` so higher layers can issue HTTP calls with exponential retry policy.
 
 These pieces are enough for other modules to obtain storage references and manipulate hierarchical paths, but they do
 not yet issue network requests or expose upload/download flows.
@@ -23,8 +25,9 @@ build order:
 
 1. **Auth/App Check plumbing** – `FirebaseStorageImpl` receives the providers, but token retrieval is unimplemented.
    Inject async token fetchers and thread them into request execution once networking is in place.
-2. **Request stack** – Port the `implementation/*` helpers (connection abstractions, retry/backoff, metadata parsing,
-   JSON serialization) so the service can materialise HTTP requests against the REST API and emulator.
+2. **Request stack** – Port the `implementation/*` helpers (connection abstractions, metadata parsing,
+   JSON serialization) so the service can materialise HTTP requests against the REST API and emulator. _(Backoff and
+   HTTP wrappers landed; metadata parsing and specialised request builders still to do.)_
 3. **StorageReference operations** – Implement the full API (`get_bytes`, `get_metadata`, `update_metadata`,
    `list/list_all`, `get_download_url`, etc.) by delegating to the request stack. This also requires wiring upload task
    handling (`UploadTask`, resumable uploads, cancellation, observers).
