@@ -12,7 +12,7 @@ use crate::storage::list::{build_list_options, ListOptions};
 use crate::storage::location::Location;
 use crate::storage::metadata::ObjectMetadata;
 use crate::storage::service::FirebaseStorageImpl;
-use crate::storage::SetMetadataRequest;
+use crate::storage::{SetMetadataRequest, UploadMetadata};
 
 use super::{RequestBody, RequestInfo, ResponseHandler};
 
@@ -183,7 +183,7 @@ pub fn multipart_upload_request(
     storage: &FirebaseStorageImpl,
     location: &Location,
     data: Vec<u8>,
-    metadata: Option<SetMetadataRequest>,
+    metadata: Option<UploadMetadata>,
 ) -> RequestInfo<ObjectMetadata> {
     let base_url = format!("{}/v0{}", storage.host(), location.bucket_only_server_url());
     let timeout = Duration::from_millis(storage.max_upload_retry_time());
@@ -236,7 +236,7 @@ pub fn multipart_upload_request(
 pub fn create_resumable_upload_request(
     storage: &FirebaseStorageImpl,
     location: &Location,
-    metadata: Option<SetMetadataRequest>,
+    metadata: Option<UploadMetadata>,
     total_size: u64,
 ) -> RequestInfo<String> {
     let base_url = format!("{}/v0{}", storage.host(), location.bucket_only_server_url());
@@ -439,7 +439,7 @@ fn finalize_multipart(body: &mut Vec<u8>, boundary: &str) {
 
 fn build_upload_resource(
     location: &Location,
-    metadata: Option<SetMetadataRequest>,
+    metadata: Option<UploadMetadata>,
     total_size: u64,
 ) -> (Value, String) {
     let mut map = Map::new();
@@ -479,6 +479,19 @@ fn build_upload_resource(
             }
             map.insert("metadata".to_string(), Value::Object(custom_map));
         }
+        if let Some(value) = meta.md5_hash {
+            map.insert("md5Hash".to_string(), Value::String(value));
+        }
+        if let Some(value) = meta.crc32c {
+            map.insert("crc32c".to_string(), Value::String(value));
+        }
+    }
+
+    if !map.contains_key("contentType") {
+        map.insert(
+            "contentType".to_string(),
+            Value::String(content_type.clone()),
+        );
     }
 
     (Value::Object(map), content_type)
@@ -499,7 +512,7 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use crate::storage::metadata::SetMetadataRequest;
+    use crate::storage::metadata::{SetMetadataRequest, UploadMetadata};
     use crate::storage::request::{RequestBody, ResponsePayload};
     use reqwest::StatusCode;
 
@@ -634,8 +647,10 @@ mod tests {
     fn multipart_upload_request_sets_protocol_and_body() {
         let storage = build_storage();
         let location = Location::new("my-bucket", "photos/dog.jpg");
-        let mut metadata = SetMetadataRequest::default();
+        let mut metadata = UploadMetadata::new();
         metadata.content_type = Some("image/jpeg".into());
+        metadata.md5_hash = Some("abc123".into());
+        metadata.insert_custom_metadata("role", "cover");
         let bytes = vec![1_u8, 2, 3, 4, 5];
 
         let request = multipart_upload_request(&storage, &location, bytes.clone(), Some(metadata));
@@ -669,8 +684,9 @@ mod tests {
     fn create_resumable_upload_request_extracts_upload_url() {
         let storage = build_storage();
         let location = Location::new("my-bucket", "videos/clip.mp4");
-        let mut metadata = SetMetadataRequest::default();
+        let mut metadata = UploadMetadata::new();
         metadata.content_type = Some("video/mp4".into());
+        metadata.crc32c = Some("deadbeef".into());
         let request = create_resumable_upload_request(&storage, &location, Some(metadata), 2048);
 
         assert_eq!(

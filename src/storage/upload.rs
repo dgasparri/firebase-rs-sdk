@@ -7,7 +7,7 @@ use crate::storage::request::{
     continue_resumable_upload_request, create_resumable_upload_request, multipart_upload_request,
     RESUMABLE_UPLOAD_CHUNK_SIZE,
 };
-use crate::storage::SetMetadataRequest;
+use crate::storage::UploadMetadata;
 
 const MAX_RESUMABLE_CHUNK_SIZE: usize = 32 * 1024 * 1024;
 
@@ -45,7 +45,7 @@ impl UploadProgress {
 pub struct UploadTask {
     reference: StorageReference,
     data: Vec<u8>,
-    metadata: Option<SetMetadataRequest>,
+    metadata: Option<UploadMetadata>,
     total_bytes: u64,
     transferred: u64,
     resumable: bool,
@@ -60,7 +60,7 @@ impl UploadTask {
     pub(crate) fn new(
         reference: StorageReference,
         data: Vec<u8>,
-        metadata: Option<SetMetadataRequest>,
+        metadata: Option<UploadMetadata>,
     ) -> Self {
         let total_bytes = data.len() as u64;
         let resumable = total_bytes as usize > RESUMABLE_UPLOAD_CHUNK_SIZE;

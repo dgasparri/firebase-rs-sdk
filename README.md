@@ -23,6 +23,10 @@ cargo doc
 "Document the ./src/firestore public functions. You can use the original Javascript descriptions of the functions,
 ▌ found in ./packages/firestore and ./packages/firebase/firestore folders, and in the ./docs-devsite/firestore* files"
 
+
+Following the instructions in ./AGENTS.md, implement the StorageReference operations for the module storage in ./
+▌ packages/storage
+
 ## Modules:
 
 - Firebase is the API

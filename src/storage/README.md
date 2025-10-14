@@ -11,7 +11,7 @@ environment.
 ```rust
 use firebase_rs_sdk_unofficial::app::api::initialize_app;
 use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::storage::get_storage_for_app;
+use firebase_rs_sdk_unofficial::storage::{get_storage_for_app, UploadMetadata};
 
 fn main() {
     let options = FirebaseOptions {
@@ -31,9 +31,13 @@ fn main() {
         .child("photos");
 
     // Upload a photo; small payloads are sent via multipart upload while larger blobs use the resumable API.
+    let image_bytes = vec![/* PNG bytes */];
+    let mut upload_metadata = UploadMetadata::new().with_content_type("image/png");
+    upload_metadata.insert_custom_metadata("uploaded-by", "quickstart");
+
     let metadata = photos
         .child("welcome.png")
-        .upload_bytes(vec![/* PNG bytes */], None)
+        .upload_bytes(image_bytes, Some(upload_metadata))
         .expect("upload failed");
     println!("Uploaded {} to bucket {}", metadata.name.unwrap_or_default(), metadata.bucket.unwrap_or_default());
 
@@ -66,6 +70,9 @@ fn main() {
 - Added upload support: multipart uploads expose a synchronous `upload_bytes` helper, and resumable uploads are modelled
   through a Rust-centric `UploadTask` that streams chunks, surfaces progress callbacks, and finalises with parsed
   metadata. Request builders for multipart/resumable flows are unit-tested with emulator-style mocks.
+- Expanded metadata and type models: `ObjectMetadata` now tracks MD5/CRC/ETag values, parses download tokens into a
+  typed collection, and exposes helpers for byte sizes. `UploadMetadata`/`SettableMetadata` provide builder-style
+  ergonomics for configuring uploads and metadata updates while serialising to the REST-friendly camelCase payloads.
 
 ## Still To Do
 
@@ -74,8 +81,8 @@ fn main() {
    respect user/app-check state.
 2. **String/stream uploads** – Add helpers for `upload_string`, streaming uploads, and byte-range resumptions so the API
    mirrors the JS surface for textual and streaming sources.
-3. **Metadata & type models** – Expand the metadata module to mirror the JS SDK’s rich types (`public-types.ts`),
-   including custom metadata maps, observers, and request payload helpers.
+3. **Task observers & snapshots** – Model `UploadTaskSnapshot`, observer callbacks, and state transitions so clients can
+   subscribe to upload progress events the same way the Web SDK exposes `state_changed` streams.
 4. **Error parity** – Flesh out the error module with the full suite of error codes, HTTP status mapping, and helper
    constructors to match the TS SDK.
 5. **Testing** – Broaden coverage with request-layer mocks, emulator integration smoke tests, and regression suites for
@@ -88,11 +95,10 @@ fn main() {
      are attached and refreshed when requests retry.
    - Extend the retry/error handling logic to recognise auth-specific status codes and bubble up meaningful
      `StorageErrorCode`s.
-2. **Expanded metadata surface**
-   - Mirror the remaining metadata mappings (custom metadata serialization, MD5/ETag fields) and expose strongly typed
-     setters/getters so upload APIs can populate metadata without manual JSON handling.
-   - Document the new types in rustdoc and back them with serde-based (de)serialization tests to maintain parity with
-     the Web SDK.
-3. **Upload ergonomics**
+2. **Upload ergonomics**
    - Layer high-level helpers for string and stream sources on top of the new upload primitives.
    - Extend `UploadTask` with pause/resume/cancel semantics and persisted session recovery to match the JS SDK.
+3. **Observer & snapshot surface**
+   - Introduce `UploadTaskSnapshot` plus `StorageObserver` types that mirror the Web SDK, including typed progress
+     metrics and error propagation.
+   - Add unit coverage for observer registration and state transitions once snapshot modelling is in place.

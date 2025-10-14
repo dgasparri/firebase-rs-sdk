@@ -11,7 +11,7 @@ use crate::storage::request::{
 };
 use crate::storage::service::FirebaseStorageImpl;
 use crate::storage::upload::UploadTask;
-use crate::storage::SetMetadataRequest;
+use crate::storage::{SettableMetadata, UploadMetadata};
 use std::convert::TryFrom;
 
 #[derive(Clone)]
@@ -130,7 +130,7 @@ impl StorageReference {
     ///
     /// Returns [`storage/invalid-root-operation`](crate::storage::StorageErrorCode::InvalidRootOperation)
     /// when invoked on the bucket root.
-    pub fn update_metadata(&self, metadata: SetMetadataRequest) -> StorageResult<ObjectMetadata> {
+    pub fn update_metadata(&self, metadata: SettableMetadata) -> StorageResult<ObjectMetadata> {
         self.ensure_not_root("update_metadata")?;
         let request = update_metadata_request(&self.storage, &self.location, metadata);
         let json = self.storage.run_request(request)?;
@@ -195,7 +195,7 @@ impl StorageReference {
     pub fn upload_bytes(
         &self,
         data: impl Into<Vec<u8>>,
-        metadata: Option<SetMetadataRequest>,
+        metadata: Option<UploadMetadata>,
     ) -> StorageResult<ObjectMetadata> {
         self.ensure_not_root("upload_bytes")?;
         let request =
@@ -211,7 +211,7 @@ impl StorageReference {
     pub fn upload_bytes_resumable(
         &self,
         data: Vec<u8>,
-        metadata: Option<SetMetadataRequest>,
+        metadata: Option<UploadMetadata>,
     ) -> StorageResult<UploadTask> {
         self.ensure_not_root("upload_bytes_resumable")?;
         Ok(UploadTask::new(self.clone(), data, metadata))
