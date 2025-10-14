@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use reqwest::Method;
 use serde_json::Value;
+use url::form_urlencoded;
 
 use crate::storage::error::internal_error;
 use crate::storage::list::{build_list_options, ListOptions};
@@ -74,6 +75,82 @@ pub fn list_request(
     request
 }
 
+pub fn download_bytes_request(
+    storage: &FirebaseStorageImpl,
+    location: &Location,
+    max_download_size_bytes: Option<u64>,
+) -> RequestInfo<Vec<u8>> {
+    let base_url = format!("{}/v0{}", storage.host(), location.full_server_url());
+    let timeout = Duration::from_millis(storage.max_operation_retry_time());
+
+    let handler: ResponseHandler<Vec<u8>> = Arc::new(|payload| Ok(payload.body));
+
+    let mut request = RequestInfo::new(base_url, Method::GET, timeout, handler);
+    request
+        .query_params
+        .insert("alt".to_string(), "media".to_string());
+
+    if let Some(limit) = max_download_size_bytes {
+        request
+            .headers
+            .insert("Range".to_string(), format!("bytes=0-{limit}"));
+        request.success_codes = vec![200, 206];
+    }
+
+    request
+}
+
+pub fn download_url_request(
+    storage: &FirebaseStorageImpl,
+    location: &Location,
+) -> RequestInfo<Option<String>> {
+    let url_part = location.full_server_url();
+    let base_url = format!("{}/v0{}", storage.host(), url_part.clone());
+    let timeout = Duration::from_millis(storage.max_operation_retry_time());
+
+    let download_base = format!("{}://{}/v0{}", storage.protocol(), storage.host(), url_part);
+
+    let handler: ResponseHandler<Option<String>> = Arc::new(move |payload| {
+        let value: Value = serde_json::from_slice(&payload.body)
+            .map_err(|err| internal_error(format!("failed to parse download metadata: {err}")))?;
+
+        if let Some(tokens) = value
+            .get("downloadTokens")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            if let Some(token) = tokens.split(',').find(|segment| !segment.is_empty()) {
+                let encoded_token: String =
+                    form_urlencoded::byte_serialize(token.as_bytes()).collect();
+                return Ok(Some(format!(
+                    "{}?alt=media&token={}",
+                    download_base, encoded_token
+                )));
+            }
+        }
+
+        Ok(None)
+    });
+
+    let mut request = RequestInfo::new(base_url, Method::GET, timeout, handler);
+    request.headers = default_json_headers();
+    request
+}
+
+pub fn delete_object_request(
+    storage: &FirebaseStorageImpl,
+    location: &Location,
+) -> RequestInfo<()> {
+    let base_url = format!("{}/v0{}", storage.host(), location.full_server_url());
+    let timeout = Duration::from_millis(storage.max_operation_retry_time());
+
+    let handler: ResponseHandler<()> = Arc::new(|_| Ok(()));
+
+    let mut request = RequestInfo::new(base_url, Method::DELETE, timeout, handler);
+    request.success_codes = vec![200, 204];
+    request
+}
+
 fn default_json_headers() -> HashMap<String, String> {
     let mut headers = HashMap::new();
     headers.insert("Accept".to_string(), "application/json".to_string());
@@ -87,7 +164,8 @@ mod tests {
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::storage::metadata::SetMetadataRequest;
-    use crate::storage::request::RequestBody;
+    use crate::storage::request::{RequestBody, ResponsePayload};
+    use reqwest::StatusCode;
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -169,5 +247,50 @@ mod tests {
             request.query_params.get("pageToken"),
             Some(&"token123".to_string())
         );
+    }
+
+    #[test]
+    fn download_bytes_request_sets_range_header() {
+        let storage = build_storage();
+        let location = Location::new("my-bucket", "docs/file.txt");
+        let request = download_bytes_request(&storage, &location, Some(1024));
+        assert_eq!(request.method, Method::GET);
+        assert_eq!(request.query_params.get("alt"), Some(&"media".to_string()));
+        assert_eq!(
+            request.headers.get("Range"),
+            Some(&"bytes=0-1024".to_string())
+        );
+        assert_eq!(request.success_codes, vec![200, 206]);
+    }
+
+    #[test]
+    fn download_url_request_builds_signed_url() {
+        let storage = build_storage();
+        let location = Location::new("my-bucket", "photos/cat.jpg");
+        let request = download_url_request(&storage, &location);
+
+        let payload = ResponsePayload {
+            status: StatusCode::OK,
+            headers: HashMap::new(),
+            body: serde_json::to_vec(&serde_json::json!({
+                "downloadTokens": "token123"
+            }))
+            .unwrap(),
+        };
+
+        let handler = request.response_handler.clone();
+        let url = handler(payload).unwrap().unwrap();
+        assert!(url.contains("token=token123"));
+        assert!(url.starts_with("https://"));
+        assert!(url.contains("/v0/b/my%2Dbucket"));
+    }
+
+    #[test]
+    fn delete_object_request_accepts_empty_response() {
+        let storage = build_storage();
+        let location = Location::new("my-bucket", "docs/file.txt");
+        let request = delete_object_request(&storage, &location);
+        assert_eq!(request.method, Method::DELETE);
+        assert!(request.success_codes.contains(&204));
     }
 }

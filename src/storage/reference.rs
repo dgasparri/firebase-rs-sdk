@@ -1,9 +1,17 @@
+use crate::storage::error::{
+    invalid_argument, invalid_root_operation, no_download_url, StorageResult,
+};
 use crate::storage::list::{parse_list_result, ListOptions, ListResult};
 use crate::storage::location::Location;
 use crate::storage::metadata::ObjectMetadata;
 use crate::storage::path::{child, last_component, parent};
-use crate::storage::request::{get_metadata_request, list_request};
+use crate::storage::request::{
+    delete_object_request, download_bytes_request, download_url_request, get_metadata_request,
+    list_request, update_metadata_request,
+};
 use crate::storage::service::FirebaseStorageImpl;
+use crate::storage::SetMetadataRequest;
+use std::convert::TryFrom;
 
 #[derive(Clone)]
 pub struct StorageReference {
@@ -61,36 +69,109 @@ impl StorageReference {
         StorageReference::new(self.storage.clone(), location)
     }
 
+    fn ensure_not_root(&self, operation: &str) -> StorageResult<()> {
+        if self.location.is_root() {
+            Err(invalid_root_operation(operation))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Retrieves object metadata from Cloud Storage for this reference.
-    pub fn get_metadata(&self) -> crate::storage::error::StorageResult<ObjectMetadata> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`](crate::storage::StorageError) with code
+    /// `storage/invalid-root-operation` if the reference points to the bucket root.
+    pub fn get_metadata(&self) -> StorageResult<ObjectMetadata> {
+        self.ensure_not_root("get_metadata")?;
         let request = get_metadata_request(&self.storage, &self.location);
         let json = self.storage.run_request(request)?;
         Ok(ObjectMetadata::from_value(json))
     }
 
     /// Lists objects and prefixes immediately under this reference.
-    pub fn list(
-        &self,
-        options: Option<ListOptions>,
-    ) -> crate::storage::error::StorageResult<ListResult> {
+    pub fn list(&self, options: Option<ListOptions>) -> StorageResult<ListResult> {
         let opts = options.unwrap_or_default();
         let request = list_request(&self.storage, &self.location, &opts);
         let json = self.storage.run_request(request)?;
         parse_list_result(&self.storage, self.location.bucket(), json)
     }
 
+    /// Recursively lists all objects beneath this reference.
+    ///
+    /// This mirrors the Firebase Web SDK `listAll` helper and repeatedly calls [`list`](Self::list)
+    /// until the backend stops returning a `nextPageToken`.
+    pub fn list_all(&self) -> StorageResult<ListResult> {
+        let mut merged = ListResult::default();
+        let mut page_token: Option<String> = None;
+
+        loop {
+            let mut options = ListOptions::default();
+            options.page_token = page_token.clone();
+            let page = self.list(Some(options))?;
+            merged.prefixes.extend(page.prefixes.into_iter());
+            merged.items.extend(page.items.into_iter());
+
+            if let Some(token) = page.next_page_token {
+                page_token = Some(token);
+            } else {
+                break;
+            }
+        }
+
+        Ok(merged)
+    }
+
     /// Updates mutable metadata fields for this object.
-    pub fn update_metadata(
-        &self,
-        metadata: crate::storage::SetMetadataRequest,
-    ) -> crate::storage::error::StorageResult<ObjectMetadata> {
-        let request = crate::storage::request::update_metadata_request(
-            &self.storage,
-            &self.location,
-            metadata,
-        );
+    ///
+    /// # Errors
+    ///
+    /// Returns [`storage/invalid-root-operation`](crate::storage::StorageErrorCode::InvalidRootOperation)
+    /// when invoked on the bucket root.
+    pub fn update_metadata(&self, metadata: SetMetadataRequest) -> StorageResult<ObjectMetadata> {
+        self.ensure_not_root("update_metadata")?;
+        let request = update_metadata_request(&self.storage, &self.location, metadata);
         let json = self.storage.run_request(request)?;
         Ok(ObjectMetadata::from_value(json))
+    }
+
+    /// Downloads the referenced object into memory as a byte vector.
+    ///
+    /// The optional `max_download_size_bytes` mirrors the Web SDK behaviour: when supplied the
+    /// backend is asked for at most that many bytes and the response is truncated if the server
+    /// ignores the range header.
+    pub fn get_bytes(&self, max_download_size_bytes: Option<u64>) -> StorageResult<Vec<u8>> {
+        self.ensure_not_root("get_bytes")?;
+        let request =
+            download_bytes_request(&self.storage, &self.location, max_download_size_bytes);
+        let mut bytes = self.storage.run_request(request)?;
+
+        if let Some(limit) = max_download_size_bytes {
+            let limit_usize = usize::try_from(limit).map_err(|_| {
+                invalid_argument("max_download_size_bytes exceeds platform addressable memory")
+            })?;
+            if bytes.len() > limit_usize {
+                bytes.truncate(limit_usize);
+            }
+        }
+
+        Ok(bytes)
+    }
+
+    /// Returns a signed download URL for the object.
+    pub fn get_download_url(&self) -> StorageResult<String> {
+        self.ensure_not_root("get_download_url")?;
+        let request = download_url_request(&self.storage, &self.location);
+        let url = self.storage.run_request(request)?;
+        url.ok_or_else(no_download_url)
+    }
+
+    /// Permanently deletes the object referenced by this path.
+    pub fn delete_object(&self) -> StorageResult<()> {
+        self.ensure_not_root("delete_object")?;
+        let request = delete_object_request(&self.storage, &self.location);
+        self.storage.run_request(request)
     }
 }
 

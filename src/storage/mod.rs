@@ -17,7 +17,8 @@ pub use api::{
 pub use constants::STORAGE_TYPE;
 pub use error::{
     internal_error, invalid_argument, invalid_default_bucket, invalid_root_operation, invalid_url,
-    no_default_bucket, unsupported_environment, StorageError, StorageErrorCode, StorageResult,
+    no_default_bucket, no_download_url, unsupported_environment, StorageError, StorageErrorCode,
+    StorageResult,
 };
 pub use list::{ListOptions, ListResult};
 pub use location::Location;

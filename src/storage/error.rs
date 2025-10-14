@@ -12,6 +12,7 @@ pub enum StorageErrorCode {
     InvalidRootOperation,
     InternalError,
     UnsupportedEnvironment,
+    NoDownloadUrl,
 }
 
 impl StorageErrorCode {
@@ -26,6 +27,7 @@ impl StorageErrorCode {
             StorageErrorCode::InvalidRootOperation => "storage/invalid-root-operation",
             StorageErrorCode::InternalError => "storage/internal-error",
             StorageErrorCode::UnsupportedEnvironment => "storage/unsupported-environment",
+            StorageErrorCode::NoDownloadUrl => "storage/no-download-url",
         }
     }
 }
@@ -129,4 +131,11 @@ pub fn unsupported_environment(message: impl Into<String>) -> StorageError {
 
 pub fn internal_error(message: impl Into<String>) -> StorageError {
     StorageError::new(StorageErrorCode::InternalError, message)
+}
+
+pub fn no_download_url() -> StorageError {
+    StorageError::new(
+        StorageErrorCode::NoDownloadUrl,
+        "The requested object does not expose a download URL.",
+    )
 }

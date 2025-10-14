@@ -1,3 +1,26 @@
+# 12 October 2025
+
+I’m preparing a clear summary of the added Firebase Storage-like module in Rust, detailing file modifications with
+  line references and mentioning new dependencies. I’ll note the cargo test execution with warnings from unrelated
+  modules and suggest natural next steps like implementing network requests and emulator token integration.
+
+> Added a first-pass Storage port that registers the service, parses bucket locations, and builds typed references in
+  Rust.
+
+  - Wired the storage component into the global registry and app containers so callers can resolve instances (including
+  per-bucket overrides) via get_storage_for_app and emulator helpers (src/storage/api.rs:15, src/storage/mod.rs:10,
+  src/lib.rs:6).
+  - Implemented FirebaseStorageImpl with host/bucket state, emulator toggles, and reference construction while keeping
+  auth/app-check providers ready for token work (src/storage/service.rs:15).
+  - Ported location parsing, path utilities, and reference ergonomics with unit coverage to mirror the TypeScript
+  behaviour for gs:// and HTTPS URLs (src/storage/location.rs:7, src/storage/path.rs:1, src/storage/reference.rs:6, src/
+  storage/util.rs:1).
+  - Added storage-specific error types and re-exported the storage surface; pulled in percent-encoding and url to
+  support URL handling (src/storage/error.rs:4, Cargo.toml:15, Cargo.lock).
+
+  Tests: cargo test (passes; still emits pre-existing dead-code warnings from other modules).
+ 
+ 
 # 14 October 2025
 
 I'm figuring out which files like request.ts and connection.ts are involved in the request stack to model a minimal
@@ -104,3 +127,31 @@ Thinking
 
 • Explored
   └ Read url.ts
+
+
+ Storage Requests
+
+  - Added a full request toolkit (src/storage/request/backoff.rs, info.rs, transport.rs, builders.rs) mirroring the JS
+  stack: jittered exponential backoff, rich request descriptors (headers/body/query params), and a blocking HTTP client
+  that handles retryable failures.
+  - Taught FirebaseStorageImpl to spin up operation/upload clients and execute RequestInfo instances, then wired
+  StorageReference to use this infrastructure for get_metadata, update_metadata, and the new list API (src/storage/
+  service.rs#L176, src/storage/reference.rs#L60).
+  - Ported metadata/list modeling so responses deserialize into typed structures and emit child references (src/storage/
+  metadata/mod.rs, src/storage/list.rs).
+  - Documented the new surface in the Storage README and log, noting remaining high-level APIs to port (src/storage/
+  README.md:9-36, src/storage/LOG.md:6-23).
+
+  Tests
+
+  - cargo check
+  - cargo test storage::request::builders::tests::builds_update_metadata_request
+  - cargo test storage::request::builders::tests::builds_list_request
+  - cargo test storage::list::tests::parses_list_response
+
+  Next ideas
+
+  1. Layer additional request builders (get_bytes, get_download_url) and error mappers so more StorageReference
+  operations can go live.
+  2. Add high-level helpers (list_all, upload/download metadata flows) and start integrating auth/app-check tokens into
+  HttpClient before tackling upload tasks.
