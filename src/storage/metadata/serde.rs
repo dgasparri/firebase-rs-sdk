@@ -52,7 +52,7 @@ impl ObjectMetadata {
     }
 }
 
-#[derive(Default, Serialize)]
+#[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetMetadataRequest {
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -20,7 +20,7 @@ I’m preparing a clear summary of the added Firebase Storage-like module in Rus
 
   Tests: cargo test (passes; still emits pre-existing dead-code warnings from other modules).
  
- 
+
 # 14 October 2025
 
 I'm figuring out which files like request.ts and connection.ts are involved in the request stack to model a minimal
@@ -155,3 +155,118 @@ Thinking
   operations can go live.
   2. Add high-level helpers (list_all, upload/download metadata flows) and start integrating auth/app-check tokens into
   HttpClient before tackling upload tasks.
+
+
+I’m focusing on adding request builders like requestsDeleteObject and requestsGetDownloadUrl, while enforcing root-
+  level operation guards by adding an ensure_not_root method to StorageReference. I need to replicate JS behavior for
+  download size limits and download URL construction by porting related metadata parsing and URL-building logic from
+  TypeScript to Rust. I'll review the metadata implementation to understand how to extract tokens and assemble download
+  URLs properly.
+
+• Explored
+  └ Read metadata.ts
+
+> Thinking
+  I’m figuring out how to generate the download URL in Rust by leveraging ObjectMetadata and its optional
+  download_tokens field. Since the current metadata serde doesn’t include download_tokens, I’ll likely implement
+  get_download_url by calling get_metadata and computing from the returned data, handling errors if tokens are missing
+  by adding a no_download_url error similar to what's in the TypeScript storage package. This approach keeps things
+  RESTful and avoids duplicating logic.
+
+Thinking
+  I’m mapping out adding StorageReference methods like get_bytes with optional size limits, get_download_url that
+  handles missing URLs via a new error, delete_object, and list_all aggregations. This includes updating error enums,
+  request builders with proper headers and handlers, and ensuring root-checks on operations where applicable. I’ll
+  also plan for doc comments, integration with existing request infrastructure, and thoughtful handling of byte
+  limits and URL encoding to closely mirror existing JS behavior. Testing challenges due to network calls make mocking
+  considerations important. This is a substantial design and implementation step to fully flesh out StorageReference’s
+  restful operations in Rust.
+
+  Planning tests and documentation updates
+
+  I’m considering how to handle testing for the new request builders and StorageReference methods, noting that full
+  unit tests are tough without network mocking. I’ll focus on testing request builders to ensure headers and parameters
+  are set correctly and plan to add some doc updates and formatting. Finally, I’ll create a clear multi-step plan for
+  implementing these tasks efficiently.
+
+• Updated Plan
+  └ Implementing StorageReference operations requires extending the request builders, error types, and reference methods
+    along with documentation updates.
+    □ Extend storage error/request infrastructure to support download bytes, download URLs, and delete operations
+    □ Add StorageReference APIs (get_bytes, list_all, get_download_url, delete_object) with documentation and guard
+      logic
+    □ Update module documentation/tests and format
+
+
+
+Updated Plan
+  └ ✔ Extend storage error/request infrastructure to support download bytes, download URLs, and delete operations
+    ✔ Add StorageReference APIs (get_bytes, list_all, get_download_url, delete_object) with documentation and guard
+      logic
+    □ Update module documentation/tests and format
+
+• Explored
+  └ Read README.md
+
+> Thinking
+  I’m mapping out a complete overhaul of the README to reorder sections properly, add fresh quick start examples showing
+  network-enabled methods, update implemented and still-to-do lists, and rename the Next Steps section with detailed
+  action items. I’ll rewrite the whole file accordingly.
+
+
+  Thinking
+  I'll create a concise bullet list highlighting key code additions with file and line references, note the test
+  commands run, and briefly suggest logical next steps like implementing uploads or auth integration, keeping it aligned
+  with the README and instructions.
+
+> Updates
+
+  - Extended StorageReference with root-checked operations for listing, byte downloads, signed URLs, and deletion while
+  truncating oversized responses to match JS semantics (src/storage/reference.rs:72-175).
+  - Added request builders for byte downloads, download URLs, and deletes plus targeted unit coverage to validate
+  headers and parsing (src/storage/request/builders.rs:78-295, src/storage/request/mod.rs:6-10).
+  - Introduced the storage/no-download-url error variant and re-exported helper so callers receive explicit feedback
+  when tokens are absent (src/storage/error.rs:5-140, src/storage/mod.rs:18-21).
+  - Refreshed the storage README with an updated quick start, implemented feature list, and actionable completion plan
+  aligned with the new APIs (src/storage/README.md:1-87).
+
+  Tests
+
+  - cargo test storage::request::builders
+
+  Next steps you might consider:
+
+  1. Implement multipart/resumable upload flows and their UploadTask surface now that download primitives are in place.
+
+▌ Improve documentation in @filename                            
+
+ Updated Plan
+  └ ✔ Add upload-focused request builders and shared structs (multipart, resumable create/query/continue)
+    ✔ Implement UploadTask state machine and integrate resumable logic with FirebaseStorageImpl
+    ✔ Expose upload APIs on StorageReference and refresh documentation/tests
+
+
+Thinking
+  I'm gathering key file paths and highlights to create a concise, thorough summary of major code changes like the
+  new upload.rs, updated StorageReference, request builders, README edits, and test adjustments. I'll also explain why
+  network-related tests weren’t run and include suggestions for future test runs once network access is possible.
+
+> - Added multipart and resumable request builders plus supporting structs so uploads can create sessions, stream
+  chunks, and parse final metadata (see src/storage/request/builders.rs:78-310 and re-exports in src/storage/request/
+  mod.rs:5-10).
+  - Introduced UploadTask with chunk management, progress reporting, and resumable session handling, alongside default
+  upload constants (see new src/storage/upload.rs).
+  - Extended StorageReference with upload_bytes and upload_bytes_resumable, including rustdoc examples, while routing
+  multipart requests through the upload HTTP client and returning the new task type (see src/storage/reference.rs:139-
+  187).
+  - Exposed upload APIs at the crate root and added declarative docs, plus made SetMetadataRequest clonable for reuse
+  during uploads (see src/storage/mod.rs:8-26, src/storage/metadata/serde.rs:57-83).
+  - Updated Firebase Storage README to document the new upload capabilities and refreshed the roadmap to focus on auth
+  plumbing, metadata expansion, and upload ergonomics (see src/storage/README.md).
+
+  Tests
+
+  - cargo test storage::request::builders
+
+  (Resumable upload integration tests require opening local sockets; those aren’t runnable inside this sandbox. Consider
+  executing the new upload task smoke tests on a host with network permissions.)

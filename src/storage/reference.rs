@@ -7,9 +7,10 @@ use crate::storage::metadata::ObjectMetadata;
 use crate::storage::path::{child, last_component, parent};
 use crate::storage::request::{
     delete_object_request, download_bytes_request, download_url_request, get_metadata_request,
-    list_request, update_metadata_request,
+    list_request, multipart_upload_request, update_metadata_request,
 };
 use crate::storage::service::FirebaseStorageImpl;
+use crate::storage::upload::UploadTask;
 use crate::storage::SetMetadataRequest;
 use std::convert::TryFrom;
 
@@ -172,6 +173,48 @@ impl StorageReference {
         self.ensure_not_root("delete_object")?;
         let request = delete_object_request(&self.storage, &self.location);
         self.storage.run_request(request)
+    }
+
+    /// Uploads a small blob in a single multipart request.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use firebase_rs_sdk_unofficial::app::api::initialize_app;
+    /// # use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
+    /// # use firebase_rs_sdk_unofficial::storage::get_storage_for_app;
+    /// let options = FirebaseOptions {
+    ///     storage_bucket: Some("my-bucket".into()),
+    ///     ..Default::default()
+    /// };
+    /// let app = initialize_app(options, Some(FirebaseAppSettings::default())).unwrap();
+    /// let storage = get_storage_for_app(Some(app), None).unwrap();
+    /// let avatar = storage.root_reference().unwrap().child("avatars/user.png");
+    /// avatar.upload_bytes(vec![0_u8; 1024], None).unwrap();
+    /// ```
+    pub fn upload_bytes(
+        &self,
+        data: impl Into<Vec<u8>>,
+        metadata: Option<SetMetadataRequest>,
+    ) -> StorageResult<ObjectMetadata> {
+        self.ensure_not_root("upload_bytes")?;
+        let request =
+            multipart_upload_request(&self.storage, &self.location, data.into(), metadata);
+        self.storage.run_upload_request(request)
+    }
+
+    /// Creates a resumable upload task that can be advanced chunk by chunk or run to completion.
+    ///
+    /// Resumable uploads stream data in 256 KiB chunks by default, doubling up to 32 MiB to match the
+    /// behaviour of the Firebase Web SDK. The returned [`UploadTask`](crate::storage::UploadTask)
+    /// exposes helpers to poll chunk progress or upload the entire file with a single call.
+    pub fn upload_bytes_resumable(
+        &self,
+        data: Vec<u8>,
+        metadata: Option<SetMetadataRequest>,
+    ) -> StorageResult<UploadTask> {
+        self.ensure_not_root("upload_bytes_resumable")?;
+        Ok(UploadTask::new(self.clone(), data, metadata))
     }
 }
 

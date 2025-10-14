@@ -1,7 +1,10 @@
 # Firebase Storage Port (Rust)
 
+## Introduction
+
 This module ports core pieces of the Firebase Storage Web SDK to Rust so applications can discover buckets, navigate
-object paths, and perform common download and metadata operations in a synchronous, `reqwest`-powered environment.
+object paths, and perform common download, metadata, and upload operations in a synchronous, `reqwest`-powered
+environment.
 
 ## Quick Start Example
 
@@ -27,6 +30,14 @@ fn main() {
         .expect("missing default bucket")
         .child("photos");
 
+    // Upload a photo; small payloads are sent via multipart upload while larger blobs use the resumable API.
+    let metadata = photos
+        .child("welcome.png")
+        .upload_bytes(vec![/* PNG bytes */], None)
+        .expect("upload failed");
+    println!("Uploaded {} to bucket {}", metadata.name.unwrap_or_default(), metadata.bucket.unwrap_or_default());
+
+    // List the directory and stream the first few kilobytes of each item.
     let listing = photos.list_all().expect("failed to list objects");
     for object in listing.items {
         let url = object.get_download_url().expect("missing download URL");
@@ -52,14 +63,17 @@ fn main() {
 - Ported the core `StorageReference` operations: metadata fetch/update, hierarchical listing (`list`/`list_all`), direct
   downloads via `get_bytes`, signed URL generation (`get_download_url`), and object deletion. Corresponding request
   builders now emit byte-download, download-URL, and delete requests with unit coverage.
+- Added upload support: multipart uploads expose a synchronous `upload_bytes` helper, and resumable uploads are modelled
+  through a Rust-centric `UploadTask` that streams chunks, surfaces progress callbacks, and finalises with parsed
+  metadata. Request builders for multipart/resumable flows are unit-tested with emulator-style mocks.
 
 ## Still To Do
 
 1. **Auth/App Check plumbing** – `FirebaseStorageImpl` receives the providers, but token retrieval is unimplemented.
    Inject async token fetchers and thread them into request execution so authenticated requests and emulator overrides
    respect user/app-check state.
-2. **Upload flows** – Port multipart and resumable upload builders plus the `UploadTask` state machine so clients can
-   mirror `uploadBytes`, `uploadBytesResumable`, and `uploadString`.
+2. **String/stream uploads** – Add helpers for `upload_string`, streaming uploads, and byte-range resumptions so the API
+   mirrors the JS surface for textual and streaming sources.
 3. **Metadata & type models** – Expand the metadata module to mirror the JS SDK’s rich types (`public-types.ts`),
    including custom metadata maps, observers, and request payload helpers.
 4. **Error parity** – Flesh out the error module with the full suite of error codes, HTTP status mapping, and helper
@@ -69,19 +83,16 @@ fn main() {
 
 ## Next steps - Detailed completion plan
 
-1. **Multipart/resumable uploads**
-   - Port the multipart and resumable upload request builders (`multipartUpload`, `createResumableUpload`,
-     `continueResumableUpload`) and wire them through `FirebaseStorageImpl::upload_http_client`.
-   - Model the upload state machine in Rust (initial start, chunked progress, finalize) and expose it via a Rust-friendly
-     `UploadTask` API that emits progress callbacks.
-   - Add targeted unit tests that validate chunk boundaries and error handling using mocked HTTP responses.
-2. **Authentication tokens & headers**
+1. **Authentication tokens & headers**
    - Implement token fetchers for Auth and App Check providers and inject them into request execution, ensuring headers
      are attached and refreshed when requests retry.
    - Extend the retry/error handling logic to recognise auth-specific status codes and bubble up meaningful
      `StorageErrorCode`s.
-3. **Expanded metadata surface**
+2. **Expanded metadata surface**
    - Mirror the remaining metadata mappings (custom metadata serialization, MD5/ETag fields) and expose strongly typed
      setters/getters so upload APIs can populate metadata without manual JSON handling.
    - Document the new types in rustdoc and back them with serde-based (de)serialization tests to maintain parity with
      the Web SDK.
+3. **Upload ergonomics**
+   - Layer high-level helpers for string and stream sources on top of the new upload primitives.
+   - Extend `UploadTask` with pause/resume/cancel semantics and persisted session recovery to match the JS SDK.

@@ -8,6 +8,7 @@ mod path;
 pub mod reference;
 pub mod request;
 pub mod service;
+mod upload;
 mod util;
 
 pub use api::{
@@ -25,3 +26,4 @@ pub use location::Location;
 pub use metadata::{ObjectMetadata, SetMetadataRequest};
 pub use reference::StorageReference;
 pub use service::FirebaseStorageImpl;
+pub use upload::{UploadProgress, UploadTask, UploadTaskState};

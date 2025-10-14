@@ -189,6 +189,11 @@ impl FirebaseStorageImpl {
         let client = self.http_client()?;
         client.execute(info)
     }
+
+    pub fn run_upload_request<O>(&self, info: RequestInfo<O>) -> StorageResult<O> {
+        let client = self.upload_http_client()?;
+        client.execute(info)
+    }
 }
 
 fn extract_bucket(host: &str, app: &FirebaseApp) -> StorageResult<Option<Location>> {
