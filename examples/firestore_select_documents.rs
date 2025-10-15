@@ -57,21 +57,9 @@ fn get_cities(
 
 fn seed_cities(client: &FirestoreClient) -> FirestoreResult<()> {
     let cities = [
-        (
-            "sf",
-            "San Francisco",
-            "California",
-            "USA",
-            860_000,
-        ),
+        ("sf", "San Francisco", "California", "USA", 860_000),
         ("la", "Los Angeles", "California", "USA", 3_980_000),
-        (
-            "tokyo",
-            "Tokyo",
-            "Tokyo Prefecture",
-            "Japan",
-            13_960_000,
-        ),
+        ("tokyo", "Tokyo", "Tokyo Prefecture", "Japan", 13_960_000),
     ];
 
     for (id, name, state, country, population) in cities {
@@ -79,7 +67,10 @@ fn seed_cities(client: &FirestoreClient) -> FirestoreResult<()> {
         data.insert("name".into(), FirestoreValue::from_string(name));
         data.insert("state".into(), FirestoreValue::from_string(state));
         data.insert("country".into(), FirestoreValue::from_string(country));
-        data.insert("population".into(), FirestoreValue::from_integer(population));
+        data.insert(
+            "population".into(),
+            FirestoreValue::from_integer(population),
+        );
         client.set_doc(&format!("cities/{id}"), data, None)?;
     }
 

@@ -17,13 +17,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default()))?;
     let firestore_arc = get_firestore(Some(app.clone()))?;
-    let firestore = Firestore::from_arc(firestore_arc.clone());
+    let firestore = Firestore::from_arc(firestore_arc);
 
-    // Use the in-memory datastore so the example stays self-contained.
-    let client = FirestoreClient::with_in_memory(firestore.clone());
+    // Talk to the hosted Firestore REST API. Configure credentials/tokens as needed.
+    let client = FirestoreClient::with_http_datastore(firestore.clone())?;
 
-    seed_cities(&client)?;
-    let cities = get_cities(&firestore, &client)?;
+    let cities = load_cities(&firestore, &client)?;
 
     println!("Loaded {} cities from Firestore:", cities.len());
     for city in cities {
@@ -37,53 +36,29 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Mirrors the `getCities` helper in `JSEXAMPLE.ts` using the Rust APIs.
-fn get_cities(
+/// Mirrors the `getCities` helper in `JSEXAMPLE.ts`, but targets real documents stored in
+/// Firestore. Populate the referenced documents in your Firestore instance before running
+/// the code, or adapt the document IDs to match your dataset.
+fn load_cities(
     firestore: &Firestore,
     client: &FirestoreClient,
 ) -> FirestoreResult<Vec<BTreeMap<String, FirestoreValue>>> {
-    let query = firestore.collection("cities")?.query();
-    let snapshot = client.get_docs(&query)?;
+    // In the Modular JS SDK quickstart the sample lists a handful of known city documents.
+    // We follow the same approach here. Replace the identifiers with those present in your
+    // database or fetch them dynamically once collection queries are implemented over HTTP.
+    let document_ids = ["la", "sf", "tokyo"];
 
     let mut documents = Vec::new();
-    for doc in snapshot.documents() {
-        if let Some(data) = doc.data() {
+    for doc_id in document_ids {
+        let doc_ref = firestore.collection("cities")?.doc(Some(doc_id))?;
+        let path = doc_ref.path().canonical_string();
+        let snapshot = client.get_doc(path.as_str())?;
+        if let Some(data) = snapshot.data() {
             documents.push(data.clone());
         }
     }
 
     Ok(documents)
-}
-
-fn seed_cities(client: &FirestoreClient) -> FirestoreResult<()> {
-    let cities = [
-        (
-            "sf",
-            "San Francisco",
-            "California",
-            "USA",
-            860_000,
-        ),
-        ("la", "Los Angeles", "California", "USA", 3_980_000),
-        (
-            "tokyo",
-            "Tokyo",
-            "Tokyo Prefecture",
-            "Japan",
-            13_960_000,
-        ),
-    ];
-
-    for (id, name, state, country, population) in cities {
-        let mut data = BTreeMap::new();
-        data.insert("name".into(), FirestoreValue::from_string(name));
-        data.insert("state".into(), FirestoreValue::from_string(state));
-        data.insert("country".into(), FirestoreValue::from_string(country));
-        data.insert("population".into(), FirestoreValue::from_integer(population));
-        client.set_doc(&format!("cities/{id}"), data, None)?;
-    }
-
-    Ok(())
 }
 
 fn field_as_string(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<String> {

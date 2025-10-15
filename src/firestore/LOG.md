@@ -502,3 +502,90 @@ Explored
   - Documented SetOptions to highlight merge semantics (src/firestore/api/operations.rs:7-12).
 
   cargo check confirms the updates build cleanly.
+
+
+  Ran cargo fmt
+
+• Ran cargo test firestore::api::document::tests::query_returns_collection_documents
+
+• Updated Plan
+  └ ✔ Inspect current Firestore API and datastore layers to determine integration points for query support.
+    ✔ Implement query types (Query, QuerySnapshot, etc.) and datastore support, updating FirestoreClient and references
+      accordingly.
+    ✔ Add tests and documentation updates, including module README and RUSTEXAMPLE adjustments, then run formatting.
+
+• Ran git status -sb
+
+• Explored
+  └ Read query.rs, document.rs, reference.rs, mod.rs, in_memory.rs, http.rs, README.md, RUSTEXAMPLE.rs
+
+> Thinking
+  I'm gathering final test outcomes and crafting a concise summary highlighting the new query API features, example
+  updates, and README additions. I’ll also clearly call out the current lack of HTTP runQuery support as a limitation
+  and include test commands run, referencing relevant files and line numbers for clarity.
+
+> Implemented Query Support
+
+  - Added Query, converted variants, and snapshot wrappers so collection scans mirror the JS getDocs shape (src/
+  firestore/api/query.rs:15, src/firestore/api/query.rs:108).
+  - Exposed FirestoreClient::get_docs/get_docs_with_converter with database sanity checks and typed results (src/
+  firestore/api/document.rs:120, src/firestore/api/document.rs:128).
+  - Let collections build queries and wired the in-memory datastore to enumerate matching documents deterministically
+  (src/firestore/api/reference.rs:80, src/firestore/remote/datastore/in_memory.rs:38).
+
+  Docs & Example
+
+  - Documented the new query surface and its current scope in the Firestore module README, calling out missing HTTP
+  support (src/firestore/README.md:132, src/firestore/README.md:158).
+  - Updated the quickstart example to retrieve cities through the new query API instead of manual lookups
+  (RUSTEXAMPLE.rs:25, RUSTEXAMPLE.rs:45).
+
+  Limitations
+
+  - HTTP-backed queries still return an explicit “not yet implemented” error so callers see a clear message (src/
+  firestore/remote/datastore/http.rs:168).
+
+  Tests
+
+  - cargo test firestore::api::document::tests::query_returns_collection_documents
+
+▌ Find and fix a bug in @filename                                                        
+
+please change ./RUSTEXAMPLE.rs so that it loads data from Firestore and not from local. It is not intended to run, but
+▌ only to show to the user how to use the API
+
+> Thinking
+  I'll update the example to remove seeding and in-memory usage, showing how to fetch documents from Firestore over HTTP
+  using FirestoreClient::with_http_datastore. Since HTTP query isn't implemented, I'll demonstrate retrieving specific
+  docs like cities/sf by fetching doc references and handling missing docs, while including placeholder comments for
+  credentials and network setup.
+
+  Rewriting example to load remote Firestore data (49s • Esc to interrupt)
+
+  Ran cargo fmt
+
+> RUST example now demonstrates remote reads instead of seeding local data. It initializes the Firebase app, creates
+  an HTTP-backed FirestoreClient, and fetches specific documents (cities/{id}) from your Firestore instance, mirroring
+  the TypeScript quickstart pattern while leaving the actual project credentials/document IDs for you to supply
+  (RUSTEXAMPLE.rs:18, RUSTEXAMPLE.rs:45).
+
+▌ Find and fix a bug in @filename 
+
+
+You wrote "showing how to fetch documents from Firestore over HTTP
+▌   using FirestoreClient::with_http_datastore. Since HTTP query isn't implemented" . Is Query still not implemented
+▌ over HTTP?
+
+> Correct—only the in-memory datastore supports get_docs today. FirestoreClient::get_docs delegates to the datastore’s
+  run_query, and the HTTP implementation still returns Err(internal_error("HTTP datastore queries are not yet
+  implemented…")) (src/firestore/remote/datastore/http.rs:168). So while the API surface is there, real network
+  run_query hasn’t been ported yet; you’ll still hit errors if you try to use queries against the REST backend.You wrote "showing how to fetch documents from Firestore over HTTP
+▌   using FirestoreClient::with_http_datastore. Since HTTP query isn't implemented" . Is Query still not implemented
+▌ over HTTP?
+
+> Correct—only the in-memory datastore supports get_docs today. FirestoreClient::get_docs delegates to the datastore’s
+  run_query, and the HTTP implementation still returns Err(internal_error("HTTP datastore queries are not yet
+  implemented…")) (src/firestore/remote/datastore/http.rs:168). So while the API surface is there, real network
+  run_query hasn’t been ported yet; you’ll still hit errors if you try to use queries against the REST backend.
+
+  > Let's implement them
