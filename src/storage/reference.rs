@@ -206,7 +206,7 @@ impl StorageReference {
     /// Creates a resumable upload task that can be advanced chunk by chunk or run to completion.
     ///
     /// Resumable uploads stream data in 256 KiB chunks by default, doubling up to 32 MiB to match the
-    /// behaviour of the Firebase Web SDK. The returned [`UploadTask`](crate::storage::UploadTask)
+    /// behaviour of the Firebase Web SDK. The returned [`crate::storage::upload::UploadTask`]
     /// exposes helpers to poll chunk progress or upload the entire file with a single call.
     pub fn upload_bytes_resumable(
         &self,

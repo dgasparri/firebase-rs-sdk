@@ -62,7 +62,7 @@ impl Drop for PersistenceSubscription {
 ///
 /// Library consumers can implement this trait to plug in platform-specific
 /// persistence (filesystem, databases, JS shims, etc.). Callbacks registered via
-/// [`subscribe`] should emit whenever the underlying state changes outside the
+/// `subscribe` should emit whenever the underlying state changes outside the
 /// current process so multi-instance listeners stay in sync.
 pub trait AuthPersistence: Send + Sync {
     fn set(&self, state: Option<PersistedAuthState>) -> AuthResult<()>;

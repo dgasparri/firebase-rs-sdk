@@ -52,7 +52,7 @@ impl OAuthRequest {
 /// Handles OAuth popup operations for interactive sign-in flows.
 ///
 /// Implementations should open a browser window/dialog, complete the
-/// authorization handshake, and return an [`AuthCredential`] produced from the
+/// authorization handshake, and return an [`crate::auth::model::AuthCredential`] produced from the
 /// provider response. The handler is free to block the current thread or spawn
 /// an async task; the library does not impose scheduling requirements.
 pub trait OAuthPopupHandler: Send + Sync {
@@ -62,8 +62,8 @@ pub trait OAuthPopupHandler: Send + Sync {
 /// Handles OAuth redirect-based flows.
 ///
 /// Redirect flows require two phases:
-/// 1. Call [`initiate_redirect`] before leaving the current context.
-/// 2. After the application reloads/returns, call [`complete_redirect`] to
+/// 1. Call `initiate_redirect` before leaving the current context.
+/// 2. After the application reloads/returns, call `complete_redirect` to
 ///    resolve the awaited credential.
 pub trait OAuthRedirectHandler: Send + Sync {
     fn initiate_redirect(&self, request: OAuthRequest) -> AuthResult<()>;
