@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::Datastore;
+use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::DocumentKey;
@@ -32,6 +33,26 @@ impl Datastore for InMemoryDatastore {
         let mut store = self.documents.lock().unwrap();
         store.insert(key.path().canonical_string(), data);
         Ok(())
+    }
+
+    fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>> {
+        let store = self.documents.lock().unwrap();
+        let mut results = Vec::new();
+        for (path, data) in store.iter() {
+            let key = DocumentKey::from_string(path)?;
+            if query.matches(&key) {
+                results.push((
+                    path.clone(),
+                    DocumentSnapshot::new(
+                        key,
+                        Some(data.clone()),
+                        SnapshotMetadata::new(true, false),
+                    ),
+                ));
+            }
+        }
+        results.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(results.into_iter().map(|(_, snapshot)| snapshot).collect())
     }
 }
 

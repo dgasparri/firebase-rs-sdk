@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::api::DocumentSnapshot;
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::DocumentKey;
@@ -11,6 +12,7 @@ pub mod in_memory;
 pub trait Datastore: Send + Sync + 'static {
     fn get_document(&self, key: &DocumentKey) -> FirestoreResult<DocumentSnapshot>;
     fn set_document(&self, key: &DocumentKey, data: MapValue, merge: bool) -> FirestoreResult<()>;
+    fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>>;
 }
 
 pub trait TokenProvider: Send + Sync + 'static {

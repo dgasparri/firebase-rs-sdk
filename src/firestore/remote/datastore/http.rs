@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use reqwest::Method;
 
+use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{
-    invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
+    internal_error, invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
 };
 use crate::firestore::model::{DatabaseId, DocumentKey};
 use crate::firestore::remote::connection::{Connection, ConnectionBuilder, RequestContext};
@@ -162,6 +163,12 @@ impl Datastore for HttpDatastore {
                 )
                 .map(|_| ())
         })
+    }
+
+    fn run_query(&self, _query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>> {
+        Err(internal_error(
+            "HTTP datastore queries are not yet implemented in the Rust SDK port",
+        ))
     }
 }
 

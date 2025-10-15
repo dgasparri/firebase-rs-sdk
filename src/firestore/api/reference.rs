@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::firestore::error::{invalid_argument, FirestoreResult};
 use crate::firestore::model::{DocumentKey, ResourcePath};
 
+use super::query::{ConvertedQuery, Query};
 use super::Firestore;
 use super::FirestoreDataConverter;
 
@@ -74,6 +75,12 @@ impl CollectionReference {
             inner: self.clone(),
             converter: Arc::new(converter),
         }
+    }
+
+    /// Creates a query that targets this collection.
+    pub fn query(&self) -> Query {
+        Query::new(self.firestore.clone(), self.path.clone())
+            .expect("CollectionReference always points to a valid collection")
     }
 }
 
@@ -190,6 +197,11 @@ where
     /// Provides access to the untyped collection reference.
     pub fn raw(&self) -> &CollectionReference {
         &self.inner
+    }
+
+    /// Creates a query for the underlying collection using this converter.
+    pub fn query(&self) -> ConvertedQuery<C> {
+        ConvertedQuery::new(self.inner.query(), Arc::clone(&self.converter))
     }
 }
 

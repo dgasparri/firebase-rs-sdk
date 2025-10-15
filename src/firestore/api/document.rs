@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::firestore::api::operations::{self, SetOptions};
+use crate::firestore::api::query::{ConvertedQuery, Query, QuerySnapshot, TypedQuerySnapshot};
 use crate::firestore::api::snapshot::{DocumentSnapshot, TypedDocumentSnapshot};
-use crate::firestore::error::FirestoreResult;
+use crate::firestore::error::{internal_error, FirestoreResult};
 use std::sync::Arc;
 
 use crate::firestore::remote::datastore::{
@@ -116,6 +117,26 @@ impl FirestoreClient {
         Ok(snapshot.into_typed(converter))
     }
 
+    /// Executes the provided query and returns its results.
+    pub fn get_docs(&self, query: &Query) -> FirestoreResult<QuerySnapshot> {
+        self.ensure_same_database(query.firestore())?;
+        let definition = query.definition();
+        let documents = self.datastore.run_query(&definition)?;
+        Ok(QuerySnapshot::new(query.clone(), documents))
+    }
+
+    /// Executes a converted query, producing typed snapshots.
+    pub fn get_docs_with_converter<C>(
+        &self,
+        query: &ConvertedQuery<C>,
+    ) -> FirestoreResult<TypedQuerySnapshot<C>>
+    where
+        C: FirestoreDataConverter,
+    {
+        let snapshot = self.get_docs(query.raw())?;
+        Ok(TypedQuerySnapshot::new(snapshot, query.converter()))
+    }
+
     /// Writes a typed model to the location referenced by `reference`.
     pub fn set_doc_with_converter<C>(
         &self,
@@ -148,6 +169,15 @@ impl FirestoreClient {
         self.set_doc(path.as_str(), map, None)?;
         let snapshot = self.get_doc(path.as_str())?;
         Ok(snapshot.into_typed(converter))
+    }
+
+    fn ensure_same_database(&self, firestore: &Firestore) -> FirestoreResult<()> {
+        if self.firestore.database_id() != firestore.database_id() {
+            return Err(internal_error(
+                "Query targets a different Firestore instance than this client",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -196,6 +226,37 @@ mod tests {
             snapshot.data().unwrap().get("name"),
             Some(&FirestoreValue::from_string("Ada"))
         );
+    }
+
+    #[test]
+    fn query_returns_collection_documents() {
+        let client = build_client();
+        client
+            .set_doc(
+                "cities/sf",
+                BTreeMap::from([("name".into(), FirestoreValue::from_string("San Francisco"))]),
+                None,
+            )
+            .unwrap();
+        client
+            .set_doc(
+                "cities/la",
+                BTreeMap::from([("name".into(), FirestoreValue::from_string("Los Angeles"))]),
+                None,
+            )
+            .unwrap();
+
+        let collection = client.firestore.collection("cities").unwrap();
+        let query = collection.query();
+        let snapshot = client.get_docs(&query).expect("query");
+
+        assert_eq!(snapshot.len(), 2);
+        let ids: Vec<_> = snapshot
+            .documents()
+            .iter()
+            .map(|doc| doc.id().to_string())
+            .collect();
+        assert_eq!(ids, vec!["la", "sf"]);
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -270,5 +331,31 @@ mod tests {
 
         let decoded = snapshot.data().expect("converter result").unwrap();
         assert_eq!(decoded, person);
+    }
+
+    #[test]
+    fn typed_query_returns_converted_results() {
+        let client = build_client();
+        let collection = client.firestore.collection("people").unwrap();
+        let converted = collection.with_converter(PersonConverter);
+
+        let doc_ref = converted.doc(Some("ada")).unwrap();
+        let ada = Person {
+            first: "Ada".into(),
+            last: "Lovelace".into(),
+        };
+        client
+            .set_doc_with_converter(&doc_ref, ada.clone(), None)
+            .expect("set typed doc");
+
+        let query = converted.query();
+        let snapshot = client
+            .get_docs_with_converter(&query)
+            .expect("converted query");
+
+        let docs = snapshot.documents();
+        assert_eq!(docs.len(), 1);
+        let decoded = docs[0].data().expect("converter data").unwrap();
+        assert_eq!(decoded, ada);
     }
 }

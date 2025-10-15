@@ -42,17 +42,12 @@ fn get_cities(
     firestore: &Firestore,
     client: &FirestoreClient,
 ) -> FirestoreResult<Vec<BTreeMap<String, FirestoreValue>>> {
-    let cities_collection = firestore.collection("cities")?;
-
-    // The sample queries a fixed set of documents; production code should use queries once available.
-    let document_ids = ["sf", "la", "tokyo"];
+    let query = firestore.collection("cities")?.query();
+    let snapshot = client.get_docs(&query)?;
 
     let mut documents = Vec::new();
-    for doc_id in document_ids {
-        let doc_ref = cities_collection.doc(Some(doc_id))?;
-        let path = doc_ref.path().canonical_string();
-        let snapshot = client.get_doc(&path)?;
-        if let Some(data) = snapshot.data() {
+    for doc in snapshot.documents() {
+        if let Some(data) = doc.data() {
             documents.push(data.clone());
         }
     }
