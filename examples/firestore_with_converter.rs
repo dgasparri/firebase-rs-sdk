@@ -4,7 +4,6 @@ use firebase_rs_sdk_unofficial::firestore::value::{FirestoreValue, MapValue};
 use firebase_rs_sdk_unofficial::firestore::FirestoreClient;
 use std::collections::BTreeMap;
 
-
 #[derive(Clone)]
 struct MyUser {
     _name: String,
