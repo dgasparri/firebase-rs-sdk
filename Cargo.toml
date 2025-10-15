@@ -9,8 +9,7 @@ homepage = "https://github.com/your-org/firebase-rs"
 documentation = "https://github.com/firebase/firebase-js-sdk"
 keywords = ["firebase", "sdk", "webassembly", "ai", "firestore"]
 categories = ["api-bindings", "authentication", "database", "wasm", "web-programming"]
-# license = "Apache-2.0"
-license-file = "LICENSE"
+license = "Apache-2.0"
 authors = ["Duccio Marco Gasparri"]
 rust-version = "1.75"
 

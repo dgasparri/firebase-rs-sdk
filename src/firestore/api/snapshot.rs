@@ -91,6 +91,10 @@ impl DocumentSnapshot {
         self.key.id()
     }
 
+    pub(crate) fn document_key(&self) -> &DocumentKey {
+        &self.key
+    }
+
     /// Creates a document reference pointing at the same location as this snapshot.
     pub fn reference(&self, firestore: Firestore) -> FirestoreResult<DocumentReference> {
         DocumentReference::new(firestore, self.key.path().clone())

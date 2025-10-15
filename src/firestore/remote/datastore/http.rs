@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use reqwest::Method;
 
-use crate::firestore::api::query::QueryDefinition;
+use crate::firestore::api::query::{Bound, FieldFilter, QueryDefinition};
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{
     internal_error, invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
@@ -14,7 +14,7 @@ use crate::firestore::model::{DatabaseId, DocumentKey};
 use crate::firestore::remote::connection::{Connection, ConnectionBuilder, RequestContext};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
 use crate::firestore::value::MapValue;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 
 use super::{Datastore, NoopTokenProvider, TokenProviderArc};
 
@@ -177,13 +177,9 @@ impl Datastore for HttpDatastore {
             )
         };
 
+        let structured_query = self.build_structured_query(query)?;
         let body = json!({
-            "structuredQuery": {
-                "from": [ {
-                    "collectionId": query.collection_id(),
-                    "allDescendants": false
-                } ]
-            }
+            "structuredQuery": structured_query
         });
 
         let response = self.execute_with_retry(|context| {
@@ -237,6 +233,109 @@ impl HttpDatastore {
 
         let relative = &name[prefix.len()..];
         DocumentKey::from_string(relative)
+    }
+
+    fn build_structured_query(&self, definition: &QueryDefinition) -> FirestoreResult<JsonValue> {
+        let mut structured = serde_json::Map::new();
+
+        if let Some(fields) = definition.projection() {
+            let field_entries: Vec<_> = fields
+                .iter()
+                .map(|field| json!({ "fieldPath": field.canonical_string() }))
+                .collect();
+            structured.insert("select".to_string(), json!({ "fields": field_entries }));
+        }
+
+        structured.insert(
+            "from".to_string(),
+            json!([{
+                "collectionId": definition.collection_id(),
+                "allDescendants": false
+            }]),
+        );
+
+        if !definition.filters().is_empty() {
+            let filter_json = self.encode_filters(definition.filters());
+            structured.insert("where".to_string(), filter_json);
+        }
+
+        if !definition.request_order_by().is_empty() {
+            let orders: Vec<_> = definition
+                .request_order_by()
+                .iter()
+                .map(|order| {
+                    json!({
+                        "field": { "fieldPath": order.field().canonical_string() },
+                        "direction": order.direction().as_str(),
+                    })
+                })
+                .collect();
+            structured.insert("orderBy".to_string(), JsonValue::Array(orders));
+        }
+
+        if let Some(limit) = definition.limit() {
+            structured.insert("limit".to_string(), json!(limit as i64));
+        }
+
+        if let Some(start) = definition.request_start_at() {
+            structured.insert("startAt".to_string(), self.encode_start_cursor(start));
+        }
+
+        if let Some(end) = definition.request_end_at() {
+            structured.insert("endAt".to_string(), self.encode_end_cursor(end));
+        }
+
+        Ok(JsonValue::Object(structured))
+    }
+
+    fn encode_filters(&self, filters: &[FieldFilter]) -> JsonValue {
+        if filters.len() == 1 {
+            return self.encode_field_filter(&filters[0]);
+        }
+
+        let nested: Vec<_> = filters
+            .iter()
+            .map(|filter| self.encode_field_filter(filter))
+            .collect();
+
+        json!({
+            "compositeFilter": {
+                "op": "AND",
+                "filters": nested
+            }
+        })
+    }
+
+    fn encode_field_filter(&self, filter: &FieldFilter) -> JsonValue {
+        json!({
+            "fieldFilter": {
+                "field": { "fieldPath": filter.field().canonical_string() },
+                "op": filter.operator().as_str(),
+                "value": self.serializer.encode_value(filter.value())
+            }
+        })
+    }
+
+    fn encode_start_cursor(&self, bound: &Bound) -> JsonValue {
+        json!({
+            "values": bound
+                .values()
+                .iter()
+                .map(|value| self.serializer.encode_value(value))
+                .collect::<Vec<_>>(),
+            "before": bound.inclusive(),
+        })
+    }
+
+    fn encode_end_cursor(&self, bound: &Bound) -> JsonValue {
+        json!({
+            "values": bound
+                .values()
+                .iter()
+                .map(|value| self.serializer.encode_value(value))
+                .collect::<Vec<_>>(),
+            "before": !bound.inclusive(),
+        })
     }
 }
 
@@ -317,9 +416,11 @@ impl RetrySettings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::api::query::QueryDefinition;
+    use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
+    use crate::component::ComponentContainer;
+    use crate::firestore::api::Firestore;
     use crate::firestore::error::{internal_error, unauthenticated};
-    use crate::firestore::model::{DatabaseId, ResourcePath};
+    use crate::firestore::model::DatabaseId;
     use crate::test_support::start_mock_server;
     use httpmock::prelude::*;
     use serde_json::json;
@@ -394,6 +495,12 @@ mod tests {
                         "collectionId": "cities",
                         "allDescendants": false
                     }
+                ],
+                "orderBy": [
+                    {
+                        "field": { "fieldPath": "__name__" },
+                        "direction": "ASCENDING"
+                    }
                 ]
             }
         });
@@ -428,11 +535,19 @@ mod tests {
             .build()
             .expect("datastore");
 
-        let definition = QueryDefinition {
-            collection_path: ResourcePath::from_string("cities").unwrap(),
-            parent_path: ResourcePath::root(),
-            collection_id: "cities".to_string(),
+        let options = FirebaseOptions {
+            project_id: Some(database_id.project_id().to_string()),
+            ..Default::default()
         };
+        let app = FirebaseApp::new(
+            options,
+            FirebaseAppConfig::new("query-test", false),
+            ComponentContainer::new("query-test"),
+        );
+
+        let firestore = Firestore::new(app, database_id.clone());
+        let query = firestore.collection("cities").unwrap().query();
+        let definition = query.definition();
 
         let snapshots = datastore.run_query(&definition).expect("query");
         assert_eq!(snapshots.len(), 2);

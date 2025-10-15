@@ -10,7 +10,10 @@ pub use converter::{FirestoreDataConverter, PassthroughConverter};
 pub use database::{get_firestore, register_firestore_component, Firestore};
 pub use document::FirestoreClient;
 pub use operations::SetOptions;
-pub use query::{ConvertedQuery, Query, QuerySnapshot, TypedQuerySnapshot};
+pub use query::{
+    ConvertedQuery, FilterOperator, LimitType, OrderDirection, Query, QuerySnapshot,
+    TypedQuerySnapshot,
+};
 pub use reference::{
     CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,
     DocumentReference,

@@ -45,6 +45,12 @@ impl FieldPath {
     pub fn to_vec(&self) -> Vec<String> {
         self.segments.clone()
     }
+
+    pub fn document_id() -> Self {
+        Self {
+            segments: vec!["__name__".to_string()],
+        }
+    }
 }
 
 #[cfg(test)]

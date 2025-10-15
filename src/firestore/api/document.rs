@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::firestore::api::operations::{self, SetOptions};
-use crate::firestore::api::query::{ConvertedQuery, Query, QuerySnapshot, TypedQuerySnapshot};
+use crate::firestore::api::query::{
+    ConvertedQuery, LimitType, Query, QuerySnapshot, TypedQuerySnapshot,
+};
 use crate::firestore::api::snapshot::{DocumentSnapshot, TypedDocumentSnapshot};
 use crate::firestore::error::{internal_error, FirestoreResult};
 use std::sync::Arc;
@@ -121,7 +123,10 @@ impl FirestoreClient {
     pub fn get_docs(&self, query: &Query) -> FirestoreResult<QuerySnapshot> {
         self.ensure_same_database(query.firestore())?;
         let definition = query.definition();
-        let documents = self.datastore.run_query(&definition)?;
+        let mut documents = self.datastore.run_query(&definition)?;
+        if definition.limit_type() == LimitType::Last {
+            documents.reverse();
+        }
         Ok(QuerySnapshot::new(query.clone(), documents))
     }
 
@@ -187,6 +192,7 @@ mod tests {
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::firestore::api::get_firestore;
+    use crate::firestore::model::FieldPath;
     use crate::firestore::value::MapValue;
     use crate::firestore::value::ValueKind;
 
@@ -357,5 +363,46 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let decoded = docs[0].data().expect("converter data").unwrap();
         assert_eq!(decoded, ada);
+    }
+
+    #[test]
+    fn query_with_filters_and_limit() {
+        use crate::firestore::api::query::{FilterOperator, OrderDirection};
+
+        let client = build_client();
+        let collection = client.firestore.collection("cities").unwrap();
+
+        let mut sf = BTreeMap::new();
+        sf.insert("name".into(), FirestoreValue::from_string("San Francisco"));
+        sf.insert("state".into(), FirestoreValue::from_string("California"));
+        sf.insert("population".into(), FirestoreValue::from_integer(860_000));
+        client.set_doc("cities/sf", sf, None).expect("insert sf");
+
+        let mut la = BTreeMap::new();
+        la.insert("name".into(), FirestoreValue::from_string("Los Angeles"));
+        la.insert("state".into(), FirestoreValue::from_string("California"));
+        la.insert("population".into(), FirestoreValue::from_integer(3_980_000));
+        client.set_doc("cities/la", la, None).expect("insert la");
+
+        let query = collection
+            .query()
+            .where_field(
+                FieldPath::from_dot_separated("state").unwrap(),
+                FilterOperator::Equal,
+                FirestoreValue::from_string("California"),
+            )
+            .unwrap()
+            .order_by(
+                FieldPath::from_dot_separated("population").unwrap(),
+                OrderDirection::Descending,
+            )
+            .unwrap()
+            .limit(1)
+            .unwrap();
+
+        let snapshot = client.get_docs(&query).expect("filtered query");
+        assert_eq!(snapshot.len(), 1);
+        let doc = &snapshot.documents()[0];
+        assert_eq!(doc.id(), "la");
     }
 }

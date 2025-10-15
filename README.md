@@ -8,7 +8,7 @@ This library is mainly **AI generated**. It is built by milking my ChatGPT subsc
 
 At the time of writing (15th October 2025) some modules (Firestore database, Storage) are quite complete and already in use. Some other modules (App, App Check, Auth) are mainly developed and ready to use, but have not been tested by me. Other module (Ai, analytics...) only the basic functions are ported, and I am waiting to have ChatGPT resources to finish them. For all the modules there is an attempt to document the API and to port also the tests. All the code published passes `cargo test`. Beware that we still need to check if all the relevant tests have been ported from the JS SDK, and if the tests cover all the important aspects of the library.
 
-If you want to contribute, your AI resources are the best thing you can donate to this project. See the [CONTRIBUTING] page on how to help.
+If you want to contribute, your AI resources are the best thing you can donate to this project. See the [`CONTRIBUTING.md`] page on how to help.
 
 **Why the JS SDK as a source?** Firebase has several official SDKs. From the point of view of the language architecture, the cpp version was probably a better source, but the JS was one of the few that implemented the services from scratch without relying on some Java external library. Besides, it is one of the most complete and best documented APIs. 
 
@@ -50,11 +50,6 @@ Modules used internally by the library but with no direct API exposure (only the
 - [logger](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/logger)
 - [util](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/util)
 
-
-
-
-
-
 ## Evolution, breaking changes, breaking changes
 
 The plan for this library is the following:
@@ -65,66 +60,119 @@ The plan for this library is the following:
 
 For the mature modules (Auth, Firestore, Storage), we do not expect breaking changes between our current version and the 1.xx, but it is possibile that from the 1.xx to the 2.xx there will be breaking changes due to renaming and reorganizing the public API. 
 
-# Esample
+# Example
 
+This is an example provided by the Quickstart guide for the official Firebase Javascript SDK:
 
+```ts
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, getDocs } from 'firebase/firestore/lite';
+// Follow this pattern to import other Firebase services
+// import { } from 'firebase/<service>';
 
-read and follow the insturctions in ./AGENTS.md . In the last session we were working on the storage module, and you
-▌ suggested to "Implement Auth/App Check token retrieval and attach headers during request execution." Do it
+// TODO: Replace the following with your app's Firebase configuration
+const firebaseConfig = {
+  //...
+};
 
-## Example
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
+// Get a list of cities from your database
+async function getCities(db) {
+  const citiesCol = collection(db, 'cities');
+  const citySnapshot = await getDocs(citiesCol);
+  const cityList = citySnapshot.docs.map(doc => doc.data());
+  return cityList;
+}
+```
 
+Here is the Rust version with the ported Rust SDK:
 
+```rust,no_run
+use std::collections::BTreeMap;
+use std::error::Error;
 
-## Modules:
+use firebase_rs_sdk_unofficial::app::api::initialize_app;
+use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk_unofficial::firestore::api::{get_firestore, Firestore, FirestoreClient};
+use firebase_rs_sdk_unofficial::firestore::error::FirestoreResult;
+use firebase_rs_sdk_unofficial::firestore::value::{FirestoreValue, ValueKind};
 
-- Firebase is the API
+fn main() -> Result<(), Box<dyn Error>> {
+    let firebase_config = FirebaseOptions {
+        api_key: Some("demo-api-key".into()),
+        project_id: Some("demo-project".into()),
+        ..Default::default()
+    };
 
-Stable/full porting:
+    let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default()))?;
+    let firestore_arc = get_firestore(Some(app.clone()))?;
+    let firestore = Firestore::from_arc(firestore_arc);
 
-- app
-- auth
-- firestore
-- storage
+    // Talk to the hosted Firestore REST API. Configure credentials/tokens as needed.
+    let client = FirestoreClient::with_http_datastore(firestore.clone())?;
 
-Minimal porting:
+    let cities = load_cities(&firestore, &client)?;
 
-- ai
-- analytics
-- app_check
-- data-connect
-- database
-- functions
-- intallations
-- messaging
-- performance
-- remote-config
+    println!("Loaded {} cities from Firestore:", cities.len());
+    for city in cities {
+        let name = field_as_string(&city, "name").unwrap_or_else(|| "Unknown".into());
+        let state = field_as_string(&city, "state").unwrap_or_else(|| "Unknown".into());
+        let country = field_as_string(&city, "country").unwrap_or_else(|| "Unknown".into());
+        let population = field_as_i64(&city, "population").unwrap_or_default();
+        println!("- {name}, {state} ({country}) — population {population}");
+    }
 
+    Ok(())
+}
+
+/// Mirrors the `getCities` helper in `JSEXAMPLE.ts`, issuing the equivalent modular query
+/// against the remote Firestore backend.
+fn load_cities(
+    firestore: &Firestore,
+    client: &FirestoreClient,
+) -> FirestoreResult<Vec<BTreeMap<String, FirestoreValue>>> {
+    // The modular JS quickstart queries the `cities` collection.
+    let query = firestore.collection("cities")?.query();
+    let snapshot = client.get_docs(&query)?;
+
+    let mut documents = Vec::new();
+    for doc in snapshot.documents() {
+        if let Some(data) = doc.data() {
+            documents.push(data.clone());
+        }
+    }
+
+    Ok(documents)
+}
+
+fn field_as_string(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<String> {
+    data.get(field).and_then(|value| match value.kind() {
+        ValueKind::String(text) => Some(text.clone()),
+        _ => None,
+    })
+}
+
+fn field_as_i64(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<i64> {
+    data.get(field).and_then(|value| match value.kind() {
+        ValueKind::Integer(value) => Some(*value),
+        _ => None,
+    })
+}
+```
+
+As you can see, there are similarities between the Typescript methods (initializeApp(), getFirestore(), collection(), getDocs()) and the corresponding Rust methods (initialize_app(), get_firestore(), collection(), get_docs()). 
+
+For further details, refer to the `./examples/firestore_select_documents.rs` or run `cargo run --example firestore_select_documents`.
+
+## Copyright
+
+The Firebase JS SDK is property of Google and is licensed under the Apache License, Version 2.0. This library does not contain any work from that library, and it is licensed under the Apache License, Version 2.0.
+
+Please be aware that this library is distributed "as is", and the author(s) offer no guarantees, nor warranties or conditions of any kind.
 
 ## How to contribute
 
+We are happy to accept everybody's contribution. The porting process is time and AI intensive, if you have any or both of those, your help is appreciated! Please refer to the [`CONTRIBUTING.md`] for the details. 
 
-
-## Todo
-
-1. Implement the tests from ./packages/app
-2. Implement the tests from ./packages/app-check
-3. ./packages/auth is only partially ported. Check also ./src/auth/README.md
-4. document functions
-5. see auth LOG.md (You can keep it ergonomic by gating the web adapters behind a Cargo feature (wasm-web) ())
-6. CONTRIBUTING.md in the JS SDK and API documentation https://chatgpt.com/c/68eccf4b-d1c8-8328-845f-d39a4472284d
-
-Improve documentation of public API comparing it to the original library
-
-rustdoc
-/// for item docs, //! for module/crate docs
-cargo doc
-
-
-"Document the ./src/firestore public functions. You can use the original Javascript descriptions of the functions,
-▌ found in ./packages/firestore and ./packages/firebase/firestore folders, and in the ./docs-devsite/firestore* files"
-
-
-Following the instructions in ./AGENTS.md, implement the StorageReference operations for the module storage in ./
-▌ packages/storage

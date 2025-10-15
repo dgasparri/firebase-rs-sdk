@@ -74,4 +74,41 @@ Author unit tests alongside the source and mirror existing fixtures and tests.
 
 History is minimal (`.gitignore`), so establish clarity: write imperative subjects under 72 characters and group related changes per commit. Prefer Conventional Commit prefixes (`{module}:`, `feat:`, `fix:`, `chore:`) when work spans multiple packages. Pull requests should describe the affected services, note any build/test commands executed, link tracking issues, and attach test output snippets. Flag breaking changes prominently and call out follow-up work or TODO markers.
 
+## Instructions specific to particular jobs
 
+### Porting a function or a code from Typescript and writing Rust code 
+
+You must analyse the typescript code of the relative module in `./packages/{module}` and `./packages/firebase/{module}`. When creating Rust code, try to adhere as much as possible to the names and methods used in the Typescript API so that it feels as natural as possible for the developer to switch from the JS SDK to the Rust SDK.
+
+A list of open features still to be ported from the Firebase JS SDK is in the README.md file inside of each module `./src/{module}/README.md`. Refer to that file, and keep it updated with the steps that have been taken, the features that have been implemented and the features that are still to be ported.
+
+### Documenting the code
+
+When documenting the code, use as source:
+
+1. the files in `./docs-devsite/{module}*`
+2. the Typescript source code and comments of functions and methods and data types under `./packages/{module}` and `./packages/firebase/{module}`.
+3. the code you wrote
+
+The public API code must be documented using the rustdoc convention. When possible, provide also a minimal usage example of a few lines (does not need to be run or compiled).
+
+When possible, also write the reference to the original Typescript function you ported.
+
+### Writing examples
+
+Examples should be saved in the folder `./examples` and named as `{module}_{function implemented}.rs`. If a mock or a local copy of a service is used, write in the comments how the code should change if the actual Firebase service is used.
+
+Small examples relevant to only a function can also be placed in the rustdoc documentation. Those examples must be minimal, leaving out all the non-relevant code such as boilerplate, module initialization, display of results, etc. They are NOT expected to compile or to be run, but only as a reference for the programmer that wants to use that function 
+
+### Testing and writing tests
+
+The code is tested using the standard rust testing engine and the `cargo test` command. For each module, review the tests of the original Firebase JS SDK in the Typescript code in ./packages/{module} and port the relevant tests to Rust. Check that the test does not fail.
+
+
+### Updating the module's README.md
+
+The README.md file for each module must follow the rules and layout set in the "File README.md for each module" section in this document. To update the README.md, review the Typescript code in ./packages/{module} and the Rust code in ./scr/{module}, and check if ./src/{module}/README.md is reporting correct and updated information. Check specifically for the features implemented and the feature still to be implemented. Make the necessary correction to bring the file up to date.
+
+### Messages for a PULL REQUEST
+
+Pull requests should have a title that starts with the name of the {module} affected, and a message that explains in detail what are the changes in the code and the benefits of those changes. In particular, it should highlight if the code creates breaking changes to the APIs.
