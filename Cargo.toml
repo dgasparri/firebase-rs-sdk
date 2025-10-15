@@ -15,7 +15,7 @@ rust-version = "1.75"
 
 # which files go into the published tarball
 include = [
-  "./src/**",
+  "src/**",
   "Cargo.toml",
   "LICENSE*",
   "./README.md"
