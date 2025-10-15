@@ -1,6 +1,8 @@
 use firebase_rs_sdk_unofficial::app::api::initialize_app;
 use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
+use firebase_rs_sdk_unofficial::app_check::api::{
+    custom_provider, initialize_app_check, token_with_ttl,
+};
 use firebase_rs_sdk_unofficial::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
 use firebase_rs_sdk_unofficial::auth::api::auth_for_app;
 use firebase_rs_sdk_unofficial::firestore::api::{get_firestore, FirestoreClient};
@@ -8,7 +10,7 @@ use firebase_rs_sdk_unofficial::firestore::value::FirestoreValue;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-
+#[allow(dead_code)]
 fn insert_documents() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: replace with your project configuration
     let options = FirebaseOptions {
@@ -19,8 +21,10 @@ fn insert_documents() -> Result<(), Box<dyn std::error::Error>> {
     let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
     let auth = auth_for_app(app.clone())?;
     // Optional: wire App Check tokens into Firestore.
-    let app_check_provider = custom_provider(|| token_with_ttl("fake-token", Duration::from_secs(60)));
-    let app_check = initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider))?;
+    let app_check_provider =
+        custom_provider(|| token_with_ttl("fake-token", Duration::from_secs(60)));
+    let app_check =
+        initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider))?;
     let app_check_internal = FirebaseAppCheckInternal::new(app_check);
     let firestore = get_firestore(Some(app.clone()))?;
     let client = FirestoreClient::with_http_datastore_authenticated(
@@ -43,7 +47,6 @@ fn insert_documents() -> Result<(), Box<dyn std::error::Error>> {
     println!("Document written with ID: {}", alan_snapshot.id());
     Ok(())
 }
-
 
 fn main() {
     eprintln!("Example of Firestore document insertion. See source code for details.");

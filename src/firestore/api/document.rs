@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::firestore::remote::datastore::{
     Datastore, HttpDatastore, InMemoryDatastore, TokenProviderArc,
 };
-use crate::firestore::value::{FirestoreValue};
+use crate::firestore::value::FirestoreValue;
 
 use super::{
     ConvertedCollectionReference, ConvertedDocumentReference, Firestore, FirestoreDataConverter,

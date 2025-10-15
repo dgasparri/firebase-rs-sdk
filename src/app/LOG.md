@@ -85,3 +85,20 @@ Updated Plan
   Tests
 
   - cargo test --lib app::
+
+> provide an example of FirebaseApp instantiation and usage. Write the example in the ./examples/app folder
+
+
+Updated Plan
+  └ ✔ Review existing examples directory structure and decide on example scope for FirebaseApp usage.
+    ✔ Implement new example under examples/app demonstrating FirebaseApp creation and service usage.
+    ✔ Format if needed and summarize instructions for running the example.
+
+• Ran git status -sb
+
+> - Added a runnable example that shows how to configure, initialize, query, enumerate, and delete a FirebaseApp,
+  including custom settings (examples/app/basic.rs).
+
+  Run it with cargo run --example app/basic to see the lifecycle in action.
+
+  

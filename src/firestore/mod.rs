@@ -104,7 +104,7 @@
 //! struct MyUser {
 //!    name: String,
 //! }
-//! 
+//!
 //! #[derive(Clone)]
 //! struct UserConverter;
 //!
@@ -124,7 +124,7 @@
 //!         todo!()
 //!     }
 //! }
-//! 
+//!
 //! fn example_with_converter(firestore: &Firestore, client: &FirestoreClient) -> FirestoreResult<Option<MyUser>> {
 //!     let users = firestore.collection("typed-users")?.with_converter(UserConverter);
 //!     let doc = users.doc(Some("ada"))?;
