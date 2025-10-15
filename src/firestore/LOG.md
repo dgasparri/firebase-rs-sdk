@@ -589,3 +589,70 @@ You wrote "showing how to fetch documents from Firestore over HTTP
   run_query hasn’t been ported yet; you’ll still hit errors if you try to use queries against the REST backend.
 
   > Let's implement them
+
+
+
+
+
+  Thinking
+  I'll summarize the code changes with references to specific files and lines, highlight new HTTP query support, list
+  the targeted tests run including notes on auto-skips, and mention the earlier cargo check on examples, all structured
+  clearly with bullet points for easy reading.
+
+  - The query infrastructure carries enough metadata (collection id + parent path) to serialize query requests, paving
+  the way for richer structured queries (src/firestore/api/query.rs:53).
+  - HttpDatastore::run_query posts to Firestore’s runQuery endpoint, decodes the streaming response into snapshots,
+  and tolerates empty/metadata-only frames; new coverage exercises the request/response contract (auto-skipping when
+  loopback sockets aren’t allowed in the harness) (src/firestore/remote/datastore/http.rs:170, src/firestore/remote/
+  datastore/http.rs:350).
+  - Firestore README reflects that collection scans now work over both in-memory and HTTP stores, while the remaining
+  networking TODOs focus on advanced query features (src/firestore/README.md:146).
+
+  Tests run:
+
+  - cargo test firestore::api::document::tests::query_returns_collection_documents
+  - cargo test firestore::remote::datastore::http::tests::run_query_fetches_documents
+  - cargo check --example firestore_select_documents
+  - cargo check
+
+  (HTTP-mocked tests auto-return early if the runtime forbids binding to 127.0.0.1, so full network testing may still
+  require a less restricted environment.)
+
+▌ Is this the way the Firebase JS SDK is implementing it in ./packages/firestore?
+
+• Explored
+  └ Read datastore.ts
+
+> Thinking
+  I’m analyzing the differences between the Firebase JS SDK’s Firestore query handling and our Rust implementation. The
+  JS SDK converts queries into full Targets including parent paths, filters, ordering, and more via queryToTarget and
+  sends these through invokeStreamingRPC with streaming responses filtered by readTime. Our Rust version simplifies this
+  by constructing a minimal structuredQuery using only the from collection, embedding the parent path in the URL rather
+  than the request body, and skipping filter and ordering support. While the patterns roughly align—both sending queries
+  via RunQuery RPC and filtering docs without results—we don’t yet support the full rich query features of JS. I plan to
+  clarify this partial parity, reference specific code files like datastore.ts, and note TODOs to extend our structured
+  query capabilities for full feature matching.
+
+> Not exactly. The JavaScript SDK in packages/firestore/src/remote/datastore.ts goes through the full query pipeline:
+
+  - invokeRunQueryRpc first calls queryToTarget(...) and toQueryTarget(...) to turn the public Query into a Target. That
+  conversion injects every structured-query detail—collection selector, filters, orderBy clauses, limits, bounds, etc.—
+  and returns both the REST parent path and the structuredQuery payload.
+  - It then streams the RunQuery RPC, filters out responses that only contain read times, and converts each document
+  entry with fromDocument(...), preserving metadata and the full document key.
+
+  Our Rust code follows the same high-level shape (POST documents{[/parent]}:runQuery, ignore entries without document,
+  decode fields into DocumentSnapshot), but it currently sends only the bare minimum payload:
+
+  json!({
+      "structuredQuery": {
+          "from": [{ "collectionId": query.collection_id(), "allDescendants": false }]
+      }
+  })
+
+  That covers simple collection scans, but it skips everything the JS SDK encodes—filters, order_by, limit/limitToLast,
+  startAt/endAt, projection, etc.—because we don’t yet have a Rust equivalent of queryToTarget and friends. So behaviour
+  matches the JS SDK only for the simplest case; achieving parity will require porting the target/query builders and
+  extending run_query to serialize the full StructuredQuery just like the TypeScript implementation.
+
+▌ Find and fix a bug in @filename                                                                                       

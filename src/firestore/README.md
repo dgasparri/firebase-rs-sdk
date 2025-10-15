@@ -146,9 +146,9 @@ fn example_with_converter(firestore: &Firestore, client: &FirestoreClient) -> Fi
   converter-aware `data()` helpers that match the JS modular API.
 - **Snapshot metadata** – `DocumentSnapshot` now carries `SnapshotMetadata`, exposing `from_cache` and
   `has_pending_writes` flags compatible with the JS API.
-- **Query API scaffolding** – `Query`, `QuerySnapshot`, and `FirestoreClient::get_docs` cover the
-  `getDocs(collection(...))` pattern via the in-memory datastore, returning typed snapshots when
-  converters are attached.
+- **Query API scaffolding** – `Query`, `QuerySnapshot`, and `FirestoreClient::get_docs` now cover the
+  `getDocs(collection(...))` pattern for both the in-memory and HTTP datastores (collection scans), returning
+  typed snapshots when converters are attached.
 
 This is enough to explore API ergonomics and stand up tests, but it lacks real network, persistence, query logic, and the
 majority of the Firestore feature set.
@@ -159,8 +159,8 @@ majority of the Firestore feature set.
    - Port the remote datastore to call Firestore’s REST/gRPC endpoints (authentication headers, request/response
      serialization, retry/backoff).
    - Handle stream-specific behaviour (listen/write pipelines) once basic REST calls succeed.
-   - Implement `runQuery` support in the HTTP datastore so collection scans and future query operators work outside the
-     in-memory backend.
+   - Extend `runQuery` support to richer structured queries (filters, ordering, limits) so the HTTP datastore matches the
+     modular SDK.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to match the JS SDK, including `withConverter`
      support and typed accessors.

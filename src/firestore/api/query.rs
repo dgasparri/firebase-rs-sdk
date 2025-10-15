@@ -53,6 +53,8 @@ impl Query {
     pub(crate) fn definition(&self) -> QueryDefinition {
         QueryDefinition {
             collection_path: self.collection_path.clone(),
+            parent_path: self.collection_path.without_last(),
+            collection_id: self.collection_id().to_string(),
         }
     }
 
@@ -69,11 +71,21 @@ impl Query {
 #[derive(Clone, Debug)]
 pub struct QueryDefinition {
     pub(crate) collection_path: ResourcePath,
+    pub(crate) parent_path: ResourcePath,
+    pub(crate) collection_id: String,
 }
 
 impl QueryDefinition {
     pub(crate) fn matches(&self, key: &DocumentKey) -> bool {
         key.collection_path() == self.collection_path
+    }
+
+    pub(crate) fn parent_path(&self) -> &ResourcePath {
+        &self.parent_path
+    }
+
+    pub(crate) fn collection_id(&self) -> &str {
+        &self.collection_id
     }
 }
 
