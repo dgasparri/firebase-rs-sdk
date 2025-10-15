@@ -36,24 +36,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Mirrors the `getCities` helper in `JSEXAMPLE.ts`, but targets real documents stored in
-/// Firestore. Populate the referenced documents in your Firestore instance before running
-/// the code, or adapt the document IDs to match your dataset.
+/// Mirrors the `getCities` helper in `JSEXAMPLE.ts`, issuing the equivalent modular query
+/// against the remote Firestore backend.
 fn load_cities(
     firestore: &Firestore,
     client: &FirestoreClient,
 ) -> FirestoreResult<Vec<BTreeMap<String, FirestoreValue>>> {
-    // In the Modular JS SDK quickstart the sample lists a handful of known city documents.
-    // We follow the same approach here. Replace the identifiers with those present in your
-    // database or fetch them dynamically once collection queries are implemented over HTTP.
-    let document_ids = ["la", "sf", "tokyo"];
+    // The modular JS quickstart queries the `cities` collection; this mirrors that behaviour via
+    // the Rust SDK's query API. Adjust the collection name to match the dataset stored in your
+    // Firestore project.
+    let query = firestore.collection("cities")?.query();
+    let snapshot = client.get_docs(&query)?;
 
     let mut documents = Vec::new();
-    for doc_id in document_ids {
-        let doc_ref = firestore.collection("cities")?.doc(Some(doc_id))?;
-        let path = doc_ref.path().canonical_string();
-        let snapshot = client.get_doc(path.as_str())?;
-        if let Some(data) = snapshot.data() {
+    for doc in snapshot.documents() {
+        if let Some(data) = doc.data() {
             documents.push(data.clone());
         }
     }
