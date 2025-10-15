@@ -14,12 +14,11 @@ authors = ["Duccio Marco Gasparri"]
 rust-version = "1.75"
 
 # which files go into the published tarball
-# exclude = ["/packages", ".*"]
 include = [
-  "src/**",
+  "./src/**",
   "Cargo.toml",
   "LICENSE*",
-  "README.md"
+  "./README.md"
 ]
 
 [features]
