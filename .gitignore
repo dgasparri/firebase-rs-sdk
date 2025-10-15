@@ -16,7 +16,9 @@ target
 **/mutants.out*/
 
 # Ignore all original Firebase JS SDK packages
-/docs-devsite
-/packages
+/docs-devsite/*
+!/docs-devsite/README.md
+/packages/*
+!/packages/README.md
 
 
