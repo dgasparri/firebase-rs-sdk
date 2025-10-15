@@ -23,6 +23,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let client = FirestoreClient::with_in_memory(firestore.clone());
 
     seed_cities(&client)?;
+
+    // Demonstrate fetching all documents in a collection.
     let cities = get_cities(&firestore, &client)?;
 
     println!("Loaded {} cities from Firestore:", cities.len());
@@ -32,6 +34,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         let country = field_as_string(&city, "country").unwrap_or_else(|| "Unknown".into());
         let population = field_as_i64(&city, "population").unwrap_or_default();
         println!("- {name}, {state} ({country}) — population {population}");
+    }
+
+    // Demonstrate fetching a specific document by its ID.
+    let document_id = "sf";
+
+    let doc_ref = firestore.collection("cities")?.doc(Some(document_id))?;
+    let path = doc_ref.path().canonical_string();
+    let snapshot = client.get_doc(path.as_str())?;
+    println!("\nCity with ID '{document_id}':");
+    if let Some(data) = snapshot.data() {
+        let name = field_as_string(data, "name").unwrap_or_else(|| "Unknown".into());
+        let state = field_as_string(data, "state").unwrap_or_else(|| "Unknown".into());
+        let country = field_as_string(data, "country").unwrap_or_else(|| "Unknown".into());
+        let population = field_as_i64(data, "population").unwrap_or_default();
+        println!("- {name}, {state} ({country}) — population {population}");
+    } else {
+        println!("- No data found for document with ID '{document_id}'.");
     }
 
     Ok(())
