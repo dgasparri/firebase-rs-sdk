@@ -1,4 +1,5 @@
-use std::sync::{Arc, LazyLock, Mutex};
+use std::fmt;
+use std::sync::{Arc, LazyLock};
 
 use serde_json::Value;
 
@@ -8,6 +9,7 @@ use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentType};
+use crate::database::backend::{select_backend, DatabaseBackend};
 use crate::database::constants::DATABASE_COMPONENT_NAME;
 use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
 
@@ -16,10 +18,18 @@ pub struct Database {
     inner: Arc<DatabaseInner>,
 }
 
-#[derive(Debug)]
 struct DatabaseInner {
     app: FirebaseApp,
-    data: Mutex<Value>,
+    backend: Arc<dyn DatabaseBackend>,
+}
+
+impl fmt::Debug for DatabaseInner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatabaseInner")
+            .field("app", &self.app.name())
+            .field("backend", &"dynamic")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -32,8 +42,8 @@ impl Database {
     fn new(app: FirebaseApp) -> Self {
         Self {
             inner: Arc::new(DatabaseInner {
+                backend: select_backend(&app),
                 app,
-                data: Mutex::new(Value::Object(Default::default())),
             }),
         }
     }
@@ -62,9 +72,7 @@ impl DatabaseReference {
     }
 
     pub fn set(&self, value: Value) -> DatabaseResult<()> {
-        let mut data = self.database.inner.data.lock().unwrap();
-        set_at_path(&mut *data, &self.path, value);
-        Ok(())
+        self.database.inner.backend.set(&self.path, value)
     }
 
     pub fn update(&self, updates: serde_json::Map<String, Value>) -> DatabaseResult<()> {
@@ -75,10 +83,7 @@ impl DatabaseReference {
     }
 
     pub fn get(&self) -> DatabaseResult<Value> {
-        let data = self.database.inner.data.lock().unwrap();
-        Ok(get_at_path(&*data, &self.path)
-            .cloned()
-            .unwrap_or(Value::Null))
+        self.database.inner.backend.get(&self.path)
     }
 
     pub fn path(&self) -> String {
@@ -105,49 +110,6 @@ fn normalize_path(path: &str) -> DatabaseResult<Vec<String>> {
         segments.push(segment.to_string());
     }
     Ok(segments)
-}
-
-fn set_at_path(root: &mut Value, path: &[String], value: Value) {
-    if path.is_empty() {
-        *root = value;
-        return;
-    }
-
-    let mut current = root;
-    for segment in &path[..path.len() - 1] {
-        if !current.is_object() {
-            *current = Value::Object(Default::default());
-        }
-        let obj = current.as_object_mut().unwrap();
-        current = obj
-            .entry(segment)
-            .or_insert(Value::Object(Default::default()));
-    }
-
-    if !current.is_object() {
-        *current = Value::Object(Default::default());
-    }
-    current
-        .as_object_mut()
-        .unwrap()
-        .insert(path.last().unwrap().clone(), value);
-}
-
-fn get_at_path<'a>(root: &'a Value, path: &[String]) -> Option<&'a Value> {
-    if path.is_empty() {
-        return Some(root);
-    }
-    let mut current = root;
-    for segment in path {
-        match current {
-            Value::Object(obj) => match obj.get(segment) {
-                Some(value) => current = value,
-                None => return None,
-            },
-            _ => return None,
-        }
-    }
-    Some(current)
 }
 
 static DATABASE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
@@ -209,6 +171,7 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use httpmock::prelude::*;
     use serde_json::json;
 
     fn unique_settings() -> FirebaseAppSettings {
@@ -250,5 +213,44 @@ mod tests {
         root.child("a/count").unwrap().set(json!(2)).unwrap();
         let value = root.get().unwrap();
         assert_eq!(value, json!({ "a": { "count": 2 } }));
+    }
+
+    #[test]
+    fn rest_backend_performs_http_requests() {
+        let server = MockServer::start();
+
+        let set_mock = server.mock(|when, then| {
+            when.method(PUT)
+                .path("/messages.json")
+                .json_body(json!({ "greeting": "hello" }));
+            then.status(200)
+                .header("content-type", "application/json")
+                .body("null");
+        });
+
+        let get_mock = server.mock(|when, then| {
+            when.method(GET).path("/messages.json");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(r#"{"greeting":"hello"}"#);
+        });
+
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            database_url: Some(server.url("/")),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let reference = database.reference("/messages").unwrap();
+
+        reference
+            .set(json!({ "greeting": "hello" }))
+            .expect("set over REST");
+        let value = reference.get().expect("get over REST");
+
+        assert_eq!(value, json!({ "greeting": "hello" }));
+        set_mock.assert();
+        get_mock.assert();
     }
 }
