@@ -95,8 +95,7 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
             Ok(backend) => return Arc::new(backend),
             Err(err) => {
                 LOGGER.warn(format!(
-                    "Falling back to in-memory Realtime Database backend: {}",
-                    err
+                    "Falling back to in-memory Realtime Database backend: {err}"
                 ));
             }
         }
@@ -119,7 +118,7 @@ impl Default for InMemoryBackend {
 impl DatabaseBackend for InMemoryBackend {
     fn set(&self, path: &[String], value: Value) -> DatabaseResult<()> {
         let mut data = self.data.lock().unwrap();
-        set_at_path(&mut *data, path, value);
+        set_at_path(&mut data, path, value);
         Ok(())
     }
 
@@ -130,20 +129,20 @@ impl DatabaseBackend for InMemoryBackend {
     ) -> DatabaseResult<()> {
         let mut data = self.data.lock().unwrap();
         for (path, value) in updates {
-            set_at_path(&mut *data, &path, value);
+            set_at_path(&mut data, &path, value);
         }
         Ok(())
     }
 
     fn delete(&self, path: &[String]) -> DatabaseResult<()> {
         let mut data = self.data.lock().unwrap();
-        delete_at_path(&mut *data, path);
+        delete_at_path(&mut data, path);
         Ok(())
     }
 
     fn get(&self, path: &[String], _query: &[(String, String)]) -> DatabaseResult<Value> {
         let data = self.data.lock().unwrap();
-        Ok(get_at_path(&*data, path).cloned().unwrap_or(Value::Null))
+        Ok(get_at_path(&data, path).cloned().unwrap_or(Value::Null))
     }
 }
 
@@ -238,7 +237,7 @@ impl RestBackend {
                 status.as_str(),
                 message
                     .map(|b| format!(": {b}"))
-                    .unwrap_or_else(|| String::new())
+                    .unwrap_or_else(String::new)
             )),
         }
     }
@@ -274,7 +273,7 @@ impl RestBackend {
         &self,
         query: &[(String, String)],
     ) -> DatabaseResult<Vec<(String, String)>> {
-        let mut params: Vec<(String, String)> = query.iter().cloned().collect();
+        let mut params: Vec<(String, String)> = query.to_vec();
 
         if !params.iter().any(|(key, _)| key == "auth") {
             if let Some(token) = fetch_token(&self.auth_token_fetcher)? {

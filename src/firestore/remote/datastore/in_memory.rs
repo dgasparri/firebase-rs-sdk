@@ -58,17 +58,11 @@ impl Datastore for InMemoryDatastore {
         documents.sort_by(|left, right| compare_snapshots(left, right, query.result_order_by()));
 
         if let Some(bound) = query.result_start_at() {
-            documents = documents
-                .into_iter()
-                .filter(|snapshot| !is_before_start_bound(snapshot, bound, query.result_order_by()))
-                .collect();
+            documents.retain(|snapshot| !is_before_start_bound(snapshot, bound, query.result_order_by()));
         }
 
         if let Some(bound) = query.result_end_at() {
-            documents = documents
-                .into_iter()
-                .filter(|snapshot| !is_after_end_bound(snapshot, bound, query.result_order_by()))
-                .collect();
+            documents.retain(|snapshot| !is_after_end_bound(snapshot, bound, query.result_order_by()));
         }
 
         if let Some(limit) = query.limit() {
@@ -180,9 +174,9 @@ fn compare_snapshots(
 ) -> std::cmp::Ordering {
     for order in order_by {
         let left_value =
-            get_field_value(left, order.field()).unwrap_or_else(|| FirestoreValue::null());
+            get_field_value(left, order.field()).unwrap_or_else(FirestoreValue::null);
         let right_value =
-            get_field_value(right, order.field()).unwrap_or_else(|| FirestoreValue::null());
+            get_field_value(right, order.field()).unwrap_or_else(FirestoreValue::null);
 
         let mut ordering =
             compare_values(&left_value, &right_value).unwrap_or(std::cmp::Ordering::Equal);
@@ -240,7 +234,7 @@ fn compare_snapshot_to_bound(
 
         let bound_value = &bound.values()[index];
         let snapshot_value =
-            get_field_value(snapshot, order.field()).unwrap_or_else(|| FirestoreValue::null());
+            get_field_value(snapshot, order.field()).unwrap_or_else(FirestoreValue::null);
 
         let mut ordering =
             compare_values(&snapshot_value, bound_value).unwrap_or(std::cmp::Ordering::Equal);

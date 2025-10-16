@@ -204,7 +204,7 @@ impl UploadTask {
         F: FnMut(UploadProgress),
     {
         loop {
-            match self.upload_next_with_progress(|p| progress(p))? {
+            match self.upload_next_with_progress(&mut progress)? {
                 Some(metadata) => return Ok(metadata),
                 None => continue,
             }

@@ -11,7 +11,7 @@ pub fn sha1_digest(data: impl AsRef<[u8]>) -> [u8; 20] {
 
 pub fn sha1_hex(data: impl AsRef<[u8]>) -> String {
     let digest = sha1_digest(data);
-    digest.iter().map(|byte| format!("{:02x}", byte)).collect()
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

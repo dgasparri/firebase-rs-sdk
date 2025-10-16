@@ -57,7 +57,7 @@ pub(crate) fn refresh_id_token_with_endpoint(
     api_key: &str,
     refresh_token: &str,
 ) -> AuthResult<RefreshTokenResponse> {
-    let url = format!("{}?key={}", endpoint, api_key);
+    let url = format!("{endpoint}?key={api_key}");
     let request = RefreshTokenRequest {
         grant_type: "refresh_token",
         refresh_token,
@@ -89,7 +89,7 @@ fn map_refresh_error(status: StatusCode, body: &str) -> AuthError {
         }
     }
 
-    AuthError::Network(format!("Token refresh failed with status {}", status))
+    AuthError::Network(format!("Token refresh failed with status {status}"))
 }
 
 #[cfg(test)]

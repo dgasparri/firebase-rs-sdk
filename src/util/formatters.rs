@@ -1,6 +1,6 @@
 pub fn ordinal(value: i64) -> String {
     let suffix = match value.rem_euclid(100) {
-        11 | 12 | 13 => "th",
+        11..=13 => "th",
         _ => match value.rem_euclid(10) {
             1 => "st",
             2 => "nd",
@@ -9,7 +9,7 @@ pub fn ordinal(value: i64) -> String {
         },
     };
 
-    format!("{}{}", value, suffix)
+    format!("{value}{suffix}")
 }
 
 #[cfg(test)]

@@ -134,7 +134,7 @@ fn server_app_hash(options: &FirebaseOptions, settings: &FirebaseServerAppSettin
         if let Some(v) = value {
             hasher.update(v.as_bytes());
         }
-        hasher.update(&[0]);
+        hasher.update([0]);
     }
 
     write_option(&mut hasher, &options.api_key);
@@ -156,7 +156,7 @@ fn server_app_hash(options: &FirebaseOptions, settings: &FirebaseServerAppSettin
     write_option(&mut hasher, &settings.app_check_token);
 
     let digest = hasher.finalize();
-    format!("serverapp-{:x}", digest)
+    format!("serverapp-{digest:x}")
 }
 
 /// Creates (or returns) a `FirebaseApp` instance for the provided options and settings.
@@ -343,7 +343,7 @@ pub fn register_version(library: &str, version: &str, variant: Option<&str>) {
         .unwrap_or_else(|poison| poison.into_inner())
         .insert(library_key.clone(), version.to_string());
 
-    let component_name = format!("{}-version", library_key);
+    let component_name = format!("{library_key}-version");
     let version_string = version.to_string();
     let library_string = library_key.clone();
     let factory: InstanceFactory = Arc::new(move |_, _| {

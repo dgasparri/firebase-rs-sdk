@@ -55,19 +55,12 @@ pub struct FirebaseOptions {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub struct FirebaseAppSettings {
     pub name: Option<String>,
     pub automatic_data_collection_enabled: Option<bool>,
 }
 
-impl Default for FirebaseAppSettings {
-    fn default() -> Self {
-        Self {
-            name: None,
-            automatic_data_collection_enabled: None,
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FirebaseAppConfig {
@@ -76,6 +69,7 @@ pub struct FirebaseAppConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub struct FirebaseServerAppSettings {
     pub automatic_data_collection_enabled: Option<bool>,
     pub auth_id_token: Option<String>,
@@ -83,16 +77,6 @@ pub struct FirebaseServerAppSettings {
     pub release_on_deref: Option<bool>,
 }
 
-impl Default for FirebaseServerAppSettings {
-    fn default() -> Self {
-        Self {
-            automatic_data_collection_enabled: None,
-            auth_id_token: None,
-            app_check_token: None,
-            release_on_deref: None,
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct FirebaseApp {

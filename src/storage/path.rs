@@ -23,7 +23,7 @@ pub fn child(path: &str, child_path: &str) -> String {
     } else if canonical_child.is_empty() {
         path.to_string()
     } else {
-        format!("{}/{}", path, canonical_child)
+        format!("{path}/{canonical_child}")
     }
 }
 

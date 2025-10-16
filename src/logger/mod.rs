@@ -204,16 +204,16 @@ fn default_log_handler(logger: &Logger, level: LogLevel, args: &[LogArgument]) {
     match level {
         LogLevel::Warn | LogLevel::Error => {
             if message.is_empty() {
-                eprintln!("{}", header);
+                eprintln!("{header}");
             } else {
-                eprintln!("{} {}", header, message);
+                eprintln!("{header} {message}");
             }
         }
         _ => {
             if message.is_empty() {
-                println!("{}", header);
+                println!("{header}");
             } else {
-                println!("{} {}", header, message);
+                println!("{header} {message}");
             }
         }
     }
@@ -333,15 +333,11 @@ impl IntoLogLevel for String {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct LogOptions {
     pub level: Option<LogLevel>,
 }
 
-impl Default for LogOptions {
-    fn default() -> Self {
-        Self { level: None }
-    }
-}
 
 impl LogOptions {
     pub fn with_level<L>(mut self, level: L) -> Result<Self, LogError>
@@ -431,13 +427,13 @@ impl IntoLogArgument for String {
     }
 }
 
-impl<'a> IntoLogArgument for &'a String {
+impl IntoLogArgument for &String {
     fn into_log_argument(self) -> LogArgument {
         LogArgument::Text(self.clone())
     }
 }
 
-impl<'a> IntoLogArgument for &'a str {
+impl IntoLogArgument for &str {
     fn into_log_argument(self) -> LogArgument {
         LogArgument::Text(self.to_owned())
     }
@@ -505,7 +501,7 @@ impl IntoLogArgument for Value {
     }
 }
 
-impl<'a> IntoLogArgument for &'a Value {
+impl IntoLogArgument for &Value {
     fn into_log_argument(self) -> LogArgument {
         LogArgument::Value(self.clone())
     }
@@ -545,7 +541,7 @@ impl fmt::Display for LogError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LogError::InvalidLogLevel(level) => {
-                write!(f, "Invalid value \"{}\" assigned to `logLevel`", level)
+                write!(f, "Invalid value \"{level}\" assigned to `logLevel`")
             }
         }
     }

@@ -82,7 +82,7 @@ fn replace_template(template: &str, data: &ErrorData) -> String {
             let value = data
                 .get(key)
                 .cloned()
-                .unwrap_or_else(|| format!("<{}?>", key));
+                .unwrap_or_else(|| format!("<{key}?>"));
             result.push_str(&value);
             remainder = &tail[end + 1..];
         } else {

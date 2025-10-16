@@ -161,7 +161,7 @@ impl HeartbeatService for HeartbeatServiceImpl {
             return Ok(None);
         }
 
-        let header = encode_entries(&result.heartbeats_to_send).unwrap_or_else(|| "".to_string());
+        let header = encode_entries(&result.heartbeats_to_send).unwrap_or_default();
         if header.is_empty() {
             return Ok(None);
         }

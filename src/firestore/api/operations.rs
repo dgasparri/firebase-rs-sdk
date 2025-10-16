@@ -6,6 +6,7 @@ use crate::firestore::value::{FirestoreValue, MapValue};
 
 /// Options that configure the behaviour of `set_doc` writes.
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub struct SetOptions {
     /// When `true`, `set_doc` behaves like the JS `merge: true` option.
     ///
@@ -13,11 +14,6 @@ pub struct SetOptions {
     pub merge: bool,
 }
 
-impl Default for SetOptions {
-    fn default() -> Self {
-        Self { merge: false }
-    }
-}
 
 #[allow(dead_code)]
 pub fn encode_document_data(data: BTreeMap<String, FirestoreValue>) -> FirestoreResult<MapValue> {

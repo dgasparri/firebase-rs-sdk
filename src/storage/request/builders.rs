@@ -125,8 +125,7 @@ pub fn download_url_request(
                 let encoded_token: String =
                     form_urlencoded::byte_serialize(token.as_bytes()).collect();
                 return Ok(Some(format!(
-                    "{}?alt=media&token={}",
-                    download_base, encoded_token
+                    "{download_base}?alt=media&token={encoded_token}"
                 )));
             }
         }
@@ -204,7 +203,7 @@ pub fn multipart_upload_request(
     push_multipart_segment(
         &mut body,
         &boundary,
-        &format!("Content-Type: {}", content_type),
+        &format!("Content-Type: {content_type}"),
         &data,
     );
     finalize_multipart(&mut body, &boundary);
@@ -223,7 +222,7 @@ pub fn multipart_upload_request(
 
     request.headers.insert(
         "Content-Type".to_string(),
-        format!("multipart/related; boundary={}", boundary),
+        format!("multipart/related; boundary={boundary}"),
     );
     request.headers.insert(
         "X-Goog-Upload-Protocol".to_string(),
@@ -251,8 +250,7 @@ pub fn create_resumable_upload_request(
             .ok_or_else(|| internal_error("missing resumable upload status header"))?;
         if !matches!(status.to_ascii_lowercase().as_str(), "active" | "final") {
             return Err(internal_error(format!(
-                "unexpected resumable upload status: {}",
-                status
+                "unexpected resumable upload status: {status}"
             )));
         }
 
@@ -298,8 +296,7 @@ pub fn get_resumable_upload_status_request(
             .ok_or_else(|| internal_error("missing resumable upload status header"))?;
         if !matches!(status.to_ascii_lowercase().as_str(), "active" | "final") {
             return Err(internal_error(format!(
-                "unexpected resumable upload status: {}",
-                status
+                "unexpected resumable upload status: {status}"
             )));
         }
         let received = header_value(&payload.headers, "X-Goog-Upload-Size-Received")
@@ -345,8 +342,7 @@ pub fn continue_resumable_upload_request(
             .ok_or_else(|| internal_error("missing resumable upload status header"))?;
         if !matches!(status.to_ascii_lowercase().as_str(), "active" | "final") {
             return Err(internal_error(format!(
-                "unexpected resumable upload status: {}",
-                status
+                "unexpected resumable upload status: {status}"
             )));
         }
 

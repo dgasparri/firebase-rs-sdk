@@ -341,8 +341,8 @@ impl HttpDatastore {
 
 impl HttpDatastoreBuilder {
     fn new(database_id: DatabaseId) -> Self {
-        let auth_provider: TokenProviderArc = Arc::new(NoopTokenProvider::default());
-        let app_check_provider: TokenProviderArc = Arc::new(NoopTokenProvider::default());
+        let auth_provider: TokenProviderArc = Arc::new(NoopTokenProvider);
+        let app_check_provider: TokenProviderArc = Arc::new(NoopTokenProvider);
         let connection_builder = Connection::builder(database_id.clone());
         Self {
             database_id,

@@ -28,8 +28,7 @@ where
 {
     let guard = STATES.lock().unwrap();
     let state = guard
-        .get(app_name)
-        .map(Clone::clone)
+        .get(app_name).cloned()
         .unwrap_or_else(AppCheckState::new);
     f(&state)
 }

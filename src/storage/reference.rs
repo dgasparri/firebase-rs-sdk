@@ -111,8 +111,8 @@ impl StorageReference {
             let mut options = ListOptions::default();
             options.page_token = page_token.clone();
             let page = self.list(Some(options))?;
-            merged.prefixes.extend(page.prefixes.into_iter());
-            merged.items.extend(page.items.into_iter());
+            merged.prefixes.extend(page.prefixes);
+            merged.items.extend(page.items);
 
             if let Some(token) = page.next_page_token {
                 page_token = Some(token);

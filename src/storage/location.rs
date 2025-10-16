@@ -96,7 +96,7 @@ impl Location {
             .collect::<Vec<_>>();
 
         // Remove empty trailing segment introduced by trailing slash.
-        if segments.last().map_or(false, |s| s.is_empty()) {
+        if segments.last().is_some_and(|s| s.is_empty()) {
             segments.pop();
         }
 

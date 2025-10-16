@@ -3,18 +3,15 @@ use serde_json::Value;
 use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub(crate) enum QueryIndex {
+    #[default]
     Priority,
     Key,
     Value,
     Child(String),
 }
 
-impl Default for QueryIndex {
-    fn default() -> Self {
-        QueryIndex::Priority
-    }
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct QueryParams {

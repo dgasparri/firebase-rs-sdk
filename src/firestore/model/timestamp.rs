@@ -48,7 +48,7 @@ impl Timestamp {
         } else {
             UNIX_EPOCH
                 - Duration::from_secs((-self.seconds) as u64)
-                - Duration::from_nanos(self.nanos.abs() as u64)
+                - Duration::from_nanos(self.nanos.unsigned_abs() as u64)
         }
     }
 

@@ -49,20 +49,17 @@ pub struct AndroidSettings {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ActionCodeOperation {
     PasswordReset,
     RecoverEmail,
     EmailSignIn,
     RevertSecondFactorAddition,
     VerifyAndChangeEmail,
+    #[default]
     VerifyEmail,
 }
 
-impl Default for ActionCodeOperation {
-    fn default() -> Self {
-        ActionCodeOperation::VerifyEmail
-    }
-}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionCodeInfoData {
@@ -107,6 +104,7 @@ impl ActionCodeUrl {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AdditionalUserInfo {
     pub is_new_user: bool,
     pub provider_id: Option<String>,
@@ -114,16 +112,6 @@ pub struct AdditionalUserInfo {
     pub username: Option<String>,
 }
 
-impl Default for AdditionalUserInfo {
-    fn default() -> Self {
-        Self {
-            is_new_user: false,
-            provider_id: None,
-            profile: None,
-            username: None,
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct ConfirmationResult {
@@ -155,17 +143,11 @@ impl ConfirmationResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AuthSettings {
     pub app_verification_disabled_for_testing: bool,
 }
 
-impl Default for AuthSettings {
-    fn default() -> Self {
-        Self {
-            app_verification_disabled_for_testing: false,
-        }
-    }
-}
 
 pub trait ApplicationVerifier: Send + Sync {
     fn verify(&self) -> AuthResult<String>;
