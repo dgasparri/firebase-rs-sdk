@@ -22,8 +22,7 @@
 //! ## Example Usage
 //!
 //! ```rust
-//! use firebase_rs_sdk_unofficial::app::api::{delete_app, get_app, get_apps, initialize_app};
-//! use firebase_rs_sdk_unofficial::app::{AppResult, FirebaseAppSettings, FirebaseOptions};
+//! use firebase_rs_sdk_unofficial::app::*;
 //!
 //! fn main() -> AppResult<()> {
 //!     // Configure your Firebase project credentials. These values are placeholders that allow the
@@ -85,10 +84,22 @@ pub mod private;
 pub(crate) mod registry;
 mod types;
 
-pub use api::*;
+#[doc(inline)]
+pub use api::{
+    delete_app, get_app, get_apps, initialize_app, initialize_server_app, on_log, register_version,
+    set_log_level, SDK_VERSION,
+};
+
+#[doc(inline)]
 pub use errors::{AppError, AppResult};
+
+#[doc(inline)]
 pub use logger::{LogCallback, LogLevel, LogOptions, Logger, LOGGER};
+
+#[doc(inline)]
 pub use namespace::FirebaseNamespace;
+
+#[doc(inline)]
 pub use types::{
     FirebaseApp, FirebaseAppConfig, FirebaseAppSettings, FirebaseOptions, FirebaseServerApp,
     FirebaseServerAppSettings, VersionService,

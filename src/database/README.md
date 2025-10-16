@@ -9,12 +9,9 @@ or backend over HTTPS.
 
 ## Quick Start Example
 ```rust
-use firebase_rs_sdk_unofficial::app::api::initialize_app;
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::database::api::get_database;
-use firebase_rs_sdk_unofficial::database::{
-    limit_to_last, order_by_child, query as compose_query,
-};
+use firebase_rs_sdk_unofficial::app::*;
+use firebase_rs_sdk_unofficial::database::{*, query as compose_query};
+
 use serde_json::json;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

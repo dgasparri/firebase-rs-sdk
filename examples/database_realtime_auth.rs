@@ -3,10 +3,8 @@ use std::io::{self, Write};
 use std::sync::Arc;
 use std::time::Duration;
 
-use firebase_rs_sdk_unofficial::app::api::{initialize_app, SDK_VERSION};
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::auth::api::{auth_for_app, register_auth_component};
-use firebase_rs_sdk_unofficial::auth::Auth;
+use firebase_rs_sdk_unofficial::app::*;
+use firebase_rs_sdk_unofficial::auth::*;
 use firebase_rs_sdk_unofficial::database::*;
 use serde_json::json;
 

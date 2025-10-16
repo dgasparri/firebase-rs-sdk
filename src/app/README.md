@@ -22,8 +22,7 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 ## Example Usage
 
 ```rust
-use firebase_rs_sdk_unofficial::app::api::{delete_app, get_app, get_apps, initialize_app};
-use firebase_rs_sdk_unofficial::app::{AppResult, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk_unofficial::app::*;
 
 fn main() -> AppResult<()> {
     // Configure your Firebase project credentials. These values are placeholders that allow the

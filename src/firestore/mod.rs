@@ -92,7 +92,7 @@
 //! Using Converters:
 //!
 //! ```rust,no_run
-//! use firebase_rs_sdk_unofficial::app::FirebaseApp;
+//! use firebase_rs_sdk_unofficial::app::*;
 //! use firebase_rs_sdk_unofficial::firestore::*;
 //! use std::collections::BTreeMap;
 //!
@@ -140,9 +140,30 @@ pub mod value;
 
 #[doc(inline)]
 pub use api::{
-    get_firestore, register_firestore_component, CollectionReference, DocumentReference, Firestore,
-    FirestoreClient, FirestoreDataConverter,
+    get_firestore, register_firestore_component, CollectionReference, ConvertedCollectionReference,
+    ConvertedDocumentReference, ConvertedQuery, DocumentReference, DocumentSnapshot,
+    FilterOperator, Firestore, FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection,
+    PassthroughConverter, Query, QuerySnapshot, SetOptions, SnapshotMetadata,
+    TypedDocumentSnapshot, TypedQuerySnapshot,
 };
+
+#[doc(inline)]
+pub use api::query::QueryDefinition;
+
+#[doc(inline)]
+pub use constants::{DEFAULT_DATABASE_ID, FIRESTORE_COMPONENT_NAME};
+
+#[doc(inline)]
+pub use model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, ResourcePath, Timestamp};
+
+#[doc(inline)]
+pub use remote::{
+    map_http_error, Connection, ConnectionBuilder, Datastore, HttpDatastore, InMemoryDatastore,
+    JsonProtoSerializer, NoopTokenProvider, RequestContext, RetrySettings, TokenProviderArc,
+};
+
+#[doc(inline)]
+pub use remote::datastore::{http::HttpDatastoreBuilder, TokenProvider};
 
 #[doc(inline)]
 pub use value::{ArrayValue, BytesValue, FirestoreValue, MapValue, ValueKind};

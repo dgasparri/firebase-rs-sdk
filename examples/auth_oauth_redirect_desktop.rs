@@ -2,11 +2,7 @@ use std::fs;
 use std::sync::Arc;
 
 use firebase_rs_sdk_unofficial::app::FirebaseApp;
-use firebase_rs_sdk_unofficial::auth::model::AuthCredential;
-use firebase_rs_sdk_unofficial::auth::oauth::{OAuthProvider, OAuthRedirectHandler, OAuthRequest};
-
-#[allow(unused_imports)]
-use firebase_rs_sdk_unofficial::auth::{Auth, AuthBuilder, AuthError, AuthResult};
+use firebase_rs_sdk_unofficial::auth::*;
 use serde_json::Value;
 
 struct DesktopRedirectHandler;

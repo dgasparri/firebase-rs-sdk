@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 
-use firebase_rs_sdk_unofficial::app::api::initialize_app;
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk_unofficial::app::*;
 use firebase_rs_sdk_unofficial::firestore::*;
 
 fn main() -> Result<(), Box<dyn Error>> {

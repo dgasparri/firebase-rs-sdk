@@ -31,13 +31,8 @@
 //! ## Example Usage
 //!
 //! ```rust
-//! use firebase_rs_sdk_unofficial::app::api::{delete_app, initialize_app};
-//! use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-//! use firebase_rs_sdk_unofficial::app_check::api::{
-//!     add_token_listener, custom_provider, get_limited_use_token, get_token, initialize_app_check,
-//!     set_token_auto_refresh_enabled, token_with_ttl,
-//! };
-//! use firebase_rs_sdk_unofficial::app_check::{AppCheckOptions, AppCheckTokenListener, ListenerType};
+//! use firebase_rs_sdk_unofficial::app::*;
+//! use firebase_rs_sdk_unofficial::app_check::*;
 //! use std::error::Error;
 //! use std::sync::Arc;
 //! use std::time::Duration;
@@ -105,13 +100,28 @@ mod state;
 mod token_provider;
 mod types;
 
-pub use api::*;
+#[doc(inline)]
+pub use api::{
+    add_token_listener, custom_provider, get_limited_use_token, get_token, initialize_app_check,
+    recaptcha_enterprise_provider, recaptcha_v3_provider, remove_token_listener,
+    set_token_auto_refresh_enabled, token_with_ttl,
+};
+
+#[doc(inline)]
 pub use errors::{AppCheckError, AppCheckResult};
+
+#[doc(inline)]
 pub use interop::FirebaseAppCheckInternal;
+
+#[doc(inline)]
 pub use providers::{
     CustomProvider, CustomProviderOptions, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider,
 };
+
+#[doc(inline)]
 pub use token_provider::{app_check_token_provider_arc, AppCheckTokenProvider};
+
+#[doc(inline)]
 pub use types::{
     AppCheck, AppCheckInternalListener, AppCheckOptions, AppCheckProvider, AppCheckToken,
     AppCheckTokenListener, AppCheckTokenResult, ListenerHandle, ListenerType,

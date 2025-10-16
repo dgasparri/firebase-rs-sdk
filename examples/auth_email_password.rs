@@ -1,6 +1,5 @@
-use firebase_rs_sdk_unofficial::app::api::initialize_app;
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::auth::api::{auth_for_app, register_auth_component};
+use firebase_rs_sdk_unofficial::app::*;
+use firebase_rs_sdk_unofficial::auth::*;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {

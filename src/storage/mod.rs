@@ -39,9 +39,8 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use firebase_rs_sdk_unofficial::app::api::initialize_app;
-//! use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-//! use firebase_rs_sdk_unofficial::storage::{get_storage_for_app, UploadMetadata};
+//! use firebase_rs_sdk_unofficial::app::*;
+//! use firebase_rs_sdk_unofficial::storage::*;
 //!
 //! fn main() {
 //!     let options = FirebaseOptions {
@@ -96,19 +95,53 @@ pub mod service;
 mod upload;
 mod util;
 
+#[doc(inline)]
 pub use api::{
-    connect_storage_emulator, get_storage_for_app, register_storage_component,
-    storage_ref_from_reference, storage_ref_from_storage,
+    connect_storage_emulator, delete_storage_instance, get_storage_for_app,
+    register_storage_component, storage_ref_from_reference, storage_ref_from_storage,
 };
-pub use constants::STORAGE_TYPE;
-pub use error::{
-    internal_error, invalid_argument, invalid_default_bucket, invalid_root_operation, invalid_url,
-    no_default_bucket, no_download_url, unsupported_environment, StorageError, StorageErrorCode,
-    StorageResult,
+
+#[doc(inline)]
+pub use constants::{
+    DEFAULT_HOST, DEFAULT_MAX_OPERATION_RETRY_TIME_MS, DEFAULT_MAX_UPLOAD_RETRY_TIME_MS,
+    DEFAULT_PROTOCOL, STORAGE_TYPE,
 };
-pub use list::{ListOptions, ListResult};
+
+#[doc(inline)]
+pub use error::{StorageError, StorageErrorCode, StorageResult};
+
+#[doc(inline)]
+pub use list::{build_list_options, parse_list_result, ListOptions, ListResult};
+
+#[doc(inline)]
 pub use location::Location;
+
+#[doc(inline)]
 pub use metadata::{ObjectMetadata, SetMetadataRequest, SettableMetadata, UploadMetadata};
+
+#[doc(inline)]
+pub use path::{child, last_component, parent};
+
+#[doc(inline)]
 pub use reference::StorageReference;
+
+#[doc(inline)]
+pub use request::{
+    continue_resumable_upload_request, create_resumable_upload_request, delete_object_request,
+    download_bytes_request, download_url_request, get_metadata_request,
+    get_resumable_upload_status_request, list_request, multipart_upload_request,
+    update_metadata_request, BackoffConfig, BackoffState, HttpClient, RequestBody, RequestError,
+    RequestInfo, ResponseHandler, ResponsePayload, ResumableUploadStatus,
+    RESUMABLE_UPLOAD_CHUNK_SIZE,
+};
+
+// pub use request::builders::{create_resumable_upload_request,  delete_object_request, download_bytes_request, download_url_request, get_metadata_request, get_resumable_upload_status_request,  list_request, multipart_upload_request, update_metadata_request, RequestInfo, RequestMethod, RequestBuilder, ResumableUploadStatus, RESUMABLE_UPLOAD_CHUNK_SIZE};
+
+#[doc(inline)]
 pub use service::FirebaseStorageImpl;
+
+#[doc(inline)]
 pub use upload::{UploadProgress, UploadTask, UploadTaskState};
+
+#[doc(inline)]
+pub use util::{is_retry_status_code, is_url};

@@ -33,9 +33,8 @@
 //! ## Example Usage
 //!
 //! ```rust,no_run
-//! use firebase_rs_sdk_unofficial::app::api::initialize_app;
-//! use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-//! use firebase_rs_sdk_unofficial::auth::api::{auth_for_app, register_auth_component};
+//! use firebase_rs_sdk_unofficial::app::*;
+//! use firebase_rs_sdk_unofficial::auth::*;
 //! use std::error::Error;
 //!
 //! fn main() -> Result<(), Box<dyn Error>> {
@@ -98,14 +97,27 @@ mod token_manager;
 pub mod token_provider;
 pub mod types;
 
-pub use api::{Auth, AuthBuilder};
+#[doc(inline)]
+pub use api::{auth_for_app, register_auth_component, Auth, AuthBuilder};
+
+#[doc(inline)]
 pub use error::{AuthError, AuthResult};
-pub use model::{AuthConfig, EmailAuthProvider, User, UserCredential};
+
+#[doc(inline)]
+pub use model::{AuthConfig, AuthCredential, EmailAuthProvider, User, UserCredential};
+
+#[doc(inline)]
 pub use oauth::{
     OAuthCredential, OAuthPopupHandler, OAuthProvider, OAuthRedirectHandler, OAuthRequest,
 };
+
+#[doc(inline)]
 pub use persistence::{
     AuthPersistence, ClosurePersistence, InMemoryPersistence, PersistedAuthState,
 };
+
+#[doc(inline)]
 pub use token_provider::AuthTokenProvider;
+
+#[doc(inline)]
 pub use types::*;
