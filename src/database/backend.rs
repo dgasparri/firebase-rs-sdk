@@ -6,10 +6,14 @@ use serde_json::{Map, Value};
 use url::Url;
 
 use crate::app::FirebaseApp;
+use crate::app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME};
+use crate::auth::Auth;
 use crate::database::error::{
     internal_error, invalid_argument, permission_denied, DatabaseError, DatabaseResult,
 };
 use crate::logger::Logger;
+
+type TokenFetcher = Arc<dyn Fn() -> DatabaseResult<Option<String>> + Send + Sync>;
 
 pub(crate) trait DatabaseBackend: Send + Sync {
     fn set(&self, path: &[String], value: Value) -> DatabaseResult<()>;
@@ -25,7 +29,69 @@ pub(crate) trait DatabaseBackend: Send + Sync {
 pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
     let options = app.options();
     if let Some(url) = options.database_url {
-        match RestBackend::new(url) {
+        let app_for_auth = app.clone();
+        let auth_fetcher: TokenFetcher = Arc::new(move || {
+            let container = app_for_auth.container();
+
+            let auth_or_none = container
+                .get_provider("auth-internal")
+                .get_immediate_with_options::<Auth>(None, true)
+                .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?;
+
+            let auth = match auth_or_none {
+                Some(auth) => Some(auth),
+                None => container
+                    .get_provider("auth")
+                    .get_immediate_with_options::<Auth>(None, true)
+                    .map_err(|err| {
+                        internal_error(format!("failed to resolve auth provider: {err}"))
+                    })?,
+            };
+
+            let Some(auth) = auth else {
+                return Ok(None);
+            };
+
+            match auth.get_token(false) {
+                Ok(Some(token)) if token.is_empty() => Ok(None),
+                Ok(Some(token)) => Ok(Some(token)),
+                Ok(None) => Ok(None),
+                Err(err) => Err(internal_error(format!(
+                    "failed to obtain auth token: {err}"
+                ))),
+            }
+        });
+
+        let app_for_app_check = app.clone();
+        let app_check_fetcher: TokenFetcher = Arc::new(move || {
+            let container = app_for_app_check.container();
+            let app_check = container
+                .get_provider(APP_CHECK_INTERNAL_COMPONENT_NAME)
+                .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
+                .map_err(|err| {
+                    internal_error(format!("failed to resolve app check provider: {err}"))
+                })?;
+
+            let Some(app_check) = app_check else {
+                return Ok(None);
+            };
+
+            let result = app_check.get_token(false).map_err(|err| {
+                internal_error(format!("failed to obtain App Check token: {err}"))
+            })?;
+
+            if let Some(error) = result.error.or(result.internal_error) {
+                return Err(internal_error(format!("App Check token error: {error}")));
+            }
+
+            if result.token.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(result.token))
+            }
+        });
+
+        match RestBackend::new(url, auth_fetcher, app_check_fetcher) {
             Ok(backend) => return Arc::new(backend),
             Err(err) => {
                 LOGGER.warn(format!(
@@ -85,10 +151,16 @@ struct RestBackend {
     client: Client,
     base_url: Url,
     base_query: Vec<(String, String)>,
+    auth_token_fetcher: TokenFetcher,
+    app_check_token_fetcher: TokenFetcher,
 }
 
 impl RestBackend {
-    fn new(raw_url: String) -> DatabaseResult<Self> {
+    fn new(
+        raw_url: String,
+        auth_token_fetcher: TokenFetcher,
+        app_check_token_fetcher: TokenFetcher,
+    ) -> DatabaseResult<Self> {
         let mut url = Url::parse(&raw_url)
             .map_err(|err| invalid_argument(format!("Invalid database_url '{raw_url}': {err}")))?;
 
@@ -113,6 +185,8 @@ impl RestBackend {
             client,
             base_url: url,
             base_query,
+            auth_token_fetcher,
+            app_check_token_fetcher,
         })
     }
 
@@ -176,7 +250,8 @@ impl RestBackend {
         query: &[(String, String)],
         body: Option<&Value>,
     ) -> DatabaseResult<Response> {
-        let url = self.url_for_path(path, query)?;
+        let augmented_query = self.query_with_tokens(query)?;
+        let url = self.url_for_path(path, &augmented_query)?;
         let mut request = self.client.request(method, url);
         if let Some(payload) = body {
             request = request.json(payload);
@@ -194,6 +269,31 @@ impl RestBackend {
             Err(self.handle_http_error(status, body))
         }
     }
+
+    fn query_with_tokens(
+        &self,
+        query: &[(String, String)],
+    ) -> DatabaseResult<Vec<(String, String)>> {
+        let mut params: Vec<(String, String)> = query.iter().cloned().collect();
+
+        if !params.iter().any(|(key, _)| key == "auth") {
+            if let Some(token) = fetch_token(&self.auth_token_fetcher)? {
+                params.push(("auth".to_string(), token));
+            }
+        }
+
+        if !params.iter().any(|(key, _)| key == "ac") {
+            if let Some(token) = fetch_token(&self.app_check_token_fetcher)? {
+                params.push(("ac".to_string(), token));
+            }
+        }
+
+        Ok(params)
+    }
+}
+
+fn fetch_token(fetcher: &TokenFetcher) -> DatabaseResult<Option<String>> {
+    (fetcher.as_ref())()
 }
 
 impl DatabaseBackend for RestBackend {
@@ -358,3 +458,64 @@ fn extract_error_message(raw: &str) -> Option<String> {
 }
 
 static LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/database"));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use httpmock::prelude::*;
+    use serde_json::json;
+
+    fn static_token(value: &'static str) -> TokenFetcher {
+        Arc::new(move || Ok(Some(value.to_string())))
+    }
+
+    fn empty_token() -> TokenFetcher {
+        Arc::new(|| Ok(None))
+    }
+
+    #[test]
+    fn rest_backend_attaches_tokens_to_requests() {
+        let server = MockServer::start();
+
+        let get_mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/items.json")
+                .query_param("auth", "id-token")
+                .query_param("ac", "app-check")
+                .query_param("format", "export");
+            then.status(200).body("null");
+        });
+
+        let backend = RestBackend::new(
+            server.url("/"),
+            static_token("id-token"),
+            static_token("app-check"),
+        )
+        .expect("rest backend");
+
+        backend.get(&["items".to_string()], &[]).unwrap();
+
+        get_mock.assert();
+    }
+
+    #[test]
+    fn rest_backend_skips_missing_tokens() {
+        let server = MockServer::start();
+
+        let put_mock = server.mock(|when, then| {
+            when.method(PUT)
+                .path("/data.json")
+                .query_param("print", "silent")
+                .json_body(json!({"value": true}));
+            then.status(200).body("null");
+        });
+
+        let backend = RestBackend::new(server.url("/"), empty_token(), empty_token()).unwrap();
+
+        backend
+            .set(&["data".to_string()], json!({"value": true}))
+            .unwrap();
+
+        put_mock.assert();
+    }
+}
