@@ -332,12 +332,10 @@ impl IntoLogLevel for String {
     }
 }
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LogOptions {
     pub level: Option<LogLevel>,
 }
-
 
 impl LogOptions {
     pub fn with_level<L>(mut self, level: L) -> Result<Self, LogError>

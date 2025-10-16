@@ -58,11 +58,14 @@ impl Datastore for InMemoryDatastore {
         documents.sort_by(|left, right| compare_snapshots(left, right, query.result_order_by()));
 
         if let Some(bound) = query.result_start_at() {
-            documents.retain(|snapshot| !is_before_start_bound(snapshot, bound, query.result_order_by()));
+            documents.retain(|snapshot| {
+                !is_before_start_bound(snapshot, bound, query.result_order_by())
+            });
         }
 
         if let Some(bound) = query.result_end_at() {
-            documents.retain(|snapshot| !is_after_end_bound(snapshot, bound, query.result_order_by()));
+            documents
+                .retain(|snapshot| !is_after_end_bound(snapshot, bound, query.result_order_by()));
         }
 
         if let Some(limit) = query.limit() {
@@ -173,8 +176,7 @@ fn compare_snapshots(
     order_by: &[OrderBy],
 ) -> std::cmp::Ordering {
     for order in order_by {
-        let left_value =
-            get_field_value(left, order.field()).unwrap_or_else(FirestoreValue::null);
+        let left_value = get_field_value(left, order.field()).unwrap_or_else(FirestoreValue::null);
         let right_value =
             get_field_value(right, order.field()).unwrap_or_else(FirestoreValue::null);
 

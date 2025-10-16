@@ -54,13 +54,11 @@ pub struct FirebaseOptions {
     pub measurement_id: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FirebaseAppSettings {
     pub name: Option<String>,
     pub automatic_data_collection_enabled: Option<bool>,
 }
-
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FirebaseAppConfig {
@@ -68,15 +66,13 @@ pub struct FirebaseAppConfig {
     pub automatic_data_collection_enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FirebaseServerAppSettings {
     pub automatic_data_collection_enabled: Option<bool>,
     pub auth_id_token: Option<String>,
     pub app_check_token: Option<String>,
     pub release_on_deref: Option<bool>,
 }
-
 
 #[derive(Clone)]
 pub struct FirebaseApp {

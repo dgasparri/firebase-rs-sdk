@@ -2,8 +2,7 @@ use serde_json::Value;
 
 use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub(crate) enum QueryIndex {
     #[default]
     Priority,
@@ -11,7 +10,6 @@ pub(crate) enum QueryIndex {
     Value,
     Child(String),
 }
-
 
 #[derive(Clone, Debug)]
 pub(crate) struct QueryParams {

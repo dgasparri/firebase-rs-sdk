@@ -64,14 +64,13 @@ fn validate_event_name(name: &str) -> AnalyticsResult<()> {
     Ok(())
 }
 
-static ANALYTICS_COMPONENT: LazyLock<()> = LazyLock::new(|| {
-    let component = Component::new(
+static ANALYTICS_COMPONENT: LazyLock<Component> = LazyLock::new(|| {
+    Component::new(
         ANALYTICS_COMPONENT_NAME,
         Arc::new(analytics_factory),
         ComponentType::Public,
     )
-    .with_instantiation_mode(InstantiationMode::Lazy);
-    let _ = app::registry::register_component(component);
+    .with_instantiation_mode(InstantiationMode::Lazy)
 });
 
 fn analytics_factory(
@@ -89,7 +88,8 @@ fn analytics_factory(
 }
 
 fn ensure_registered() {
-    LazyLock::force(&ANALYTICS_COMPONENT);
+    let component = LazyLock::force(&ANALYTICS_COMPONENT).clone();
+    let _ = app::registry::register_component(component);
 }
 
 pub fn register_analytics_component() {
