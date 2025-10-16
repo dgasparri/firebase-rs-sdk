@@ -6,6 +6,7 @@ pub mod auth;
 pub mod component;
 pub mod data_connect;
 pub mod database;
+pub mod firebase;
 pub mod firestore;
 pub mod functions;
 pub mod installations;
