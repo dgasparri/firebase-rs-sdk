@@ -48,6 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - In-memory backend that mirrors the JS SDK stub for fast, offline reads and writes.
 - REST transport foundation using `reqwest` with PUT/PATCH/DELETE support, namespace-aware query parameter propagation, and improved HTTP error mapping to `DatabaseError` codes.
 - High-level query builder that mirrors the JS operators (`order_by_*`, `start_at`, `end_at`, `equal_to`, `limit_to_first/last`) and serialises them into REST query parameters.
+- Value listeners (`on_value`) with `ListenerRegistration` handles that fire immediately and on subsequent in-memory mutations.
 - Path validation mirroring the JavaScript rules (no empty segments) with error codes aligned to the JS SDK.
 - Unit tests covering both in-memory behaviour and REST request wiring (using `httpmock`).
 
@@ -55,12 +56,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - WebSocket realtime protocol (`Repo`/`Connection` port) for live event streaming (`onValue`, child events, cancellations).
 - Authentication and App Check integration for REST/WebSocket requests, including permission error mapping.
 - Offline persistence, transaction logic, `onDisconnect`, and server timestamp handling.
-- Query constraint helpers (`query()`, typed `QueryConstraint` objects) and additional validation parity with the JS SDK.
+- Rich event streams (`onChildAdded`, `onChildChanged`, etc.) and comprehensive parity for query listeners (server-side streaming, cancellation semantics).
 - Platform adapters mirroring browser/node differences for future WASM support.
 - Comprehensive parity tests against the Firebase emulator, ported from `packages/database` and `packages/firebase/database`.
 
 ## Next Steps - Detailed Completion Plan
-1. **Query constraint API parity** – Port the `query()` + `QueryConstraint` helpers from `Reference_impl.ts` so callers can compose constraints in JS style, including validation for incompatible combinations.
+1. **Realtime listener expansion** – Port the child event registrations (`onChildAdded`, `onChildChanged`, etc.) from `Reference_impl.ts`, wiring them into the in-memory dispatcher and preparing hooks for future WebSocket integration.
 2. **Token handling** – Integrate Auth/App Check token providers so the REST backend attaches `auth`/`AppCheck` parameters; align with `packages/database/src/core/AuthTokenProvider.ts`.
 3. **Realtime connection scaffolding** – Introduce structs mirroring `Repo` and `PersistentConnection` to manage WebSocket sessions, event queues, and connection retries; start with a no-op event loop that surfaces `on_value` callbacks.
 4. **Persistence layer** – Add a pluggable cache (similar to `ServerActionsQueue` in TS) to stage writes offline and replay them when the connection resumes; gate browser-specific storage behind a `wasm-web` feature.

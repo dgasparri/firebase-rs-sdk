@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, LazyLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use serde_json::Value;
 
@@ -22,6 +24,8 @@ pub struct Database {
 struct DatabaseInner {
     app: FirebaseApp,
     backend: Arc<dyn DatabaseBackend>,
+    listeners: Mutex<HashMap<u64, Listener>>,
+    next_listener_id: AtomicU64,
 }
 
 impl fmt::Debug for DatabaseInner {
@@ -76,6 +80,92 @@ enum QueryConstraintKind {
         value: Value,
         name: Option<String>,
     },
+}
+
+type ListenerCallback = Arc<dyn Fn(DataSnapshot) + Send + Sync>;
+
+#[derive(Clone)]
+struct Listener {
+    target: ListenerTarget,
+    callback: ListenerCallback,
+}
+
+#[derive(Clone)]
+enum ListenerTarget {
+    Reference(Vec<String>),
+    Query {
+        path: Vec<String>,
+        params: QueryParams,
+    },
+}
+
+impl ListenerTarget {
+    fn matches(&self, changed_path: &[String]) -> bool {
+        match self {
+            ListenerTarget::Reference(path) => paths_related(path, changed_path),
+            ListenerTarget::Query { path, .. } => paths_related(path, changed_path),
+        }
+    }
+}
+
+/// Represents a data snapshot returned to listeners, analogous to the JS
+/// `DataSnapshot` type.
+#[derive(Clone, Debug)]
+pub struct DataSnapshot {
+    reference: DatabaseReference,
+    value: Value,
+}
+
+impl DataSnapshot {
+    pub fn reference(&self) -> &DatabaseReference {
+        &self.reference
+    }
+
+    pub fn value(&self) -> &Value {
+        &self.value
+    }
+
+    pub fn exists(&self) -> bool {
+        !self.value.is_null()
+    }
+
+    pub fn key(&self) -> Option<&str> {
+        self.reference.key()
+    }
+
+    pub fn into_value(self) -> Value {
+        self.value
+    }
+}
+
+/// RAII-style listener registration; dropping the handle detaches the
+/// underlying listener.
+pub struct ListenerRegistration {
+    database: Database,
+    id: Option<u64>,
+}
+
+impl ListenerRegistration {
+    fn new(database: Database, id: u64) -> Self {
+        Self {
+            database,
+            id: Some(id),
+        }
+    }
+
+    pub fn detach(mut self) {
+        if let Some(id) = self.id.take() {
+            self.database.remove_listener(id);
+        }
+    }
+}
+
+impl Drop for ListenerRegistration {
+    fn drop(&mut self) {
+        if let Some(id) = self.id.take() {
+            self.database.remove_listener(id);
+        }
+    }
 }
 
 impl QueryConstraint {
@@ -291,6 +381,8 @@ impl Database {
             inner: Arc::new(DatabaseInner {
                 backend: select_backend(&app),
                 app,
+                listeners: Mutex::new(HashMap::new()),
+                next_listener_id: AtomicU64::new(1),
             }),
         }
     }
@@ -306,6 +398,76 @@ impl Database {
             path: segments,
         })
     }
+
+    fn reference_from_segments(&self, segments: Vec<String>) -> DatabaseReference {
+        DatabaseReference {
+            database: self.clone(),
+            path: segments,
+        }
+    }
+
+    fn register_value_listener(
+        &self,
+        target: ListenerTarget,
+        callback: ListenerCallback,
+    ) -> DatabaseResult<ListenerRegistration> {
+        let id = self.inner.next_listener_id.fetch_add(1, Ordering::SeqCst);
+
+        {
+            let mut listeners = self.inner.listeners.lock().unwrap();
+            listeners.insert(
+                id,
+                Listener {
+                    target: target.clone(),
+                    callback: callback.clone(),
+                },
+            );
+        }
+
+        // Fire an initial snapshot immediately to mirror JS semantics.
+        let snapshot = self.snapshot_for_target(&target)?;
+        callback(snapshot);
+
+        Ok(ListenerRegistration::new(self.clone(), id))
+    }
+
+    fn remove_listener(&self, id: u64) {
+        let mut listeners = self.inner.listeners.lock().unwrap();
+        listeners.remove(&id);
+    }
+
+    fn dispatch_listeners(&self, changed_path: &[String]) -> DatabaseResult<()> {
+        let targets: Vec<(ListenerTarget, ListenerCallback)> = {
+            let listeners = self.inner.listeners.lock().unwrap();
+            listeners
+                .values()
+                .filter(|listener| listener.target.matches(changed_path))
+                .map(|listener| (listener.target.clone(), listener.callback.clone()))
+                .collect()
+        };
+
+        for (target, callback) in targets {
+            let snapshot = self.snapshot_for_target(&target)?;
+            callback(snapshot);
+        }
+        Ok(())
+    }
+
+    fn snapshot_for_target(&self, target: &ListenerTarget) -> DatabaseResult<DataSnapshot> {
+        match target {
+            ListenerTarget::Reference(path) => {
+                let value = self.inner.backend.get(path, &[])?;
+                let reference = self.reference_from_segments(path.clone());
+                Ok(DataSnapshot { reference, value })
+            }
+            ListenerTarget::Query { path, params } => {
+                let rest_params = params.to_rest_params()?;
+                let value = self.inner.backend.get(path, rest_params.as_slice())?;
+                let reference = self.reference_from_segments(path.clone());
+                Ok(DataSnapshot { reference, value })
+            }
+        }
+    }
 }
 
 impl DatabaseReference {
@@ -319,7 +481,9 @@ impl DatabaseReference {
     }
 
     pub fn set(&self, value: Value) -> DatabaseResult<()> {
-        self.database.inner.backend.set(&self.path, value)
+        self.database.inner.backend.set(&self.path, value)?;
+        self.database.dispatch_listeners(&self.path)?;
+        Ok(())
     }
 
     /// Creates a query anchored at this reference, mirroring the JS `query()` helper.
@@ -350,6 +514,19 @@ impl DatabaseReference {
         self.query().order_by_priority()
     }
 
+    /// Registers a value listener for this reference, mirroring `onValue()`.
+    pub fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    where
+        F: Fn(DataSnapshot) + Send + Sync + 'static,
+    {
+        let user_fn: Arc<dyn Fn(DataSnapshot) + Send + Sync> = Arc::new(callback);
+        let listener_cb: ListenerCallback = Arc::new(move |snapshot: DataSnapshot| {
+            user_fn(snapshot);
+        });
+        self.database
+            .register_value_listener(ListenerTarget::Reference(self.path.clone()), listener_cb)
+    }
+
     /// Applies the provided partial updates to the current location using a single
     /// REST `PATCH` call when available.
     ///
@@ -376,7 +553,9 @@ impl DatabaseReference {
             operations.push((segments, value));
         }
 
-        self.database.inner.backend.update(&self.path, operations)
+        self.database.inner.backend.update(&self.path, operations)?;
+        self.database.dispatch_listeners(&self.path)?;
+        Ok(())
     }
 
     pub fn get(&self) -> DatabaseResult<Value> {
@@ -385,7 +564,15 @@ impl DatabaseReference {
 
     /// Deletes the value at this location using the backend's `DELETE` support.
     pub fn remove(&self) -> DatabaseResult<()> {
-        self.database.inner.backend.delete(&self.path)
+        self.database.inner.backend.delete(&self.path)?;
+        self.database.dispatch_listeners(&self.path)?;
+        Ok(())
+    }
+
+    /// Returns the last path segment (the key) for this reference, mirroring
+    /// `ref.key` in the JS SDK.
+    pub fn key(&self) -> Option<&str> {
+        self.path.last().map(|segment| segment.as_str())
     }
 
     pub fn path(&self) -> String {
@@ -554,6 +741,24 @@ impl DatabaseQuery {
             .backend
             .get(&self.reference.path, params.as_slice())
     }
+
+    /// Registers a value listener for this query, mirroring `onValue(query, cb)`.
+    pub fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    where
+        F: Fn(DataSnapshot) + Send + Sync + 'static,
+    {
+        let user_fn: Arc<dyn Fn(DataSnapshot) + Send + Sync> = Arc::new(callback);
+        let listener_cb: ListenerCallback = Arc::new(move |snapshot: DataSnapshot| {
+            user_fn(snapshot);
+        });
+        self.reference.database.register_value_listener(
+            ListenerTarget::Query {
+                path: self.reference.path.clone(),
+                params: self.params.clone(),
+            },
+            listener_cb,
+        )
+    }
 }
 
 fn normalize_path(path: &str) -> DatabaseResult<Vec<String>> {
@@ -586,6 +791,20 @@ fn validate_order_by_child_target(path: &str) -> DatabaseResult<()> {
         )),
         _ => Ok(()),
     }
+}
+
+fn paths_related(a: &[String], b: &[String]) -> bool {
+    is_prefix(a, b) || is_prefix(b, a)
+}
+
+fn is_prefix(prefix: &[String], path: &[String]) -> bool {
+    if prefix.len() > path.len() {
+        return false;
+    }
+    prefix
+        .iter()
+        .zip(path.iter())
+        .all(|(left, right)| left == right)
 }
 
 static DATABASE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
@@ -648,12 +867,13 @@ mod tests {
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::database::{
-        equal_to_with_key, limit_to_first, order_by_child, order_by_key, query as compose_query,
-        start_at,
+        equal_to_with_key, limit_to_first, limit_to_last, order_by_child, order_by_key,
+        query as compose_query, start_at,
     };
     use httpmock::prelude::*;
     use httpmock::Method::{DELETE, GET, PATCH, PUT};
-    use serde_json::json;
+    use serde_json::{json, Value};
+    use std::sync::{Arc, Mutex};
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -956,5 +1176,105 @@ mod tests {
             compose_query(reference, vec![order_by_key(), order_by_child("score")]).unwrap_err();
 
         assert_eq!(err.code_str(), "database/invalid-argument");
+    }
+
+    #[test]
+    fn on_value_listener_receives_updates() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let reference = database.reference("counters/main").unwrap();
+
+        let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let captured = events.clone();
+
+        let registration = reference
+            .on_value(move |snapshot| {
+                captured.lock().unwrap().push(snapshot.value().clone());
+            })
+            .expect("on_value registration");
+
+        reference.set(json!(1)).unwrap();
+        reference.set(json!(2)).unwrap();
+
+        {
+            let events = events.lock().unwrap();
+            assert_eq!(events.len(), 3);
+            assert_eq!(events[0], Value::Null);
+            assert_eq!(events[1], json!(1));
+            assert_eq!(events[2], json!(2));
+        }
+
+        registration.detach();
+        reference.set(json!(3)).unwrap();
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 3);
+    }
+
+    #[test]
+    fn query_on_value_reacts_to_changes() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let scores = database.reference("scores").unwrap();
+
+        scores
+            .set(json!({
+                "a": { "score": 10 },
+                "b": { "score": 20 },
+                "c": { "score": 30 }
+            }))
+            .unwrap();
+
+        let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let captured = events.clone();
+
+        let _registration = compose_query(
+            scores.clone(),
+            vec![order_by_child("score"), limit_to_last(1)],
+        )
+        .unwrap()
+        .on_value(move |snapshot| {
+            captured.lock().unwrap().push(snapshot.value().clone());
+        })
+        .unwrap();
+
+        {
+            let events = events.lock().unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(
+                events[0],
+                json!({
+                    "a": { "score": 10 },
+                    "b": { "score": 20 },
+                    "c": { "score": 30 }
+                })
+            );
+        }
+
+        scores
+            .child("d")
+            .unwrap()
+            .set(json!({ "score": 50 }))
+            .unwrap();
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[1],
+            json!({
+                "a": { "score": 10 },
+                "b": { "score": 20 },
+                "c": { "score": 30 },
+                "d": { "score": 50 }
+            })
+        );
     }
 }
