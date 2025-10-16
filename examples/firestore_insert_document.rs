@@ -5,8 +5,7 @@ use firebase_rs_sdk_unofficial::app_check::api::{
 };
 use firebase_rs_sdk_unofficial::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
 use firebase_rs_sdk_unofficial::auth::api::auth_for_app;
-use firebase_rs_sdk_unofficial::firestore::api::{get_firestore, FirestoreClient};
-use firebase_rs_sdk_unofficial::firestore::value::FirestoreValue;
+use firebase_rs_sdk_unofficial::firestore::*;
 use std::collections::BTreeMap;
 use std::time::Duration;
 

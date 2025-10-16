@@ -41,8 +41,7 @@
 //! use firebase_rs_sdk_unofficial::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
 //! use firebase_rs_sdk_unofficial::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
 //! use firebase_rs_sdk_unofficial::auth::api::auth_for_app;
-//! use firebase_rs_sdk_unofficial::firestore::api::{get_firestore, FirestoreClient};
-//! use firebase_rs_sdk_unofficial::firestore::value::FirestoreValue;
+//! use firebase_rs_sdk_unofficial::firestore::*;
 //! use std::collections::BTreeMap;
 //! use std::time::Duration;
 //!
@@ -94,10 +93,7 @@
 //!
 //! ```rust,no_run
 //! use firebase_rs_sdk_unofficial::app::FirebaseApp;
-//! use firebase_rs_sdk_unofficial::firestore::api::{Firestore, FirestoreDataConverter};
-//! use firebase_rs_sdk_unofficial::firestore::FirestoreClient;
-//! use firebase_rs_sdk_unofficial::firestore::error::FirestoreResult;
-//! use firebase_rs_sdk_unofficial::firestore::value::{FirestoreValue, MapValue};
+//! use firebase_rs_sdk_unofficial::firestore::*;
 //! use std::collections::BTreeMap;
 //!
 //! #[derive(Clone)]
@@ -142,8 +138,14 @@ pub mod model;
 pub mod remote;
 pub mod value;
 
+#[doc(inline)]
 pub use api::{
     get_firestore, register_firestore_component, CollectionReference, DocumentReference, Firestore,
-    FirestoreClient,
+    FirestoreClient, FirestoreDataConverter,
 };
+
+#[doc(inline)]
+pub use value::{ArrayValue, BytesValue, FirestoreValue, MapValue, ValueKind};
+
+#[doc(inline)]
 pub use error::{FirestoreError, FirestoreErrorCode, FirestoreResult};

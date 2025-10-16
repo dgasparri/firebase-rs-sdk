@@ -3,9 +3,7 @@ use std::error::Error;
 
 use firebase_rs_sdk_unofficial::app::api::initialize_app;
 use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::firestore::api::{get_firestore, Firestore, FirestoreClient};
-use firebase_rs_sdk_unofficial::firestore::error::FirestoreResult;
-use firebase_rs_sdk_unofficial::firestore::value::{FirestoreValue, ValueKind};
+use firebase_rs_sdk_unofficial::firestore::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // TODO: Replace these placeholder options with the values from your Firebase project.

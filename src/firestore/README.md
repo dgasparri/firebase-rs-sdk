@@ -41,8 +41,7 @@ use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk_unofficial::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
 use firebase_rs_sdk_unofficial::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
 use firebase_rs_sdk_unofficial::auth::api::auth_for_app;
-use firebase_rs_sdk_unofficial::firestore::api::{get_firestore, FirestoreClient};
-use firebase_rs_sdk_unofficial::firestore::value::FirestoreValue;
+use firebase_rs_sdk_unofficial::firestore::*;
 use std::collections::BTreeMap;
 use std::time::Duration;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -89,9 +88,7 @@ If App Check is not enabled for your app, pass `None` as the third argument to
 ```rust
 use firebase_rs_sdk_unofficial::app::FirebaseApp;
 use firebase_rs_sdk_unofficial::firestore::api::{Firestore, FirestoreDataConverter};
-use firebase_rs_sdk_unofficial::firestore::FirestoreClient;
-use firebase_rs_sdk_unofficial::firestore::error::FirestoreResult;
-use firebase_rs_sdk_unofficial::firestore::value::{FirestoreValue, MapValue};
+use firebase_rs_sdk_unofficial::firestore::*;
 use std::collections::BTreeMap;
 #[derive(Clone)]
 struct MyUser {
