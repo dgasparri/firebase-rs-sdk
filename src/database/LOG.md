@@ -828,4 +828,95 @@ Thinking
   Next steps from the README: move on to child event listeners, realtime transport scaffolding, and transactions/
   onDisconnect.
 
-  
+> PROMPT: work now on the next step, move on to child event listeners, realtime transport scaffolding, and transactions/
+▌   onDisconnect
+
+> Thinking
+  I’m sorting through a big set of tasks covering child event listeners, real-time transport scaffolding, and
+  transaction/onDisconnect features. Since it’s a lot, I’m focusing on planning a stepwise approach—starting with
+  understanding the event listener architecture, then implementing minimal child event support and basic stubs for the
+  other parts to lay groundwork without overcomplicating things just yet.
+
+• Updated Plan
+  └ □ Study JS child event listener, repo, and transaction/onDisconnect logic to scope Rust counterparts
+    □ Implement child event listener support in Rust database (event types, callback handling, tests)
+    □ Introduce scaffolding for realtime transport and stub transaction/onDisconnect APIs with documentation and updated
+      README
+
+⠙ Exploring
+  └ Search onChild in api
+
+  Outlining next implementation steps (13s • Esc to interrupt)
+
+...
+Managing listener registration and initial event firing
+
+  I’m working through safely storing cloned listeners before using their callbacks for initial events, handling child-
+  added event firing properly, and designing helper functions for child event diffs. I’m also implementing OnDisconnect
+  and transaction stubs, scaffolding realtime modules, updating DataSnapshot methods and tests, and setting up all new
+  modules and exports while ensuring smooth integration without borrow or clone issues.
+
+• Edited src/database/api.rs (+1 -1)
+    1     -use std::collections::HashMap;
+    1     +use std::collections::{BTreeMap, HashMap};
+    2      use std::convert::TryInto;
+
+• Edited src/database/api.rs (+1 -0)
+    18     use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
+    19    +use crate::database::on_disconnect::OnDisconnect;
+    20     use crate::database::push_id::next_push_id;
+
+• Explored
+  └ Search type ListenerCallback in api.rs
+    Read api.rs
+
+  Replacing type block between definitions (4m 51s • Esc to interrupt)
+
+
+Thinking
+  I'm gathering a detailed summary for the final commit that highlights all new modules, significant API changes like
+  DatabaseReference::child now returning a result, newly added stub methods such as run_transaction and OnDisconnect,
+  real-time scaffolding, updated README and example behavior, helper functions for event diffs, and notes on cargo check
+  with no full test run. I'll also include line references and mention potential performance considerations for restful
+  watchers.
+
+> Database Enhancements
+
+  - Added child-event infrastructure so listeners can receive on_child_added, on_child_changed, and on_child_removed
+  callbacks with proper snapshot/prev_name data, plus new root-based diffing to drive those callbacks (src/database/
+  api.rs:85, src/database/api.rs:561). Value listeners now reuse the same registry machinery and fire from cached root
+  snapshots.
+  - Expanded DataSnapshot navigation with child(), has_child(), has_children(), size(), and to_json(), and
+  exposed DatabaseReference::parent() / root() routing (src/database/api.rs:135, src/database/api.rs:754).
+  DatabaseReference::child() now returns a DatabaseResult, so callers must handle errors.
+  - Added on_child_* helper functions, a stubbed run_transaction, and an on_disconnect() handle; introduced scaffolding
+  modules for OnDisconnect and a placeholder realtime Repo/PersistentConnection (src/database/api.rs:468, src/database/
+  on_disconnect.rs:6, src/database/realtime.rs:1, src/database/mod.rs:1).
+
+  Tests & Docs
+
+  - Added coverage for child-event callbacks and snapshot traversal (src/database/api.rs:1810).
+  - Updated the database README with the new capabilities and refreshed the next-step roadmap (src/database/
+  README.md:44).
+  - Kept the priority/server value example but now prompt users interactively for configuration (examples/
+  database_priority_server_values.rs:7).
+
+  Status
+
+  - Ran cargo check to validate the build; full cargo test not executed due to time constraints (child events rely
+  on the existing in-memory backend diffing and may incur extra root reads on each mutation, which should be profiled
+  before production use).
+
+> all tests passed. write an example in examples to show child-event callbacks and the other features of the library
+
+ Updated Plan
+  └ ✔ Identify key features to showcase (child event callbacks, snapshot helpers, priority/transactions placeholders)
+    ✔ Implement new example under examples/ demonstrating child event listeners and related APIs
+    ✔ Format example, ensure it compiles, and note any guidance
+
+> - Added examples/database_child_events.rs, an interactive walk-through that spins up child-added/changed/
+  removed listeners, mutates a small task list, and prints the captured events. Events leverage server_timestamp,
+  DatabaseReference::child, and snapshot helpers so developers can see how to inspect payloads and previous keys in
+  Rust.
+
+

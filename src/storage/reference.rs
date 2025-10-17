@@ -180,9 +180,9 @@ impl StorageReference {
     /// # Examples
     ///
     /// ```no_run
-    /// # use firebase_rs_sdk_unofficial::app::api::initialize_app;
-    /// # use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
+    /// # use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
     /// # use firebase_rs_sdk_unofficial::storage::get_storage_for_app;
+    /// 
     /// let options = FirebaseOptions {
     ///     storage_bucket: Some("my-bucket".into()),
     ///     ..Default::default()

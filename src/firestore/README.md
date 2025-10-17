@@ -27,13 +27,13 @@ It includes error handling, configuration options, and integration with Firebase
 ## Development status as of 14th October 2025
 
 - Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore) for details)
-- Tests: 31 tests (passed)
+- Testing: 31 tests (passed)
 - Documentation: Most public functions are documented
-- Examples: None provided
+- Examples: 3 examples
 
 DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that it has no bugs or that it will work as intended.
 
-## Example Usage
+## Quick Start Example
 
 ```rust
 use firebase_rs_sdk_unofficial::app::*;
@@ -194,7 +194,7 @@ majority of the Firestore feature set.
    - Plan emulator-backed integration tests once REST/gRPC networking is wired; gate them behind cargo features to avoid
      CI flakiness.
 
-## Immediate Porting Focus
+### Immediate Porting Focus
 
 | Priority | JS source | Target Rust module | Scope | Key dependencies |
 |----------|-----------|--------------------|-------|------------------|

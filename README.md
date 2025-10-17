@@ -27,6 +27,7 @@ Stable/fully ported (vast majority of features and tests ported, API calls are d
 - [app](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app)
 - [auth](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth)
 - [auth_check](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth_check)
+- [database](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/database)
 - [firestore](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore)
 - [storage](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/storage)
 
@@ -36,9 +37,8 @@ Minimal porting (some basic features and tests are ported, some API call documen
 - [analytics](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/analytics)
 - [app_check](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app_check)
 - [data-connect](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/data_connect)
-- [database](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/database)
 - [functions](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/functions)
-- [intallations](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/installations)
+- [installations](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/installations)
 - [messaging](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/messaging)
 - [performance](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/performance)
 - [remote-config](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/remote_config)
@@ -93,11 +93,8 @@ Here is the Rust version with the ported Rust SDK:
 use std::collections::BTreeMap;
 use std::error::Error;
 
-use firebase_rs_sdk_unofficial::app::api::initialize_app;
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::firestore::api::{get_firestore, Firestore, FirestoreClient};
-use firebase_rs_sdk_unofficial::firestore::error::FirestoreResult;
-use firebase_rs_sdk_unofficial::firestore::value::{FirestoreValue, ValueKind};
+use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk_unofficial::firestore::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let firebase_config = FirebaseOptions {
