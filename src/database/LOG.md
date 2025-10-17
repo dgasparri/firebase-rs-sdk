@@ -744,3 +744,88 @@ Updated Plan
   database_priority_server_values.rs:1.
 
 
+- Updated the priority/server-value example to prompt at runtime for the project ID, database URL, task title,
+  priority values, and increment delta, making it usable with either an emulator or production backend (examples/
+  database_priority_server_values.rs:7).
+  - Added a small helper to read stdin with defaults, keeping the flow interactive while still demonstrating
+  set_with_priority, set_priority, server_timestamp, and increment.
+
+  Tests: not rerun (example-only change).
+
+> PROMPT: ▌ I see from the README that the next step for the database module is "1. **Expand snapshot/reference surface** –
+▌ Implement `DatabaseReference::parent/root` and `DataSnapshot::{child,has_child,has_children,size,to_json}` following
+▌ `Reference_impl.ts` lines 250-420, adjusting tests to cover traversal and key lookups." Can you explain what
+▌ DatabaseReference:parent/root and DataSnapshot are?
+
+> Sure—those names come straight from the JavaScript SDK, and the port is aiming to give the same surface.
+
+  DatabaseReference::parent / root
+  A DatabaseReference represents a specific location (path) in the Realtime Database. In JS you can walk the tree
+  upward:
+
+  - ref.parent returns another DatabaseReference that points to the immediate parent path (or null if you’re already at
+  the root).
+  - ref.root gives you the top-level reference for the database instance, no matter where you started.
+
+  Porting those to Rust means adding methods on DatabaseReference so you can navigate from, say, /users/alice/profile
+  back up to /users/alice or straight to /.
+
+  DataSnapshot
+  When you read data—either via get() or via listeners—the SDK hands you a DataSnapshot. It’s an immutable view of the
+  data at that location, with helpers for inspection:
+
+  - snapshot.child("path") drills into a child path and returns another DataSnapshot.
+  - snapshot.has_child("path") / snapshot.has_children() let you check whether data exists.
+  - snapshot.size gives the number of direct children (JS returns an integer; in Rust we’d mirror that).
+  - snapshot.to_json() (or val() in JS) serializes the payload so you can consume it easily.
+
+  Implementing those in Rust will let users traverse and inspect snapshots the same way they would in the JS SDK, which
+  is what that README task is calling for.
+
+ > PROMPT: Ok, let's implement them
+
+• Updated Plan
+  └ □ Review TypeScript Reference_impl and DataSnapshot to understand required behaviours
+    □ Implement DatabaseReference::parent/root and DataSnapshot helpers in Rust
+    □ Add tests/examples and update README after running fmt/tests
+
+• Explored
+  └ Search class ReferenceImpl in Reference_impl.ts
+    Read Reference_impl.ts
+
+Thinking
+  I’m creating a helper function get_value_at_path to safely traverse nested JSON-like data by a sequence of keys or
+  indices, returning an owned Option<Value>. This handles both objects and arrays, uses recursion, and fits near other
+  helpers. I’ll update relevant calls to use this helper and ensure empty path cases behave consistently with snapshot
+  semantics.
+
+ Thinking
+  I'm carefully verifying that accessing children with empty paths won't cause panics by ensuring base cases return
+  early before unsafe calls like split_first(). It looks solid since empty segments lead to returning current
+  references. I'm also double-checking that new helpers like get_value_at_path and reexports are properly integrated.
+  I'll note that targeted tests were attempted but didn't run due to timeouts, and I'll document these points in the
+  final message.
+
+> Database Updates
+
+  - Added hierarchical navigation helpers: DatabaseReference::parent() and DatabaseReference::root() now mirror the JS
+  SDK API, making it easy to walk up to ancestors or the database root (src/database/api.rs:520).
+  - Expanded DataSnapshot with child(), has_child(), has_children(), size(), and to_json() so snapshots can be traversed
+  and inspected just like their TypeScript counterparts (src/database/api.rs:136). Internal helpers resolve snapshot
+  paths against the stored JSON while respecting priority metadata (src/database/api.rs:1107).
+  - Extended coverage with new unit tests that exercise parent/root navigation and the snapshot helpers (src/database/
+  api.rs:1490). Updated the database README to record the newly implemented surface and advance the roadmap (src/
+  database/README.md:45).
+
+  Example
+
+  - Updated examples/database_priority_server_values.rs to prompt interactively for project ID, database URL, task
+  details, and numeric parameters before demonstrating priority writes and server values.
+
+  Tests were not rerun here—the targeted cargo test database::api::tests::reference_parent_and_root build exceeded the
+  sandbox timeout. Please execute the full cargo test locally to confirm.
+
+  Next steps from the README: move on to child event listeners, realtime transport scaffolding, and transactions/
+  onDisconnect.
+
+  

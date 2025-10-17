@@ -139,6 +139,51 @@ impl DataSnapshot {
     pub fn into_value(self) -> Value {
         self.value
     }
+
+    /// Returns a snapshot for the provided relative path, mirroring
+    /// `DataSnapshot.child(path)` in `Reference_impl.ts`.
+    pub fn child(&self, relative_path: &str) -> DatabaseResult<DataSnapshot> {
+        let segments = normalize_path(relative_path)?;
+        let child_reference = self.reference.child(relative_path)?;
+        let value = get_value_at_path(&self.value, &segments).unwrap_or(Value::Null);
+        Ok(DataSnapshot {
+            reference: child_reference,
+            value,
+        })
+    }
+
+    /// Returns whether data exists at the provided child path, mirroring the JS
+    /// `DataSnapshot.hasChild()` helper.
+    pub fn has_child(&self, relative_path: &str) -> DatabaseResult<bool> {
+        let segments = normalize_path(relative_path)?;
+        Ok(get_value_at_path(&self.value, &segments)
+            .map(|value| !value.is_null())
+            .unwrap_or(false))
+    }
+
+    /// Returns whether the snapshot has any direct child properties, mirroring
+    /// `DataSnapshot.hasChildren()`.
+    pub fn has_children(&self) -> bool {
+        match extract_data_ref(&self.value) {
+            Value::Object(map) => !map.is_empty(),
+            Value::Array(array) => !array.is_empty(),
+            _ => false,
+        }
+    }
+
+    /// Returns the number of direct child properties, mirroring the JS `size` getter.
+    pub fn size(&self) -> usize {
+        match extract_data_ref(&self.value) {
+            Value::Object(map) => map.len(),
+            Value::Array(array) => array.len(),
+            _ => 0,
+        }
+    }
+
+    /// Returns the JSON representation (including priority metadata) of this snapshot.
+    pub fn to_json(&self) -> Value {
+        self.value.clone()
+    }
 }
 
 /// RAII-style listener registration; dropping the handle detaches the
@@ -526,6 +571,28 @@ impl DatabaseReference {
             database: self.database.clone(),
             path: segments,
         })
+    }
+
+    /// Returns the parent of this reference, mirroring `ref.parent` in the JS SDK.
+    pub fn parent(&self) -> Option<DatabaseReference> {
+        if self.path.is_empty() {
+            None
+        } else {
+            let mut parent = self.path.clone();
+            parent.pop();
+            Some(DatabaseReference {
+                database: self.database.clone(),
+                path: parent,
+            })
+        }
+    }
+
+    /// Returns the root of the database, mirroring `ref.root` in the JS SDK.
+    pub fn root(&self) -> DatabaseReference {
+        DatabaseReference {
+            database: self.database.clone(),
+            path: Vec::new(),
+        }
     }
 
     pub fn set(&self, value: Value) -> DatabaseResult<()> {
@@ -1050,6 +1117,28 @@ fn resolve_server_placeholder(spec: Value, current: Option<&Value>) -> DatabaseR
     }
 }
 
+fn get_value_at_path(root: &Value, segments: &[String]) -> Option<Value> {
+    fn traverse<'a>(current: &'a Value, segments: &[String]) -> Option<&'a Value> {
+        if segments.is_empty() {
+            return Some(current);
+        }
+
+        let data = extract_data_ref(current);
+        let (first, rest) = segments.split_first().unwrap();
+
+        match data {
+            Value::Object(map) => map.get(first).and_then(|child| traverse(child, rest)),
+            Value::Array(array) => {
+                let index = first.parse::<usize>().ok()?;
+                array.get(index).and_then(|child| traverse(child, rest))
+            }
+            _ => None,
+        }
+    }
+
+    traverse(root, segments).map(Value::clone)
+}
+
 fn current_time_millis() -> DatabaseResult<u64> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1372,6 +1461,73 @@ mod tests {
         assert_eq!(value, json!({ "greeting": "hello" }));
         set_mock.assert();
         get_mock.assert();
+    }
+
+    #[test]
+    fn reference_parent_and_root() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+
+        let nested = database.reference("users/alice/profile").unwrap();
+        let parent = nested.parent().expect("parent reference");
+        assert_eq!(parent.path(), "/users/alice/");
+        assert_eq!(parent.parent().unwrap().path(), "/users/");
+
+        let root = nested.root();
+        assert_eq!(root.path(), "/");
+        assert!(root.parent().is_none());
+    }
+
+    #[test]
+    fn datasnapshot_child_and_metadata_helpers() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let profiles = database.reference("profiles").unwrap();
+
+        profiles
+            .set(json!({
+                "alice": { "age": 31, "city": "Rome" },
+                "bob": { "age": 29 }
+            }))
+            .unwrap();
+
+        let captured = Arc::new(Mutex::new(None));
+        let holder = captured.clone();
+        profiles
+            .on_value(move |snapshot| {
+                *holder.lock().unwrap() = Some(snapshot);
+            })
+            .unwrap();
+
+        let snapshot = captured.lock().unwrap().clone().expect("initial snapshot");
+        assert!(snapshot.exists());
+        assert!(snapshot.has_children());
+        assert_eq!(snapshot.size(), 2);
+
+        let alice = snapshot.child("alice").unwrap();
+        assert_eq!(alice.key(), Some("alice"));
+        assert_eq!(alice.size(), 2);
+        assert!(alice.has_children());
+        assert_eq!(alice.child("age").unwrap().value(), &json!(31));
+        assert!(snapshot.has_child("bob").unwrap());
+        assert!(!snapshot.has_child("carol").unwrap());
+
+        let json_output = snapshot.to_json();
+        assert_eq!(
+            json_output,
+            json!({
+                "alice": { "age": 31, "city": "Rome" },
+                "bob": { "age": 29 }
+            })
+        );
     }
 
     #[test]
