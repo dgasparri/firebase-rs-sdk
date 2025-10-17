@@ -20,8 +20,6 @@ fn main() -> DatabaseResult<()> {
         "Realtime Database URL (emulator or prod endpoint)",
         "http://127.0.0.1:9000/?ns=priority-demo",
     );
-    //Target format: http://127.0.0.1:9000/?ns=priority-demo
-    let database_url = format!("{database_url}/?ns={project_id}");
     let task_title = prompt_with_default("Task title", "Refill coffee beans");
     let priority_value = prompt_with_default("Initial priority (number)", "10")
         .parse::<f64>()

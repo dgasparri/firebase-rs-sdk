@@ -46,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Auto-ID child creation via `DatabaseReference::push()` / `push_with_value()` and the modular `push()` helper, mirroring the JS SDK's append semantics.
 - Priority-aware writes through `DatabaseReference::set_with_priority()` / `set_priority()` (and modular helpers), persisting `.value`/`.priority` metadata compatible with REST `format=export`.
 - Server value helpers (`server_timestamp`, `increment`) with local resolution for timestamp and atomic increment placeholders across `set`/`update`.
+- Child event listeners (`on_child_added`, `on_child_changed`, `on_child_removed`) with in-memory diffing and snapshot traversal utilities for callback parity with the JS SDK.
 - Hierarchical navigation APIs (`DatabaseReference::parent/root`) and snapshot helpers (`child`, `has_child`, `has_children`, `size`, `to_json`) that mirror the JS `DataSnapshot` traversal utilities.
 - Query builder helpers (`query`, `order_by_*`, `start_*`, `end_*`, `limit_*`, `equal_to*`) with `DatabaseQuery::get()` and REST parameter serialisation.
 - `on_value` listeners for references and queries that deliver an initial snapshot and replay callbacks after local writes, returning `ListenerRegistration` handles for manual detach.
@@ -53,13 +54,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Unit tests covering in-memory semantics, validation edge cases, and REST request wiring through `httpmock`.
 
 ## Still to do
-- Rich `DataSnapshot` and `DatabaseReference` APIs (child iteration, `has_child`, `size`, `parent`, `root`, `is_equal`, `to_string`, JSON export) to match `Reference_impl.ts`.
 - Real-time transports (`Repo`, `PersistentConnection`, `WebSocketConnection`, `BrowserPollConnection`) so `onValue`/child events react to remote changes.
-- Child event registrations (`on_child_added/changed/moved/removed`) and query cancellation semantics currently implemented in `QueryImpl` & `SyncTree.ts`.
-- Transactions (`runTransaction`), `OnDisconnect`, server timestamps, and offline queue handling from `Transaction.ts` and `OnDisconnect.ts`.
+- Child event parity: `on_child_moved`, query-level child listeners, and server-ordered `prev_name` semantics from `core/SyncTree.ts`.
+- Transactions (`runTransaction`) and `OnDisconnect` execution, including offline queue handling and server timestamp resolution (`Transaction.ts`, `OnDisconnect.ts`).
 - Operational controls such as `connectDatabaseEmulator`, `goOnline/goOffline`, and logging toggles from `Database.ts`, plus emulator-focused integration tests.
 
 ## Next Steps - Detailed Completion Plan
-1. **Introduce child event listeners** – Extend the listener registry to track event types, surface `on_child_added/changed/moved/removed`, and mirror the ordering logic from `core/SyncTree.ts`; seed with in-memory coverage while stubbing remote hooks.
-2. **Realtime transport scaffolding** – Create `Repo` and `PersistentConnection` skeletons inspired by `core/Repo.ts` and `core/PersistentConnection.ts`, routing local writes through the queue and preparing a WebSocket transport behind a feature flag.
-3. **Transactions and OnDisconnect** – Port `runTransaction` and `OnDisconnect` support from `Transaction.ts` / `OnDisconnect.ts`, covering optimistic concurrency, abort semantics, and unit/integration tests with server values.
+1. **Child listener parity** – Port the remaining event registrations (`onChildMoved`, query listeners, cancellation hooks) from `Reference_impl.ts` and `SyncTree.ts`, reusing the new diffing infrastructure.
+2. **Realtime transport scaffolding** – Flesh out the new `realtime::Repo` and `PersistentConnection` stubs with channel management, auth handshake, and WebSocket/long-poll adapters inspired by the JS SDK.
+3. **Transactions and OnDisconnect** – Replace the temporary stubs with full implementations that queue writes locally, honour abort semantics, and execute deferred mutations when the transport reconnects.

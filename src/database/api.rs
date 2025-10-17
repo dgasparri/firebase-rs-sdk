@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,6 +16,7 @@ use crate::component::{Component, ComponentType};
 use crate::database::backend::{select_backend, DatabaseBackend};
 use crate::database::constants::DATABASE_COMPONENT_NAME;
 use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
+use crate::database::on_disconnect::OnDisconnect;
 use crate::database::push_id::next_push_id;
 use crate::database::query::{QueryBound, QueryIndex, QueryLimit, QueryParams};
 
@@ -85,12 +86,29 @@ enum QueryConstraintKind {
     },
 }
 
-type ListenerCallback = Arc<dyn Fn(DataSnapshot) + Send + Sync>;
+type ValueListenerCallback = Arc<dyn Fn(DataSnapshot) + Send + Sync>;
+type ChildListenerCallback = Arc<dyn Fn(DataSnapshot, Option<String>) + Send + Sync>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChildEventType {
+    Added,
+    Changed,
+    Removed,
+}
+
+#[derive(Clone)]
+enum ListenerKind {
+    Value(ValueListenerCallback),
+    Child {
+        event: ChildEventType,
+        callback: ChildListenerCallback,
+    },
+}
 
 #[derive(Clone)]
 struct Listener {
     target: ListenerTarget,
-    callback: ListenerCallback,
+    kind: ListenerKind,
 }
 
 #[derive(Clone)]
@@ -445,6 +463,47 @@ where
     reference.push_with_value(value)
 }
 
+/// Registers a `child_added` listener for the provided reference.
+pub fn on_child_added<F>(
+    reference: &DatabaseReference,
+    callback: F,
+) -> DatabaseResult<ListenerRegistration>
+where
+    F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+{
+    reference.on_child_added(callback)
+}
+
+/// Registers a `child_changed` listener for the provided reference.
+pub fn on_child_changed<F>(
+    reference: &DatabaseReference,
+    callback: F,
+) -> DatabaseResult<ListenerRegistration>
+where
+    F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+{
+    reference.on_child_changed(callback)
+}
+
+/// Registers a `child_removed` listener for the provided reference.
+pub fn on_child_removed<F>(
+    reference: &DatabaseReference,
+    callback: F,
+) -> DatabaseResult<ListenerRegistration>
+where
+    F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+{
+    reference.on_child_removed(callback)
+}
+
+/// Runs a transaction at the provided reference (currently unimplemented).
+pub fn run_transaction<F>(reference: &DatabaseReference, update: F) -> DatabaseResult<()>
+where
+    F: Fn(Value) -> Value + Send + Sync + 'static,
+{
+    reference.run_transaction(update)
+}
+
 /// Writes a value together with a priority, mirroring the modular `setWithPriority()` helper
 /// (`packages/database/src/api/Reference_impl.ts`).
 pub fn set_with_priority<V, P>(
@@ -499,10 +558,10 @@ impl Database {
         }
     }
 
-    fn register_value_listener(
+    fn register_listener(
         &self,
         target: ListenerTarget,
-        callback: ListenerCallback,
+        kind: ListenerKind,
     ) -> DatabaseResult<ListenerRegistration> {
         let id = self.inner.next_listener_id.fetch_add(1, Ordering::SeqCst);
 
@@ -512,14 +571,32 @@ impl Database {
                 id,
                 Listener {
                     target: target.clone(),
-                    callback: callback.clone(),
+                    kind: kind.clone(),
                 },
             );
         }
 
-        // Fire an initial snapshot immediately to mirror JS semantics.
-        let snapshot = self.snapshot_for_target(&target)?;
-        callback(snapshot);
+        let current_root = match self.root_snapshot() {
+            Ok(root) => root,
+            Err(err) => {
+                self.remove_listener(id);
+                return Err(err);
+            }
+        };
+        match kind {
+            ListenerKind::Value(callback) => {
+                let snapshot = self.snapshot_from_root(&target, &current_root)?;
+                callback(snapshot);
+            }
+            ListenerKind::Child { event, callback } => {
+                if let Err(err) =
+                    self.fire_initial_child_events(&target, event, &callback, &current_root)
+                {
+                    self.remove_listener(id);
+                    return Err(err);
+                }
+            }
+        }
 
         Ok(ListenerRegistration::new(self.clone(), id))
     }
@@ -529,21 +606,151 @@ impl Database {
         listeners.remove(&id);
     }
 
-    fn dispatch_listeners(&self, changed_path: &[String]) -> DatabaseResult<()> {
-        let targets: Vec<(ListenerTarget, ListenerCallback)> = {
+    fn dispatch_listeners(
+        &self,
+        changed_path: &[String],
+        old_root: &Value,
+        new_root: &Value,
+    ) -> DatabaseResult<()> {
+        let listeners: Vec<Listener> = {
             let listeners = self.inner.listeners.lock().unwrap();
             listeners
                 .values()
                 .filter(|listener| listener.target.matches(changed_path))
-                .map(|listener| (listener.target.clone(), listener.callback.clone()))
+                .cloned()
                 .collect()
         };
 
-        for (target, callback) in targets {
-            let snapshot = self.snapshot_for_target(&target)?;
-            callback(snapshot);
+        for listener in listeners {
+            match &listener.kind {
+                ListenerKind::Value(callback) => {
+                    let snapshot = self.snapshot_from_root(&listener.target, new_root)?;
+                    callback(snapshot);
+                }
+                ListenerKind::Child { event, callback } => {
+                    self.invoke_child_listener(&listener, *event, callback, old_root, new_root)?;
+                }
+            }
         }
         Ok(())
+    }
+
+    fn root_snapshot(&self) -> DatabaseResult<Value> {
+        self.inner.backend.get(&[], &[])
+    }
+
+    fn snapshot_from_root(
+        &self,
+        target: &ListenerTarget,
+        root: &Value,
+    ) -> DatabaseResult<DataSnapshot> {
+        match target {
+            ListenerTarget::Reference(path) => {
+                let value = value_at_path(root, path);
+                let reference = self.reference_from_segments(path.clone());
+                Ok(DataSnapshot { reference, value })
+            }
+            ListenerTarget::Query { .. } => self.snapshot_for_target(target),
+        }
+    }
+
+    fn fire_initial_child_events(
+        &self,
+        target: &ListenerTarget,
+        event: ChildEventType,
+        callback: &ChildListenerCallback,
+        root: &Value,
+    ) -> DatabaseResult<()> {
+        if event != ChildEventType::Added {
+            return Ok(());
+        }
+
+        if let ListenerTarget::Reference(path) = target {
+            let new_value = value_at_path(root, path);
+            let empty = Value::Null;
+            self.emit_child_events(path, event, callback, &empty, &new_value)?;
+        }
+        Ok(())
+    }
+
+    fn invoke_child_listener(
+        &self,
+        listener: &Listener,
+        event: ChildEventType,
+        callback: &ChildListenerCallback,
+        old_root: &Value,
+        new_root: &Value,
+    ) -> DatabaseResult<()> {
+        let ListenerTarget::Reference(path) = &listener.target else {
+            return Ok(());
+        };
+        let old_value = value_at_path(old_root, path);
+        let new_value = value_at_path(new_root, path);
+        self.emit_child_events(path, event, callback, &old_value, &new_value)
+    }
+
+    fn emit_child_events(
+        &self,
+        parent_path: &[String],
+        event: ChildEventType,
+        callback: &ChildListenerCallback,
+        old_value: &Value,
+        new_value: &Value,
+    ) -> DatabaseResult<()> {
+        let old_children = children_map(old_value);
+        let new_children = children_map(new_value);
+
+        match event {
+            ChildEventType::Added => {
+                let new_keys: Vec<String> = new_children.keys().cloned().collect();
+                for key in new_keys.iter() {
+                    if !old_children.contains_key(key) {
+                        let value = new_children.get(key).cloned().unwrap_or(Value::Null);
+                        let prev_name = previous_key(&new_keys, key);
+                        let snapshot = self.child_snapshot(parent_path, key, value.clone());
+                        callback(snapshot, prev_name);
+                    }
+                }
+            }
+            ChildEventType::Changed => {
+                let new_keys: Vec<String> = new_children.keys().cloned().collect();
+                for key in new_keys.iter() {
+                    if let Some(old_value_child) = old_children.get(key) {
+                        let new_child = new_children.get(key).expect("child exists in map");
+                        if old_value_child != new_child {
+                            let value = new_child.clone();
+                            let prev_name = previous_key(&new_keys, key);
+                            let snapshot = self.child_snapshot(parent_path, key, value);
+                            callback(snapshot, prev_name);
+                        }
+                    }
+                }
+            }
+            ChildEventType::Removed => {
+                let old_keys: Vec<String> = old_children.keys().cloned().collect();
+                for key in old_keys.iter() {
+                    if !new_children.contains_key(key) {
+                        let value = old_children.get(key).cloned().unwrap_or(Value::Null);
+                        let prev_name = previous_key(&old_keys, key);
+                        let snapshot = self.child_snapshot(parent_path, key, value);
+                        callback(snapshot, prev_name);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn child_snapshot(
+        &self,
+        parent_path: &[String],
+        child_key: &str,
+        value: Value,
+    ) -> DataSnapshot {
+        let mut segments = parent_path.to_vec();
+        segments.push(child_key.to_string());
+        let reference = self.reference_from_segments(segments);
+        DataSnapshot { reference, value }
     }
 
     fn snapshot_for_target(&self, target: &ListenerTarget) -> DatabaseResult<DataSnapshot> {
@@ -597,8 +804,11 @@ impl DatabaseReference {
 
     pub fn set(&self, value: Value) -> DatabaseResult<()> {
         let value = self.resolve_value_for_path(&self.path, value)?;
+        let old_root = self.database.root_snapshot()?;
         self.database.inner.backend.set(&self.path, value)?;
-        self.database.dispatch_listeners(&self.path)?;
+        let new_root = self.database.root_snapshot()?;
+        self.database
+            .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
     }
 
@@ -635,12 +845,71 @@ impl DatabaseReference {
     where
         F: Fn(DataSnapshot) + Send + Sync + 'static,
     {
-        let user_fn: Arc<dyn Fn(DataSnapshot) + Send + Sync> = Arc::new(callback);
-        let listener_cb: ListenerCallback = Arc::new(move |snapshot: DataSnapshot| {
-            user_fn(snapshot);
-        });
-        self.database
-            .register_value_listener(ListenerTarget::Reference(self.path.clone()), listener_cb)
+        let user_fn: ValueListenerCallback = Arc::new(callback);
+        self.database.register_listener(
+            ListenerTarget::Reference(self.path.clone()),
+            ListenerKind::Value(user_fn),
+        )
+    }
+
+    /// Registers an `onChildAdded` listener, mirroring the JS SDK.
+    pub fn on_child_added<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    where
+        F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+    {
+        let cb: ChildListenerCallback = Arc::new(callback);
+        self.database.register_listener(
+            ListenerTarget::Reference(self.path.clone()),
+            ListenerKind::Child {
+                event: ChildEventType::Added,
+                callback: cb,
+            },
+        )
+    }
+
+    /// Registers an `onChildChanged` listener, mirroring the JS SDK.
+    pub fn on_child_changed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    where
+        F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+    {
+        let cb: ChildListenerCallback = Arc::new(callback);
+        self.database.register_listener(
+            ListenerTarget::Reference(self.path.clone()),
+            ListenerKind::Child {
+                event: ChildEventType::Changed,
+                callback: cb,
+            },
+        )
+    }
+
+    /// Registers an `onChildRemoved` listener, mirroring the JS SDK.
+    pub fn on_child_removed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    where
+        F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+    {
+        let cb: ChildListenerCallback = Arc::new(callback);
+        self.database.register_listener(
+            ListenerTarget::Reference(self.path.clone()),
+            ListenerKind::Child {
+                event: ChildEventType::Removed,
+                callback: cb,
+            },
+        )
+    }
+
+    /// Returns a handle for configuring operations to run when the client disconnects.
+    pub fn on_disconnect(&self) -> OnDisconnect {
+        OnDisconnect::new(self.clone())
+    }
+
+    /// Placeholder for the transaction API; returns an error until realtime transport exists.
+    pub fn run_transaction<F>(&self, _update: F) -> DatabaseResult<()>
+    where
+        F: Fn(Value) -> Value + Send + Sync + 'static,
+    {
+        Err(internal_error(
+            "Transactions require realtime transport and are not yet implemented",
+        ))
     }
 
     /// Applies the provided partial updates to the current location using a single
@@ -670,8 +939,11 @@ impl DatabaseReference {
             operations.push((segments, resolved));
         }
 
+        let old_root = self.database.root_snapshot()?;
         self.database.inner.backend.update(&self.path, operations)?;
-        self.database.dispatch_listeners(&self.path)?;
+        let new_root = self.database.root_snapshot()?;
+        self.database
+            .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
     }
 
@@ -681,8 +953,11 @@ impl DatabaseReference {
 
     /// Deletes the value at this location using the backend's `DELETE` support.
     pub fn remove(&self) -> DatabaseResult<()> {
+        let old_root = self.database.root_snapshot()?;
         self.database.inner.backend.delete(&self.path)?;
-        self.database.dispatch_listeners(&self.path)?;
+        let new_root = self.database.root_snapshot()?;
+        self.database
+            .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
     }
 
@@ -703,8 +978,11 @@ impl DatabaseReference {
 
         let value = self.resolve_value_for_path(&self.path, value.into())?;
         let payload = pack_with_priority(value, priority);
+        let old_root = self.database.root_snapshot()?;
         self.database.inner.backend.set(&self.path, payload)?;
-        self.database.dispatch_listeners(&self.path)?;
+        let new_root = self.database.root_snapshot()?;
+        self.database
+            .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
     }
 
@@ -719,8 +997,11 @@ impl DatabaseReference {
         let current = self.database.inner.backend.get(&self.path, &[])?;
         let value = extract_data_owned(&current);
         let payload = pack_with_priority(value, priority);
+        let old_root = self.database.root_snapshot()?;
         self.database.inner.backend.set(&self.path, payload)?;
-        self.database.dispatch_listeners(&self.path)?;
+        let new_root = self.database.root_snapshot()?;
+        self.database
+            .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
     }
 
@@ -950,16 +1231,13 @@ impl DatabaseQuery {
     where
         F: Fn(DataSnapshot) + Send + Sync + 'static,
     {
-        let user_fn: Arc<dyn Fn(DataSnapshot) + Send + Sync> = Arc::new(callback);
-        let listener_cb: ListenerCallback = Arc::new(move |snapshot: DataSnapshot| {
-            user_fn(snapshot);
-        });
-        self.reference.database.register_value_listener(
+        let user_fn: ValueListenerCallback = Arc::new(callback);
+        self.reference.database.register_listener(
             ListenerTarget::Query {
                 path: self.reference.path.clone(),
                 params: self.params.clone(),
             },
-            listener_cb,
+            ListenerKind::Value(user_fn),
         )
     }
 }
@@ -1117,7 +1395,47 @@ fn resolve_server_placeholder(spec: Value, current: Option<&Value>) -> DatabaseR
     }
 }
 
+fn value_at_path(root: &Value, path: &[String]) -> Value {
+    if path.is_empty() {
+        return extract_data_ref(root).clone();
+    }
+    get_value_at_path(root, path).unwrap_or(Value::Null)
+}
+
+fn children_map(value: &Value) -> BTreeMap<String, Value> {
+    let mut map = BTreeMap::new();
+    match extract_data_ref(value) {
+        Value::Object(obj) => {
+            for (key, child) in obj.iter() {
+                map.insert(key.clone(), child.clone());
+            }
+        }
+        Value::Array(array) => {
+            for (index, child) in array.iter().enumerate() {
+                map.insert(index.to_string(), child.clone());
+            }
+        }
+        _ => {}
+    }
+    map
+}
+
+fn previous_key(keys: &[String], key: &str) -> Option<String> {
+    let mut previous: Option<String> = None;
+    for current in keys {
+        if current == key {
+            return previous;
+        }
+        previous = Some(current.clone());
+    }
+    None
+}
+
 fn get_value_at_path(root: &Value, segments: &[String]) -> Option<Value> {
+    if segments.is_empty() {
+        return Some(extract_data_ref(root).clone());
+    }
+
     fn traverse<'a>(current: &'a Value, segments: &[String]) -> Option<&'a Value> {
         if segments.is_empty() {
             return Some(current);
@@ -1136,7 +1454,7 @@ fn get_value_at_path(root: &Value, segments: &[String]) -> Option<Value> {
         }
     }
 
-    traverse(root, segments).map(Value::clone)
+    traverse(root, segments).map(|value| extract_data_ref(value).clone())
 }
 
 fn current_time_millis() -> DatabaseResult<u64> {
@@ -1528,6 +1846,56 @@ mod tests {
                 "bob": { "age": 29 }
             })
         );
+    }
+
+    #[test]
+    fn child_event_listeners_receive_updates() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let items = database.reference("items").unwrap();
+
+        items
+            .set(json!({
+                "a": { "count": 1 },
+                "b": { "count": 2 }
+            }))
+            .unwrap();
+
+        let added_events = Arc::new(Mutex::new(Vec::<(String, Option<String>)>::new()));
+        let capture = added_events.clone();
+        let registration = items
+            .on_child_added(move |snapshot, prev| {
+                capture
+                    .lock()
+                    .unwrap()
+                    .push((snapshot.key().unwrap().to_string(), prev.clone()));
+            })
+            .unwrap();
+
+        {
+            let events = added_events.lock().unwrap();
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0].0, "a");
+            assert_eq!(events[1].0, "b");
+        }
+
+        items
+            .child("c")
+            .unwrap()
+            .set(json!({ "count": 3 }))
+            .unwrap();
+
+        {
+            let events = added_events.lock().unwrap();
+            assert_eq!(events.len(), 3);
+            assert_eq!(events[2].0, "c");
+        }
+
+        registration.detach();
     }
 
     #[test]
