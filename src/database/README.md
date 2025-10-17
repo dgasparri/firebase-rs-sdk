@@ -43,13 +43,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Implemented
 - Database component registration via `register_database_component` so `get_database` resolves out of the shared `FirebaseApp` registry.
 - Core reference operations (`reference`, `child`, `set`, `update`, `remove`, `get`) that work against any backend and emit `database/invalid-argument` errors for unsupported paths.
+- Auto-ID child creation via `DatabaseReference::push()` / `push_with_value()` and the modular `push()` helper, mirroring the JS SDK's append semantics.
+- Priority-aware writes through `DatabaseReference::set_with_priority()` / `set_priority()` (and modular helpers), persisting `.value`/`.priority` metadata compatible with REST `format=export`.
+- Server value helpers (`server_timestamp`, `increment`) with local resolution for timestamp and atomic increment placeholders across `set`/`update`.
 - Query builder helpers (`query`, `order_by_*`, `start_*`, `end_*`, `limit_*`, `equal_to*`) with `DatabaseQuery::get()` and REST parameter serialisation.
 - `on_value` listeners for references and queries that deliver an initial snapshot and replay callbacks after local writes, returning `ListenerRegistration` handles for manual detach.
 - Backend selection that defaults to an in-memory store and upgrades to a REST backend (`reqwest` PUT/PATCH/DELETE/GET) including base query propagation plus optional Auth/App Check token injection.
 - Unit tests covering in-memory semantics, validation edge cases, and REST request wiring through `httpmock`.
 
 ## Still to do
-- Auto-ID writes (`push`/`ThenableReference`), priority-aware writes (`set_with_priority`, `set_priority`), and `ServerValue` helpers from `Reference_impl.ts` & `ServerValue.ts`.
 - Rich `DataSnapshot` and `DatabaseReference` APIs (child iteration, `has_child`, `size`, `parent`, `root`, `is_equal`, `to_string`, JSON export) to match `Reference_impl.ts`.
 - Real-time transports (`Repo`, `PersistentConnection`, `WebSocketConnection`, `BrowserPollConnection`) so `onValue`/child events react to remote changes.
 - Child event registrations (`on_child_added/changed/moved/removed`) and query cancellation semantics currently implemented in `QueryImpl` & `SyncTree.ts`.
@@ -57,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Operational controls such as `connectDatabaseEmulator`, `goOnline/goOffline`, and logging toggles from `Database.ts`, plus emulator-focused integration tests.
 
 ## Next Steps - Detailed Completion Plan
-1. **Port `push`/auto-ID writes** – Model `DatabaseReference::push()` after `packages/database/src/api/Reference_impl.ts` using a Rust port of `core/util/NextPushId.ts`, return a `ThenableReference`-like handle, and cover both in-memory and REST backends with unit tests.
-2. **Expand snapshot/reference surface** – Implement `DatabaseReference::parent/root` and `DataSnapshot::{child,has_child,has_children,size,to_json}` following `Reference_impl.ts` lines 250-420, adjusting tests to cover traversal and key lookups.
-3. **Introduce child event listeners** – Extend the listener registry to track event types, surface `on_child_added/changed/moved/removed`, and mirror the ordering logic from `core/SyncTree.ts`; seed with in-memory coverage while stubbing remote hooks.
-4. **Realtime transport scaffolding** – Create `Repo` and `PersistentConnection` skeletons inspired by `core/Repo.ts` and `core/PersistentConnection.ts`, routing local writes through the queue and preparing a WebSocket transport behind a feature flag.
+1. **Expand snapshot/reference surface** – Implement `DatabaseReference::parent/root` and `DataSnapshot::{child,has_child,has_children,size,to_json}` following `Reference_impl.ts` lines 250-420, adjusting tests to cover traversal and key lookups.
+2. **Introduce child event listeners** – Extend the listener registry to track event types, surface `on_child_added/changed/moved/removed`, and mirror the ordering logic from `core/SyncTree.ts`; seed with in-memory coverage while stubbing remote hooks.
+3. **Realtime transport scaffolding** – Create `Repo` and `PersistentConnection` skeletons inspired by `core/Repo.ts` and `core/PersistentConnection.ts`, routing local writes through the queue and preparing a WebSocket transport behind a feature flag.
+4. **Transactions and OnDisconnect** – Port `runTransaction` and `OnDisconnect` support from `Transaction.ts` / `OnDisconnect.ts`, covering optimistic concurrency, abort semantics, and unit/integration tests with server values.

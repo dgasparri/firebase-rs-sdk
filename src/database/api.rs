@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::Value;
+use serde_json::{Map, Number, Value};
 
 use crate::app;
 use crate::app::FirebaseApp;
@@ -14,6 +16,7 @@ use crate::component::{Component, ComponentType};
 use crate::database::backend::{select_backend, DatabaseBackend};
 use crate::database::constants::DATABASE_COMPONENT_NAME;
 use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
+use crate::database::push_id::next_push_id;
 use crate::database::query::{QueryBound, QueryIndex, QueryLimit, QueryParams};
 
 #[derive(Clone, Debug)]
@@ -375,6 +378,51 @@ where
     })
 }
 
+/// Generates a child location with an auto-generated push ID.
+///
+/// Mirrors the modular `push()` helper from the JS SDK
+/// (`packages/database/src/api/Reference_impl.ts`).
+pub fn push(reference: &DatabaseReference) -> DatabaseResult<DatabaseReference> {
+    reference.push()
+}
+
+/// Generates a child location with an auto-generated push ID and writes the provided value.
+///
+/// Mirrors the modular `push(ref, value)` overload from the JS SDK
+/// (`packages/database/src/api/Reference_impl.ts`).
+pub fn push_with_value<V>(
+    reference: &DatabaseReference,
+    value: V,
+) -> DatabaseResult<DatabaseReference>
+where
+    V: Into<Value>,
+{
+    reference.push_with_value(value)
+}
+
+/// Writes a value together with a priority, mirroring the modular `setWithPriority()` helper
+/// (`packages/database/src/api/Reference_impl.ts`).
+pub fn set_with_priority<V, P>(
+    reference: &DatabaseReference,
+    value: V,
+    priority: P,
+) -> DatabaseResult<()>
+where
+    V: Into<Value>,
+    P: Into<Value>,
+{
+    reference.set_with_priority(value, priority)
+}
+
+/// Updates the priority for the current location, mirroring the modular `setPriority()` helper
+/// (`packages/database/src/api/Reference_impl.ts`).
+pub fn set_priority<P>(reference: &DatabaseReference, priority: P) -> DatabaseResult<()>
+where
+    P: Into<Value>,
+{
+    reference.set_priority(priority)
+}
+
 impl Database {
     fn new(app: FirebaseApp) -> Self {
         Self {
@@ -481,6 +529,7 @@ impl DatabaseReference {
     }
 
     pub fn set(&self, value: Value) -> DatabaseResult<()> {
+        let value = self.resolve_value_for_path(&self.path, value)?;
         self.database.inner.backend.set(&self.path, value)?;
         self.database.dispatch_listeners(&self.path)?;
         Ok(())
@@ -550,7 +599,8 @@ impl DatabaseReference {
                 ));
             }
             segments.extend(relative);
-            operations.push((segments, value));
+            let resolved = self.resolve_value_for_path(&segments, value)?;
+            operations.push((segments, resolved));
         }
 
         self.database.inner.backend.update(&self.path, operations)?;
@@ -567,6 +617,92 @@ impl DatabaseReference {
         self.database.inner.backend.delete(&self.path)?;
         self.database.dispatch_listeners(&self.path)?;
         Ok(())
+    }
+
+    /// Writes the provided value together with its priority, mirroring
+    /// `setWithPriority()` in `packages/database/src/api/Reference_impl.ts`.
+    pub fn set_with_priority<V, P>(&self, value: V, priority: P) -> DatabaseResult<()>
+    where
+        V: Into<Value>,
+        P: Into<Value>,
+    {
+        let priority = priority.into();
+        validate_priority_value(&priority)?;
+        if matches!(self.key(), Some(".length" | ".keys")) {
+            return Err(invalid_argument(
+                "set_with_priority failed: read-only child key",
+            ));
+        }
+
+        let value = self.resolve_value_for_path(&self.path, value.into())?;
+        let payload = pack_with_priority(value, priority);
+        self.database.inner.backend.set(&self.path, payload)?;
+        self.database.dispatch_listeners(&self.path)?;
+        Ok(())
+    }
+
+    /// Updates the priority for this location, mirroring `setPriority()` in the JS SDK.
+    pub fn set_priority<P>(&self, priority: P) -> DatabaseResult<()>
+    where
+        P: Into<Value>,
+    {
+        let priority = priority.into();
+        validate_priority_value(&priority)?;
+
+        let current = self.database.inner.backend.get(&self.path, &[])?;
+        let value = extract_data_owned(&current);
+        let payload = pack_with_priority(value, priority);
+        self.database.inner.backend.set(&self.path, payload)?;
+        self.database.dispatch_listeners(&self.path)?;
+        Ok(())
+    }
+
+    /// Creates a child location with an auto-generated key, mirroring `push()` from the JS SDK.
+    ///
+    /// Port of `push()` in `packages/database/src/api/Reference_impl.ts`.
+    ///
+    /// # Examples
+    /// ```
+    /// # use firebase_rs_sdk_unofficial::database::{DatabaseReference, DatabaseResult};
+    /// # use serde_json::json;
+    /// # fn demo(messages: &DatabaseReference) -> DatabaseResult<()> {
+    /// let new_message = messages.push_with_value(json!({ "text": "hi" }))?;
+    /// assert!(new_message.key().is_some());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn push(&self) -> DatabaseResult<DatabaseReference> {
+        self.push_internal(None)
+    }
+
+    /// Creates a child location with an auto-generated key and writes the provided value.
+    ///
+    /// Mirrors the `push(ref, value)` overload from `packages/database/src/api/Reference_impl.ts`.
+    pub fn push_with_value<V>(&self, value: V) -> DatabaseResult<DatabaseReference>
+    where
+        V: Into<Value>,
+    {
+        self.push_internal(Some(value.into()))
+    }
+
+    fn resolve_value_for_path(&self, path: &[String], value: Value) -> DatabaseResult<Value> {
+        if contains_server_value(&value) {
+            let current = self.database.inner.backend.get(path, &[])?;
+            let current_ref = extract_data_ref(&current);
+            resolve_server_values(value, Some(current_ref))
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn push_internal(&self, value: Option<Value>) -> DatabaseResult<DatabaseReference> {
+        let timestamp = current_time_millis()?;
+        let key = next_push_id(timestamp);
+        let child = self.child(&key)?;
+        if let Some(value) = value {
+            child.set(value)?;
+        }
+        Ok(child)
     }
 
     /// Returns the last path segment (the key) for this reference, mirroring
@@ -807,6 +943,123 @@ fn is_prefix(prefix: &[String], path: &[String]) -> bool {
         .all(|(left, right)| left == right)
 }
 
+fn validate_priority_value(priority: &Value) -> DatabaseResult<()> {
+    match priority {
+        Value::Null | Value::Number(_) | Value::String(_) => Ok(()),
+        _ => Err(invalid_argument(
+            "Priority must be a string, number, or null",
+        )),
+    }
+}
+
+fn pack_with_priority(value: Value, priority: Value) -> Value {
+    let mut map = Map::with_capacity(2);
+    map.insert(".value".to_string(), value);
+    map.insert(".priority".to_string(), priority);
+    Value::Object(map)
+}
+
+fn extract_data_ref<'a>(value: &'a Value) -> &'a Value {
+    value
+        .as_object()
+        .and_then(|obj| obj.get(".value"))
+        .unwrap_or(value)
+}
+
+fn extract_data_owned(value: &Value) -> Value {
+    extract_data_ref(value).clone()
+}
+
+fn contains_server_value(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            if map.contains_key(".sv") {
+                return true;
+            }
+            map.values().any(contains_server_value)
+        }
+        Value::Array(items) => items.iter().any(contains_server_value),
+        _ => false,
+    }
+}
+
+fn resolve_server_values(value: Value, current: Option<&Value>) -> DatabaseResult<Value> {
+    match value {
+        Value::Object(mut map) => {
+            if let Some(spec) = map.remove(".sv") {
+                return resolve_server_placeholder(spec, current.map(extract_data_ref));
+            }
+            let mut resolved = Map::with_capacity(map.len());
+            for (key, child) in map.into_iter() {
+                let child_current = current
+                    .and_then(|curr| match curr {
+                        Value::Object(obj) => obj.get(&key),
+                        Value::Array(arr) => key.parse::<usize>().ok().and_then(|idx| arr.get(idx)),
+                        _ => None,
+                    })
+                    .map(extract_data_ref);
+                let child_resolved = resolve_server_values(child, child_current)?;
+                resolved.insert(key, child_resolved);
+            }
+            Ok(Value::Object(resolved))
+        }
+        Value::Array(items) => {
+            let mut resolved = Vec::with_capacity(items.len());
+            for (index, child) in items.into_iter().enumerate() {
+                let child_current = current
+                    .and_then(|curr| match curr {
+                        Value::Array(arr) => arr.get(index),
+                        _ => None,
+                    })
+                    .map(extract_data_ref);
+                resolved.push(resolve_server_values(child, child_current)?);
+            }
+            Ok(Value::Array(resolved))
+        }
+        other => Ok(other),
+    }
+}
+
+fn resolve_server_placeholder(spec: Value, current: Option<&Value>) -> DatabaseResult<Value> {
+    match spec {
+        Value::String(token) if token == "timestamp" => {
+            let millis = current_time_millis()?;
+            Ok(Value::Number(Number::from(millis)))
+        }
+        Value::Object(mut map) => {
+            if let Some(delta) = map.remove("increment") {
+                let delta = delta.as_f64().ok_or_else(|| {
+                    invalid_argument("ServerValue.increment delta must be numeric")
+                })?;
+                let base = current
+                    .and_then(|value| match value {
+                        Value::Number(number) => number.as_f64(),
+                        _ => None,
+                    })
+                    .unwrap_or(0.0);
+                let total = base + delta;
+                let number = Number::from_f64(total).ok_or_else(|| {
+                    invalid_argument("ServerValue.increment produced an invalid number")
+                })?;
+                Ok(Value::Number(number))
+            } else {
+                Err(invalid_argument("Unsupported server value placeholder"))
+            }
+        }
+        _ => Err(invalid_argument("Unsupported server value placeholder")),
+    }
+}
+
+fn current_time_millis() -> DatabaseResult<u64> {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| internal_error("System time is before the Unix epoch"))?;
+    let millis = duration.as_millis();
+    millis
+        .try_into()
+        .map_err(|_| internal_error("Timestamp exceeds 64-bit range"))
+}
+
 static DATABASE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
     let component = Component::new(
         DATABASE_COMPONENT_NAME,
@@ -867,8 +1120,8 @@ mod tests {
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::database::{
-        equal_to_with_key, limit_to_first, limit_to_last, order_by_child, order_by_key,
-        query as compose_query, start_at,
+        equal_to_with_key, increment, limit_to_first, limit_to_last, order_by_child, order_by_key,
+        query as compose_query, server_timestamp, start_at,
     };
     use httpmock::prelude::*;
     use httpmock::Method::{DELETE, GET, PATCH, PUT};
@@ -902,6 +1155,48 @@ mod tests {
     }
 
     #[test]
+    fn push_generates_monotonic_keys() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let queue = database.reference("queue").unwrap();
+
+        let keys: Vec<String> = (0..5)
+            .map(|_| queue.push().unwrap().key().unwrap().to_string())
+            .collect();
+
+        let mut sorted = keys.clone();
+        sorted.sort();
+        assert_eq!(keys, sorted);
+    }
+
+    #[test]
+    fn push_with_value_persists_data() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let messages = database.reference("messages").unwrap();
+
+        let payload = json!({ "text": "hello" });
+        let child = messages
+            .push_with_value(payload.clone())
+            .expect("push with value");
+
+        let stored = child.get().unwrap();
+        assert_eq!(stored, payload);
+
+        let parent = messages.get().unwrap();
+        let key = child.key().unwrap();
+        assert_eq!(parent.get(key), Some(&payload));
+    }
+
+    #[test]
     fn child_updates_merge() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
@@ -914,6 +1209,110 @@ mod tests {
         root.child("a/count").unwrap().set(json!(2)).unwrap();
         let value = root.get().unwrap();
         assert_eq!(value, json!({ "a": { "count": 2 } }));
+    }
+
+    #[test]
+    fn set_with_priority_wraps_value() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let item = database.reference("items/main").unwrap();
+
+        item.set_with_priority(json!({ "count": 1 }), json!(5))
+            .unwrap();
+
+        let stored = item.get().unwrap();
+        assert_eq!(
+            stored,
+            json!({
+                ".value": { "count": 1 },
+                ".priority": 5
+            })
+        );
+    }
+
+    #[test]
+    fn set_priority_updates_existing_value() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let item = database.reference("items/main").unwrap();
+
+        item.set(json!({ "count": 4 })).unwrap();
+        item.set_priority(json!(10)).unwrap();
+
+        let stored = item.get().unwrap();
+        assert_eq!(
+            stored,
+            json!({
+                ".value": { "count": 4 },
+                ".priority": 10
+            })
+        );
+    }
+
+    #[test]
+    fn server_timestamp_is_resolved_on_set() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let created_at = database.reference("meta/created_at").unwrap();
+
+        created_at.set(server_timestamp()).unwrap();
+
+        let value = created_at.get().unwrap();
+        let ts = value.as_u64().expect("timestamp as u64");
+        let now = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert!(now >= ts);
+        assert!(now - ts < 5_000);
+    }
+
+    #[test]
+    fn server_increment_updates_value() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let counter = database.reference("counters/main").unwrap();
+
+        counter.set(json!(1)).unwrap();
+        counter.set(increment(2.0)).unwrap();
+
+        let value = counter.get().unwrap();
+        assert_eq!(value.as_f64().unwrap(), 3.0);
+    }
+
+    #[test]
+    fn update_supports_server_increment() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let scores = database.reference("scores").unwrap();
+
+        scores.set(json!({ "alice": 4 })).unwrap();
+        let mut delta = serde_json::Map::new();
+        delta.insert("alice".to_string(), increment(3.0));
+        scores.update(delta).unwrap();
+
+        let stored = scores.get().unwrap();
+        assert_eq!(stored.get("alice").unwrap().as_f64().unwrap(), 7.0);
     }
 
     #[test]
@@ -973,6 +1372,70 @@ mod tests {
         assert_eq!(value, json!({ "greeting": "hello" }));
         set_mock.assert();
         get_mock.assert();
+    }
+
+    #[test]
+    fn rest_backend_set_with_priority_includes_metadata() {
+        let server = MockServer::start();
+
+        let put_mock = server.mock(|when, then| {
+            when.method(PUT)
+                .path("/items.json")
+                .query_param("print", "silent")
+                .json_body(json!({
+                    ".value": { "count": 1 },
+                    ".priority": 3
+                }));
+            then.status(200)
+                .header("content-type", "application/json")
+                .body("null");
+        });
+
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            database_url: Some(server.url("/")),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let reference = database.reference("items").unwrap();
+
+        reference
+            .set_with_priority(json!({ "count": 1 }), json!(3))
+            .unwrap();
+
+        put_mock.assert();
+    }
+
+    #[test]
+    fn push_with_value_rest_backend_performs_put() {
+        let server = MockServer::start();
+
+        let push_mock = server.mock(|when, then| {
+            when.method(PUT)
+                .path_contains("/messages/")
+                .query_param("print", "silent")
+                .json_body(json!({ "text": "hello" }));
+            then.status(200)
+                .header("content-type", "application/json")
+                .body("null");
+        });
+
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            database_url: Some(server.url("/")),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let database = get_database(Some(app)).unwrap();
+        let messages = database.reference("messages").unwrap();
+
+        let child = messages
+            .push_with_value(json!({ "text": "hello" }))
+            .expect("push with value rest");
+
+        assert_eq!(child.key().unwrap().len(), 20);
+        push_mock.assert();
     }
 
     #[test]
