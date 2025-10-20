@@ -80,9 +80,15 @@ fn main() -> firebase_rs_sdk_unofficial::analytics::AnalyticsResult<()> {
 
 - Component registration so `get_analytics` and `register_analytics_component` mirror the JS modular API.
 - In-memory event recording through `Analytics::log_event`, useful for testing and consumers that inspect sent payloads.
-- Measurement Protocol dispatcher that can forward events to GA4 when supplied with a measurement ID and API secret.
-- Basic error handling (`analytics/invalid-argument`, `analytics/internal`, `analytics/network`) and unit coverage for
-  component wiring and network dispatch.
+- Measurement Protocol dispatcher that can forward events to GA4 when supplied with credentials, plus convenience
+  helpers to derive the measurement ID from Firebase app options or the Firebase config endpoint.
+- Default event parameter handling and consent/settings storage so callers can declare analytics defaults before events
+  are logged.
+- Dynamic config fetching (`/v1alpha/projects/-/apps/{app-id}/webConfig`) with caching so the measurement ID can be
+  resolved automatically before wiring the dispatcher.
+- Basic error handling (`analytics/invalid-argument`, `analytics/internal`, `analytics/network`,
+  `analytics/config-fetch-failed`, `analytics/missing-measurement-id`) and unit coverage for component wiring, config
+  resolution, and optional network dispatch.
 
 ## Still to do
 
@@ -98,11 +104,11 @@ fn main() -> firebase_rs_sdk_unofficial::analytics::AnalyticsResult<()> {
 
 ## Next Steps - Detailed Completion Plan
 
-1. **Initialization & Config Fetch**
-   - Port the logic from `packages/analytics/src/initialize-analytics.ts` to derive `AnalyticsSettings`, register the
-     gtag environment, and resolve the measurement ID / app ID pair automatically from the app options or remote config.
-   - Implement the `get-config.ts` behaviour to call the Firebase config endpoint, store the response, and hydrate the
-     measurement dispatcher without requiring manual configuration.
+1. **Gtag Initialization & Settings**
+   - Finish porting `initialize-analytics.ts` by wiring the gtag environment, consent defaults, and automatic
+     configuration properties using the resolved measurement ID.
+   - Add gtag bootstrapper (script injection hooks, js initialisation) and surface the analytics settings configuration
+     points (`config`, send_page_view toggles, etc.).
 2. **Analytics Settings & Consent Controls**
    - Add Rust equivalents for `setAnalyticsCollectionEnabled`, `_setConsentDefaultForInit`, and
      `setDefaultEventParameters`, including basic persistence of consent state and the ability to pause event delivery.

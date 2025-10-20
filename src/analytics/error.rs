@@ -5,6 +5,8 @@ pub enum AnalyticsErrorCode {
     InvalidArgument,
     Internal,
     Network,
+    ConfigFetchFailed,
+    MissingMeasurementId,
 }
 
 impl AnalyticsErrorCode {
@@ -13,6 +15,8 @@ impl AnalyticsErrorCode {
             AnalyticsErrorCode::InvalidArgument => "analytics/invalid-argument",
             AnalyticsErrorCode::Internal => "analytics/internal",
             AnalyticsErrorCode::Network => "analytics/network",
+            AnalyticsErrorCode::ConfigFetchFailed => "analytics/config-fetch-failed",
+            AnalyticsErrorCode::MissingMeasurementId => "analytics/missing-measurement-id",
         }
     }
 }
@@ -56,4 +60,12 @@ pub fn internal_error(message: impl Into<String>) -> AnalyticsError {
 
 pub fn network_error(message: impl Into<String>) -> AnalyticsError {
     AnalyticsError::new(AnalyticsErrorCode::Network, message)
+}
+
+pub fn config_fetch_failed(message: impl Into<String>) -> AnalyticsError {
+    AnalyticsError::new(AnalyticsErrorCode::ConfigFetchFailed, message)
+}
+
+pub fn missing_measurement_id(message: impl Into<String>) -> AnalyticsError {
+    AnalyticsError::new(AnalyticsErrorCode::MissingMeasurementId, message)
 }

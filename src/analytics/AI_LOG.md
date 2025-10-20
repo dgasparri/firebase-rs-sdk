@@ -136,3 +136,52 @@ I’m working through why panic messages print despite catching unwinds, which s
   2. Implement analytics settings & consent controls (setAnalyticsCollectionEnabled, default consent/event parameters)
   with persistence.
   3. Port user identity and helper APIs (setUserId, setUserProperties, screen-view helpers, recommended event wrappers).
+
+
+  > Ok, proceed with next step
+
+  Analytics Enhancements
+
+  - Added a configuration module that resolves the Google Analytics measurement ID either from Firebase app options or
+  by calling the Firebase web config endpoint (src/analytics/config.rs, src/analytics/api.rs, src/analytics/mod.rs),
+  caching the result for reuse.
+  - Extended the Analytics service with measurement-config accessors, convenience helpers to configure the GA4
+  Measurement Protocol using only an API secret, and improved error coverage (analytics/config-fetch-failed, analytics/
+  missing-measurement-id) so callers receive actionable feedback (src/analytics/api.rs, src/analytics/error.rs).
+  - Updated the Measurement Protocol dispatcher with validation for credentials and richer configuration options,
+  and reworked tests to cover the new flows, including an opt-in network test guarded by FIREBASE_NETWORK_TESTS (src/
+  analytics/transport.rs, src/analytics/api.rs tests).
+  - Refreshed the Analytics README to document the new behaviour and revised roadmap (src/analytics/README.md).
+
+  Tests
+
+  - cargo test analytics -- --nocapture (the network-dependent test runs only when FIREBASE_NETWORK_TESTS=1 is set).
+
+  Next Steps
+
+  1. Finish porting gtag initialization: hook consent defaults, config options, and automatic properties using the
+  resolved measurement ID.
+  2. Implement analytics settings & consent controls (setAnalyticsCollectionEnabled, default event parameters, consent
+  persistence).
+  3. Port user identity and helper APIs (setUserId, setUserProperties, screen-view helpers, recommended event wrappers).
+
+  > PROMPT: all test passed, proceed with the next steps
+
+  Analytics Updates
+
+  - Added a configuration module that resolves the GA4 measurement ID from Firebase app options or by calling the
+  Firebase web config endpoint, caching the result for reuse (src/analytics/config.rs, src/analytics/api.rs, src/
+  analytics/mod.rs).
+  - Extended the analytics service with measurement-aware helpers (measurement_config,
+  configure_measurement_protocol_with_secret{,_and_endpoint}), consent/storage handling, and default event parameter
+  support so logged events inherit defaults without overwriting explicit values (src/analytics/api.rs, src/analytics/
+  error.rs).
+  - Updated the Measurement Protocol dispatcher validations and re-exports, and refreshed the analytics README to
+  reflect the new behaviour and roadmap (src/analytics/mod.rs, src/analytics/README.md).
+  - Added unit tests covering config resolution, default parameter merging, and the existing measurement dispatch test
+  now opt-in via FIREBASE_NETWORK_TESTS (src/analytics/api.rs tests).
+
+  Tests
+
+  - cargo test analytics -- --nocapture (network test runs only when FIREBASE_NETWORK_TESTS=1 is set).
+
