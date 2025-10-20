@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 pub enum AnalyticsErrorCode {
     InvalidArgument,
     Internal,
+    Network,
 }
 
 impl AnalyticsErrorCode {
@@ -11,6 +12,7 @@ impl AnalyticsErrorCode {
         match self {
             AnalyticsErrorCode::InvalidArgument => "analytics/invalid-argument",
             AnalyticsErrorCode::Internal => "analytics/internal",
+            AnalyticsErrorCode::Network => "analytics/network",
         }
     }
 }
@@ -50,4 +52,8 @@ pub fn invalid_argument(message: impl Into<String>) -> AnalyticsError {
 
 pub fn internal_error(message: impl Into<String>) -> AnalyticsError {
     AnalyticsError::new(AnalyticsErrorCode::Internal, message)
+}
+
+pub fn network_error(message: impl Into<String>) -> AnalyticsError {
+    AnalyticsError::new(AnalyticsErrorCode::Network, message)
 }

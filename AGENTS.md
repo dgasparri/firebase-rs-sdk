@@ -25,12 +25,15 @@ For that reason, we do not write Javascript code just to make the library 100% f
 
 For each module there is a file `./src/{module}/README.md`. This file has 5 sections: 
  - Introduction 
+ - Porting status
  - Quick Start Example
  - Implemented
  - Still to do
  - Next steps - Detailed completion plan
 
 The "Indroduction" section has a brief description of the module.
+
+The "Porting status" section has a reference to the advancement status (in percentage) of the porting of functions/code from the Firebase JS SDK. This section is updated manually only when a cospicuous work has been done on the module. 
 
 The Quick STart Example has a quick example on how to use the APIs of the module.
 

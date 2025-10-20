@@ -94,3 +94,7 @@ Chances are, there are bugs in the code. If you find one, or if you notice that 
 
 The code you contribute MUST be licensed under the Apache 2.0.
 
+
+## Testing
+
+In the module analytics a unit test that exercises the dispatcher is skipped by default unless FIREBASE_NETWORK_TESTS=1 is set.
