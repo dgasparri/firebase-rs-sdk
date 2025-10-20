@@ -3,6 +3,34 @@
 This directory hosts the early-stage Rust port of the Firebase Cloud Messaging (FCM) web SDK. The aim is to reproduce
 `@firebase/messaging` so apps can request notification permissions, obtain registration tokens, and handle messages.
 
+## Porting status
+
+- messaging 3% \[          \]
+
+==As of October 20th, 2025== 
+
+Prompt: Compare the original JS/Typescript files in ./packages/messaging and the ported files in Rust in ./src/messaging, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
+
+I'm gathering key points about the messaging module's features and gaps—like the minimal Rust stub missing push and service worker support, its limited API implementations, error coverage around 3%, and highlighting relevant JS files and paths—so I can create a clear and thorough final summary for the user.
+
+Coverage is roughly 3 % of the JS Messaging SDK.
+
+  - Rust currently wires a messaging component and exposes request_permission, get_token, and delete_token, but
+  everything is in-memory: tokens are random strings keyed by app name, permission always returns true, and deletion
+  just clears the map (src/messaging/api.rs:1). Error enums mirror only three codes (src/messaging/error.rs:1). There’s
+  no service-worker, push-subscription, or network interaction.
+  - The JS module is vast. packages/messaging/src/messaging-service.ts:1 sets up dependencies on Installations,
+  Analytics, service workers, BigQuery logging, and background handlers; token APIs drive real browser flows, notice
+  packages/messaging/src/api/getToken.ts:1 prompting notification permission, updating VAPID keys, and delegating
+  to the token manager. The token manager itself handles IndexedDB persistence, FCM REST calls, weekly refresh, push
+  subscription lifecycle, and backend delete/update calls (packages/messaging/src/internals/token-manager.ts:1).
+  Surrounding helpers manage service worker registration, environment guards, logging, background/foreground message
+  listeners, isSupported checks, delivery metrics export, and testing utilities spread across packages/messaging/src/
+  helpers/*, packages/messaging/src/listeners/*, packages/messaging/src/util/*, etc.
+
+Given the Rust port only reproduces the API shape with a trivial stub while omitting browser integration, Installations/Analytics/App Check interop, network requests, persistence, subscription management, message dispatch, and emulator/testing support, its functionality today is only a few percent of what the JavaScript SDK provides.
+
+
 ## Current Functionality
 
 - **Component wiring** – `register_messaging_component` registers the `messaging` component so apps can call

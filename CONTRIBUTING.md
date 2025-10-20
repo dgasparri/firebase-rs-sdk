@@ -72,6 +72,10 @@ For preparing for a PULL REQUEST:
 
 > Follow the instructions in ./AGENTS.md. I want to make a pull request to the GitHub repository, write a title and a message explaining in detail what are the changes in the code and the benefits of those changes
 
+For having an estimate of the porting advancement
+
+> Compare the original JS/Typescript files in ./packages/{module} and the ported files in Rust in ./src/{module}, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
+
 ## Before any pull request
 
 Before any pull request, the following steps must be taken:

@@ -101,4 +101,44 @@ Updated Plan
 
   Run it with cargo run --example app/basic to see the lifecycle in action.
 
-  
+## 20 October 2025
+
+> PROMPT: Now compare the original JS/Typescript files in ./packages/app and the ported files in Rust in ./src/app, and give me
+ an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
+
+I'm reviewing which Firebase app and related features the Rust port covers compared to the JS version, noting many are
+  implemented but some key parts like IndexedDB support, persistent heartbeat storage, and finalization mechanics are
+  missing or partial. After listing each module and functionality, I estimate overall coverage around 60-70%, reflecting
+  strong core app support but missing advanced environment and async behaviors. I'll try to quantify and summarize all
+  major ported versus missing features to give a clear coverage estimate.
+
+• Explored
+  └ Read logger.ts
+
+> Thinking
+  I’m working out that the Rust port covers about 60% of the major features based on careful comparison with the
+  TypeScript source. I’ll list key supported features with file references like src/app/api.rs:1, note missing ones
+  like IndexedDB support, and include a balanced summary explaining how the port hits core patterns but lacks some
+  environment-specific details. This detailed yet cautious estimate will help clarify the port’s current maturity.
+
+> Ported coverage is about 60 %.
+
+  - Core app lifecycle (initialize_app, get_app, get_apps, delete_app, register_version, set_log_level, on_log)
+  is implemented with close parity to the JS API (src/app/api.rs:1, src/app/types.rs:1, src/app/registry.rs:1).
+  Component registration, platform logger, and the in-memory heartbeat service mirror the JS structure (src/app/
+  core_components.rs:1, src/app/platform_logger.rs:1, src/app/heartbeat.rs:1, src/app/logger.rs:1).
+  - Rust also exposes the namespace bridge and internal component hooks that other services rely on, matching much of
+  packages/app/src/api.ts:1, packages/app/src/internal.ts:1, packages/app/src/platformLoggerService.ts:1, and packages/
+  app/src/heartbeatService.ts:1.
+  - Missing or simplified pieces include IndexedDB-backed heartbeat persistence (packages/app/src/indexeddb.ts:1 has
+  no Rust counterpart), full browser/environment detection and automatic config bootstrapping (getDefaultAppConfig,
+  isBrowser, isWebWorker stubs in src/app/types.rs:180), richer server-app lifecycle (FinalizationRegistry, release-
+  on-deref handling, JSON serialization from packages/app/src/firebaseServerApp.ts:1), detailed IDB error surfaces
+  (packages/app/src/errors.ts:1), and the exhaustive JS test suite.
+  - The Rust heartbeat service currently stores data only in-memory and omits async size pruning helpers that exist
+  in the JS implementation (src/app/heartbeat.rs:1 vs. packages/app/src/heartbeatService.ts:1), and core-component
+  registration skips build-target variants (packages/app/src/registerCoreComponents.ts:1).
+
+  Given that the foundational runtime, component model, logging, and most public APIs are in place while platform-
+  specific persistence, environment helpers, and several edge-case behaviours are still absent or stubbed, ~60 %
+  reflects the practical parity today.

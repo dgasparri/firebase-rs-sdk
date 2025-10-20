@@ -12,6 +12,39 @@ It includes error handling, configuration options, and integration with Firebase
 - Bridge App Check tokens into dependent services via FirebaseAppCheckInternal::token_provider so HTTP clients can attach X-Firebase-AppCheck headers automatically.
 - Manage internal listeners (add/remove) and inspect cached token state for emulator or server-driven scenarios.
 
+## Porting status
+
+- app_check 20% \[##        \]
+
+==As of October 20th, 2025== 
+
+Prompt: Compare the original JS/Typescript files in ./packages/app_check and the ported files in Rust in ./src/app_check, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
+
+I'm estimating the Rust implementation covers about 25-30% of the JavaScript App Check API, with many core parts missing like storage, proactive refresh, and debug support. I'm breaking down major areas to check coverage, especially around token handling, providers, and internal bridging, while planning to verify component registration details next.
+
+Estimated coverage ≈20 % of the JS App Check SDK.
+
+  - Implemented pieces cover only the happy-path API surface: initialize_app_check, token fetch, limited-use fetch,
+  listener wiring, and manual auto-refresh toggling (src/app_check/api.rs:15, src/app_check/state.rs:37). Custom
+  providers work for synchronous token callbacks (src/app_check/providers.rs:8), and there’s an internal bridge so other
+  modules (e.g. Firestore) can treat App Check as a token provider (src/app_check/token_provider.rs:9, src/app_check/
+  interop.rs:1).
+  - All platform integrations that dominate the JS SDK are missing. There’s no component registration or service
+  factory equivalent to the JS wiring in packages/app-check/src/factory.ts:33 and _registerComponent calls, so other
+  modules cannot obtain App Check via the component system. Tokens only live in memory; the persistence layer, IndexedDB
+  helpers, and debug-token storage (packages/app-check/src/storage.ts:32, packages/app-check/src/indexeddb.ts:1,
+  packages/app-check/src/debug.ts:1) have no Rust counterpart.
+  - Proactive refresh, throttling, and visibility-aware backoff are absent: the scheduler and retry policy in packages/
+  app-check/src/proactive-refresh.ts:26 and the state-machine logic in packages/app-check/src/internal-api.ts:61 aren’t
+  ported, leaving set_token_auto_refresh_enabled as a no-op flag (src/app_check/state.rs:98).
+  - Provider support is skeletal. ReCAPTCHA providers immediately return “not implemented” errors (src/app_check/
+  providers.rs:77, src/app_check/providers.rs:100), while the JS versions perform token acquisition, throttling, and
+  heartbeat integration (packages/app-check/src/providers.ts:33). Debug-mode, emulator support, heartbeat usage, and
+  observer error channels defined across packages/app-check/src/api.ts:34, packages/app-check/src/client.ts:1, and
+  packages/app-check/src/util.ts:1 are missing entirely.
+
+Given that only the minimal API shell and custom-provider plumbing exist while the JS module’s storage, refresh lifecycle, provider implementations, debug/emulator flows, and component factories are unported, a 20 % completion estimate is a reasonable upper bound.
+
 ## References to the Firebase JS SDK - firestore module
 
 - QuickStart: <https://firebase.google.com/docs/app-check/web/recaptcha-provider>
