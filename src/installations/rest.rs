@@ -141,6 +141,40 @@ impl RestClient {
         Err(self.request_failed("Generate Auth Token", response))
     }
 
+    pub fn delete_installation(
+        &self,
+        config: &AppConfig,
+        fid: &str,
+        refresh_token: &str,
+    ) -> InstallationsResult<()> {
+        let url = self.installations_endpoint(config, Some(fid))?;
+        let mut headers = self.base_headers(&config.api_key)?;
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("{} {}", INTERNAL_AUTH_VERSION, refresh_token))
+                .map_err(|err| {
+                    invalid_argument(format!("Invalid refresh token header: {}", err))
+                })?,
+        );
+
+        let response = self
+            .send_with_retry(|| {
+                self.http
+                    .delete(url.clone())
+                    .headers(headers.clone())
+                    .send()
+            })
+            .map_err(|err| {
+                internal_error(format!("Network error deleting installation: {}", err))
+            })?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(self.request_failed("Delete Installation", response))
+        }
+    }
+
     fn installations_endpoint(
         &self,
         config: &AppConfig,
@@ -354,5 +388,27 @@ mod tests {
     fn parse_expires_in_rejects_invalid_format() {
         let err = parse_expires_in("1000ms").unwrap_err();
         assert!(matches!(err.code, InstallationsErrorCode::InvalidArgument));
+    }
+
+    #[test]
+    fn delete_installation_success() {
+        let Some(server) = try_start_server() else {
+            eprintln!("Skipping delete_installation_success: unable to start mock server");
+            return;
+        };
+
+        let _mock = server.mock(|when, then| {
+            when.method(DELETE)
+                .path("/projects/project/installations/fid")
+                .header(
+                    "Authorization",
+                    format!("{} {}", INTERNAL_AUTH_VERSION, "refresh"),
+                );
+            then.status(200);
+        });
+
+        let client = RestClient::with_base_url(&server.base_url()).unwrap();
+        let result = client.delete_installation(&test_config(), "fid", "refresh");
+        assert!(result.is_ok());
     }
 }

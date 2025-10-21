@@ -1,3 +1,4 @@
+#![doc = include_str!("README.md")]
 mod api;
 mod config;
 mod constants;
@@ -6,5 +7,8 @@ mod persistence;
 mod rest;
 mod types;
 
-pub use api::{get_installations, register_installations_component, Installations};
+pub use api::{
+    delete_installations, get_installations, get_installations_internal,
+    register_installations_component, Installations, InstallationsInternal,
+};
 pub use types::InstallationToken;
