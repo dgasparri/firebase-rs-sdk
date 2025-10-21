@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::analytics::config::{fetch_dynamic_config, from_app_options, DynamicConfig};
 use crate::analytics::constants::ANALYTICS_COMPONENT_NAME;
 use crate::analytics::error::{internal_error, invalid_argument, AnalyticsResult};
+use crate::analytics::gtag::{GlobalGtagRegistry, GtagState};
 use crate::analytics::transport::{
     MeasurementProtocolConfig, MeasurementProtocolDispatcher, MeasurementProtocolEndpoint,
 };
@@ -22,6 +24,7 @@ pub struct Analytics {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AnalyticsSettings {
     pub config: BTreeMap<String, String>,
+    pub send_page_view: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -39,6 +42,8 @@ struct AnalyticsInner {
     default_event_params: Mutex<BTreeMap<String, String>>,
     consent_settings: Mutex<Option<ConsentSettings>>,
     analytics_settings: Mutex<AnalyticsSettings>,
+    collection_enabled: AtomicBool,
+    gtag: GlobalGtagRegistry,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,6 +54,9 @@ pub struct AnalyticsEvent {
 
 impl Analytics {
     fn new(app: FirebaseApp) -> Self {
+        let gtag = GlobalGtagRegistry::shared();
+        gtag.inner().set_data_layer_name("dataLayer");
+
         let inner = AnalyticsInner {
             app,
             events: Mutex::new(Vec::new()),
@@ -58,6 +66,8 @@ impl Analytics {
             default_event_params: Mutex::new(BTreeMap::new()),
             consent_settings: Mutex::new(None),
             analytics_settings: Mutex::new(AnalyticsSettings::default()),
+            collection_enabled: AtomicBool::new(true),
+            gtag,
         };
         Self {
             inner: Arc::new(inner),
@@ -84,6 +94,11 @@ impl Analytics {
 
     pub fn recorded_events(&self) -> Vec<AnalyticsEvent> {
         self.inner.events.lock().unwrap().clone()
+    }
+
+    /// Returns a snapshot of the gtag bootstrap state collected so far.
+    pub fn gtag_state(&self) -> GtagState {
+        self.inner.gtag.inner().snapshot()
     }
 
     /// Resolves the measurement configuration for this analytics instance. The value is derived
@@ -139,20 +154,34 @@ impl Analytics {
     /// Sets the default event parameters that should be merged into every logged event unless
     /// explicitly overridden.
     pub fn set_default_event_parameters(&self, params: BTreeMap<String, String>) {
-        *self.inner.default_event_params.lock().unwrap() = params;
+        *self.inner.default_event_params.lock().unwrap() = params.clone();
+        self.inner.gtag.inner().set_default_event_parameters(params);
     }
 
     /// Configures default consent settings that mirror the GA4 consent API. The values are cached
     /// so they can be applied once full gtag integration is implemented. Calling this replaces any
     /// previously stored consent state.
     pub fn set_consent_defaults(&self, consent: ConsentSettings) {
+        let entries = consent.entries.clone();
         *self.inner.consent_settings.lock().unwrap() = Some(consent);
+        self.inner.gtag.inner().set_consent_defaults(Some(entries));
     }
 
     /// Applies analytics configuration options analogous to the JS `AnalyticsSettings` structure.
-    /// The configuration is cached and can be inspected later.
+    /// The configuration is cached and merged with any previously supplied settings.
     pub fn apply_settings(&self, settings: AnalyticsSettings) {
-        *self.inner.analytics_settings.lock().unwrap() = settings;
+        let mut guard = self.inner.analytics_settings.lock().unwrap();
+        for (key, value) in settings.config {
+            guard.config.insert(key, value);
+        }
+        if settings.send_page_view.is_some() {
+            guard.send_page_view = settings.send_page_view;
+        }
+        self.inner.gtag.inner().set_config(guard.config.clone());
+        self.inner
+            .gtag
+            .inner()
+            .set_send_page_view(guard.send_page_view);
     }
 
     fn dispatch_event(&self, event: &AnalyticsEvent) -> AnalyticsResult<()> {
@@ -161,9 +190,11 @@ impl Analytics {
             guard.clone()
         };
 
-        if let Some(transport) = transport {
-            let client_id = self.inner.client_id.lock().unwrap().clone();
-            transport.send_event(&client_id, &event.name, &event.params)?
+        if self.inner.collection_enabled.load(Ordering::SeqCst) {
+            if let Some(transport) = transport {
+                let client_id = self.inner.client_id.lock().unwrap().clone();
+                transport.send_event(&client_id, &event.name, &event.params)?
+            }
         }
 
         Ok(())
@@ -191,12 +222,20 @@ impl Analytics {
         if let Some(local) = from_app_options(&self.inner.app) {
             let mut guard = self.inner.config.lock().unwrap();
             *guard = Some(local.clone());
+            self.inner
+                .gtag
+                .inner()
+                .set_measurement_id(Some(local.measurement_id().to_string()));
             return Ok(local);
         }
 
         let fetched = fetch_dynamic_config(&self.inner.app)?;
         let mut guard = self.inner.config.lock().unwrap();
         *guard = Some(fetched.clone());
+        self.inner
+            .gtag
+            .inner()
+            .set_measurement_id(Some(fetched.measurement_id().to_string()));
         Ok(fetched)
     }
 
@@ -209,6 +248,19 @@ impl Analytics {
             params.entry(key).or_insert(value);
         }
         params
+    }
+
+    /// Enables or disables analytics collection. When disabled, events are still recorded locally
+    /// but are not dispatched through the configured transport.
+    pub fn set_collection_enabled(&self, enabled: bool) {
+        self.inner
+            .collection_enabled
+            .store(enabled, Ordering::SeqCst);
+    }
+
+    /// Returns whether analytics collection is currently enabled.
+    pub fn collection_enabled(&self) -> bool {
+        self.inner.collection_enabled.load(Ordering::SeqCst)
     }
 }
 
@@ -278,11 +330,15 @@ pub fn get_analytics(app: Option<FirebaseApp>) -> AnalyticsResult<Arc<Analytics>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analytics::gtag::GlobalGtagRegistry;
     use crate::analytics::transport::MeasurementProtocolEndpoint;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use httpmock::prelude::*;
     use std::collections::BTreeMap;
+    use std::sync::{LazyLock, Mutex};
+
+    static GTAG_TEST_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -296,8 +352,18 @@ mod tests {
         }
     }
 
+    fn reset_gtag_state() {
+        GlobalGtagRegistry::shared().inner().reset();
+    }
+
+    fn gtag_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        GTAG_TEST_MUTEX.lock().unwrap()
+    }
+
     #[test]
     fn log_event_records_entry() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-LOCAL123".into()),
@@ -316,6 +382,8 @@ mod tests {
 
     #[test]
     fn default_event_parameters_are_applied() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-LOCAL789".into()),
@@ -340,6 +408,8 @@ mod tests {
 
     #[test]
     fn default_event_parameters_do_not_override_explicit_values() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-LOCAL990".into()),
@@ -363,6 +433,8 @@ mod tests {
 
     #[test]
     fn measurement_config_uses_local_options() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-LOCAL456".into()),
@@ -375,10 +447,15 @@ mod tests {
         let config = analytics.measurement_config().unwrap();
         assert_eq!(config.measurement_id(), "G-LOCAL456");
         assert_eq!(config.app_id(), Some("1:123:web:abc"));
+
+        let gtag_state = analytics.gtag_state();
+        assert_eq!(gtag_state.measurement_id, Some("G-LOCAL456".to_string()));
     }
 
     #[test]
     fn configure_with_secret_requires_measurement_context() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -393,6 +470,72 @@ mod tests {
     }
 
     #[test]
+    fn collection_toggle_controls_state() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            measurement_id: Some("G-LOCALCOLLECT".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let analytics = get_analytics(Some(app)).unwrap();
+
+        assert!(analytics.collection_enabled());
+        analytics.set_collection_enabled(false);
+        assert!(!analytics.collection_enabled());
+        analytics.set_collection_enabled(true);
+        assert!(analytics.collection_enabled());
+    }
+
+    #[test]
+    fn gtag_state_tracks_defaults_and_config() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            measurement_id: Some("G-GTAGTEST".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let analytics = get_analytics(Some(app)).unwrap();
+
+        analytics.set_default_event_parameters(BTreeMap::from([(
+            "currency".to_string(),
+            "USD".to_string(),
+        )]));
+        analytics.set_consent_defaults(ConsentSettings {
+            entries: BTreeMap::from([(String::from("ad_storage"), String::from("granted"))]),
+        });
+        analytics.apply_settings(AnalyticsSettings {
+            config: BTreeMap::from([(String::from("send_page_view"), String::from("false"))]),
+            send_page_view: Some(false),
+        });
+        // Force measurement configuration resolution so the gtag registry is populated.
+        analytics.measurement_config().unwrap();
+
+        let state = analytics.gtag_state();
+        assert_eq!(state.data_layer_name, "dataLayer");
+        assert_eq!(state.measurement_id, Some("G-GTAGTEST".to_string()));
+        assert_eq!(
+            state.default_event_parameters.get("currency"),
+            Some(&"USD".to_string())
+        );
+        assert_eq!(
+            state
+                .consent_settings
+                .as_ref()
+                .and_then(|m| m.get("ad_storage")),
+            Some(&"granted".to_string())
+        );
+        assert_eq!(state.send_page_view, Some(false));
+        assert_eq!(
+            state.config.get("send_page_view"),
+            Some(&"false".to_string())
+        );
+    }
+
+    #[test]
     fn measurement_protocol_dispatches_events() {
         if std::env::var("FIREBASE_NETWORK_TESTS").is_err() {
             eprintln!(
@@ -400,6 +543,9 @@ mod tests {
             );
             return;
         }
+
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
 
         let server = match std::panic::catch_unwind(|| MockServer::start()) {
             Ok(server) => server,

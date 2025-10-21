@@ -9,33 +9,23 @@ Analytics using the GA4 Measurement Protocol.
 
 ## Porting status
 
-- analytics 5% \[#          \]
+- analytics 20% \[##         \]
 
 ==As of October 20th, 2025==
 
 Prompt: Compare the original JS/Typescript files in ./packages/analytics and the ported files in Rust in ./src/analytics, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
 
-I'll estimate that roughly 5% of the Firebase JS SDK analytics features have been ported to Rust, focusing mainly
-  on foundational pieces like component registration and minimal log_event stubs. The vast majority—including
-  initialization, configuration, gtag integration, and advanced features like setUserId—remain unported. I'll break
-  down which features exist versus which are missing, referencing specific source files in both packages/analytics for
-  TypeScript and src/analytics for Rust to support this overview.
+I’d put the analytics port at roughly 20 % complete now. We still only cover a slice of the JS SDK, but it’s notably beyond the original 5 % scaffold. What’s in place:
 
-> Estimated coverage is ~5% of the JS analytics SDK. The Rust side currently wires up the component and records events
-  in memory (src/analytics/api.rs:1 plus src/analytics/error.rs:1, src/analytics/constants.rs:1), but everything else is
-  still a scaffold.
+  - Component wiring, in-memory event capture, and a Measurement Protocol dispatcher that works with GA4 when
+  credentials are provided (src/analytics/api.rs:33, src/analytics/transport.rs:1).
+  - Automatic measurement resolution via Firebase app options or the /webConfig endpoint (src/analytics/config.rs:1,
+  src/analytics/api.rs:118).
+  - Default event parameters, consent/settings caching, collection enable/disable toggles, and a gtag bootstrap state
+  for WASM consumers (src/analytics/api.rs:90-213, src/analytics/gtag.rs:1).
+  - Unit coverage around those behaviours, plus opt-in Measurement Protocol tests.
 
-Key JS features that remain unported span almost every module: the full public API surface in packages/analytics/src/
-  api.ts:1 (initialization pathways, isSupported, consent, user properties, default params, dozens of event helpers),
-  the gtag integration and environment guards in packages/analytics/src/factory.ts:1, configuration fetching in
-  packages/analytics/src/initialize-analytics.ts:1 and packages/analytics/src/get-config.ts:1, validation/utilities in
-  packages/analytics/src/functions.ts:1 and packages/analytics/src/helpers.ts:1, logging and type definitions, plus the
-  comprehensive test suite. None of these have Rust counterparts yet.
-
-Given that only the minimal component plumbing and an in-memory log_event stub are present, while the rest of the
-  measurement, configuration, consent, user state, platform hooks, and testing infrastructure are absent, 5% is a
-  reasonable upper-bound estimate.
-
+Large pieces are still missing—full gtag initialization, consent persistence, user identity helpers, recommended event wrappers, debug tooling, and the full test suite—so there’s plenty left, but the module is no longer just a stub.
 
 
 ## Quick Start Example
@@ -82,8 +72,8 @@ fn main() -> firebase_rs_sdk_unofficial::analytics::AnalyticsResult<()> {
 - In-memory event recording through `Analytics::log_event`, useful for testing and consumers that inspect sent payloads.
 - Measurement Protocol dispatcher that can forward events to GA4 when supplied with credentials, plus convenience
   helpers to derive the measurement ID from Firebase app options or the Firebase config endpoint.
-- Default event parameter handling and consent/settings storage so callers can declare analytics defaults before events
-  are logged.
+- Default event parameter handling, consent/settings storage, collection toggles, and a shared gtag bootstrap state so
+  WASM consumers can initialise scripts with consistent defaults before sending events.
 - Dynamic config fetching (`/v1alpha/projects/-/apps/{app-id}/webConfig`) with caching so the measurement ID can be
   resolved automatically before wiring the dispatcher.
 - Basic error handling (`analytics/invalid-argument`, `analytics/internal`, `analytics/network`,
