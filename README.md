@@ -39,7 +39,7 @@ As of the day of writing (October 21th, 2025), 7 modules have been ported to an 
 | [installations](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/installations) | 5%  | \[#         \] |
 | [messaging](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/messaging)         | 3%  | \[          \] |
 | [performance](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/performance)     | 3%  | \[          \] |
-| [remote-config](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/remote_config) | 3%  | \[          \] |
+| [remote-config](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/remote_config) | 25% | \[###       \] |
 
 
 The following modules are used internally by the library but with no direct API exposure (only the relevant features are ported on a need basis):

@@ -38,7 +38,7 @@ The feature **must be present** in the original Firebase JS SDK, or it will not 
 
 For moving forward the porting of a module you are interested in, leaving to the AI to decide what it should work on:
 
-> Following the instructions in ./AGENTS.md, read in the file ./src/{module}/README.md what are the next steps and the missing features in the module {module} and work on the first step
+> Following the instructions in ./AGENTS.md, read the file ./src/{module}/README.md what are the next steps and the missing features in the module {module} and work on the first step
 
 For documenting some of the API:
 
