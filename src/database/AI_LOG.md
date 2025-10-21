@@ -426,13 +426,13 @@ stack backtrace:
    2: core::result::unwrap_failed
              at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library\core\src\result.rs:1732
    3: enum2$<core::result::Result<tuple$<>,firebase_rs_sdk_unofficial::database::error::DatabaseError> >::unwrap
-             at C:\Users\dmg\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\result.rs:1137
+             at C:\User\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\result.rs:1137
    4: firebase_rs_sdk_unofficial::database::backend::tests::rest_backend_skips_missing_tokens
              at .\src\database\backend.rs:516
    5: firebase_rs_sdk_unofficial::database::backend::tests::rest_backend_skips_missing_tokens::closure$0
              at .\src\database\backend.rs:502
    6: core::ops::function::FnOnce::call_once<firebase_rs_sdk_unofficial::database::backend::tests::rest_backend_skips_missing_tokens::closure_env$0,tuple$<> >
-             at C:\Users\dmg\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\ops\function.rs:250
+             at C:\Use\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\ops\function.rs:250
    7: core::ops::function::FnOnce::call_once
              at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library\core\src\ops\function.rs:250
 note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.

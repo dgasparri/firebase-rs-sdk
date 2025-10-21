@@ -18,7 +18,7 @@ This is sufficient for other modules to depend on the component interface, but i
 
 ## Porting status
 
-- ai 5% \[#         \]
+- ai 5% `[#         ]`
 
 ==As of October 21th, 2025== 
 

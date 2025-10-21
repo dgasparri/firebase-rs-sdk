@@ -1,6 +1,4 @@
-# Firebase Remote Config Port (Rust)
-
-## Introduction
+# Firebase Remote Config Module
 
 This module is the Rust port of the Firebase Remote Config SDK. It exposes a configurable cache of key/value pairs that
 can be fetched from the Remote Config backend and activated inside a Firebase app. The current implementation offers an
@@ -8,7 +6,7 @@ in-memory stub that wires the component into the shared container so other servi
 
 ## Porting status
 
-- remote_config 25% \[###       \]
+- remote_config 25% `[###       ]`
 
 ==As of October 20th, 2025==
 
@@ -20,7 +18,7 @@ I’d put the Remote Config port around 25 % complete. We now mirror the JS SD
 
 ## Quick Start Example
 
-```rust
+```rust,no_run
 use std::collections::HashMap;
 
 use firebase_rs_sdk_unofficial::app::api::initialize_app;

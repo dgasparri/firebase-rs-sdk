@@ -1,3 +1,4 @@
+#![doc = include_str!("README.md")]
 mod api;
 pub mod constants;
 pub mod error;

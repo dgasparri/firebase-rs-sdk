@@ -24,7 +24,7 @@ It includes error handling, configuration options, and integration with Firebase
 
 ## Porting status
 
-- storage 60% \[######    \]
+- storage 60% `[######    ]`
 
 ==As of October 21th, 2025== 
 

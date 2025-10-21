@@ -1,19 +1,8 @@
 # Miscellaneous TODO
 
-## Race condition in analytics testing - does not fail with thread=1 
-
-failures:
-
----- analytics::api::tests::log_event_records_entry stdout ----
-
-thread 'analytics::api::tests::log_event_records_entry' panicked at src\analytics\api.rs:137:50:
-called `Result::unwrap()` on an `Err` value: AnalyticsError { code: Internal, message: "Analytics component not available" }
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+## Create a RUSTDOC.md with extracts from README.md
 
 
-failures:
-    analytics::api::tests::log_event_records_entry
+Create a slimmer, less noisy RUSTDOC.md file for each module, with sections extracted from the official module's README.md (better if through a script) to be included as a DOC in the file, less crowded that the README.md file
 
-test result: FAILED. 186 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.98s
-
-error: test failed, to rerun pass `--lib`
+#![doc = include_str!("RUSTDOC.md")]

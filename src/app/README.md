@@ -6,7 +6,7 @@ The Firebase App coordinates the communication between the different Firebase co
 
 ## Porting status
 
-- app 60% \[######    \]
+- app 60% `[######    ]`
 
 ==As of October 20th, 2025== 
 

@@ -52,9 +52,9 @@ impl MeasurementProtocolConfig {
 /// Supported endpoints for the Measurement Protocol.
 #[derive(Clone, Debug)]
 pub enum MeasurementProtocolEndpoint {
-    /// Production collection endpoint: https://www.google-analytics.com/mp/collect
+    /// Production collection endpoint: <https://www.google-analytics.com/mp/collect>
     Collect,
-    /// Debugging endpoint: https://www.google-analytics.com/debug/mp/collect
+    /// Debugging endpoint: <https://www.google-analytics.com/debug/mp/collect>
     DebugCollect,
     /// Custom endpoint (primarily for testing).
     Custom(String),

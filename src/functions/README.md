@@ -6,7 +6,7 @@ mirror `@firebase/functions` so apps can call HTTPS callable functions and other
 
 ## Porting status
 
-- functions 5% \[#         \]
+- functions 5% `[#         ]`
 
 ==As of October 20th, 2025== 
 

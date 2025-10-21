@@ -14,7 +14,7 @@ It includes error handling, configuration options, and integration with Firebase
 
 ## Porting status
 
-- app_check 20% \[##        \]
+- app_check 20% `[##        ]`
 
 ==As of October 20th, 2025== 
 

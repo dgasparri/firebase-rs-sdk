@@ -19,7 +19,7 @@ It includes error handling, configuration options, and integration with Firebase
 
 ## Porting status
 
-- firestore 25% \[###       \]
+- firestore 25% `[###       ]`
 
 ==As of October 21th, 2025== 
 

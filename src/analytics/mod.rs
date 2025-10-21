@@ -1,3 +1,4 @@
+#![doc = include_str!("README.md")]
 mod api;
 mod config;
 mod constants;
@@ -14,3 +15,5 @@ pub use gtag::{GlobalGtagRegistry, GtagRegistry, GtagState};
 pub use transport::{
     MeasurementProtocolConfig, MeasurementProtocolDispatcher, MeasurementProtocolEndpoint,
 };
+
+pub use error::{AnalyticsError, AnalyticsResult};

@@ -5,7 +5,7 @@ This directory hosts the early-stage Rust port of Firebase Data Connect. The aim
 
 ## Porting status
 
-- data_connect 5% \[#         \]
+- data_connect 5% `[#         ]`
 
 ==As of October 21th, 2025== 
 

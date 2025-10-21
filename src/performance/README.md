@@ -6,7 +6,7 @@ synthetic traces.
 
 ## Porting status
 
-- performance 3% \[#         \]
+- performance 3% `[#         ]`
 
 ==As of October 21th, 2025== 
 

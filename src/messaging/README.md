@@ -5,7 +5,7 @@ This directory hosts the early-stage Rust port of the Firebase Cloud Messaging (
 
 ## Porting status
 
-- messaging 3% \[          \]
+- messaging 3% `[          ]`
 
 ==As of October 20th, 2025== 
 

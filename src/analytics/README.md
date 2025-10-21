@@ -9,7 +9,7 @@ Analytics using the GA4 Measurement Protocol.
 
 ## Porting status
 
-- analytics 20% \[##         \]
+- analytics 20% `[##         ]`
 
 ==As of October 20th, 2025==
 
@@ -30,7 +30,7 @@ Large pieces are still missing—full gtag initialization, consent persistence, 
 
 ## Quick Start Example
 
-```rust
+```rust,no_run
 use std::collections::BTreeMap;
 
 use firebase_rs_sdk_unofficial::analytics::{
@@ -38,7 +38,8 @@ use firebase_rs_sdk_unofficial::analytics::{
 };
 use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
 
-fn main() -> firebase_rs_sdk_unofficial::analytics::AnalyticsResult<()> {
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FirebaseOptions {
         api_key: Some("AIza...".into()),
         app_id: Some("1:1234567890:web:abcdef".into()),
