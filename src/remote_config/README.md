@@ -8,20 +8,15 @@ in-memory stub that wires the component into the shared container so other servi
 
 ## Porting status
 
-- remote_config 3% \[          \]
+- remote_config 25% \[###       \]
 
 ==As of October 20th, 2025==
 
 Prompt: Compare the original JS/Typescript files in ./packages/remote_config and the ported files in Rust in ./src/remote_config, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
 
-Remote Config coverage sits at roughly 3 %.
+I'm estimating the porting progress at about 25% based on the features done so far—like defaults, fetch stub, storage caching, and typed APIs—but noting key parts still missing such as real HTTP wiring, throttling, custom signals, logging, and real-time updates. This helps ground expectations on remaining work.
 
-  - Rust mirrors only the scaffolding: a component registration plus an in-memory RemoteConfig that stores defaults and
-    copies them into active values on activate, while fetch is a no-op (src/remote_config/api.rs).
-  - The JS SDK is far richer, with initialization options, storage caching, network fetch via RemoteConfigFetchClient,
-    realtime handlers, settings tweaks, typed getters (getBoolean, getNumber, etc.), custom signals, logging, fetch
-    throttling, minimum intervals, persistence with Storage/IndexedDB, and realtime updates (packages/remote-config/src/
-    api.ts, packages/remote-config/src/remote_config.ts, and related client, storage, value, errors, register code).
+I’d put the Remote Config port around 25 % complete. We now mirror the JS SDK’s typed getters, settings surface, fetch metadata, template version tracking, pluggable storage (memory + file), and even have an HTTP client ready once Installations lands. But big pieces remain: wiring that transport by default, throttle/error parity, custom signals, logging controls, real persistent storage for web/wasm, and realtime updates. Once the Installations module is in place and those integrations are finished, the percentage will jump significantly.
 
 ## Quick Start Example
 
@@ -61,6 +56,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Value API parity with typed getters (`get_value`, `get_boolean`, `get_number`, `get_all`) backed by
   `RemoteConfigValue`.
 - Config settings surface with validation, including fetch timeout and minimum fetch interval knobs analogous to the JS SDK.
+- In-memory storage cache that records last fetch status, timestamp, and active config ETAG for parity with
+  `StorageCache` in the JS SDK.
+- Fetch logic honours `minimum_fetch_interval_millis`, records metadata, and exposes a pluggable
+  `RemoteConfigFetchClient` with a blocking HTTP implementation.
+- Template version tracking via `active_template_version` to mirror template metadata exposed in the JS SDK.
 - Basic string retrieval through `get_string`.
 - Simple process-level cache keyed by app name to avoid redundant component creation.
 - Minimal error type covering `invalid-argument` and `internal` cases.
@@ -68,24 +68,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Still to do
 
+- Persistent storage (web/mobile): add IndexedDB/wasm implementations and select sensible defaults per platform,
+  building on the new pluggable storage layer (`packages/remote-config/src/storage`).
 - Fetch & transport: implement HTTP fetch logic, throttling, and ETag handling similar to
   `packages/remote-config/src/api.ts` and `client/remote_config_fetch_client.ts`.
-- Persistent storage: port `Storage` + `StorageCache` for active configs, last fetch metadata, and cross-process
-  durability (`packages/remote-config/src/storage`).
 - Logging & errors: extend error surface (`ErrorCode` equivalents) and log-level tuning (`setLogLevel`).
 - Custom signals & realtime updates: support `setCustomSignals` and realtime update subscriptions (`client/realtime_handler.ts`).
 - Testing parity: port fetch/activation/storage tests from `packages/remote-config/test` once functionality exists.
 
 ## Next Steps - Detailed Completion Plan
 
-1. **Implement fetch metadata persistence**
-   - Introduce a storage trait with in-memory implementation for now, emulating `StorageCache` behaviour.
-   - Track last fetch status, timestamp, and active config ETAG, paving the path for real network fetches.
-2. **Implement fetch/transport logic**
-   - Sketch a fetch client abstraction that can be backed by reqwest (native) or web-sys (wasm).
-   - Honor settings for timeout and minimum fetch interval, and surface structured errors.
+1. **Wire HTTP transport by default (blocked on Installations)**
+   - Once the Installations module is ported, supply an `InstallationsProvider` that hands `HttpRemoteConfigFetchClient` the installation ID/token.
+   - Extend fetch handling with throttle metadata persistence and richer error mapping mirroring JS error codes.
+2. **Add platform-specific persistent storage**
+   - Provide IndexedDB/wasm implementations and choose defaults per target while keeping the file backend for native.
+   - Mirror JS quota/cleanup behaviour and test warm-up flows across restarts.
 3. **Integrate custom signals and logging controls**
    - Expose setter for custom signals stored alongside metadata; allow toggling between error/debug/silent log levels.
    - Provide tests ensuring signals persist and log level changes propagate.
 
-Completing step 1 exposes configuration knobs that other crates rely on, setting the stage for real fetch logic and persistence work.
+Work paused here until the Installations module is available; revisit step 1 afterwards to hook up real network fetches.

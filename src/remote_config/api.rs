@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app;
 use crate::app::FirebaseApp;
@@ -8,35 +10,53 @@ use crate::component::types::{
 };
 use crate::component::{Component, ComponentType};
 use crate::remote_config::constants::REMOTE_CONFIG_COMPONENT_NAME;
-use crate::remote_config::error::{internal_error, RemoteConfigResult};
+use crate::remote_config::error::{internal_error, invalid_argument, RemoteConfigResult};
+use crate::remote_config::fetch::{FetchRequest, NoopFetchClient, RemoteConfigFetchClient};
 use crate::remote_config::settings::{RemoteConfigSettings, RemoteConfigSettingsUpdate};
+use crate::remote_config::storage::{
+    FetchStatus, InMemoryRemoteConfigStorage, RemoteConfigStorage, RemoteConfigStorageCache,
+};
 use crate::remote_config::value::{RemoteConfigValue, RemoteConfigValueSource};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RemoteConfig {
     inner: Arc<RemoteConfigInner>,
 }
 
-#[derive(Debug)]
 struct RemoteConfigInner {
     app: FirebaseApp,
     defaults: Mutex<HashMap<String, String>>,
-    values: Mutex<HashMap<String, String>>,
+    fetched_config: Mutex<HashMap<String, String>>,
+    fetched_etag: Mutex<Option<String>>,
+    fetched_template_version: Mutex<Option<u64>>,
     activated: Mutex<bool>,
     settings: Mutex<RemoteConfigSettings>,
+    fetch_client: Mutex<Arc<dyn RemoteConfigFetchClient>>,
+    storage_cache: RemoteConfigStorageCache,
 }
 static REMOTE_CONFIG_CACHE: LazyLock<Mutex<HashMap<String, Arc<RemoteConfig>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 impl RemoteConfig {
     fn new(app: FirebaseApp) -> Self {
+        Self::with_storage(app, Arc::new(InMemoryRemoteConfigStorage::default()))
+    }
+
+    pub fn with_storage(app: FirebaseApp, storage: Arc<dyn RemoteConfigStorage>) -> Self {
+        let storage_cache = RemoteConfigStorageCache::new(storage);
+        let fetch_client: Arc<dyn RemoteConfigFetchClient> = Arc::new(NoopFetchClient::default());
+
         Self {
             inner: Arc::new(RemoteConfigInner {
                 app,
                 defaults: Mutex::new(HashMap::new()),
-                values: Mutex::new(HashMap::new()),
+                fetched_config: Mutex::new(HashMap::new()),
+                fetched_etag: Mutex::new(None),
+                fetched_template_version: Mutex::new(None),
                 activated: Mutex::new(false),
                 settings: Mutex::new(RemoteConfigSettings::default()),
+                fetch_client: Mutex::new(fetch_client),
+                storage_cache,
             }),
         }
     }
@@ -47,6 +67,14 @@ impl RemoteConfig {
 
     pub fn set_defaults(&self, defaults: HashMap<String, String>) {
         *self.inner.defaults.lock().unwrap() = defaults;
+    }
+
+    /// Replaces the underlying fetch client.
+    ///
+    /// Useful for tests or environments that need to supply a custom transport implementation,
+    /// such as [`HttpRemoteConfigFetchClient`](crate::remote_config::fetch::HttpRemoteConfigFetchClient).
+    pub fn set_fetch_client(&self, fetch_client: Arc<dyn RemoteConfigFetchClient>) {
+        *self.inner.fetch_client.lock().unwrap() = fetch_client;
     }
 
     /// Returns a copy of the current Remote Config settings.
@@ -100,18 +128,147 @@ impl RemoteConfig {
     }
 
     pub fn fetch(&self) -> RemoteConfigResult<()> {
-        // Minimal stub: mark values as fetched but keep defaults.
-        Ok(())
+        let now = current_timestamp_millis();
+        let settings = self.inner.settings.lock().unwrap().clone();
+
+        if let Some(last_fetch) = self
+            .inner
+            .storage_cache
+            .last_successful_fetch_timestamp_millis()
+        {
+            let elapsed = now.saturating_sub(last_fetch);
+            if settings.minimum_fetch_interval_millis() > 0
+                && elapsed < settings.minimum_fetch_interval_millis()
+            {
+                self.inner
+                    .storage_cache
+                    .set_last_fetch_status(FetchStatus::Throttle)?;
+                return Err(invalid_argument(
+                    "minimum_fetch_interval_millis has not elapsed since the last successful fetch",
+                ));
+            }
+        }
+
+        let request = FetchRequest {
+            cache_max_age_millis: settings.minimum_fetch_interval_millis(),
+            timeout_millis: settings.fetch_timeout_millis(),
+            e_tag: self.inner.storage_cache.active_config_etag(),
+            custom_signals: None,
+        };
+
+        let fetch_client = self.inner.fetch_client.lock().unwrap().clone();
+        let response = fetch_client.fetch(request);
+
+        let response = match response {
+            Ok(res) => res,
+            Err(err) => {
+                self.inner
+                    .storage_cache
+                    .set_last_fetch_status(FetchStatus::Failure)?;
+                return Err(err);
+            }
+        };
+
+        match response.status {
+            200 => {
+                let config = response.config.unwrap_or_default();
+                let etag = response.etag;
+                {
+                    let mut fetched = self.inner.fetched_config.lock().unwrap();
+                    *fetched = config;
+                }
+                {
+                    let mut fetched_etag = self.inner.fetched_etag.lock().unwrap();
+                    *fetched_etag = etag;
+                }
+                {
+                    let mut fetched_template_version =
+                        self.inner.fetched_template_version.lock().unwrap();
+                    *fetched_template_version = response.template_version;
+                }
+                *self.inner.activated.lock().unwrap() = false;
+                self.inner
+                    .storage_cache
+                    .set_last_fetch_status(FetchStatus::Success)?;
+                self.inner
+                    .storage_cache
+                    .set_last_successful_fetch_timestamp_millis(now)?;
+                Ok(())
+            }
+            304 => {
+                self.inner
+                    .storage_cache
+                    .set_last_fetch_status(FetchStatus::Success)?;
+                self.inner
+                    .storage_cache
+                    .set_last_successful_fetch_timestamp_millis(now)?;
+                Ok(())
+            }
+            status => {
+                self.inner
+                    .storage_cache
+                    .set_last_fetch_status(FetchStatus::Failure)?;
+                Err(internal_error(format!(
+                    "fetch returned unexpected status {}",
+                    status
+                )))
+            }
+        }
     }
 
     pub fn activate(&self) -> RemoteConfigResult<bool> {
         let mut activated = self.inner.activated.lock().unwrap();
         let changed = !*activated;
         if changed {
-            *self.inner.values.lock().unwrap() = self.inner.defaults.lock().unwrap().clone();
+            let mut fetched = self.inner.fetched_config.lock().unwrap();
+            let config = if fetched.is_empty() {
+                self.inner.defaults.lock().unwrap().clone()
+            } else {
+                fetched.clone()
+            };
+            fetched.clear();
+            drop(fetched);
+
+            let mut fetched_etag = self.inner.fetched_etag.lock().unwrap();
+            let etag = fetched_etag.take();
+            drop(fetched_etag);
+
+            let mut fetched_template_version = self.inner.fetched_template_version.lock().unwrap();
+            let template_version = fetched_template_version.take();
+            drop(fetched_template_version);
+
+            self.inner.storage_cache.set_active_config(config)?;
+            self.inner.storage_cache.set_active_config_etag(etag)?;
+            self.inner
+                .storage_cache
+                .set_active_config_template_version(template_version)?;
         }
         *activated = true;
         Ok(changed)
+    }
+
+    /// Returns the timestamp (in milliseconds since epoch) of the last successful fetch.
+    ///
+    /// Mirrors `remoteConfig.fetchTimeMillis` from the JS SDK, returning `-1` when no successful
+    /// fetch has completed yet.
+    pub fn fetch_time_millis(&self) -> i64 {
+        self.inner
+            .storage_cache
+            .last_successful_fetch_timestamp_millis()
+            .map(|millis| millis as i64)
+            .unwrap_or(-1)
+    }
+
+    /// Returns the status of the last fetch attempt.
+    ///
+    /// Matches the JS `remoteConfig.lastFetchStatus` property.
+    pub fn last_fetch_status(&self) -> FetchStatus {
+        self.inner.storage_cache.last_fetch_status()
+    }
+
+    /// Returns the template version of the currently active Remote Config, if known.
+    pub fn active_template_version(&self) -> Option<u64> {
+        self.inner.storage_cache.active_config_template_version()
     }
 
     /// Returns the raw string value for a parameter.
@@ -137,7 +294,7 @@ impl RemoteConfig {
 
     /// Returns a value wrapper that exposes typed accessors and the source of the parameter.
     pub fn get_value(&self, key: &str) -> RemoteConfigValue {
-        if let Some(value) = self.inner.values.lock().unwrap().get(key).cloned() {
+        if let Some(value) = self.inner.storage_cache.active_config().get(key).cloned() {
             return RemoteConfigValue::new(RemoteConfigValueSource::Remote, value);
         }
         if let Some(value) = self.inner.defaults.lock().unwrap().get(key).cloned() {
@@ -149,7 +306,7 @@ impl RemoteConfig {
     /// Returns the union of default and active configs, with active values taking precedence.
     pub fn get_all(&self) -> HashMap<String, RemoteConfigValue> {
         let defaults = self.inner.defaults.lock().unwrap().clone();
-        let values = self.inner.values.lock().unwrap().clone();
+        let values = self.inner.storage_cache.active_config();
 
         let mut all = HashMap::new();
         for (key, value) in defaults {
@@ -165,6 +322,17 @@ impl RemoteConfig {
             );
         }
         all
+    }
+}
+
+impl fmt::Debug for RemoteConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let defaults_len = self.inner.defaults.lock().map(|map| map.len()).unwrap_or(0);
+        f.debug_struct("RemoteConfig")
+            .field("app", &self.app().name())
+            .field("defaults", &defaults_len)
+            .field("last_fetch_status", &self.last_fetch_status().as_str())
+            .finish()
     }
 }
 
@@ -191,6 +359,13 @@ fn remote_config_factory(
 
     let rc = RemoteConfig::new((*app).clone());
     Ok(Arc::new(rc) as DynService)
+}
+
+fn current_timestamp_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn ensure_registered() {
@@ -254,10 +429,18 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseApp, FirebaseAppSettings, FirebaseOptions};
+    use crate::remote_config::error::internal_error;
+    use crate::remote_config::fetch::{FetchRequest, FetchResponse, RemoteConfigFetchClient};
     use crate::remote_config::settings::{
         RemoteConfigSettingsUpdate, DEFAULT_FETCH_TIMEOUT_MILLIS,
         DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS,
     };
+    use crate::remote_config::storage::{
+        FetchStatus, FileRemoteConfigStorage, RemoteConfigStorage,
+    };
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex as StdMutex;
 
     fn remote_config(app: FirebaseApp) -> Arc<RemoteConfig> {
         get_remote_config(Some(app)).unwrap()
@@ -290,6 +473,8 @@ mod tests {
         rc.fetch().unwrap();
         assert!(rc.activate().unwrap());
         assert_eq!(rc.get_string("welcome"), "hello");
+        assert_eq!(rc.last_fetch_status(), FetchStatus::Success);
+        assert!(rc.fetch_time_millis() > 0);
     }
 
     #[test]
@@ -464,5 +649,132 @@ mod tests {
             result.unwrap_err().code_str(),
             crate::remote_config::error::RemoteConfigErrorCode::InvalidArgument.as_str()
         );
+    }
+
+    #[test]
+    fn fetch_metadata_defaults() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let rc = remote_config(app);
+
+        assert_eq!(rc.last_fetch_status(), FetchStatus::NoFetchYet);
+        assert_eq!(rc.fetch_time_millis(), -1);
+    }
+
+    #[test]
+    fn fetch_respects_minimum_fetch_interval() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let rc = remote_config(app);
+
+        rc.fetch().unwrap();
+        let result = rc.fetch();
+
+        assert!(result.is_err());
+        assert_eq!(rc.last_fetch_status(), FetchStatus::Throttle);
+    }
+
+    #[test]
+    fn fetch_and_activate_uses_remote_values() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let rc = remote_config(app);
+
+        let response = FetchResponse {
+            status: 200,
+            etag: Some(String::from("etag-1")),
+            config: Some(HashMap::from([(
+                String::from("feature"),
+                String::from("remote"),
+            )])),
+            template_version: Some(7),
+        };
+
+        rc.set_fetch_client(Arc::new(StubFetchClient::new(response)));
+
+        rc.fetch().unwrap();
+        assert_eq!(rc.last_fetch_status(), FetchStatus::Success);
+
+        assert!(rc.activate().unwrap());
+        let value = rc.get_value("feature");
+        assert_eq!(value.source(), RemoteConfigValueSource::Remote);
+        assert_eq!(value.as_string(), "remote");
+        assert_eq!(rc.active_template_version(), Some(7));
+    }
+
+    struct StubFetchClient {
+        response: StdMutex<Option<FetchResponse>>,
+    }
+
+    impl StubFetchClient {
+        fn new(response: FetchResponse) -> Self {
+            Self {
+                response: StdMutex::new(Some(response)),
+            }
+        }
+    }
+
+    impl RemoteConfigFetchClient for StubFetchClient {
+        fn fetch(&self, _request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
+            self.response
+                .lock()
+                .unwrap()
+                .take()
+                .ok_or_else(|| internal_error("no response queued"))
+        }
+    }
+
+    #[test]
+    fn with_storage_persists_across_instances() {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let storage_path = std::env::temp_dir().join(format!(
+            "firebase-remote-config-api-storage-{}.json",
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+
+        let storage: Arc<dyn RemoteConfigStorage> =
+            Arc::new(FileRemoteConfigStorage::new(storage_path.clone()).unwrap());
+        let rc = RemoteConfig::with_storage(app.clone(), storage.clone());
+
+        rc.set_fetch_client(Arc::new(StubFetchClient::new(FetchResponse {
+            status: 200,
+            etag: Some(String::from("persist-etag")),
+            config: Some(HashMap::from([(
+                String::from("motd"),
+                String::from("hello"),
+            )])),
+            template_version: Some(5),
+        })));
+
+        rc.fetch().unwrap();
+        rc.activate().unwrap();
+
+        drop(rc);
+
+        let storage2: Arc<dyn RemoteConfigStorage> =
+            Arc::new(FileRemoteConfigStorage::new(storage_path.clone()).unwrap());
+        let rc2 = RemoteConfig::with_storage(app, storage2);
+
+        let value = rc2.get_value("motd");
+        assert_eq!(value.source(), RemoteConfigValueSource::Remote);
+        assert_eq!(value.as_string(), "hello");
+        assert_eq!(rc2.active_template_version(), Some(5));
+
+        let _ = fs::remove_file(storage_path);
     }
 }
