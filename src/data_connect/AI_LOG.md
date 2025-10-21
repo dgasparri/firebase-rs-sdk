@@ -19,3 +19,33 @@ I’m examining how unwrap_or(None) is used on a Result<Option<Arc<T>>, Componen
   (81 tests).
 
   This provides the structural API surface; real transports, schema integration, and error parity remain future work.
+
+## 21 October 2025
+
+> PROMPT: Let's focus now on data_connect module. Compare the original JS/Typescript files in ./packages/data_connect and the ported files in Rust in ./src/data_connect, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
+
+Updated Plan
+  └ □ Review existing README/documentation for data_connect module to capture current status notes
+    □ Survey JS/TS implementation under ./packages/data_connect to understand feature scope
+    □ Inspect Rust implementation in ./src/data_connect and compare with JS features
+    □ Estimate porting percentage with justification
+
+• Explored
+  └ List data_connect
+    Read README.md
+    List data_connect
+    List packages
+    List data-connect
+    Search find packages/data-connect/src -maxdepth 2 -type f
+    Search find src/data_connect -maxdepth 2 -type f
+    Read api.rs, constants.rs, error.rs, mod.rs, DataConnect.ts
+
+> Thinking
+  I'm considering how much functionality has been ported from JS to Rust and what remains unported. I'll examine key
+  modules like QueryManager and Mutation, as well as network handling and watchers, to get a clearer picture of the
+  differences and coverage. This way, I can summarize the gap accurately.
+
+• Explored
+  └ Read DataConnect.ts, query.ts, Reference.ts, QueryManager.ts
+
+  

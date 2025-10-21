@@ -14,6 +14,55 @@ It includes error handling, configuration options, and integration with Firebase
 - Refresh and manage ID tokens, exposing them through the AuthTokenProvider bridge for other services.
 - Access provider helpers (e.g., EmailAuthProvider) and user profile updates, matching the JS API ergonomics.
 
+## Porting status
+
+- auth 25% \[###       \]
+
+==As of October 21th, 2025== 
+
+Prompt: Compare the original JS/Typescript files in ./packages/auth and the ported files in Rust in ./src/auth, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
+
+Porting Estimate
+
+  - Roughly ~25% parity: Rust covers core email/password REST flows and some OAuth scaffolding, but large swaths of
+  the JS module (custom token, phone, MFA, browser helpers, advanced settings) remain unported (packages/auth/src/api/
+  index.ts:56, packages/auth/src/core/index.ts:292).
+
+Coverage Highlights
+
+  - Email/password sign-in, account creation, and reauthentication are implemented (src/auth/api.rs:147, src/auth/
+  api.rs:184, src/auth/api.rs:533), aligning with the JS email/password strategy basics.
+  - Account management helpers—password reset, email verification, profile/email/password updates, deletion, and
+  unlinking—are present (src/auth/api.rs:429, src/auth/api.rs:458, src/auth/api.rs:503, src/auth/api.rs:515).
+  - OAuth credential exchange plus popup/redirect abstractions exist, letting consumers plug platform handlers while
+  reusing signInWithIdp (src/auth/api.rs:421, src/auth/oauth/provider.rs:1, src/auth/oauth/redirect.rs:1).
+  - Persistence and token refresh infrastructure (in-memory/closure storage and Secure Token client) mirror the JS
+  concepts at a basic level (src/auth/persistence/mod.rs:1, src/auth/api/token.rs:1), with a wasm-web storage variant
+  (src/auth/persistence/web.rs:1).
+
+Major Gaps
+
+  - JS exposes many additional endpoints—custom token, email link, phone SMS, reCAPTCHA config, password policy, token
+  revocation—that the Rust side lacks (packages/auth/src/api/index.ts:56).
+  - Strategy helpers for anonymous sign-in, email link flows, credential-based link/reauth, and verification utilities
+  remain unported (packages/auth/src/core/index.ts:292).
+  - Multi-factor enrollment/resolution, MFA-specific errors, and assertions are fully implemented in JS (packages/auth/
+  src/mfa/mfa_resolver.ts:37) but reduced to stubs returning NotImplemented in Rust (src/auth/types.rs:104).
+  - Browser-specific pieces—popup/redirect resolvers, iframe messaging, reCAPTCHA bootstrap, indexedDB/local/session
+  storage adapters—are absent on the Rust side (packages/auth/src/platform_browser/popup_redirect.ts:1, packages/auth/
+  src/platform_browser/load_js.ts:1).
+  - Auth settings, localization, tenant management, onIdTokenChanged listeners, emulator support, and rich error/code
+  mapping exported in JS (packages/auth/src/core/index.ts:204) have no Rust equivalents yet.
+
+Next Steps
+
+  1. Prioritize porting additional REST endpoints (custom token, phone, email link, token revoke) to close the biggest
+  functional gaps.
+  2. Introduce multi-factor primitives and richer listener/error plumbing to match the JS surface before tackling
+  browser-specific adapters.
+
+
+
 ## References to the Firebase JS SDK - firestore module
 
 - QuickStart: <https://firebase.google.com/docs/auth/web/start>

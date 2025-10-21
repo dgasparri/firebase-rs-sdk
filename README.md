@@ -22,29 +22,27 @@ This material is from Google and the Community.
 
 ## Modules
 
-Stable/fully ported (vast majority of features and tests ported, API calls are documented, there are working examples):
+As of the day of writing (October 21th, 2025), 7 modules have been ported to an extent that they can be considered stable: the main features are ported, the API calls documented, the code is tested and working examples are provided. The other modules are a stub with just basic features, and API calls could evolve significantly:
 
-- [app](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app)
-- [auth](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth)
-- [auth_check](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth_check)
-- [database](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/database)
-- [firestore](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore)
-- [storage](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/storage)
-
-Minimal porting (some basic features and tests are ported, some API call documentation is missing, there is no working , API calls could evolve significantly):
-
-- [ai](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/ai)
-- [analytics](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/analytics)
-- [app_check](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app_check)
-- [data-connect](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/data_connect)
-- [functions](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/functions)
-- [installations](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/installations)
-- [messaging](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/messaging)
-- [performance](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/performance)
-- [remote-config](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/remote_config)
+| Module | Percentage | |
+|--------|------------|-|
+| [app](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app)                     | 60% | \[######    \] |
+| [storage](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/storage)             | 60% | \[######    \] |
+| [database](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/database)           | 30% | \[###       \] |
+| [auth](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth)                   | 25% | \[###       \] |
+| [firestore](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore)         | 25% | \[###       \] |
+| [analytics](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/analytics)         | 20% | \[##        \] |
+| [app_check](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app_check)         | 20% | \[##        \] |
+| [ai](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/ai)                       | 5%  | \[#         \] |
+| [data-connect](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/data_connect)   | 5%  | \[#         \] |
+| [functions](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/functions)         | 5%  | \[#         \] |
+| [installations](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/installations) | 5%  | \[#         \] |
+| [messaging](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/messaging)         | 3%  | \[          \] |
+| [performance](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/performance)     | 3%  | \[          \] |
+| [remote-config](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/remote_config) | 3%  | \[          \] |
 
 
-Modules used internally by the library but with no direct API exposure (only the relevant features are ported on a need basis):
+The following modules are used internally by the library but with no direct API exposure (only the relevant features are ported on a need basis):
 
 - [component](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/component)
 - [logger](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/logger)

@@ -22,6 +22,41 @@ It includes error handling, configuration options, and integration with Firebase
 - Manage object metadata
 - Comprehensive error handling
 
+## Porting status
+
+- storage 60% \[######    \]
+
+==As of October 21th, 2025== 
+
+Prompt: Compare the original JS/Typescript files in ./packages/storage and the ported files in Rust in ./src/storage, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
+
+Thinking
+I'll create a clear, concise answer with bullet points under headers for positive coverage and key gaps, referencing specific source lines like src/storage/reference.rs:81 and packages/storage/src/api.ts:129. I’ll include an estimated completeness around 60% and a friendly next-step suggestion about porting missing features to wrap it up nicely.
+
+Storage Port Coverage
+
+  - Core reference operations (metadata fetch/update, listing, byte downloads, multipart & resumable uploads) are
+  present in Rust (src/storage/reference.rs:81, src/storage/reference.rs:94, src/storage/reference.rs:145, src/storage/
+  reference.rs:195) and backed by the request builders and retry plumbing in src/storage/request/builders.rs:1.
+  - Storage instance management mirrors the JS service: component registration, emulator support, bucket resolution, and
+  auth/app-check header injection live in src/storage/api.rs:12 and src/storage/service.rs:1.
+
+Key Gaps
+
+  - JS exposes string uploads and streaming/blob downloads (packages/storage/src/api.ts:129, packages/storage/src/
+  reference.ts:201), but the Rust port only offers byte-buffer APIs—no upload_string, get_blob, or get_stream.
+  - The modular upload task with observers, pause/resume/cancel, and snapshot events (packages/storage/src/task.ts:62,
+  packages/storage/src/public-types.ts:214) is reduced to a synchronous helper without callbacks or state transitions in
+  Rust (src/storage/upload.rs:40).
+  - Error coverage is narrower: the Rust enum covers a handful of codes (src/storage/error.rs:1), whereas the JS SDK
+  handles the full suite including auth/quota/retry cases (packages/storage/src/implementation/error.ts:88), and there’s
+  no token-refresh logic on 401/403 responses.
+  - Estimated completion: roughly 60 % of the Firebase Storage web SDK surface has been ported to Rust—core CRUD and
+  upload flows are in place, but advanced task management, streaming/string conveniences, and full error parity remain
+  outstanding.
+
+Natural next step: implement the missing upload/download variants and enrich UploadTask to follow the observer-based API expected from the JS SDK.
+
 ### References to the Firebase JS SDK - storage module
 
 - QuickStart: https://firebase.google.com/docs/storage/web/start

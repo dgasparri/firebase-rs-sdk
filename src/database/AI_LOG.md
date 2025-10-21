@@ -919,4 +919,54 @@ Thinking
   DatabaseReference::child, and snapshot helpers so developers can see how to inspect payloads and previous keys in
   Rust.
 
+## 21 October 2025
 
+> PROMPT: Compare the original JS/Typescript files in ./packages/database and the ported files in Rust in ./src/database, and   ▌ give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to ▌ Rust for this module
+
+Updated Plan
+  └ □ Review existing Rust module structure and README for database module to understand current documented status
+    □ Inspect original TypeScript implementation in packages/database to identify major feature areas
+    □ Compare Rust sources against TS feature set and estimate porting percentage
+
+Thinking
+  I’m gathering details on features from TypeScript’s API, core, and realtime modules to compare with Rust’s simpler
+  restful/in-memory setup and partial event support; I want to estimate what percentage of the original functionality
+  the Rust port covers by categorizing features and inspecting key files like OnDisconnect.ts and query.rs.
+
+• Explored
+  └ Read query.rs, OnDisconnect.ts, Transaction.ts
+
+> Thinking
+  I'll explore the Rust database module's capabilities compared to the JavaScript one, focusing on core features
+  like registration, references, query building, listeners, transactions, and offline support, to estimate how much
+  functionality the Rust version covers or lacks.
+
+ I'll put together a clear bullet list showing about 30% of the JavaScript Realtime Database features appear ported to
+  Rust, backing it with code references for implemented and missing parts, highlighting key TypeScript modules not yet
+  ported, and finishing with suggestions like verifying features or updating documentation.
+
+> Port Estimate
+
+  - Roughly 30 % of the packages/database TypeScript surface is reflected in Rust; the port covers basic Database/
+  Reference CRUD, query builders, server values, and token-aware REST + in-memory backends.
+  - Implemented pieces include the Database component wiring and backend selection (src/database/api.rs:1499-1522, src/
+  database/backend.rs:15-205), core reference/query operations with listener dispatch (src/database/api.rs:773-960,
+  src/database/api.rs:1078-1250), snapshot helpers (src/database/api.rs:140-210), push-ID generation, and server value
+  helpers (src/database/server_value.rs:1-18), giving functional parity for simple reads/writes and REST filtering.
+  - Large swaths of the JS SDK remain unported: OnDisconnect actions error out (src/database/on_disconnect.rs:20-
+  50), transactions are stubbed (src/database/api.rs:905-913), and all realtime transports/Repo orchestration are
+  placeholders (src/database/realtime.rs:3-56), so anything depending on core/Repo.ts, PersistentConnection.ts, or
+  Transaction.ts is missing.
+  - Listener support is limited to local diffing; there is no remote event streaming (repo/SyncTree logic from packages/
+  database/src/core) or child-moved/query child events, nor off/once/isEqual/toString parity for QueryImpl/ReferenceImpl
+  (see packages/database/src/api/Reference_impl.ts for the unported surface).
+  - Auxiliary controls such as goOnline/goOffline, emulator toggles, logging, connection stats, validation utilities,
+  and Node-specific entry points (packages/database/src/api/Database.ts, core/util) are absent, indicating the broader
+  environment/runtime features are still outstanding.
+
+  Next steps you might consider:
+
+  1. Prioritise porting the Repo/persistent connection stack to unlock realtime listeners, transactions, and
+  onDisconnect semantics.
+  2. Flesh out the remaining public API surface (query equality/serialization helpers, off/once, refFromURL, logging/
+  emulator controls) and update src/database/README.md once significant pieces land.

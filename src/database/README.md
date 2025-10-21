@@ -17,6 +17,41 @@ It includes error handling, configuration options, and integration with Firebase
 - Dual backends (in-memory + REST) with unit test coverage
 
 
+## Porting status
+
+- database 30% \[###       \]
+
+==As of October 21th, 2025== 
+
+Prompt: Compare the original JS/Typescript files in ./packages/database and the ported files in Rust in ./src/database, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
+
+I'll put together a clear bullet list showing about 30% of the JavaScript Realtime Database features appear ported to Rust, backing it with code references for implemented and missing parts, highlighting key TypeScript modules not yet ported, and finishing with suggestions like verifying features or updating documentation.
+
+Port Estimate
+
+  - Roughly 30 % of the packages/database TypeScript surface is reflected in Rust; the port covers basic Database/
+  Reference CRUD, query builders, server values, and token-aware REST + in-memory backends.
+  - Implemented pieces include the Database component wiring and backend selection (src/database/api.rs:1499-1522, src/
+  database/backend.rs:15-205), core reference/query operations with listener dispatch (src/database/api.rs:773-960,
+  src/database/api.rs:1078-1250), snapshot helpers (src/database/api.rs:140-210), push-ID generation, and server value
+  helpers (src/database/server_value.rs:1-18), giving functional parity for simple reads/writes and REST filtering.
+  - Large swaths of the JS SDK remain unported: OnDisconnect actions error out (src/database/on_disconnect.rs:20-
+  50), transactions are stubbed (src/database/api.rs:905-913), and all realtime transports/Repo orchestration are
+  placeholders (src/database/realtime.rs:3-56), so anything depending on core/Repo.ts, PersistentConnection.ts, or
+  Transaction.ts is missing.
+  - Listener support is limited to local diffing; there is no remote event streaming (repo/SyncTree logic from packages/
+  database/src/core) or child-moved/query child events, nor off/once/isEqual/toString parity for QueryImpl/ReferenceImpl
+  (see packages/database/src/api/Reference_impl.ts for the unported surface).
+  - Auxiliary controls such as goOnline/goOffline, emulator toggles, logging, connection stats, validation utilities,
+  and Node-specific entry points (packages/database/src/api/Database.ts, core/util) are absent, indicating the broader
+  environment/runtime features are still outstanding.
+
+Next steps you might consider:
+
+  1. Prioritise porting the Repo/persistent connection stack to unlock realtime listeners, transactions, and onDisconnect semantics.
+  2. Flesh out the remaining public API surface (query equality/serialization helpers, off/once, refFromURL, logging/ emulator controls) and update src/database/README.md once significant pieces land.
+
+
 ## References to the Firebase JS SDK - firestore module
 
 - QuickStart: <https://firebase.google.com/docs/database/web/start>

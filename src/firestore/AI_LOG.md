@@ -735,3 +735,57 @@ I’m making sure all necessary modules like FilterOperator and register_firesto
   serializer.rs).
   - Adjusted examples and docs to reflect the richer query support (examples/firestore_select_documents.rs, src/
   firestore/README.md).
+
+
+
+## 21 October 2025
+
+> PROMPT: Compare the original JS/Typescript files in ./packages/firestore and the ported files in Rust in ./src/firestore, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
+
+Updated Plan
+  └ □ Inspect repo documentation and existing README for firestore module to understand status notes
+    □ Review JS/TS code structure in ./packages/firestore to gauge feature breadth
+    □ Assess Rust implementation in ./src/firestore and compare coverage to JS module
+    □ Formulate estimated porting percentage with justification
+
+• Explored
+  └ List ls
+    List src
+    List firestore
+    Read README.md
+    Search find src/firestore -maxdepth 2 -type f
+    Search find src/firestore -maxdepth 3 -type f
+    List firestore
+    Search find packages/firestore/src -maxdepth 2 -type d
+
+> Thinking
+  I’m focusing on estimating how much of the Rust code has been ported and what features it covers. I’ll examine key
+  Rust files like mod.rs to understand the main modules, types, and functions—just enough to get a high-level view
+  without getting lost in every detail.
+
+ - Roughly 25 % of the Firestore JS SDK has a Rust counterpart today. Core handles (app/component registration,
+  document/collection references, basic queries, HTTP datastore) exist, but most higher-level features remain unported.
+  - Implemented foundations mirror the JS model/value layers and basic client APIs: Firestore registration and handles
+  (src/firestore/api/database.rs:20), document and collection references plus typed converters (src/firestore/api/
+  reference.rs:17), document/query operations (src/firestore/api/document.rs:20), structured query building with
+  cursors (src/firestore/api/query.rs:185), HTTP-backed get/set/runQuery with retry/token wiring (src/firestore/remote/
+  datastore/http.rs:60), and JSON serialization utilities (src/firestore/remote/serializer.rs).
+  - Key gaps are everywhere the JS SDK leans on the core sync engine: real-time listeners, snapshot observers, pending-
+  write coordination, and client write pipeline described in packages/firestore/src/api/reference_impl.ts:1084 and
+  orchestrated through packages/firestore/src/core/firestore_client.ts:75 are absent on the Rust side; only polling-
+  style reads exist.
+  - Mutations beyond plain set/add, batched writes, and transactions defined in packages/firestore/src/api/
+  write_batch.ts:37 and packages/firestore/src/api/transaction.ts:103 are not implemented—Rust lacks equivalents to the
+  mutation queue, transaction runner, and precondition handling.
+  - Offline persistence, cache sizing, multi-tab coordination, and bundle/named-query support (packages/firestore/src/
+  api/database.ts:329, packages/firestore/src/local/indexeddb_persistence.ts:369, packages/firestore/src/api/bundle.ts)
+  have no Rust analogs; there is just an in-memory stub datastore.
+  - Advanced query operators (array-contains, in, not-in) are still rejected (src/firestore/api/query.rs:199), and
+  aggregation/bundle APIs (packages/firestore/src/api/aggregate.ts, packages/firestore/src/api/bundle.ts) haven’t been
+  ported, highlighting further functional gaps.
+  - The scope difference is also reflected in code volume (269 TypeScript sources under packages/firestore/src versus 32
+  Rust files under src/firestore), reinforcing that only the initial surface area is available in Rust.
+
+  1. Next natural steps: extend FirestoreClient with update_doc/delete_doc parity and write batches, then tackle real-
+  time listeners to unlock broader API coverage.
+
