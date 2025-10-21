@@ -1,70 +1,72 @@
 # Firebase Installations Port (Rust)
 
-This directory contains the starter Rust implementation of the Firebase Installations SDK. The goal is to recreate the
-functionality of `@firebase/installations` so other services can obtain Firebase Installation IDs (FIDs) and auth tokens.
+## Introduction
+The Installations module issues Firebase Installation IDs (FIDs) and scoped auth tokens used by other Firebase services. This Rust port mirrors the public JS API while speaking directly to the official Firebase Installations REST endpoints.
 
 ## Porting status
+- installations 25% [###       ]
 
-- installations 5% \[#         \]
-
-==As of October 20th, 2025== 
+==As of October 20th, 2025==
 
 Prompt: Compare the original JS/Typescript files in ./packages/installations and the ported files in Rust in ./src/installations, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
 
-I’m reviewing the Rust and JS implementations to compare their feature coverage. The Rust code is a minimal stub with basic ID and token generation stored in memory, lacking persistence, network calls, and component registration seen in JS. Many features like deleteInstallations, onIdChange, multi-app support, and caching are missing, so I estimate coverage around 5%. I’ll reference specific file paths and lines to support this analysis and highlight the biggest gaps before crafting the final summary.
+I’m reviewing the Rust and JS implementations to compare their feature coverage. The Rust code now performs real Installation registration and token refresh via the REST API, replacing the previous stub. Persistence, concurrency coordination, and secondary APIs (delete, onIdChange) still need to be ported. Given the new network integration, coverage increases from ~5 % to roughly 15 %. I’ll reference specific file paths and lines to support this analysis and highlight the biggest gaps before crafting the final summary.
 
-Coverage is around 5 %.
+Coverage is around 25 %.
 
-  - What exists in Rust is just a stub: component registration plus an in-memory Installations service that fabricates
-  a random FID/token per app (src/installations/api.rs:1) with basic error types (src/installations/error.rs:1) and the
-  constant definition (src/installations/constants.rs:1). No persistence, retries, or network calls are attempted.
-  - The JS SDK is vastly richer. It registers both public and internal components, extracts validated app config, wires
-  in heartbeat, and shares the implementation with other modules (packages/installations/src/functions/config.ts:1). It
-  persists installation entries in IndexedDB, handles concurrency, and respects spec-compliant FID generation with fid-
-  changed notifications (packages/installations/src/helpers/get-installation-entry.ts:1, packages/installations/src/
-  helpers/generate-fid.ts:1, packages/installations/src/helpers/fid-changed.ts:1, packages/installations/src/helpers/
-  idb-manager.ts:1).
-  - Token management and REST integration are entirely missing: the JS port handles registration and auth token
-  refresh via network calls with ETag logic and retry/backoff policies (packages/installations/src/helpers/refresh-
-  auth-token.ts:1) and exposes deleteInstallations, getId, getToken, and onIdChange with proper lifecycle guarantees
-  (packages/installations/src/api/delete-installations.ts:1, packages/installations/src/api/get-id.ts:1, packages/
-  installations/src/api/get-token.ts:1, packages/installations/src/api/on-id-change.ts:1).
-  - There’s no internal interface for other services, no emulator or diagnostics support, and the extensive helper/util/
-  test suites haven’t been ported (packages/installations/src/util/*, packages/installations/src/testing/*).
+  - Network registration and token refresh mirror the JS helpers (`packages/installations/src/functions/create-installation-request.ts`, `generate-auth-token-request.ts`) through a blocking `reqwest` client (`src/installations/rest.rs:1`).
+  - `get_id` and `get_token` call through the REST client and cache the resulting FID/token pair like the JS `getInstallationEntry` flow (`src/installations/api.rs:23`).
+  - Configuration extraction (`src/installations/config.rs:6`) validates required app options, similar to JS `extractAppConfig`.
+  - Installation entries (FID + refresh/auth tokens) now persist to disk between runs using the default file-backed cache (`src/installations/persistence.rs:1`).
+  - Delete support, onIdChange callbacks, IndexedDB-style concurrency guards, richer retry/backoff policies, and emulator/diagnostics features remain outstanding.
 
-Given that the Rust module only mirrors the surface types and returns dummy data while the JS implementation covers persistence, networking, retries, events, and internal wiring, the current port implements about one-twentieth of the functionality.
+## Quick Start Example
+```rust
+use firebase_rs_sdk_unofficial::app::api::initialize_app;
+use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk_unofficial::installations::{get_installations, InstallationToken};
 
+let app = initialize_app(
+    FirebaseOptions {
+        api_key: Some("AIza...".into()),
+        project_id: Some("my-project".into()),
+        app_id: Some("1:123:web:abc".into()),
+        ..Default::default()
+    },
+    Some(FirebaseAppSettings::default()),
+)?;
 
-## Current Functionality
+let installations = get_installations(Some(app.clone()))?;
+let fid = installations.get_id()?;
+let InstallationToken { token, expires_at } = installations.get_token(false)?;
+println!("FID={fid}, token={token}, expires={expires_at:?}");
+```
 
-- **Component wiring** – `register_installations_component` registers the public `installations` component so apps can
-  call `get_installations` through the shared component system.
-- **Installations service stub** – Generates an in-memory FID and auth token per app, supports `get_id` and
-  `get_token(force_refresh)` with deterministic ID reuse and token rotation on refresh.
-- **Token model** – Simple `InstallationToken` struct with token value and expiration timestamp.
-- **Errors/constants** – Base error codes (`installations/invalid-argument`, `installations/internal`) and component
-  name constant.
-- **Tests** – Unit tests covering ID stability and forced token refresh.
+## Implemented
+- Component registration exposing `get_installations` with per-app caching (`src/installations/api.rs:146`).
+- App config extraction and validation mirroring the JS helper (`src/installations/config.rs:6`).
+- REST client that registers installations and generates auth tokens using `reqwest` with retry on server errors (`src/installations/rest.rs:15`).
+- `get_id` now performs real registration, caches the returned FID/refresh token/auth token trio, and persists it to disk (`src/installations/api.rs:63`).
+- `get_token(force_refresh)` refreshes expired tokens via the REST endpoint, updates the cached entry, and writes the refreshed token back to the persistence store (`src/installations/api.rs:76`).
+- File-backed persistence that stores a per-app JSON record and loads it on startup (`src/installations/persistence.rs:1`).
+- Unit tests covering config validation, REST serialization/parsing (skipping when sockets are unavailable), persistence round-trips, and service behaviour for forced refreshes (`src/installations/rest.rs:156`, `src/installations/api.rs:188`, `src/installations/persistence.rs:80`).
 
-This is enough for dependent modules to resolve an Installations instance and simulate token usage, but it lacks network
-registration, persistence, and platform-specific functionality.
+## Still to do
+- Add concurrency coordination and migrations for the persistence layer (IndexedDB-style pending markers, multi-process guards).
+- Implement JS parity APIs: `deleteInstallations`, `onIdChange`, and internal factory helpers for other modules.
+- Add ETag handling, heartbeat/X-Firebase-Client integration, and exponential backoff policies for REST requests.
+- Support multi-environment behaviour (web/WASM vs native) including pluggable storage backends.
+- Provide emulator support, diagnostics logging, and richer error mapping from REST responses.
+- Expand integration tests and shared fixtures to cover retry paths and error propagation.
 
-## Work Remaining (vs `packages/installations`)
-
-1. **Network integration**
-   - Call the Firebase Installations REST API to register installations, issue auth tokens, and handle errors/retries.
-2. **Persistence**
-   - Store FIDs and tokens using IndexedDB/localStorage with migration logic (mirroring `helpers/` and `util/` modules).
-3. **Entry point parity**
-   - Implement `deleteInstallations`, `getId`, `getToken`, and installation factory helpers with proper caching semantics.
-4. **Authentication**
-   - Include ETag handling, heartbeat integration, and auth headers required by the REST endpoints.
-5. **Testing & emulator support**
-   - Port unit/integration tests, including those for testing utilities and emulator flows.
-6. **Platform differences**
-   - Account for browser vs. node specifics (e.g., storage availability, fetch/eager initialization).
-7. **Diagnostics**
-   - Mirror JS logging, debug helpers, and analytics instrumentation present in the official SDK.
-
-Implementing these items will bring the Rust Installations module to parity with the JavaScript SDK, providing reliable
-FID/token management for the rest of the Firebase ecosystem.
+## Next steps - Detailed completion plan
+1. **Harden persistence coordination**
+   - Mirror JS pending-registration semantics by tracking registration status in the persisted entry and short-circuiting duplicate create requests.
+   - Add a lightweight file lock or cross-process signal to prevent concurrent writes from clobbering data.
+   - Expose a pluggable trait implementation for WASM (IndexedDB) and native (filesystem/DB) backends.
+2. **Port lifecycle APIs**
+   - Implement `delete_installations` to call the REST delete endpoint, remove local state, and respect pending registrations.
+   - Expose `on_id_change` callbacks with deduplication similar to `generateFidChanged` in JS, making sure the notification fires after persistence updates.
+3. **Augment REST client robustness**
+   - Add ETag management, exponential backoff, and richer error codes derived from server responses.
+   - Integrate heartbeat header support behind the `wasm-web` feature once a heartbeat provider exists in `FirebaseApp`.

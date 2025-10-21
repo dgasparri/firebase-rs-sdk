@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 pub enum InstallationsErrorCode {
     InvalidArgument,
     Internal,
+    RequestFailed,
 }
 
 impl InstallationsErrorCode {
@@ -11,6 +12,7 @@ impl InstallationsErrorCode {
         match self {
             InstallationsErrorCode::InvalidArgument => "installations/invalid-argument",
             InstallationsErrorCode::Internal => "installations/internal",
+            InstallationsErrorCode::RequestFailed => "installations/request-failed",
         }
     }
 }
@@ -50,4 +52,8 @@ pub fn invalid_argument(message: impl Into<String>) -> InstallationsError {
 
 pub fn internal_error(message: impl Into<String>) -> InstallationsError {
     InstallationsError::new(InstallationsErrorCode::Internal, message)
+}
+
+pub fn request_failed(message: impl Into<String>) -> InstallationsError {
+    InstallationsError::new(InstallationsErrorCode::RequestFailed, message)
 }

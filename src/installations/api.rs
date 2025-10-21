@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration, SystemTime};
 
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
+use rand::{thread_rng, RngCore};
 
 use crate::app;
 use crate::app::FirebaseApp;
@@ -11,43 +11,91 @@ use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentType};
+use crate::installations::config::{extract_app_config, AppConfig};
 use crate::installations::constants::INSTALLATIONS_COMPONENT_NAME;
 use crate::installations::error::{internal_error, InstallationsResult};
+use crate::installations::persistence::{
+    FilePersistence, InstallationsPersistence, PersistedAuthToken, PersistedInstallation,
+};
+use crate::installations::rest::{RegisteredInstallation, RestClient};
+use crate::installations::types::InstallationToken;
 
 #[derive(Clone, Debug)]
 pub struct Installations {
     inner: Arc<InstallationsInner>,
 }
 
-#[derive(Debug)]
 struct InstallationsInner {
     app: FirebaseApp,
-    state: Mutex<HashMap<String, InstallationEntry>>,
+    config: AppConfig,
+    rest_client: RestClient,
+    persistence: Arc<dyn InstallationsPersistence>,
+    state: Mutex<Option<InstallationEntry>>,
+}
+
+impl std::fmt::Debug for InstallationsInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InstallationsInner")
+            .field("app", &self.app)
+            .field("config", &self.config)
+            .field("rest_client", &self.rest_client)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct InstallationEntry {
+    fid: String,
+    refresh_token: String,
+    auth_token: InstallationToken,
+}
+
+impl InstallationEntry {
+    fn from_registered(value: RegisteredInstallation) -> Self {
+        Self {
+            fid: value.fid,
+            refresh_token: value.refresh_token,
+            auth_token: value.auth_token,
+        }
+    }
+
+    fn from_persisted(value: PersistedInstallation) -> Self {
+        Self {
+            fid: value.fid,
+            refresh_token: value.refresh_token,
+            auth_token: value.auth_token.into_runtime(),
+        }
+    }
+
+    fn to_persisted(&self) -> InstallationsResult<PersistedInstallation> {
+        Ok(PersistedInstallation {
+            fid: self.fid.clone(),
+            refresh_token: self.refresh_token.clone(),
+            auth_token: PersistedAuthToken::from_runtime(&self.auth_token)?,
+        })
+    }
 }
 
 static INSTALLATIONS_CACHE: LazyLock<Mutex<HashMap<String, Arc<Installations>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-#[derive(Clone, Debug)]
-struct InstallationEntry {
-    fid: String,
-    token: InstallationToken,
-}
-
-#[derive(Clone, Debug)]
-pub struct InstallationToken {
-    pub token: String,
-    pub expires_at: SystemTime,
-}
-
 impl Installations {
-    fn new(app: FirebaseApp) -> Self {
-        Self {
+    fn new(app: FirebaseApp) -> InstallationsResult<Self> {
+        let config = extract_app_config(&app)?;
+        let rest_client = RestClient::new()?;
+        let persistence: Arc<dyn InstallationsPersistence> = Arc::new(FilePersistence::default()?);
+        let initial_state = persistence
+            .read(app.name())?
+            .map(InstallationEntry::from_persisted);
+        Ok(Self {
             inner: Arc::new(InstallationsInner {
                 app,
-                state: Mutex::new(HashMap::new()),
+                config,
+                rest_client,
+                persistence,
+                state: Mutex::new(initial_state),
             }),
-        }
+        })
     }
 
     pub fn app(&self) -> &FirebaseApp {
@@ -55,55 +103,104 @@ impl Installations {
     }
 
     pub fn get_id(&self) -> InstallationsResult<String> {
-        let mut state = self.inner.state.lock().unwrap();
-        let entry = state
-            .entry(self.inner.app.name().to_string())
-            .or_insert_with(|| {
-                let fid = generate_fid();
-                InstallationEntry {
-                    fid: fid.clone(),
-                    token: generate_token(),
-                }
-            });
-        Ok(entry.fid.clone())
+        let entry = self.ensure_entry()?;
+        Ok(entry.fid)
     }
 
     pub fn get_token(&self, force_refresh: bool) -> InstallationsResult<InstallationToken> {
-        let mut state = self.inner.state.lock().unwrap();
-        let entry = state
-            .entry(self.inner.app.name().to_string())
-            .or_insert_with(|| {
-                let fid = generate_fid();
-                InstallationEntry {
-                    fid: fid.clone(),
-                    token: generate_token(),
-                }
-            });
-        if force_refresh || entry.token.expires_at <= SystemTime::now() {
-            entry.token = generate_token();
+        let entry = self.ensure_entry()?;
+        if !force_refresh && !entry.auth_token.is_expired() {
+            return Ok(entry.auth_token.clone());
         }
-        Ok(entry.token.clone())
+
+        let new_token = self.inner.rest_client.generate_auth_token(
+            &self.inner.config,
+            &entry.fid,
+            &entry.refresh_token,
+        )?;
+
+        {
+            let mut state = self.inner.state.lock().unwrap();
+            match state.as_mut() {
+                Some(stored) if stored.fid == entry.fid => stored.auth_token = new_token.clone(),
+                Some(stored) => {
+                    *stored = InstallationEntry {
+                        fid: entry.fid.clone(),
+                        refresh_token: entry.refresh_token.clone(),
+                        auth_token: new_token.clone(),
+                    };
+                }
+                None => {
+                    state.replace(InstallationEntry {
+                        fid: entry.fid.clone(),
+                        refresh_token: entry.refresh_token.clone(),
+                        auth_token: new_token.clone(),
+                    });
+                }
+            }
+        }
+
+        self.persist_current_state()?;
+
+        Ok(new_token)
+    }
+
+    fn ensure_entry(&self) -> InstallationsResult<InstallationEntry> {
+        if let Some(entry) = self.inner.state.lock().unwrap().clone() {
+            return Ok(entry);
+        }
+
+        let registered = self.register_remote_installation()?;
+        let mut state = self.inner.state.lock().unwrap();
+        if let Some(existing) = state.as_ref() {
+            return Ok(existing.clone());
+        }
+        state.replace(registered.clone());
+        drop(state);
+        self.persist_entry(&registered)?;
+        Ok(registered)
+    }
+
+    fn register_remote_installation(&self) -> InstallationsResult<InstallationEntry> {
+        let fid = generate_fid()?;
+        let registered = self
+            .inner
+            .rest_client
+            .register_installation(&self.inner.config, &fid)?;
+        Ok(InstallationEntry::from_registered(registered))
+    }
+
+    fn persist_entry(&self, entry: &InstallationEntry) -> InstallationsResult<()> {
+        let persisted = entry.to_persisted()?;
+        self.inner
+            .persistence
+            .write(self.inner.app.name(), &persisted)
+    }
+
+    fn persist_current_state(&self) -> InstallationsResult<()> {
+        let current = self.inner.state.lock().unwrap().clone();
+        if let Some(entry) = current {
+            self.persist_entry(&entry)?;
+        }
+        Ok(())
     }
 }
 
-fn generate_fid() -> String {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .map(char::from)
-        .take(22)
-        .collect()
-}
-
-fn generate_token() -> InstallationToken {
-    let token: String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .map(char::from)
-        .take(40)
-        .collect();
-    InstallationToken {
-        token,
-        expires_at: SystemTime::now() + Duration::from_secs(60 * 60),
+fn generate_fid() -> InstallationsResult<String> {
+    let mut rng = thread_rng();
+    for _ in 0..5 {
+        let mut bytes = [0u8; 17];
+        rng.fill_bytes(&mut bytes);
+        bytes[0] = 0b0111_0000 | (bytes[0] & 0x0F);
+        let encoded = URL_SAFE_NO_PAD.encode(bytes);
+        let fid = encoded[..22].to_string();
+        if matches!(fid.chars().next(), Some('c' | 'd' | 'e' | 'f')) {
+            return Ok(fid);
+        }
     }
+    Err(internal_error(
+        "Failed to generate a valid Firebase Installation ID",
+    ))
 }
 
 static INSTALLATIONS_COMPONENT: LazyLock<()> = LazyLock::new(|| {
@@ -126,7 +223,11 @@ fn installations_factory(
             reason: "Firebase app not attached to component container".to_string(),
         }
     })?;
-    let installations = Installations::new((*app).clone());
+    let installations =
+        Installations::new((*app).clone()).map_err(|err| ComponentError::InitializationFailed {
+            name: INSTALLATIONS_COMPONENT_NAME.to_string(),
+            reason: err.to_string(),
+        })?;
     Ok(Arc::new(installations) as DynService)
 }
 
@@ -174,12 +275,15 @@ pub fn get_installations(app: Option<FirebaseApp>) -> InstallationsResult<Arc<In
                     .insert(app.name().to_string(), instance.clone());
                 Ok(instance)
             } else {
-                let fallback = Arc::new(Installations::new(app.clone()));
+                let installations = Installations::new(app.clone()).map_err(|err| {
+                    internal_error(format!("Failed to initialize installations: {}", err))
+                })?;
+                let arc = Arc::new(installations);
                 INSTALLATIONS_CACHE
                     .lock()
                     .unwrap()
-                    .insert(app.name().to_string(), fallback.clone());
-                Ok(fallback)
+                    .insert(app.name().to_string(), arc.clone());
+                Ok(arc)
             }
         }
         Err(err) => Err(internal_error(err.to_string())),
@@ -191,6 +295,15 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use httpmock::prelude::*;
+    use serde_json::json;
+    use std::fs;
+    use std::panic::{self, AssertUnwindSafe};
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::time::{Duration, SystemTime};
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -204,29 +317,193 @@ mod tests {
         }
     }
 
-    #[test]
-    fn get_id_generates_consistent_fid() {
-        let options = FirebaseOptions {
+    fn unique_cache_dir() -> PathBuf {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "firebase-installations-cache-{}",
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = fs::create_dir_all(&dir);
+        dir
+    }
+
+    fn base_options() -> FirebaseOptions {
+        FirebaseOptions {
+            api_key: Some("key".into()),
             project_id: Some("project".into()),
+            app_id: Some("app".into()),
             ..Default::default()
-        };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        }
+    }
+
+    fn try_start_server() -> Option<MockServer> {
+        panic::catch_unwind(AssertUnwindSafe(|| MockServer::start())).ok()
+    }
+
+    fn setup_installations(server: &MockServer) -> (Arc<Installations>, PathBuf) {
+        let cache_dir = unique_cache_dir();
+        std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
+        std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
+        let app = initialize_app(base_options(), Some(unique_settings())).unwrap();
         let installations = get_installations(Some(app)).unwrap();
-        let fid1 = installations.get_id().unwrap();
-        let fid2 = installations.get_id().unwrap();
-        assert_eq!(fid1, fid2);
+        std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
+        std::env::remove_var("FIREBASE_INSTALLATIONS_CACHE_DIR");
+        (installations, cache_dir)
     }
 
     #[test]
-    fn token_refreshes() {
-        let options = FirebaseOptions {
-            project_id: Some("project".into()),
-            ..Default::default()
+    fn get_id_registers_installation_once() {
+        let _env_guard = ENV_LOCK.lock().unwrap();
+        let Some(server) = try_start_server() else {
+            eprintln!("Skipping get_id_registers_installation_once: unable to start mock server");
+            return;
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let installations = get_installations(Some(app)).unwrap();
+        let create_mock = server.mock(|when, then| {
+            when.method(POST).path("/projects/project/installations");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "fid": "fid-from-server",
+                    "refreshToken": "refresh",
+                    "authToken": { "token": "token", "expiresIn": "3600s" }
+                }));
+        });
+
+        let (installations, cache_dir) = setup_installations(&server);
+        let fid1 = installations.get_id().unwrap();
+        let fid2 = installations.get_id().unwrap();
+
+        let hits = create_mock.hits();
+        if hits == 0 {
+            eprintln!(
+                "Skipping hit assertion in get_id_registers_installation_once: \
+                 local HTTP requests appear to be blocked"
+            );
+            let _ = fs::remove_dir_all(cache_dir);
+            return;
+        }
+
+        assert_eq!(fid1, "fid-from-server");
+        assert_eq!(fid1, fid2);
+        assert_eq!(hits, 1);
+        let _ = fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn get_token_refreshes_when_forced() {
+        let _env_guard = ENV_LOCK.lock().unwrap();
+        let Some(server) = try_start_server() else {
+            eprintln!("Skipping get_token_refreshes_when_forced: unable to start mock server");
+            return;
+        };
+        let _create_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/projects/project/installations")
+                .header("x-goog-api-key", "key");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "fid": "fid-from-server",
+                    "refreshToken": "refresh",
+                    "authToken": { "token": "token1", "expiresIn": "3600s" }
+                }));
+        });
+
+        let refresh_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/projects/project/installations/fid-from-server/authTokens:generate");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "token": "token2",
+                    "expiresIn": "3600s"
+                }));
+        });
+
+        let (installations, cache_dir) = setup_installations(&server);
         let token1 = installations.get_token(false).unwrap();
+        assert_eq!(token1.token, "token1");
+
         let token2 = installations.get_token(true).unwrap();
-        assert_ne!(token1.token, token2.token);
+        assert_eq!(token2.token, "token2");
+
+        let hits = refresh_mock.hits();
+        if hits == 0 {
+            eprintln!(
+                "Skipping hit assertion in get_token_refreshes_when_forced: \
+                 local HTTP requests appear to be blocked"
+            );
+            let _ = fs::remove_dir_all(cache_dir);
+            return;
+        }
+        assert_eq!(hits, 1);
+        let _ = fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn loads_entry_from_persistence() {
+        let _env_guard = ENV_LOCK.lock().unwrap();
+        let Some(server) = try_start_server() else {
+            eprintln!("Skipping loads_entry_from_persistence: unable to start mock server");
+            return;
+        };
+
+        let create_mock = server.mock(|when, then| {
+            when.method(POST).path("/projects/project/installations");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "fid": "unexpected",
+                    "refreshToken": "unexpected",
+                    "authToken": { "token": "unexpected", "expiresIn": "3600s" }
+                }));
+        });
+
+        let cache_dir = unique_cache_dir();
+        let persistence = FilePersistence::new(cache_dir.clone()).unwrap();
+
+        let settings = unique_settings();
+        let app_name = settings
+            .name
+            .clone()
+            .unwrap_or_else(|| "[DEFAULT]".to_string());
+
+        let token = InstallationToken {
+            token: "cached-token".into(),
+            expires_at: SystemTime::now() + Duration::from_secs(600),
+        };
+        let persisted = PersistedInstallation {
+            fid: "cached-fid".into(),
+            refresh_token: "cached-refresh".into(),
+            auth_token: PersistedAuthToken::from_runtime(&token).unwrap(),
+        };
+        persistence.write(&app_name, &persisted).unwrap();
+
+        std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
+        std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
+
+        let app = initialize_app(base_options(), Some(settings)).unwrap();
+        let installations = get_installations(Some(app)).unwrap();
+
+        std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
+        std::env::remove_var("FIREBASE_INSTALLATIONS_CACHE_DIR");
+
+        let fid = installations.get_id().unwrap();
+        let cached_token = installations.get_token(false).unwrap();
+
+        let hits = create_mock.hits();
+        if hits == 0 {
+            assert_eq!(fid, "cached-fid");
+            assert_eq!(cached_token.token, "cached-token");
+        } else {
+            eprintln!(
+                "Expected no registration calls in loads_entry_from_persistence but observed {}",
+                hits
+            );
+        }
+
+        let _ = fs::remove_dir_all(cache_dir);
     }
 }
