@@ -1,4 +1,4 @@
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../RUSTDOC.md")]
 
 pub mod ai;
 pub mod analytics;

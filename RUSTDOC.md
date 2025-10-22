@@ -9,27 +9,27 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 
 | Module | % porting completed  | |
 |--------|----------------------|-|
-| [app](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app)                     | 60% | `[############        ]` |
-| [storage](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/storage)             | 60% | `[############        ]` |
-| [installations](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/installations) | 35% | `[#######             ]` |
-| [database](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/database)           | 30% | `[######              ]` |
-| [auth](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth)                   | 25% | `[#####               ]` |
-| [firestore](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore)         | 25% | `[#####               ]` |
-| [remote-config](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/remote_config) | 25% | `[#####               ]` |
-| [analytics](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/analytics)         | 20% | `[####                ]` |
-| [app_check](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app_check)         | 20% | `[####                ]` |
-| [ai](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/ai)                       | 5%  | `[#                   ]` |
-| [data-connect](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/data_connect)   | 5%  | `[#                   ]` |
-| [functions](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/functions)         | 5%  | `[#                   ]` |
-| [messaging](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/messaging)         | 3%  | `[#                   ]` |
-| [performance](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/performance)     | 3%  | `[#                   ]` |
+| [app]           | 60% | `[############        ]` |
+| [storage]       | 60% | `[############        ]` |
+| [installations] | 35% | `[#######             ]` |
+| [database]      | 30% | `[######              ]` |
+| [auth]          | 25% | `[#####               ]` |
+| [firestore]     | 25% | `[#####               ]` |
+| [remote_config] | 25% | `[#####               ]` |
+| [analytics]     | 20% | `[####                ]` |
+| [app_check]     | 20% | `[####                ]` |
+| [ai]            | 5%  | `[#                   ]` |
+| [data_connect]  | 5%  | `[#                   ]` |
+| [functions]     | 5%  | `[#                   ]` |
+| [messaging]     | 3%  | `[#                   ]` |
+| [performance]   | 3%  | `[#                   ]` |
 
 
 The following modules are used internally by the library and have no direct public API. Only the features required internally have been ported.
 
-- [component](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/component)
-- [logger](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/logger)
-- [util](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/util)
+- [component]
+- [logger]
+- [util]
 
 
 
