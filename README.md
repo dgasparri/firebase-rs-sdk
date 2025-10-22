@@ -12,13 +12,13 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 | [app](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app)                     | 60% | `[############        ]` |
 | [storage](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/storage)             | 60% | `[############        ]` |
 | [installations](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/installations) | 35% | `[#######             ]` |
+| [ai](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/ai)                       | 30% | `[######              ]` |
 | [database](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/database)           | 30% | `[######              ]` |
 | [auth](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth)                   | 25% | `[#####               ]` |
 | [firestore](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore)         | 25% | `[#####               ]` |
 | [remote-config](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/remote_config) | 25% | `[#####               ]` |
 | [analytics](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/analytics)         | 20% | `[####                ]` |
 | [app_check](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app_check)         | 20% | `[####                ]` |
-| [ai](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/ai)                       | 5%  | `[#                   ]` |
 | [data-connect](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/data_connect)   | 5%  | `[#                   ]` |
 | [functions](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/functions)         | 5%  | `[#                   ]` |
 | [messaging](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/messaging)         | 3%  | `[#                   ]` |
@@ -87,30 +87,30 @@ use std::error::Error;
 use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk_unofficial::firestore::*;
 
-#fn main() -> Result<(), Box<dyn Error>> {
-let firebase_config = FirebaseOptions {
-    api_key: Some("demo-api-key".into()),
-    project_id: Some("demo-project".into()),
-    ..Default::default()
-};
-
-let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default()))?;
-let firestore_arc = get_firestore(Some(app.clone()))?;
-let firestore = Firestore::from_arc(firestore_arc);
-
-// Talk to the hosted Firestore REST API. Configure credentials/tokens as needed.
-let client = FirestoreClient::with_http_datastore(firestore.clone())?;
-
-let cities = load_cities(&firestore, &client)?;
-
-println!("Loaded {} cities from Firestore:", cities.len());
-for city in cities {
-    let name = field_as_string(&city, "name").unwrap_or_else(|| "Unknown".into());
-    let state = field_as_string(&city, "state").unwrap_or_else(|| "Unknown".into());
-    let country = field_as_string(&city, "country").unwrap_or_else(|| "Unknown".into());
-    let population = field_as_i64(&city, "population").unwrap_or_default();
-    println!("- {name}, {state} ({country}) — population {population}");
-}
+fn main() -> Result<(), Box<dyn Error>> {
+    let firebase_config = FirebaseOptions {
+        api_key: Some("demo-api-key".into()),
+        project_id: Some("demo-project".into()),
+        ..Default::default()
+    };
+    
+    let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default()))?;
+    let firestore_arc = get_firestore(Some(app.clone()))?;
+    let firestore = Firestore::from_arc(firestore_arc);
+    
+    // Talk to the hosted Firestore REST API. Configure credentials/tokens as needed.
+    let client = FirestoreClient::with_http_datastore(firestore.clone())?;
+    
+    let cities = load_cities(&firestore, &client)?;
+    
+    println!("Loaded {} cities from Firestore:", cities.len());
+    for city in cities {
+        let name = field_as_string(&city, "name").unwrap_or_else(|| "Unknown".into());
+        let state = field_as_string(&city, "state").unwrap_or_else(|| "Unknown".into());
+        let country = field_as_string(&city, "country").unwrap_or_else(|| "Unknown".into());
+        let population = field_as_i64(&city, "population").unwrap_or_default();
+        println!("- {name}, {state} ({country}) — population {population}");
+    }
 
     Ok(())
 }
