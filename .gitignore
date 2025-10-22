@@ -21,4 +21,7 @@ target
 /packages/*
 !/packages/README.md
 
+# scripts and tools
+publish.bat
+
 
