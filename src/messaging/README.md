@@ -51,7 +51,8 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
 - WASM-only `PushSubscriptionManager` that wraps `PushManager.subscribe`, returns subscription details and supports
   unsubscribe/error mapping aligned with the JS SDK implementation.
 - Token persistence layer that stores token metadata (including subscription details and creation time) per app,
-  mirroring the IndexedDB-backed token manager with localStorage/native fallbacks.
+  mirroring the IndexedDB-backed token manager with IndexedDB on wasm (plus BroadcastChannel sync) and in-memory
+  fallback on native targets. Weekly refresh logic invalidates tokens after 7 days to trigger regeneration.
 - Minimal error types for invalid arguments, internal failures and token deletion.
 - Non-WASM unit test coverage for permission/token flows, invalid arguments, token deletion, service worker and push
   subscription stubs.

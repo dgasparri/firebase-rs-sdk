@@ -14,9 +14,9 @@ use crate::messaging::error::{
     internal_error, invalid_argument, token_deletion_failed, MessagingResult,
 };
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-use crate::messaging::token_store::{self, SubscriptionInfo, TokenRecord};
+use crate::messaging::token_store::{self, InstallationInfo, SubscriptionInfo, TokenRecord};
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-use crate::messaging::token_store::{self, TokenRecord};
+use crate::messaging::token_store::{self, InstallationInfo, TokenRecord};
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::constants::DEFAULT_VAPID_KEY;
@@ -224,7 +224,9 @@ fn get_token_native(messaging: &Messaging, vapid_key: Option<&str>) -> Messaging
 
     let store_key = app_store_key(messaging);
     if let Some(record) = token_store::read_token(&store_key)? {
-        return Ok(record.token);
+        if !record.is_expired(current_timestamp_ms(), TOKEN_EXPIRATION_MS) {
+            return Ok(record.token);
+        }
     }
 
     let token = generate_token();
@@ -232,6 +234,7 @@ fn get_token_native(messaging: &Messaging, vapid_key: Option<&str>) -> Messaging
         token: token.clone(),
         create_time_ms: current_timestamp_ms(),
         subscription: None,
+        installation: dummy_installation_info(),
     };
     token_store::write_token(&store_key, &record)?;
     Ok(token)
@@ -297,6 +300,7 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
         token: token.clone(),
         create_time_ms: now_ms,
         subscription: Some(subscription_info),
+        installation: dummy_installation_info(),
     };
     token_store::write_token(&store_key, &record).await?;
     Ok(token)
@@ -328,8 +332,16 @@ fn current_timestamp_ms() -> u64 {
             .as_millis() as u64
     }
 }
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 const TOKEN_EXPIRATION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+fn dummy_installation_info() -> InstallationInfo {
+    InstallationInfo {
+        fid: "placeholder".to_string(),
+        refresh_token: String::new(),
+        auth_token: String::new(),
+        auth_token_expiration_ms: u64::MAX,
+    }
+}
 
 #[cfg(test)]
 mod tests {
