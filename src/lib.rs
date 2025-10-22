@@ -14,6 +14,7 @@ pub mod installations;
 pub mod logger;
 pub mod messaging;
 pub mod performance;
+pub mod platform;
 pub mod remote_config;
 pub mod storage;
 pub mod util;
