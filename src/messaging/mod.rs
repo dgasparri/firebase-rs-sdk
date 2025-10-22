@@ -2,5 +2,20 @@
 mod api;
 mod constants;
 pub mod error;
+mod subscription;
+mod support;
+mod sw_manager;
+mod token_store;
 
-pub use api::{get_messaging, register_messaging_component, Messaging};
+pub use api::{get_messaging, register_messaging_component, Messaging, PermissionState};
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+pub use subscription::PushSubscriptionManager;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+pub use subscription::{PushSubscriptionDetails, PushSubscriptionHandle, PushSubscriptionManager};
+pub use support::is_supported;
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+pub use sw_manager::ServiceWorkerRegistrationHandle;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+pub use sw_manager::{ServiceWorkerManager, ServiceWorkerRegistrationHandle};
+
+pub use sw_manager::ServiceWorkerManager;

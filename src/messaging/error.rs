@@ -5,6 +5,13 @@ pub enum MessagingErrorCode {
     TokenDeletionFailed,
     InvalidArgument,
     Internal,
+    PermissionBlocked,
+    AvailableInWindow,
+    UnsupportedBrowser,
+    FailedDefaultRegistration,
+    InvalidServiceWorkerRegistration,
+    TokenSubscribeFailed,
+    TokenUnsubscribeFailed,
 }
 
 impl MessagingErrorCode {
@@ -13,6 +20,17 @@ impl MessagingErrorCode {
             MessagingErrorCode::TokenDeletionFailed => "messaging/token-deletion-failed",
             MessagingErrorCode::InvalidArgument => "messaging/invalid-argument",
             MessagingErrorCode::Internal => "messaging/internal",
+            MessagingErrorCode::PermissionBlocked => "messaging/permission-blocked",
+            MessagingErrorCode::AvailableInWindow => "messaging/available-in-window",
+            MessagingErrorCode::UnsupportedBrowser => "messaging/unsupported-browser",
+            MessagingErrorCode::FailedDefaultRegistration => {
+                "messaging/failed-service-worker-registration"
+            }
+            MessagingErrorCode::InvalidServiceWorkerRegistration => {
+                "messaging/invalid-sw-registration"
+            }
+            MessagingErrorCode::TokenSubscribeFailed => "messaging/token-subscribe-failed",
+            MessagingErrorCode::TokenUnsubscribeFailed => "messaging/token-unsubscribe-failed",
         }
     }
 }
@@ -56,4 +74,35 @@ pub fn internal_error(message: impl Into<String>) -> MessagingError {
 
 pub fn token_deletion_failed(message: impl Into<String>) -> MessagingError {
     MessagingError::new(MessagingErrorCode::TokenDeletionFailed, message)
+}
+
+pub fn permission_blocked(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(MessagingErrorCode::PermissionBlocked, message)
+}
+
+pub fn available_in_window(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(MessagingErrorCode::AvailableInWindow, message)
+}
+
+pub fn unsupported_browser(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(MessagingErrorCode::UnsupportedBrowser, message)
+}
+
+pub fn failed_default_registration(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(MessagingErrorCode::FailedDefaultRegistration, message)
+}
+
+pub fn invalid_service_worker_registration(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(
+        MessagingErrorCode::InvalidServiceWorkerRegistration,
+        message,
+    )
+}
+
+pub fn token_subscribe_failed(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(MessagingErrorCode::TokenSubscribeFailed, message)
+}
+
+pub fn token_unsubscribe_failed(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(MessagingErrorCode::TokenUnsubscribeFailed, message)
 }

@@ -576,6 +576,7 @@ dependencies = [
  "chrono",
  "httpmock",
  "js-sys",
+ "once_cell",
  "percent-encoding",
  "rand",
  "reqwest",
@@ -586,6 +587,7 @@ dependencies = [
  "sha2",
  "url",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
  "webbrowser",
 ]

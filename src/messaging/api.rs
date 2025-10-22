@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -14,6 +13,19 @@ use crate::messaging::constants::MESSAGING_COMPONENT_NAME;
 use crate::messaging::error::{
     internal_error, invalid_argument, token_deletion_failed, MessagingResult,
 };
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::messaging::token_store::{self, SubscriptionInfo, TokenRecord};
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+use crate::messaging::token_store::{self, TokenRecord};
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::messaging::constants::DEFAULT_VAPID_KEY;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::messaging::error::{available_in_window, permission_blocked, unsupported_browser};
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use wasm_bindgen::JsValue;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use wasm_bindgen_futures::JsFuture;
 
 #[derive(Clone, Debug)]
 pub struct Messaging {
@@ -23,16 +35,23 @@ pub struct Messaging {
 #[derive(Debug)]
 struct MessagingInner {
     app: FirebaseApp,
-    tokens: Mutex<HashMap<String, String>>,
+}
+
+/// Notification permission states as exposed by the Web Notifications API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PermissionState {
+    /// The user has not decided whether to allow notifications.
+    Default,
+    /// The user granted notification permissions.
+    Granted,
+    /// The user denied notification permissions.
+    Denied,
 }
 
 impl Messaging {
     fn new(app: FirebaseApp) -> Self {
         Self {
-            inner: Arc::new(MessagingInner {
-                app,
-                tokens: Mutex::new(HashMap::new()),
-            }),
+            inner: Arc::new(MessagingInner { app }),
         }
     }
 
@@ -40,31 +59,20 @@ impl Messaging {
         &self.inner.app
     }
 
-    pub fn request_permission(&self) -> MessagingResult<bool> {
-        // Minimal stub always grants permission.
-        Ok(true)
+    /// Requests browser notification permission.
+    ///
+    /// Port of the permission flow triggered by
+    /// `packages/messaging/src/api/getToken.ts` in the Firebase JS SDK.
+    pub async fn request_permission(&self) -> MessagingResult<PermissionState> {
+        request_permission_impl().await
     }
 
-    pub fn get_token(&self, vapid_key: Option<&str>) -> MessagingResult<String> {
-        if let Some(key) = vapid_key {
-            if key.trim().is_empty() {
-                return Err(invalid_argument("VAPID key must not be empty"));
-            }
-        }
-        let mut tokens = self.inner.tokens.lock().unwrap();
-        let entry = tokens
-            .entry(self.inner.app.name().to_string())
-            .or_insert_with(generate_token);
-        Ok(entry.clone())
+    pub async fn get_token(&self, vapid_key: Option<&str>) -> MessagingResult<String> {
+        get_token_impl(self, vapid_key).await
     }
 
-    pub fn delete_token(&self) -> MessagingResult<bool> {
-        let mut tokens = self.inner.tokens.lock().unwrap();
-        if tokens.remove(self.inner.app.name()).is_some() {
-            Ok(true)
-        } else {
-            Err(token_deletion_failed("No token stored for this app"))
-        }
+    pub async fn delete_token(&self) -> MessagingResult<bool> {
+        delete_token_impl(self).await
     }
 }
 
@@ -74,6 +82,71 @@ fn generate_token() -> String {
         .map(char::from)
         .take(32)
         .collect()
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+async fn request_permission_impl() -> MessagingResult<PermissionState> {
+    use crate::messaging::support::is_supported;
+
+    let window = web_sys::window()
+        .ok_or_else(|| available_in_window("request_permission must run in a Window context"))?;
+
+    // Access navigator to match the JS guard (throws if navigator is missing).
+    let _navigator = window.navigator();
+
+    if !is_supported() {
+        return Err(unsupported_browser(
+            "This browser does not expose the APIs required for Firebase Messaging.",
+        ));
+    }
+
+    let current = web_sys::Notification::permission();
+    match as_permission_state(&current) {
+        PermissionState::Granted => return Ok(PermissionState::Granted),
+        PermissionState::Denied => {
+            return Err(permission_blocked(
+                "Notification permission was previously blocked by the user.",
+            ))
+        }
+        PermissionState::Default => {}
+    }
+
+    let promise = web_sys::Notification::request_permission()
+        .map_err(|err| internal_error(format_js_error("requestPermission", err)))?;
+    let result = JsFuture::from(promise)
+        .await
+        .map_err(|err| internal_error(format_js_error("requestPermission", err)))?;
+
+    let status = result
+        .as_string()
+        .unwrap_or_else(|| web_sys::Notification::permission());
+
+    match as_permission_state(&status) {
+        PermissionState::Granted => Ok(PermissionState::Granted),
+        PermissionState::Denied | PermissionState::Default => Err(permission_blocked(
+            "Notification permission not granted by the user.",
+        )),
+    }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+fn as_permission_state(value: &str) -> PermissionState {
+    match value {
+        "granted" => PermissionState::Granted,
+        "denied" => PermissionState::Denied,
+        _ => PermissionState::Default,
+    }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+fn format_js_error(operation: &str, err: JsValue) -> String {
+    let detail = err.as_string().unwrap_or_else(|| format!("{:?}", err));
+    format!("Notification.{operation} failed: {detail}")
+}
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+async fn request_permission_impl() -> MessagingResult<PermissionState> {
+    Ok(PermissionState::Granted)
 }
 
 static MESSAGING_COMPONENT: LazyLock<()> = LazyLock::new(|| {
@@ -125,11 +198,147 @@ pub fn get_messaging(app: Option<FirebaseApp>) -> MessagingResult<Arc<Messaging>
     }
 }
 
+async fn get_token_impl(messaging: &Messaging, vapid_key: Option<&str>) -> MessagingResult<String> {
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    {
+        get_token_wasm(messaging, vapid_key).await
+    }
+
+    #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+    {
+        get_token_native(messaging, vapid_key)
+    }
+}
+
+fn app_store_key(messaging: &Messaging) -> String {
+    messaging.inner.app.name().to_string()
+}
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+fn get_token_native(messaging: &Messaging, vapid_key: Option<&str>) -> MessagingResult<String> {
+    if let Some(key) = vapid_key {
+        if key.trim().is_empty() {
+            return Err(invalid_argument("VAPID key must not be empty"));
+        }
+    }
+
+    let store_key = app_store_key(messaging);
+    if let Some(record) = token_store::read_token(&store_key)? {
+        return Ok(record.token);
+    }
+
+    let token = generate_token();
+    let record = TokenRecord {
+        token: token.clone(),
+        create_time_ms: current_timestamp_ms(),
+        subscription: None,
+    };
+    token_store::write_token(&store_key, &record)?;
+    Ok(token)
+}
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
+    let store_key = app_store_key(messaging);
+    if token_store::remove_token(&store_key)? {
+        Ok(true)
+    } else {
+        Err(token_deletion_failed("No token stored for this app"))
+    }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> MessagingResult<String> {
+    use crate::messaging::subscription::PushSubscriptionManager;
+    use crate::messaging::support::is_supported;
+    use crate::messaging::sw_manager::ServiceWorkerManager;
+
+    if !is_supported() {
+        return Err(unsupported_browser(
+            "This browser does not expose the APIs required for Firebase Messaging.",
+        ));
+    }
+
+    let vapid_key = vapid_key
+        .filter(|key| !key.trim().is_empty())
+        .unwrap_or(DEFAULT_VAPID_KEY);
+
+    let mut sw_manager = ServiceWorkerManager::new();
+    let registration = sw_manager.register_default().await?;
+    let scope = registration
+        .as_web_sys()
+        .scope()
+        .unwrap_or_else(|| String::from("/"));
+
+    let mut push_manager = PushSubscriptionManager::new();
+    let subscription = push_manager.subscribe(&registration, vapid_key).await?;
+    let details = subscription.details()?;
+
+    let subscription_info = SubscriptionInfo {
+        vapid_key: vapid_key.to_string(),
+        scope,
+        endpoint: details.endpoint.clone(),
+        auth: details.auth.clone(),
+        p256dh: details.p256dh.clone(),
+    };
+
+    let store_key = app_store_key(messaging);
+    let now_ms = current_timestamp_ms();
+    if let Some(record) = token_store::read_token(&store_key).await? {
+        if let Some(existing) = &record.subscription {
+            if existing == &subscription_info && !record.is_expired(now_ms, TOKEN_EXPIRATION_MS) {
+                return Ok(record.token);
+            }
+        }
+    }
+
+    let token = generate_token();
+    let record = TokenRecord {
+        token: token.clone(),
+        create_time_ms: now_ms,
+        subscription: Some(subscription_info),
+    };
+    token_store::write_token(&store_key, &record).await?;
+    Ok(token)
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
+    let store_key = app_store_key(messaging);
+    if token_store::remove_token(&store_key).await? {
+        Ok(true)
+    } else {
+        Err(token_deletion_failed("No token stored for this app"))
+    }
+}
+
+fn current_timestamp_ms() -> u64 {
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    {
+        js_sys::Date::now() as u64
+    }
+
+    #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+}
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+const TOKEN_EXPIRATION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -151,12 +360,92 @@ mod tests {
         };
         let app = initialize_app(options, Some(unique_settings())).unwrap();
         let messaging = get_messaging(Some(app)).unwrap();
-        assert!(messaging.request_permission().unwrap());
-        let token1 = messaging.get_token(None).unwrap();
-        let token2 = messaging.get_token(None).unwrap();
+        let permission = block_on_ready(messaging.request_permission()).unwrap();
+        assert_eq!(permission, PermissionState::Granted);
+        let token1 = block_on_ready(messaging.get_token(None)).unwrap();
+        let token2 = block_on_ready(messaging.get_token(None)).unwrap();
         assert_eq!(token1, token2);
-        messaging.delete_token().unwrap();
-        let token3 = messaging.get_token(None).unwrap();
+        block_on_ready(messaging.delete_token()).unwrap();
+        let token3 = block_on_ready(messaging.get_token(None)).unwrap();
         assert_ne!(token1, token3);
     }
+
+    #[test]
+    fn get_token_with_empty_vapid_key_returns_error() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let messaging = get_messaging(Some(app)).unwrap();
+        let err = block_on_ready(messaging.get_token(Some(" "))).unwrap_err();
+        assert_eq!(err.code_str(), "messaging/invalid-argument");
+    }
+
+    #[test]
+    fn delete_token_without_existing_token_returns_error() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let messaging = get_messaging(Some(app)).unwrap();
+        let err = block_on_ready(messaging.delete_token()).unwrap_err();
+        assert_eq!(err.code_str(), "messaging/token-deletion-failed");
+    }
+
+    #[test]
+    fn token_persists_across_messaging_instances() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let messaging = get_messaging(Some(app.clone())).unwrap();
+        let token1 = block_on_ready(messaging.get_token(None)).unwrap();
+
+        // Re-fetch messaging for the same app and validate the stored token is reused.
+        let messaging_again = get_messaging(Some(app)).unwrap();
+        let token2 = block_on_ready(messaging_again.get_token(None)).unwrap();
+        assert_eq!(token1, token2);
+
+        block_on_ready(messaging_again.delete_token()).unwrap();
+    }
+
+    fn block_on_ready<F: Future>(future: F) -> F::Output {
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let mut future = future;
+        // SAFETY: the future is dropped before this function returns and never moved while pinned.
+        let mut pinned = unsafe { Pin::new_unchecked(&mut future) };
+        match Future::poll(pinned.as_mut(), &mut cx) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("future unexpectedly pending"),
+        }
+    }
+
+    fn noop_waker() -> Waker {
+        unsafe { Waker::from_raw(noop_raw_waker()) }
+    }
+
+    fn noop_raw_waker() -> RawWaker {
+        RawWaker::new(std::ptr::null(), &NOOP_RAW_WAKER_VTABLE)
+    }
+
+    unsafe fn noop_raw_waker_clone(_: *const ()) -> RawWaker {
+        noop_raw_waker()
+    }
+
+    unsafe fn noop_raw_waker_wake(_: *const ()) {}
+
+    unsafe fn noop_raw_waker_wake_by_ref(_: *const ()) {}
+
+    unsafe fn noop_raw_waker_drop(_: *const ()) {}
+
+    static NOOP_RAW_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
+        noop_raw_waker_clone,
+        noop_raw_waker_wake,
+        noop_raw_waker_wake_by_ref,
+        noop_raw_waker_drop,
+    );
 }

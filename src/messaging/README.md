@@ -1,65 +1,72 @@
 # Firebase Messaging Port (Rust)
 
-This directory hosts the early-stage Rust port of the Firebase Cloud Messaging (FCM) web SDK. The aim is to reproduce
-`@firebase/messaging` so apps can request notification permissions, obtain registration tokens, and handle messages.
+## Introduction
+
+Rust implementation of the Firebase Cloud Messaging (FCM) web SDK surface. The goal is to mirror the `@firebase/messaging` APIs so applications can manage web push permissions, registration tokens and foreground/background notifications from Rust (including WASM builds).
 
 ## Porting status
 
-- messaging 3% `[          ]`
+- messaging 22% `[=====     ]`
 
-==As of October 20th, 2025== 
+## Quick Start Example
 
-Prompt: Compare the original JS/Typescript files in ./packages/messaging and the ported files in Rust in ./src/messaging, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
+```rust,no_run
+use firebase_rs_sdk_unofficial::messaging::{
+    self, PermissionState, PushSubscriptionManager, ServiceWorkerManager,
+};
 
-I'm gathering key points about the messaging module's features and gaps—like the minimal Rust stub missing push and service worker support, its limited API implementations, error coverage around 3%, and highlighting relevant JS files and paths—so I can create a clear and thorough final summary for the user.
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
+    if !messaging::is_supported() {
+        return Err(messaging::error::unsupported_browser(
+            "Browser is missing push APIs",
+        ));
+    }
 
-Coverage is roughly 3 % of the JS Messaging SDK.
+    let mut sw_manager = ServiceWorkerManager::new();
+    let registration = sw_manager.register_default().await?;
 
-  - Rust currently wires a messaging component and exposes request_permission, get_token, and delete_token, but
-  everything is in-memory: tokens are random strings keyed by app name, permission always returns true, and deletion
-  just clears the map (src/messaging/api.rs:1). Error enums mirror only three codes (src/messaging/error.rs:1). There’s
-  no service-worker, push-subscription, or network interaction.
-  - The JS module is vast. packages/messaging/src/messaging-service.ts:1 sets up dependencies on Installations,
-  Analytics, service workers, BigQuery logging, and background handlers; token APIs drive real browser flows, notice
-  packages/messaging/src/api/getToken.ts:1 prompting notification permission, updating VAPID keys, and delegating
-  to the token manager. The token manager itself handles IndexedDB persistence, FCM REST calls, weekly refresh, push
-  subscription lifecycle, and backend delete/update calls (packages/messaging/src/internals/token-manager.ts:1).
-  Surrounding helpers manage service worker registration, environment guards, logging, background/foreground message
-  listeners, isSupported checks, delivery metrics export, and testing utilities spread across packages/messaging/src/
-  helpers/*, packages/messaging/src/listeners/*, packages/messaging/src/util/*, etc.
+    let mut push_manager = PushSubscriptionManager::new();
+    let vapid_key = "<your-public-vapid-key>";
 
-Given the Rust port only reproduces the API shape with a trivial stub while omitting browser integration, Installations/Analytics/App Check interop, network requests, persistence, subscription management, message dispatch, and emulator/testing support, its functionality today is only a few percent of what the JavaScript SDK provides.
+    let messaging = messaging::get_messaging(None)?;
+    if matches!(messaging.request_permission().await?, PermissionState::Granted) {
+        let subscription = push_manager.subscribe(&registration, vapid_key).await?;
+        let details = subscription.details()?;
+        let _token = messaging.get_token(Some(vapid_key)).await?;
+    }
+    Ok(())
+}
+```
 
+## Implemented
 
-## Current Functionality
+- Component registration that exposes `Messaging` through the shared component system.
+- In-memory token management for `get_token` and `delete_token` with validation of VAPID keys.
+- `messaging::is_supported()` guard that mirrors `packages/messaging/src/api/isSupported.ts` for web builds.
+- Asynchronous `Messaging::request_permission` flow that awaits `Notification.requestPermission` and surfaces
+  `messaging/permission-blocked` and `messaging/unsupported-browser` errors.
+- `ServiceWorkerManager` helper that registers the default Firebase messaging worker (mirrors
+  `helpers/registerDefaultSw.ts`) and caches the resulting registration for reuse.
+- WASM-only `PushSubscriptionManager` that wraps `PushManager.subscribe`, returns subscription details and supports
+  unsubscribe/error mapping aligned with the JS SDK implementation.
+- Token persistence layer that stores token metadata (including subscription details and creation time) per app,
+  mirroring the IndexedDB-backed token manager with localStorage/native fallbacks.
+- Minimal error types for invalid arguments, internal failures and token deletion.
+- Non-WASM unit test coverage for permission/token flows, invalid arguments, token deletion, service worker and push
+  subscription stubs.
 
-- **Component wiring** – `register_messaging_component` registers the `messaging` component so apps can call
-  `get_messaging` via the shared component container.
-- **Messaging service stub** – In-memory token generation that supports `request_permission`, `get_token`, and
-  `delete_token` (with forced regeneration on delete).
-- **Errors/constants** – Basic error codes (`messaging/invalid-argument`, `messaging/internal`,
-  `messaging/token-deletion-failed`) and component name constant.
-- **Tests** – Unit test validating token stability and refresh semantics.
+## Still to do
 
-The stub enables structural integration but does not interact with the real FCM infrastructure or browser APIs.
+- Track permission changes across sessions and expose notification status helpers similar to the JS SDK.
+- Call the Installations and FCM REST endpoints to create, refresh and delete tokens, including weekly refresh checks.
+- Coordinate multi-tab state and periodic refresh triggers using IndexedDB change listeners (BroadcastChannel / storage events).
+- Foreground/background message listeners, payload decoding and background handlers.
+- Environment-specific guards (SW vs window scope), emulator/testing helpers and extended error coverage.
 
-## Work Remaining (vs `packages/messaging`)
+## Next steps - Detailed completion plan
 
-1. **Browser permission & service worker integration**
-   - Implement actual notification permission prompts, service worker registration, and push subscription handling.
-2. **Installation / FCM token fetch**
-   - Exchange with the Firebase Installations service and FCM backend to obtain registration tokens (REST calls, VAPID
-     keys, heartbeat headers).
-3. **Token persistence & multi-tab coordination**
-   - Store tokens in IndexedDB/localStorage, handle tab focus events, and support token refresh intervals.
-4. **Foreground/background message handling**
-   - Port message event dispatching, background handler registration, and payload decoding.
-5. **Public API parity**
-   - Implement `onMessage`, `getToken`, `deleteToken`, `isSupported`, `experimental` helpers, etc., per the JS SDK.
-6. **Platform/environment guards**
-   - Mirror checks for browser support (service worker availability, notifications API) and React Native/Cordova
-     behaviour.
-7. **Testing & emulator support**
-   - Port JS tests (token refresh, message handling, permission flows) and add emulator integration if applicable.
-
-Addressing these items will bring the Rust Messaging module to parity with the JavaScript SDK and enable real FCM usage.
+1. Implement the Installations/FCM REST interactions for token create/update/delete, mirroring `internals/token-manager.ts`.
+2. Add multi-tab coordination (BroadcastChannel/localStorage) so IndexedDB state stays in sync across contexts.
+3. Port message delivery APIs (`onMessage`, `onBackgroundMessage`) and event dispatchers, including WASM gating for background handlers.
+4. Expand the error catalog to match `packages/messaging/src/util/errors.ts`, update documentation and backfill tests for the newly added behaviours.
