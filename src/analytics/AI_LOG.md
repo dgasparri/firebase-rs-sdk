@@ -9,7 +9,7 @@ Updated Plan
 
   - Added src/analytics with constants, error type, and an Analytics service that registers via the component system,
   responds to get_analytics, and stores logged events (basic validation + in-memory capture).
-  - Exposed the module at the crate root so users can call firebase-rs-sdk-unofficial-porting::analytics::*.
+  - Exposed the module at the crate root so users can call firebase-rs-sdk-porting::analytics::*.
   - Included a unit test that initializes an app, retrieves analytics, and verifies log_event records entries.
 
   Formatting and tests: cargo fmt, cargo test.

@@ -62,7 +62,7 @@ Prompt: Compare the original JS/Typescript files in ./packages/firestore and the
 
 ## Development status as of 14th October 2025
 
-- Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore) for details)
+- Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore) for details)
 - Testing: 31 tests (passed)
 - Documentation: Most public functions are documented
 - Examples: 3 examples
@@ -72,10 +72,10 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 ## Quick Start Example
 
 ```rust
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::app_check::*;
-use firebase_rs_sdk_unofficial::auth::*;
-use firebase_rs_sdk_unofficial::firestore::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::app_check::*;
+use firebase_rs_sdk::auth::*;
+use firebase_rs_sdk::firestore::*;
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_check_internal = FirebaseAppCheckInternal::new(app_check);
     let firestore = get_firestore(Some(app.clone()))?;
     let client = FirestoreClient::with_http_datastore_authenticated(
-        firebase_rs_sdk_unofficial::firestore::api::Firestore::from_arc(firestore.clone()),
+        firebase_rs_sdk::firestore::api::Firestore::from_arc(firestore.clone()),
         auth.token_provider(),
         Some(app_check_internal.token_provider()),
     )?;
@@ -121,8 +121,8 @@ If App Check is not enabled for your app, pass `None` as the third argument to
 ### Using Converters
 
 ```rust
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::firestore::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::firestore::*;
 use std::collections::BTreeMap;
 #[derive(Clone)]
 struct MyUser {

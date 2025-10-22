@@ -56,7 +56,7 @@ impl RemoteConfigValue {
     /// # Examples
     ///
     /// ```
-    /// use firebase_rs_sdk_unofficial::remote_config::value::RemoteConfigValue;
+    /// use firebase_rs_sdk::remote_config::value::RemoteConfigValue;
     ///
     /// let value = RemoteConfigValue::default();
     /// assert_eq!(value.as_string(), "");

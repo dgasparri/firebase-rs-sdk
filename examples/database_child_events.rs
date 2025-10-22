@@ -4,8 +4,8 @@
 //! `on_child_added`, `on_child_changed`, and snapshot traversal helpers. The example
 //! assumes an emulator is available but will work against any Realtime Database instance.
 
-use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::database::{
+use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::database::{
     get_database, on_child_added, on_child_changed, on_child_removed, server_timestamp,
 };
 use serde_json::json;

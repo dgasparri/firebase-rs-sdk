@@ -1,5 +1,5 @@
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::app_check::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::app_check::*;
 use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;

@@ -76,8 +76,8 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 ## Quick Start Example
 
 ```rust
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::storage::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::storage::*;
 
 fn main() {
     let options = FirebaseOptions {

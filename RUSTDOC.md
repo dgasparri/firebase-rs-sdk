@@ -36,7 +36,7 @@ The following modules are used internally by the library and have no direct publ
 
 Note that this library is provided _as is__. Even the more developed modules have not yet been exhaustively tested. All the code published passes `cargo test` and the original tests of the JS SDK are being ported, but we are still verifying that all relevant tests from the JS SDK have been ported and that the test coverage is complete.
 
-If you want to contribute, donating your time and AI resources is the most valuable way to support this project. See the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk-unofficial/blob/main/CONTRIBUTING.md) page on how to help.
+If you want to contribute, donating your time and AI resources is the most valuable way to support this project. See the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) page on how to help.
 
 ##  Why the JS SDK as a source?
 
@@ -85,8 +85,8 @@ Here is the equivalent example using the Rust port of the SDK:
 use std::collections::BTreeMap;
 use std::error::Error;
 
-use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::firestore::*;
+use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::firestore::*;
 
 # fn main() -> Result<(), Box<dyn Error>> {
 let firebase_config = FirebaseOptions {
@@ -153,7 +153,7 @@ fn field_as_i64(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<
 
 As you can see, there are clear parallels between the TypeScript methods (initializeApp(), getFirestore(), collection(), getDocs()) and their Rust counterparts (initialize_app(), get_firestore(), collection(), get_docs()). 
 
-For further details, refer to the example [`./examples/firestore_select_documents.rs`](https://github.com/dgasparri/firebase-rs-sdk-unofficial/blob/main/examples/firestore_select_documents.rs) or run `cargo run --example firestore_select_documents`.
+For further details, refer to the example [`./examples/firestore_select_documents.rs`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/examples/firestore_select_documents.rs) or run `cargo run --example firestore_select_documents`.
 
 ## Copyright
 
@@ -163,5 +163,5 @@ Please be aware that this library is distributed "as is", and the author(s) offe
 
 ## How to contribute
 
-We welcome contributions from everyone. The porting process is time and AI intensive, if you have any or both of those, your help is appreciated! Please refer to the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk-unofficial/blob/main/CONTRIBUTING.md) for the details. 
+We welcome contributions from everyone. The porting process is time and AI intensive, if you have any or both of those, your help is appreciated! Please refer to the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) for the details. 
 

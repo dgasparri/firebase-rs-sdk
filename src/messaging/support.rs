@@ -16,7 +16,7 @@ use wasm_bindgen::{JsCast, JsValue};
 /// # Examples
 ///
 /// ```
-/// use firebase_rs_sdk_unofficial::messaging;
+/// use firebase_rs_sdk::messaging;
 ///
 /// if messaging::is_supported() {
 ///     // Safe to call messaging APIs that rely on browser push features.

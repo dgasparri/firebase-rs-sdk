@@ -29,7 +29,7 @@
 //!
 //! ## Development status as of 14th October 2025
 //!
-//! - Core functionalities: Mostly implemented (see the module's [README](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/storage) for details)
+//! - Core functionalities: Mostly implemented (see the module's [README](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage) for details)
 //! - Tests: 27 tests (passed)
 //! - Documentation: Lacking documentation on most functions
 //! - Examples: None provided
@@ -39,8 +39,8 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use firebase_rs_sdk_unofficial::app::*;
-//! use firebase_rs_sdk_unofficial::storage::*;
+//! use firebase_rs_sdk::app::*;
+//! use firebase_rs_sdk::storage::*;
 //!
 //! fn main() {
 //!     let options = FirebaseOptions {

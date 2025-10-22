@@ -2,8 +2,8 @@
 mod wasm_demo {
     use std::sync::Arc;
 
-    use firebase_rs_sdk_unofficial::app::FirebaseApp;
-    use firebase_rs_sdk_unofficial::auth::*;
+    use firebase_rs_sdk::app::FirebaseApp;
+    use firebase_rs_sdk::auth::*;
     use serde_json::Value;
     use serde_wasm_bindgen::from_value;
     use wasm_bindgen::prelude::*;

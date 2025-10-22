@@ -21,9 +21,9 @@ I’d put the Remote Config port around 25 % complete. We now mirror the JS SD
 ```rust,no_run
 use std::collections::HashMap;
 
-use firebase_rs_sdk_unofficial::app::api::initialize_app;
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::remote_config::{get_remote_config, RemoteConfig};
+use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::remote_config::{get_remote_config, RemoteConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FirebaseOptions {

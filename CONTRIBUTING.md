@@ -8,7 +8,7 @@ Here are the steps to set up the environment.
 
 Clone the Github repository:
 
-> git clone https://github.com/dgasparri/firebase-rs-sdk-unofficial.git
+> git clone https://github.com/dgasparri/firebase-rs-sdk.git
 
 Clone also the Github Firebase JS SDK repository:
 
@@ -16,11 +16,11 @@ Clone also the Github Firebase JS SDK repository:
 
 Copy all the files and subforlder from the Firebase JS SDK ./packages folder, to the ./packages folder. Those files will be used by the AI to analyze the features of the JS SDK library. Under Windows Command Line:
 
-> XCOPY /E firebase-js-sdk\packages\* firebase-rs-sdk-unofficial\packages\.
+> XCOPY /E firebase-js-sdk\packages\* firebase-rs-sdk\packages\.
 
 Copy also the doc files in the docs-devsite folder. Those files will be used by the AI to help document the API. Under Windows Command Line:
 
-> COPY firebase-js-sdk\docs-devsite\* firebase-rs-sdk-unofficial\docs-devsite\.
+> COPY firebase-js-sdk\docs-devsite\* firebase-rs-sdk\docs-devsite\.
 
 Now you can delete the JS SDK folder, as it will not needed anymore.
 

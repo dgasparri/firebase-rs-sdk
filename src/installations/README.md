@@ -22,8 +22,8 @@ Coverage is around 35 %.
 
 ## Quick Start Example
 ```rust,no_run
-use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::installations::{get_installations, InstallationToken};
+use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::installations::{get_installations, InstallationToken};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
    let app = initialize_app(

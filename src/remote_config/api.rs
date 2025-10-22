@@ -92,10 +92,10 @@ impl RemoteConfig {
     /// # Examples
     ///
     /// ```
-    /// use firebase_rs_sdk_unofficial::remote_config::settings::RemoteConfigSettingsUpdate;
-    /// # use firebase_rs_sdk_unofficial::remote_config::get_remote_config;
-    /// # use firebase_rs_sdk_unofficial::app::api::initialize_app;
-    /// # use firebase_rs_sdk_unofficial::app::{FirebaseOptions, FirebaseAppSettings};
+    /// use firebase_rs_sdk::remote_config::settings::RemoteConfigSettingsUpdate;
+    /// # use firebase_rs_sdk::remote_config::get_remote_config;
+    /// # use firebase_rs_sdk::app::api::initialize_app;
+    /// # use firebase_rs_sdk::app::{FirebaseOptions, FirebaseAppSettings};
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let app = initialize_app(FirebaseOptions::default(), Some(FirebaseAppSettings::default()))?;
     /// let rc = get_remote_config(Some(app))?;

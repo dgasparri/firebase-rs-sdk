@@ -547,7 +547,7 @@ Created a second example examples/installations_internal_component.rs showing ho
 > PROMPT: when trying to run the example I got a compile error: error[E0308]: `?` operator has incompatible types
   --> examples\installations_internal_component.rs:35:27
    |
-35 |     delete_installations(&firebase_rs_sdk_unofficial::installations::get_installations(Some(app))?)?;
+35 |     delete_installations(&firebase_rs_sdk::installations::get_installations(Some(app))?)?;
    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Installations`, found `Arc<Installations>`
    |
    = note: `?` operator cannot convert from `Arc<Installations>` to `Installations`
@@ -555,7 +555,7 @@ Created a second example examples/installations_internal_component.rs showing ho
               found struct `Arc<Installations>`
 
 For more information about this error, try `rustc --explain E0308`.
-error: could not compile `firebase-rs-sdk-unofficial` (example "installations_internal_component") due to 1 previous error
+error: could not compile `firebase-rs-sdk` (example "installations_internal_component") due to 1 previous error
 
 
 Updated the internal-component example so cleanup works:

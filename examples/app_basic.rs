@@ -1,4 +1,4 @@
-use firebase_rs_sdk_unofficial::app::*;
+use firebase_rs_sdk::app::*;
 
 fn main() -> AppResult<()> {
     // Configure your Firebase project credentials. These values are placeholders that allow the

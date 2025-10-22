@@ -4,9 +4,9 @@
 //! `ServerValue` helpers (`packages/database/src/api/Reference_impl.ts` and
 //! `packages/database/src/api/ServerValue.ts`).
 
-use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::database::error::DatabaseResult;
-use firebase_rs_sdk_unofficial::database::{
+use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::database::error::DatabaseResult;
+use firebase_rs_sdk::database::{
     get_database, increment, push_with_value, server_timestamp, set_priority, set_with_priority,
 };
 use serde_json::json;

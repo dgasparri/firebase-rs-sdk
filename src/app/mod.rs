@@ -12,7 +12,7 @@
 //!
 //! ## Development status as of 14th October 2025
 //!
-//! - Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore) for details)
+//! - Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore) for details)
 //! - Tests: 12 tests (passed)
 //! - Documentation: Most public functions are documented
 //! - Examples: None provided
@@ -22,7 +22,7 @@
 //! ## Example Usage
 //!
 //! ```rust
-//! use firebase_rs_sdk_unofficial::app::*;
+//! use firebase_rs_sdk::app::*;
 //!
 //! fn main() -> AppResult<()> {
 //!     // Configure your Firebase project credentials. These values are placeholders that allow the

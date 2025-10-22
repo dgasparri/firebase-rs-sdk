@@ -9,34 +9,34 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 
 | Module | % porting completed  | |
 |--------|----------------------|-|
-| [app](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app)                     | 60% | `[############        ]` |
-| [storage](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/storage)             | 60% | `[############        ]` |
-| [installations](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/installations) | 35% | `[#######             ]` |
-| [ai](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/ai)                       | 30% | `[######              ]` |
-| [database](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/database)           | 30% | `[######              ]` |
-| [auth](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth)                   | 25% | `[#####               ]` |
-| [firestore](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore)         | 25% | `[#####               ]` |
-| [messaging](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/messaging)         | 25% | `[#####               ]` |
-| [remote-config](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/remote_config) | 25% | `[#####               ]` |
-| [analytics](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/analytics)         | 20% | `[####                ]` |
-| [app_check](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app_check)         | 20% | `[####                ]` |
-| [data-connect](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/data_connect)   | 5%  | `[#                   ]` |
-| [functions](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/functions)         | 5%  | `[#                   ]` |
-| [performance](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/performance)     | 3%  | `[#                   ]` |
+| [app](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app)                     | 60% | `[############        ]` |
+| [storage](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage)             | 60% | `[############        ]` |
+| [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) | 35% | `[#######             ]` |
+| [ai](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/ai)                       | 30% | `[######              ]` |
+| [database](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/database)           | 30% | `[######              ]` |
+| [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)                   | 25% | `[#####               ]` |
+| [firestore](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore)         | 25% | `[#####               ]` |
+| [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         | 25% | `[#####               ]` |
+| [remote-config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config) | 25% | `[#####               ]` |
+| [analytics](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/analytics)         | 20% | `[####                ]` |
+| [app_check](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check)         | 20% | `[####                ]` |
+| [data-connect](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/data_connect)   | 5%  | `[#                   ]` |
+| [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)         | 5%  | `[#                   ]` |
+| [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     | 3%  | `[#                   ]` |
 
 
 The following modules are used internally by the library and have no direct public API. Only the features required internally have been ported.
 
-- [component](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/component)
-- [logger](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/logger)
-- [platform](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/platform)
-- [util](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/util)
+- [component](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/component)
+- [logger](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/logger)
+- [platform](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/platform)
+- [util](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/util)
 
 
 
 Note that this library is provided _as is__. Even the more developed modules have not yet been exhaustively tested. All the code published passes `cargo test` and the original tests of the JS SDK are being ported, but we are still verifying that all relevant tests from the JS SDK have been ported and that the test coverage is complete.
 
-If you want to contribute, donating your time and AI resources is the most valuable way to support this project. See the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk-unofficial/blob/main/CONTRIBUTING.md) page on how to help.
+If you want to contribute, donating your time and AI resources is the most valuable way to support this project. See the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) page on how to help.
 
 ##  Why the JS SDK as a source?
 
@@ -85,8 +85,8 @@ Here is the equivalent example using the Rust port of the SDK:
 use std::collections::BTreeMap;
 use std::error::Error;
 
-use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::firestore::*;
+use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::firestore::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let firebase_config = FirebaseOptions {
@@ -153,7 +153,7 @@ fn field_as_i64(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<
 
 As you can see, there are clear parallels between the TypeScript methods (initializeApp(), getFirestore(), collection(), getDocs()) and their Rust counterparts (initialize_app(), get_firestore(), collection(), get_docs()). 
 
-For further details, refer to the example [`./examples/firestore_select_documents.rs`](https://github.com/dgasparri/firebase-rs-sdk-unofficial/blob/main/examples/firestore_select_documents.rs) or run `cargo run --example firestore_select_documents`.
+For further details, refer to the example [`./examples/firestore_select_documents.rs`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/examples/firestore_select_documents.rs) or run `cargo run --example firestore_select_documents`.
 
 ## Copyright
 
@@ -163,5 +163,5 @@ Please be aware that this library is distributed "as is", and the author(s) offe
 
 ## How to contribute
 
-We welcome contributions from everyone. The porting process is time and AI intensive, if you have any or both of those, your help is appreciated! Please refer to the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk-unofficial/blob/main/CONTRIBUTING.md) for the details. 
+We welcome contributions from everyone. The porting process is time and AI intensive, if you have any or both of those, your help is appreciated! Please refer to the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) for the details. 
 

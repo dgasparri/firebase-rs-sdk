@@ -1,4 +1,4 @@
-use firebase_rs_sdk_unofficial::firestore::model::ResourcePath;
+use firebase_rs_sdk::firestore::model::ResourcePath;
 
 fn resource_path(path: &str) -> ResourcePath {
     ResourcePath::from_segments(path.split('/').filter(|segment| !segment.is_empty()))

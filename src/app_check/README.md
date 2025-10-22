@@ -54,7 +54,7 @@ Given that only the minimal API shell and custom-provider plumbing exist while t
 
 ## Development status as of 14th October 2025
 
-- Core functionalities: Some implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app_check) for details)
+- Core functionalities: Some implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check) for details)
 - Tests: 4 tests (passed)
 - Documentation: Some public functions are documented
 - Examples: None provided
@@ -64,8 +64,8 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 ## Example Usage
 
 ```rust
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::app_check::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::app_check::*;
 use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;

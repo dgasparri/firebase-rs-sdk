@@ -23,7 +23,7 @@
 //!
 //! ## Development status as of 14th October 2025
 //!
-//! - Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/auth) for details)
+//! - Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth) for details)
 //! - Tests: 30 tests (passed)
 //! - Documentation: Most public functions are documented
 //! - Examples: 1 provided
@@ -33,8 +33,8 @@
 //! ## Example Usage
 //!
 //! ```rust,no_run
-//! use firebase_rs_sdk_unofficial::app::*;
-//! use firebase_rs_sdk_unofficial::auth::*;
+//! use firebase_rs_sdk::app::*;
+//! use firebase_rs_sdk::auth::*;
 //! use std::error::Error;
 //!
 //! fn main() -> Result<(), Box<dyn Error>> {
@@ -81,7 +81,7 @@
 //!     auth.sign_out();
 //!     println!("Signed out.");
 //!
-//!     firebase_rs_sdk_unofficial::app::api::delete_app(&app)?;
+//!     firebase_rs_sdk::app::api::delete_app(&app)?;
 //!     println!("App deleted.");
 //!
 //!     Ok(())

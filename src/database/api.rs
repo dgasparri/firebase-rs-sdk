@@ -1011,7 +1011,7 @@ impl DatabaseReference {
     ///
     /// # Examples
     /// ```
-    /// # use firebase_rs_sdk_unofficial::database::{DatabaseReference, DatabaseResult};
+    /// # use firebase_rs_sdk::database::{DatabaseReference, DatabaseResult};
     /// # use serde_json::json;
     /// # fn demo(messages: &DatabaseReference) -> DatabaseResult<()> {
     /// let new_message = messages.push_with_value(json!({ "text": "hi" }))?;

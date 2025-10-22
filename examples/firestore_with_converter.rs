@@ -1,4 +1,4 @@
-use firebase_rs_sdk_unofficial::firestore::*;
+use firebase_rs_sdk::firestore::*;
 use std::collections::BTreeMap;
 
 #[derive(Clone)]

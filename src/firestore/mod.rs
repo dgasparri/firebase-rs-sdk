@@ -26,7 +26,7 @@
 //!
 //! ## Development status as of 14th October 2025
 //!
-//! - Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/firestore) for details)
+//! - Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore) for details)
 //! - Tests: 31 tests (passed)
 //! - Documentation: Most public functions are documented
 //! - Examples: None provided
@@ -36,12 +36,12 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use firebase_rs_sdk_unofficial::app::api::initialize_app;
-//! use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-//! use firebase_rs_sdk_unofficial::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
-//! use firebase_rs_sdk_unofficial::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
-//! use firebase_rs_sdk_unofficial::auth::api::auth_for_app;
-//! use firebase_rs_sdk_unofficial::firestore::*;
+//! use firebase_rs_sdk::app::api::initialize_app;
+//! use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+//! use firebase_rs_sdk::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
+//! use firebase_rs_sdk::app_check::{AppCheckOptions, FirebaseAppCheckInternal};
+//! use firebase_rs_sdk::auth::api::auth_for_app;
+//! use firebase_rs_sdk::firestore::*;
 //! use std::collections::BTreeMap;
 //! use std::time::Duration;
 //!
@@ -62,7 +62,7 @@
 //!
 //!     let firestore = get_firestore(Some(app.clone()))?;
 //!     let client = FirestoreClient::with_http_datastore_authenticated(
-//!         firebase_rs_sdk_unofficial::firestore::api::Firestore::from_arc(firestore.clone()),
+//!         firebase_rs_sdk::firestore::api::Firestore::from_arc(firestore.clone()),
 //!         auth.token_provider(),
 //!         Some(app_check_internal.token_provider()),
 //!     )?;
@@ -92,8 +92,8 @@
 //! Using Converters:
 //!
 //! ```rust,no_run
-//! use firebase_rs_sdk_unofficial::app::*;
-//! use firebase_rs_sdk_unofficial::firestore::*;
+//! use firebase_rs_sdk::app::*;
+//! use firebase_rs_sdk::firestore::*;
 //! use std::collections::BTreeMap;
 //!
 //! #[derive(Clone)]

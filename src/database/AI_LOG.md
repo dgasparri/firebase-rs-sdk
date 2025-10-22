@@ -425,13 +425,13 @@ stack backtrace:
              at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library\core\src\panicking.rs:75
    2: core::result::unwrap_failed
              at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library\core\src\result.rs:1732
-   3: enum2$<core::result::Result<tuple$<>,firebase_rs_sdk_unofficial::database::error::DatabaseError> >::unwrap
+   3: enum2$<core::result::Result<tuple$<>,firebase_rs_sdk::database::error::DatabaseError> >::unwrap
              at C:\User\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\result.rs:1137
-   4: firebase_rs_sdk_unofficial::database::backend::tests::rest_backend_skips_missing_tokens
+   4: firebase_rs_sdk::database::backend::tests::rest_backend_skips_missing_tokens
              at .\src\database\backend.rs:516
-   5: firebase_rs_sdk_unofficial::database::backend::tests::rest_backend_skips_missing_tokens::closure$0
+   5: firebase_rs_sdk::database::backend::tests::rest_backend_skips_missing_tokens::closure$0
              at .\src\database\backend.rs:502
-   6: core::ops::function::FnOnce::call_once<firebase_rs_sdk_unofficial::database::backend::tests::rest_backend_skips_missing_tokens::closure_env$0,tuple$<> >
+   6: core::ops::function::FnOnce::call_once<firebase_rs_sdk::database::backend::tests::rest_backend_skips_missing_tokens::closure_env$0,tuple$<> >
              at C:\Use\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\ops\function.rs:250
    7: core::ops::function::FnOnce::call_once
              at /rustc/6b00bc3880198600130e1cf62b8f8a93494488cc/library\core\src\ops\function.rs:250
@@ -695,7 +695,7 @@ Thinking
 ▌      |
 ▌      = note: `#[warn(unused_imports)]` on by default
 ▌
-▌ warning: `firebase-rs-sdk-unofficial` (lib test) generated 1 warning (run `cargo fix --lib -p firebase-rs-sdk-
+▌ warning: `firebase-rs-sdk` (lib test) generated 1 warning (run `cargo fix --lib -p firebase-rs-sdk-
 ▌ unofficial --tests` to apply 1 suggestion)
 
 

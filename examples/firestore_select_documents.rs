@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::firestore::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::firestore::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // TODO: Replace these placeholder options with the values from your Firebase project.

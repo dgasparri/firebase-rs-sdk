@@ -1,5 +1,5 @@
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::auth::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::auth::*;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     auth.sign_out();
     println!("Signed out.");
 
-    firebase_rs_sdk_unofficial::app::api::delete_app(&app)?;
+    firebase_rs_sdk::app::api::delete_app(&app)?;
     println!("App deleted.");
 
     Ok(())

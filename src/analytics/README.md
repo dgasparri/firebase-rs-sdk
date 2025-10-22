@@ -33,10 +33,10 @@ Large pieces are still missing—full gtag initialization, consent persistence, 
 ```rust,no_run
 use std::collections::BTreeMap;
 
-use firebase_rs_sdk_unofficial::analytics::{
+use firebase_rs_sdk::analytics::{
     get_analytics, MeasurementProtocolConfig, MeasurementProtocolEndpoint,
 };
-use firebase_rs_sdk_unofficial::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

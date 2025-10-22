@@ -1,10 +1,10 @@
 [package]
-name = "firebase-rs-sdk-unofficial"
+name = "firebase-rs-sdk"
 version = "0.11.1"
 edition = "2021"
 description = "Unofficial Rust port of the Firebase JS SDK"
 readme = "README.md"
-repository = "https://github.com/dgasparri/firebase-rs-sdk-unofficial"
+repository = "https://github.com/dgasparri/firebase-rs-sdk"
 keywords = ["firebase", "sdk", "webassembly", "ai", "firestore"]
 categories = ["api-bindings", "authentication", "database", "wasm", "web-programming"]
 license = "Apache-2.0"

@@ -1,7 +1,7 @@
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::app_check::*;
-use firebase_rs_sdk_unofficial::auth::*;
-use firebase_rs_sdk_unofficial::firestore::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::app_check::*;
+use firebase_rs_sdk::auth::*;
+use firebase_rs_sdk::firestore::*;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ fn insert_documents() -> Result<(), Box<dyn std::error::Error>> {
     let app_check_internal = FirebaseAppCheckInternal::new(app_check);
     let firestore = get_firestore(Some(app.clone()))?;
     let client = FirestoreClient::with_http_datastore_authenticated(
-        firebase_rs_sdk_unofficial::firestore::api::Firestore::from_arc(firestore.clone()),
+        firebase_rs_sdk::firestore::api::Firestore::from_arc(firestore.clone()),
         auth.token_provider(),
         Some(app_check_internal.token_provider()),
     )?;

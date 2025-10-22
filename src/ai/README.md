@@ -10,11 +10,11 @@ This module hosts the Rust port of the experimental Firebase AI client. It expos
 ## Quick Start Example
 
 ```rust,no_run
-use firebase_rs_sdk_unofficial::ai::backend::Backend;
-use firebase_rs_sdk_unofficial::ai::public_types::AiOptions;
-use firebase_rs_sdk_unofficial::ai::{get_ai, GenerateTextRequest};
-use firebase_rs_sdk_unofficial::app::api::initialize_app;
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::ai::backend::Backend;
+use firebase_rs_sdk::ai::public_types::AiOptions;
+use firebase_rs_sdk::ai::{get_ai, GenerateTextRequest};
+use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 

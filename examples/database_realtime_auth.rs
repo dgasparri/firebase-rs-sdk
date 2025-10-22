@@ -3,9 +3,9 @@ use std::io::{self, Write};
 use std::sync::Arc;
 use std::time::Duration;
 
-use firebase_rs_sdk_unofficial::app::*;
-use firebase_rs_sdk_unofficial::auth::*;
-use firebase_rs_sdk_unofficial::database::*;
+use firebase_rs_sdk::app::*;
+use firebase_rs_sdk::auth::*;
+use firebase_rs_sdk::database::*;
 use serde_json::json;
 
 fn prompt(prompt: &str) -> io::Result<String> {

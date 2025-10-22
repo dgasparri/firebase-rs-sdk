@@ -11,7 +11,7 @@ Rust implementation of the Firebase Cloud Messaging (FCM) web SDK surface. The g
 ## Quick Start Example
 
 ```rust,no_run
-use firebase_rs_sdk_unofficial::messaging::{
+use firebase_rs_sdk::messaging::{
     self, PermissionState, PushSubscriptionManager, ServiceWorkerManager,
 };
 

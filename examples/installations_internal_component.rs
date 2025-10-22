@@ -4,9 +4,9 @@
 //! This example mimics the way Remote Config / Messaging consume Installations.
 //! It requires network access and valid Firebase credentials.
 
-use firebase_rs_sdk_unofficial::app::api::initialize_app;
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::installations::{
+use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::installations::{
     delete_installations, get_installations_internal, InstallationToken,
 };
 
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Resolve the internal component; this mirrors what other Firebase services do.
     let installations_internal = get_installations_internal(Some(app.clone()))?;
     let installations =
-        firebase_rs_sdk_unofficial::installations::get_installations(Some(app.clone()))?;
+        firebase_rs_sdk::installations::get_installations(Some(app.clone()))?;
 
     let fid = installations_internal.get_id()?;
     println!("Internal component FID: {fid}");

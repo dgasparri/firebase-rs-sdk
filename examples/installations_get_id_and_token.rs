@@ -4,10 +4,10 @@
 //! Provide your own API key/project/app id (and optionally set the `FIREBASE_INSTALLATIONS_CACHE_DIR`
 //! environment variable if you want to control where the cache lives).
 
-use firebase_rs_sdk_unofficial::app::api::initialize_app;
-use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk_unofficial::installations::InstallationToken;
-use firebase_rs_sdk_unofficial::installations::{delete_installations, get_installations};
+use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::installations::InstallationToken;
+use firebase_rs_sdk::installations::{delete_installations, get_installations};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Replace these placeholders with the credentials from your Firebase project.

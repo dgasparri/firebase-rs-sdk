@@ -299,11 +299,11 @@ pub fn register_ai_component() {
 /// # Examples
 ///
 /// ```
-/// # use firebase_rs_sdk_unofficial::ai::backend::Backend;
-/// # use firebase_rs_sdk_unofficial::ai::public_types::AiOptions;
-/// # use firebase_rs_sdk_unofficial::ai::get_ai;
-/// # use firebase_rs_sdk_unofficial::app::api::initialize_app;
-/// # use firebase_rs_sdk_unofficial::app::{FirebaseAppSettings, FirebaseOptions};
+/// # use firebase_rs_sdk::ai::backend::Backend;
+/// # use firebase_rs_sdk::ai::public_types::AiOptions;
+/// # use firebase_rs_sdk::ai::get_ai;
+/// # use firebase_rs_sdk::app::api::initialize_app;
+/// # use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 /// let options = FirebaseOptions {
 ///     project_id: Some("project".into()),
 ///     api_key: Some("test".into()),
