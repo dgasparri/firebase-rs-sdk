@@ -64,13 +64,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Expand integration tests and shared fixtures to cover retry paths and error propagation.
 
 ## Next steps - Detailed completion plan
-1. **Harden persistence coordination**
-   - Mirror JS pending-registration semantics by tracking registration status in the persisted entry and short-circuiting duplicate create requests.
-   - Add a lightweight file lock or cross-process signal to prevent concurrent writes from clobbering data.
-   - Expose a pluggable trait implementation for WASM (IndexedDB) and native (filesystem/DB) backends.
-2. **Port lifecycle APIs**
-   - Expose `on_id_change` callbacks with deduplication similar to `generateFidChanged` in JS, making sure the notification fires after persistence updates.
-   - Add internal factory helpers exposing ID/token operations to dependent services.
-3. **Augment REST client robustness**
-   - Add ETag management, exponential backoff, and richer error codes derived from server responses.
-   - Integrate heartbeat header support behind the `wasm-web` feature once a heartbeat provider exists in `FirebaseApp`.
+1. **Introduce a wasm-aware REST client**
+   - Split `RestClient` into native (`reqwest::blocking`) and wasm (`window.fetch`) implementations behind `cfg` flags, sharing the request/response models.
+   - Rework `register_installation`, `generate_auth_token`, and `delete_installation` to return `Future`s and wrap the blocking path in a ready future on native targets.
+   - Update `Installations` APIs (`get_id`, `get_token`, `delete_installations`) to await the new client and propagate errors in the existing `InstallationsResult` shape.
+   - Document the design choice (Rust fetch shim instead of custom JS) in this README so downstream modules understand the dependency.
+2. **Integrate wasm persistence and listeners**
+   - Add an IndexedDB-backed `InstallationsPersistence` (mirroring the messaging token store) with BroadcastChannel/storage-event support so browser tabs stay in sync.
+   - Keep the file-based persistence for native targets and surface a trait so other modules can swap in custom backends.
+3. **Unblock Messaging’s FCM REST flow**
+   - Expose a lightweight internal API that returns the installation entry (FID + refresh/auth tokens + expiry) so `src/messaging` can call the FCM registration endpoints.
+   - Once the wasm client is in place, update messaging to replace the placeholder installation info with real data and add tests/docs covering the create/update/delete flows.
+4. **Follow-on parity work**
+   - Revisit JS parity items (`onIdChange`, pending-registration markers, retry/backoff, heartbeat headers) after the wasm port stabilises.
