@@ -29,6 +29,7 @@ The following modules are used internally by the library and have no direct publ
 
 - [component]
 - [logger]
+- [platform]
 - [util]
 
 

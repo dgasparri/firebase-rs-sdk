@@ -29,6 +29,7 @@ The following modules are used internally by the library and have no direct publ
 
 - [component](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/component)
 - [logger](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/logger)
+- [platform](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/platform)
 - [util](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/util)
 
 
