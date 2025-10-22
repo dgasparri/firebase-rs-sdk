@@ -24,7 +24,7 @@ This material is from Google and the Community.
 
 As of the day of writing (October 21th, 2025), 7 modules have been ported to an extent that they can be considered stable: the main features are ported, the API calls documented, the code is tested and working examples are provided. The other modules are a stub with just basic features, and API calls could evolve significantly:
 
-| Module | Percentage | |
+| Module | Completed | |
 |--------|------------|-|
 | [app](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/app)                     | 60% | `[############        ]` |
 | [storage](https://github.com/dgasparri/firebase-rs-sdk-unofficial/tree/main/src/storage)             | 60% | `[############        ]` |
