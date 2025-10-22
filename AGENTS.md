@@ -10,6 +10,8 @@ If common services are needed, they should NOT be in the folder of the single mo
 
 Try to adhere as much as possible to the public JS APIs, so that it is easy for a programmer to look at the JS documentation and infer how the Rust APIs should work. But the code behind the API should be using Rust logic and Rust's specific way of programming. Ignore all the JS specific requirements, or if useful code them in a way that an experienced Rust programmer would code them. If popular and well known Rust library exists for some specific tasks (such as base64, reqwest, etc.) feel free to use those.
 
+Each module's root file (`./src/{module}/mod.rs`) must remain tidy and only re-export the public API surface using `pub use` items accompanied by inline documentation. All types and functions that form the public API should be referenced through this file rather than being defined there directly. All types and functions that form the public API should be made public only through this file.
+
 ## Features of the JS APIs that are specific for the web/browser environment
 
 If some of the features of the JS APIs are specific for the web/browser environment, port them to Rust if they could be useful in a WASM module, and port them in a way that they could be used in a WASM module. Make them available only when the library is compiled with the  'wasm-web' or equivalent feature. 
@@ -17,7 +19,6 @@ If some of the features of the JS APIs are specific for the web/browser environm
 The Firebase JS SDK is a reference, but if some features are not available to the Rust language or environment, we implement them only in the part that makes it easy for the end user to implement those features outside of Rust. 
 
 Do NOT implement the Javascript side code to use them - this is left to the user. We are building a Firebase SDK library, not a final product, we do not want to implement anything that should be implemented by the user of the library. 
-
 
 For that reason, we do not write Javascript code just to make the library 100% feature equal to the Javascript library. If we can make the end user's life easier, we can start to draft an interface or something to implement that feature, but leaving everything outside Rust to the user of the library. 
 
