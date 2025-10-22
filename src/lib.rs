@@ -1,4 +1,4 @@
-#![doc = include_str!("../RUSTDOC.md")]
+#![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/RUSTDOC.md"))]
 
 pub mod ai;
 pub mod analytics;
