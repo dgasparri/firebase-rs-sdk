@@ -6,7 +6,7 @@ Rust implementation of the Firebase Cloud Messaging (FCM) web SDK surface. The g
 
 ## Porting status
 
-- messaging 22% `[=====     ]`
+- messaging 25% `[###       ]`
 
 ## Quick Start Example
 
@@ -67,7 +67,8 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
 
 ## Next steps - Detailed completion plan
 
-1. Implement the Installations/FCM REST interactions for token create/update/delete, mirroring `internals/token-manager.ts`.
-2. Add multi-tab coordination (BroadcastChannel/localStorage) so IndexedDB state stays in sync across contexts.
-3. Port message delivery APIs (`onMessage`, `onBackgroundMessage`) and event dispatchers, including WASM gating for background handlers.
-4. Expand the error catalog to match `packages/messaging/src/util/errors.ts`, update documentation and backfill tests for the newly added behaviours.
+1. Adopt the async Installations refresh path documented in `src/installations/README.md` (wasm `fetch` client + shared persistence) so messaging can obtain real FIS tokens on every target.
+2. Implement the Installations/FCM REST interactions for token create/update/delete, mirroring `internals/token-manager.ts`.
+3. Add multi-tab coordination (BroadcastChannel/localStorage) so IndexedDB state stays in sync across contexts.
+4. Port message delivery APIs (`onMessage`, `onBackgroundMessage`) and event dispatchers, including WASM gating for background handlers.
+5. Expand the error catalog to match `packages/messaging/src/util/errors.ts`, update documentation and backfill tests for the newly added behaviours.
