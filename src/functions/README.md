@@ -45,7 +45,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Implemented
 
 - Component registration so `Functions` instances can be resolved from a `FirebaseApp` container.
-- Native HTTPS callable transport built on `reqwest::blocking`, returning decoded JSON payloads.
+- Native HTTPS callable transport backed by async `reqwest::Client`, exposed through an async
+  transport layer while preserving the blocking `call` convenience wrapper on native targets.
 - Error code mapping aligned with the JS SDK (`packages/functions/src/error.ts`) including backend
   `status` translation and message propagation.
 - Custom-domain targeting (including emulator-style origins) by interpreting the instance
@@ -54,11 +55,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   HTTP mock server (skips automatically when sockets are unavailable).
 - Context provider that pulls Auth and App Check credentials from the component system and injects
   the appropriate `Authorization` / `X-Firebase-AppCheck` headers on outgoing callable requests.
+- WASM transport that issues callable requests through `fetch`, mirrors native timeout semantics
+  with `AbortController`, and reuses shared error mapping.
+- Automatic FCM token lookup so callable requests include the
+  `Firebase-Instance-ID-Token` header when the Messaging component is configured and a cached (or
+  freshly resolved) token is available.
 
 ## Still to do
 
-- Messaging token lookup so callable requests can include the
-  `Firebase-Instance-ID-Token` header when FCM is configured (`packages/functions/src/context.ts`).
 - Serializer parity for Firestore Timestamp, GeoPoint, and other special values used by callable
   payloads (`packages/functions/src/serializer.ts`).
 - Emulator helpers (`connectFunctionsEmulator`) and environment detection to configure the base
@@ -71,24 +75,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Next steps - Detailed completion plan
 
-1. **Cross-platform callable transport**
-   - Define a `CallableTransport` trait in `src/functions/transport.rs` with both native and wasm
-     implementations.
-   - Keep the current blocking reqwest path under `cfg(not(target_arch = "wasm32"))` and add a stub
-     wasm transport that will later be backed by `web_sys::fetch`.
-   - Adjust `CallableFunction::call` to delegate through the trait so transports can be swapped
-     without touching higher layers.
-2. **Async context plumbing**
-   - Make the functions context provider async to mirror the JS `ContextProvider`, then surface
-     asynchronous callable APIs (`call_async`) while keeping blocking helpers for native targets.
-   - Ensure auth/app-check/messaging token fetchers expose async entry points on wasm and native
-     (wrapping in `block_on` where needed for compatibility).
-3. **Messaging token integration**
-   - Expose a cached FCM token accessor from the messaging module so the callable context can attach
-     the `Firebase-Instance-ID-Token` header when available.
-4. **Serializer parity & URL utilities**
+1. **Serializer parity & URL utilities**
    - Port the callable serializer helpers (Firestore timestamps, GeoPoints) and add helpers such as
      `https_callable_from_url` and `connect_functions_emulator` for full API coverage.
-5. **Testing & documentation**
-   - Add wasm-specific integration tests using `wasm-bindgen-test`, update examples, and expand the
-     README with wasm configuration notes once the transports and async APIs land.
+2. **Wasm validation & tooling**
+   - Stand up `wasm-bindgen-test` coverage to verify the fetch transport, timeout handling, and
+     header propagation in a browser-like environment.
+   - Document the crate features (`wasm-web`) and any required Service Worker setup in the README
+     example section.
+3. **Advanced error handling**
+   - Surface backend `details` payloads and cancellation hooks so callers can differentiate retryable
+     vs. fatal failures, matching `packages/functions/src/error.ts` semantics.

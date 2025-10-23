@@ -85,13 +85,22 @@ impl ContextProvider {
     }
 
     async fn fetch_messaging_token(&self) -> Option<String> {
+        let messaging = self.ensure_messaging()?;
+
+        #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+        {
+            match messaging.get_token(None).await {
+                Ok(token) if !token.is_empty() => Some(token),
+                _ => None,
+            }
+        }
+
         #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
         {
             use crate::messaging::token_store;
 
             const MESSAGING_TOKEN_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
-            let messaging = self.ensure_messaging()?;
             let store_key = messaging.app().name().to_string();
             if let Ok(Some(record)) = token_store::read_token_async(&store_key).await {
                 let now_ms = SystemTime::now()
@@ -102,10 +111,12 @@ impl ContextProvider {
                     return Some(record.token);
                 }
             }
-        }
 
-        #[allow(unreachable_code)]
-        None
+            match messaging.get_token(None).await {
+                Ok(token) if !token.is_empty() => Some(token),
+                _ => None,
+            }
+        }
     }
 
     async fn fetch_app_check_token(&self, limited_use: bool) -> Option<String> {

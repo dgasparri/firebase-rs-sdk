@@ -10,7 +10,7 @@ use crate::component::{Component, ComponentType};
 use crate::functions::constants::FUNCTIONS_COMPONENT_NAME;
 use crate::functions::context::ContextProvider;
 use crate::functions::error::{internal_error, invalid_argument, FunctionsResult};
-use crate::functions::transport::{invoke_callable, CallableRequest};
+use crate::functions::transport::{invoke_callable_async, CallableRequest};
 use serde_json::{json, Value as JsonValue};
 use url::Url;
 
@@ -25,27 +25,11 @@ fn block_on_future<F>(future: F) -> F::Output
 where
     F: std::future::Future,
 {
-    use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Poll, Wake, Waker};
-
-    struct NoopWake;
-
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-        fn wake_by_ref(self: &Arc<Self>) {}
-    }
-
-    let waker = Waker::from(Arc::new(NoopWake));
-    let mut cx = Context::from_waker(&waker);
-    let mut future = Box::pin(future);
-
-    loop {
-        match Pin::as_mut(&mut future).poll(&mut cx) {
-            Poll::Ready(value) => return value,
-            Poll::Pending => std::thread::yield_now(),
-        }
-    }
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to create Tokio runtime for blocking callable invocation")
+        .block_on(future)
 }
 
 /// Client entry point for invoking HTTPS callable Cloud Functions.
@@ -213,7 +197,7 @@ where
             }
         }
 
-        let response_body = invoke_callable(request)?;
+        let response_body = invoke_callable_async(request).await?;
         extract_data(response_body)
     }
 
