@@ -1,5 +1,5 @@
-use reqwest::blocking::Client;
-use reqwest::StatusCode;
+use super::block_on_future;
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::error::{AuthError, AuthResult};
@@ -8,9 +8,9 @@ pub(crate) const DEFAULT_SECURE_TOKEN_ENDPOINT: &str =
     "https://securetoken.googleapis.com/v1/token";
 
 #[derive(Debug, Serialize)]
-struct RefreshTokenRequest<'a> {
+struct RefreshTokenRequest {
     grant_type: &'static str,
-    refresh_token: &'a str,
+    refresh_token: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,7 +37,6 @@ struct ErrorBody {
     message: Option<String>,
 }
 
-/// Exchanges a refresh token for a fresh ID token via the Secure Token API.
 pub fn refresh_id_token(
     client: &Client,
     api_key: &str,
@@ -57,6 +56,20 @@ pub(crate) fn refresh_id_token_with_endpoint(
     api_key: &str,
     refresh_token: &str,
 ) -> AuthResult<RefreshTokenResponse> {
+    block_on_future(refresh_id_token_with_endpoint_async(
+        client.clone(),
+        endpoint.to_owned(),
+        api_key.to_owned(),
+        refresh_token.to_owned(),
+    ))
+}
+
+async fn refresh_id_token_with_endpoint_async(
+    client: Client,
+    endpoint: String,
+    api_key: String,
+    refresh_token: String,
+) -> AuthResult<RefreshTokenResponse> {
     let url = format!("{endpoint}?key={api_key}");
     let request = RefreshTokenRequest {
         grant_type: "refresh_token",
@@ -67,15 +80,17 @@ pub(crate) fn refresh_id_token_with_endpoint(
         .post(url)
         .form(&request)
         .send()
+        .await
         .map_err(|err| AuthError::Network(err.to_string()))?;
 
     if response.status().is_success() {
         response
-            .json()
+            .json::<RefreshTokenResponse>()
+            .await
             .map_err(|err| AuthError::Network(err.to_string()))
     } else {
         let status = response.status();
-        let body = response.text().unwrap_or_else(|_| "{}".to_string());
+        let body = response.text().await.unwrap_or_else(|_| "{}".to_string());
         Err(map_refresh_error(status, &body))
     }
 }

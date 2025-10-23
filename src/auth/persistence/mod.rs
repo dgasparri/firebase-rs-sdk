@@ -167,10 +167,18 @@ impl ClosurePersistence {
     }
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 mod indexed_db;
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 pub use indexed_db::IndexedDbPersistence;
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]

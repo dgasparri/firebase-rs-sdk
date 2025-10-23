@@ -18,3 +18,7 @@ Create a slimmer, less noisy RUSTDOC.md file for each module, with sections extr
   - note follow-on parity tasks (onIdChange, retry/backoff, heartbeat, etc.)
 
   We're ready to start fresh with that roadmap.
+
+
+ cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web

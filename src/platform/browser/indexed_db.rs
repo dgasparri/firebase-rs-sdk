@@ -1,6 +1,10 @@
 //! Lightweight IndexedDB helpers shared across browser-facing modules.
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 mod wasm {
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
@@ -225,10 +229,18 @@ mod wasm {
     pub use IndexedDbResult as Result;
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 pub use wasm::*;
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(not(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+)))]
 mod stub {
 
     #[derive(Debug)]
@@ -285,5 +297,9 @@ mod stub {
     pub use IndexedDbResult as Result;
 }
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(not(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+)))]
 pub use stub::*;

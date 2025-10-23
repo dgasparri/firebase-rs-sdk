@@ -159,7 +159,7 @@ impl AuthStateListeners {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct SignInWithPasswordRequest {
     pub email: String,
     pub password: String,
@@ -167,7 +167,7 @@ pub struct SignInWithPasswordRequest {
     pub return_secure_token: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SignInWithPasswordResponse {
     #[serde(rename = "idToken")]
     pub id_token: String,
@@ -180,7 +180,7 @@ pub struct SignInWithPasswordResponse {
     pub expires_in: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct SignUpRequest {
     pub email: String,
     pub password: String,

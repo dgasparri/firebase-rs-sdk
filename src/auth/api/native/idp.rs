@@ -1,4 +1,5 @@
-use reqwest::blocking::Client;
+use super::block_on_future;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::error::{AuthError, AuthResult};
@@ -27,7 +28,7 @@ pub struct SignInWithIdpResponse {
     pub provider_id: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct SignInWithIdpRequest {
     #[serde(rename = "postBody")]
     pub post_body: String,
@@ -47,18 +48,31 @@ pub fn sign_in_with_idp(
     api_key: &str,
     request: &SignInWithIdpRequest,
 ) -> AuthResult<SignInWithIdpResponse> {
+    block_on_future(sign_in_with_idp_async(
+        client.clone(),
+        api_key.to_owned(),
+        request.clone(),
+    ))
+}
+
+async fn sign_in_with_idp_async(
+    client: Client,
+    api_key: String,
+    request: SignInWithIdpRequest,
+) -> AuthResult<SignInWithIdpResponse> {
     let url =
         format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key={api_key}");
 
     let response = client
         .post(&url)
-        .json(request)
+        .json(&request)
         .send()
+        .await
         .map_err(|err| AuthError::Network(err.to_string()))?;
 
     let status = response.status();
     if !status.is_success() {
-        let body = response.text().unwrap_or_default();
+        let body = response.text().await.unwrap_or_default();
         return Err(AuthError::InvalidCredential(format!(
             "signInWithIdp failed ({status}): {body}"
         )));
@@ -66,5 +80,6 @@ pub fn sign_in_with_idp(
 
     response
         .json::<SignInWithIdpResponse>()
+        .await
         .map_err(|err| AuthError::InvalidCredential(err.to_string()))
 }
