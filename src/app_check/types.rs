@@ -223,6 +223,8 @@ pub(crate) struct AppCheckState {
     pub token: Option<AppCheckToken>,
     pub is_token_auto_refresh_enabled: bool,
     pub observers: Vec<TokenListenerEntry>,
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    pub broadcast_handle: Option<crate::app_check::persistence::BroadcastSubscription>,
 }
 
 impl AppCheckState {
@@ -233,6 +235,8 @@ impl AppCheckState {
             token: None,
             is_token_auto_refresh_enabled: false,
             observers: Vec::new(),
+            #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+            broadcast_handle: None,
         }
     }
 }

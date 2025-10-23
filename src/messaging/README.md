@@ -70,9 +70,7 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
 
 ## Next steps - Detailed completion plan
 
-1. Finalize async token helpers
-   - Hook the new async token accessors into both native and wasm code paths so Functions can reliably read cached FCM tokens.
-2. Harden the new FCM REST integration with richer retry/backoff logic and unit tests that model server-side failures (mirroring `requests.test.ts`).
-3. Add multi-tab coordination (BroadcastChannel/storage events) so service worker updates fan out to every context and avoid duplicate registrations.
-4. Port message delivery APIs (`onMessage`, `onBackgroundMessage`) and event dispatchers, including WASM gating for background handlers.
-5. Expand the error catalog to match `packages/messaging/src/util/errors.ts`, update documentation and backfill tests for the newly added behaviours.
+1. Harden the new FCM REST integration with richer retry/backoff logic and unit tests that model server-side failures (mirroring `requests.test.ts`).
+2. Add multi-tab coordination (BroadcastChannel/storage events) so service worker updates fan out to every context and avoid duplicate registrations.
+3. Port message delivery APIs (`onMessage`, `onBackgroundMessage`) and event dispatchers, including WASM gating for background handlers.
+4. Expand the error catalog to match `packages/messaging/src/util/errors.ts`, update documentation and backfill tests for the newly added behaviours.

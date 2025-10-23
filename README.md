@@ -14,14 +14,14 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 | [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) | 45% | `[#########           ]` |
 | [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         | 40% | `[########            ]` |
 | [ai](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/ai)                       | 30% | `[######              ]` |
+| [app_check](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check)         | 30% | `[######              ]` |
+| [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)                   | 30% | `[######              ]` |
 | [database](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/database)           | 30% | `[######              ]` |
-| [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)                   | 25% | `[#####               ]` |
 | [firestore](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore)         | 25% | `[#####               ]` |
+| [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)         | 25% | `[#####               ]` |
 | [remote-config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config) | 25% | `[#####               ]` |
 | [analytics](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/analytics)         | 20% | `[####                ]` |
-| [app_check](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check)         | 20% | `[####                ]` |
 | [data-connect](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/data_connect)   | 5%  | `[#                   ]` |
-| [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)         | 5%  | `[#                   ]` |
 | [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     | 3%  | `[#                   ]` |
 
 

@@ -14,14 +14,14 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 | [installations] | 45% | `[#########           ]` |
 | [messaging]     | 40% | `[########            ]` |
 | [ai]            | 30% | `[######              ]` |
+| [app_check]     | 30% | `[######              ]` |
+| [auth]          | 30% | `[######              ]` |
 | [database]      | 30% | `[######              ]` |
-| [auth]          | 25% | `[#####               ]` |
 | [firestore]     | 25% | `[#####               ]` |
+| [functions]     | 25% | `[#####               ]` |
 | [remote_config] | 25% | `[#####               ]` |
 | [analytics]     | 20% | `[####                ]` |
-| [app_check]     | 20% | `[####                ]` |
 | [data_connect]  | 5%  | `[#                   ]` |
-| [functions]     | 5%  | `[#                   ]` |
 | [performance]   | 3%  | `[#                   ]` |
 
 

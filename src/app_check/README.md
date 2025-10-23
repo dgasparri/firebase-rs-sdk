@@ -14,7 +14,7 @@ It includes error handling, configuration options, and integration with Firebase
 
 ## Porting status
 
-- app_check 20% `[##        ]`
+- app_check 30% `[###       ]`
 
 ==As of October 20th, 2025== 
 
@@ -22,7 +22,7 @@ Prompt: Compare the original JS/Typescript files in ./packages/app_check and the
 
 I'm estimating the Rust implementation covers about 25-30% of the JavaScript App Check API, with many core parts missing like storage, proactive refresh, and debug support. I'm breaking down major areas to check coverage, especially around token handling, providers, and internal bridging, while planning to verify component registration details next.
 
-Estimated coverage ≈20 % of the JS App Check SDK.
+Estimated coverage ≈30 % of the JS App Check SDK.
 
   - Implemented pieces cover only the happy-path API surface: initialize_app_check, token fetch, limited-use fetch,
   listener wiring, and manual auto-refresh toggling (src/app_check/api.rs:15, src/app_check/state.rs:37). Custom
@@ -31,9 +31,9 @@ Estimated coverage ≈20 % of the JS App Check SDK.
   interop.rs:1).
   - All platform integrations that dominate the JS SDK are missing. There’s no component registration or service
   factory equivalent to the JS wiring in packages/app-check/src/factory.ts:33 and _registerComponent calls, so other
-  modules cannot obtain App Check via the component system. Tokens only live in memory; the persistence layer, IndexedDB
-  helpers, and debug-token storage (packages/app-check/src/storage.ts:32, packages/app-check/src/indexeddb.ts:1,
-  packages/app-check/src/debug.ts:1) have no Rust counterpart.
+  modules cannot obtain App Check via the component system. Basic IndexedDB persistence now exists on wasm, but
+  richer storage helpers (debug-token storage, visibility-aware refresh cues) from packages/app-check/src/storage.ts:32,
+  packages/app-check/src/indexeddb.ts:1, and packages/app-check/src/debug.ts:1 remain unported.
   - Proactive refresh, throttling, and visibility-aware backoff are absent: the scheduler and retry policy in packages/
   app-check/src/proactive-refresh.ts:26 and the state-machine logic in packages/app-check/src/internal-api.ts:61 aren’t
   ported, leaving set_token_auto_refresh_enabled as a no-op flag (src/app_check/state.rs:98).
@@ -131,6 +131,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     emulator toggles.
 - **Token state management** (`state.rs`)
   - In-memory token cache with listener registration/unregistration and auto-refresh flags.
+- **Browser persistence** (`persistence.rs`)
+  - IndexedDB storage plus BroadcastChannel updates so App Check tokens survive reloads and propagate across tabs (no-ops on native targets).
 - **Providers** (`providers.rs`)
   - Debug, reCAPTCHA, and limited-use provider scaffolding (mirroring factory wiring in JS) with placeholder behaviour.
 - **Interop surface** (`interop.rs`)
@@ -167,22 +169,17 @@ Comparing to the TypeScript implementation reveals functionality that still need
 
 ## Next Steps
 
-1. **Async token fetchers**
-   - Wire the newly introduced async token helpers (`get_token_async`, `get_limited_use_token_async`) to real network
-     flows on both native and wasm targets, then update dependent services and documentation to consume them.
-2. **Persistence layer**
-   - Implement token storage abstraction and port the IndexedDB/localStorage fallbacks.
-3. **Refresh scheduler**
-   - Add proactive refresh logic with timer management, page visibility handling, and error retries.
-4. **Recaptcha clients**
+1. **Refresh scheduler**
+   - Add proactive refresh logic with timer management, page visibility handling, and error retries. The current implementation only stubs the hook; actual scheduling is still pending.
+2. **Recaptcha clients**
    - Complete reCAPTCHA provider implementations, including script injection, token exchange, and enterprise support.
-5. **Debug token flow**
+3. **Debug token flow**
    - Mirror the JS debug token registration, persistence, and developer-mode warnings.
-6. **Internal API parity**
+4. **Internal API parity**
    - Port limited-use token APIs, heartbeat wiring, and provider factory helpers from `internal-api.ts`/`factory.ts`.
-7. **Testing parity**
+5. **Testing parity**
    - Translate JS unit tests to Rust to cover refresh cycles, storage, and error paths.
-8. **Documentation/examples**
+6. **Documentation/examples**
    - Expand docs once the missing features land to show typical activation/refresh flows.
 
 Addressing these items will bring the Rust App Check module up to feature parity with the JavaScript SDK and ready other

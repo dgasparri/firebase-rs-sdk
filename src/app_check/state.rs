@@ -8,6 +8,11 @@ use super::types::{
     AppCheckTokenResult, ListenerHandle, ListenerType, TokenListenerEntry,
 };
 
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::app_check::persistence::{
+    load_token, save_token, subscribe, BroadcastSubscription, PersistedToken,
+};
+
 static STATES: LazyLock<Mutex<HashMap<Arc<str>, AppCheckState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -59,6 +64,17 @@ pub fn ensure_activation(
         state.activated = true;
         state.provider = Some(provider.clone());
         state.is_token_auto_refresh_enabled = is_token_auto_refresh_enabled;
+        #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+        {
+            if state.broadcast_handle.is_none() {
+                let app_name_clone = app_name.clone();
+                let callback: Arc<dyn Fn(Option<PersistedToken>) + Send + Sync> =
+                    Arc::new(move |persisted| {
+                        apply_persisted_token(app_name_clone.clone(), persisted);
+                    });
+                state.broadcast_handle = subscribe(app_name.clone(), callback);
+            }
+        }
         Ok(())
     })
 }
@@ -75,7 +91,19 @@ pub fn provider(app: &AppCheck) -> Option<Arc<dyn AppCheckProvider>> {
 
 pub fn current_token(app: &AppCheck) -> Option<AppCheckToken> {
     let app_name = app.app_name();
-    with_state(&app_name, |state| state.token.clone())
+    let token = with_state(&app_name, |state| state.token.clone());
+
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    if token.is_none() {
+        let app_name_clone = app_name.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Ok(Some(persisted)) = load_token(app_name_clone.as_ref()).await {
+                apply_persisted_token(app_name_clone, Some(persisted));
+            }
+        });
+    }
+
+    token
 }
 
 pub fn store_token(app: &AppCheck, token: AppCheckToken) {
@@ -89,6 +117,9 @@ pub fn store_token(app: &AppCheck, token: AppCheckToken) {
             .map(|entry| entry.listener.clone())
             .collect::<Vec<_>>()
     });
+
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    persist_token_async(token.clone(), app_name.clone());
 
     for listener in listeners {
         listener(&result);
@@ -143,6 +174,55 @@ fn remove_listener_by_id(app_name: &Arc<str>, listener_id: u64) {
     with_state_mut(app_name, |state| {
         state.observers.retain(|entry| entry.id != listener_id);
     });
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+fn persist_token_async(token: AppCheckToken, app_name: Arc<str>) {
+    use std::time::UNIX_EPOCH;
+
+    wasm_bindgen_futures::spawn_local(async move {
+        let persisted = PersistedToken {
+            token: token.token,
+            expire_time_ms: token
+                .expire_time
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_millis() as u64)
+                .unwrap_or(0),
+        };
+        let _ = save_token(app_name.as_ref(), &persisted).await;
+    });
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+fn apply_persisted_token(app_name: Arc<str>, persisted: Option<PersistedToken>) {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let maybe_token = persisted.map(|persisted| {
+        let expiration = UNIX_EPOCH + Duration::from_millis(persisted.expire_time_ms);
+        AppCheckToken::new(persisted.token, expiration)
+    });
+
+    let result = maybe_token
+        .as_ref()
+        .map(|token| AppCheckTokenResult::from_token(token.clone()))
+        .unwrap_or_else(|| AppCheckTokenResult {
+            token: String::new(),
+            error: None,
+            internal_error: None,
+        });
+
+    let listeners = with_state_mut(&app_name, |state| {
+        state.token = maybe_token.clone();
+        state
+            .observers
+            .iter()
+            .map(|entry| entry.listener.clone())
+            .collect::<Vec<_>>()
+    });
+
+    for listener in listeners {
+        listener(&result);
+    }
 }
 
 #[allow(dead_code)]

@@ -67,10 +67,8 @@ impl ContextProvider {
             return overrides;
         }
 
-        // These helpers remain synchronous today. Once the auth, messaging, and App Check modules
-        // expose async token fetchers we can `await` them directly.
         CallContext {
-            auth_token: self.fetch_auth_token(),
+            auth_token: self.fetch_auth_token().await,
             messaging_token: self.fetch_messaging_token().await,
             app_check_token: self
                 .fetch_app_check_token(limited_use_app_check_tokens)
@@ -78,12 +76,11 @@ impl ContextProvider {
         }
     }
 
-    fn fetch_auth_token(&self) -> Option<String> {
+    async fn fetch_auth_token(&self) -> Option<String> {
         let auth = self.ensure_auth()?;
-        match auth.get_token(false) {
+        match auth.get_token_async(false).await {
             Ok(Some(token)) if !token.is_empty() => Some(token),
-            Ok(_) => None,
-            Err(_) => None,
+            _ => None,
         }
     }
 
@@ -96,7 +93,7 @@ impl ContextProvider {
 
             let messaging = self.ensure_messaging()?;
             let store_key = messaging.app().name().to_string();
-            if let Ok(Some(record)) = token_store::read_token(&store_key) {
+            if let Ok(Some(record)) = token_store::read_token_async(&store_key).await {
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|duration| duration.as_millis() as u64)
@@ -114,9 +111,9 @@ impl ContextProvider {
     async fn fetch_app_check_token(&self, limited_use: bool) -> Option<String> {
         let app_check = self.ensure_app_check()?;
         let result = if limited_use {
-            app_check.get_limited_use_token()
+            app_check.get_limited_use_token_async().await
         } else {
-            app_check.get_token(false)
+            app_check.get_token_async(false).await
         };
 
         match result {

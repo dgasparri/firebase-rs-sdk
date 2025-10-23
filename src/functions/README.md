@@ -8,20 +8,20 @@ the modular JavaScript API (`@firebase/functions`) while using idiomatic Rust pr
 
 ## Porting status
 
-- functions 20% `[##        ]`
+- functions 25% `[###       ]`
 
-(Estimated after landing the HTTPS callable transport, error mapping, and request plumbing on
+(Estimated after landing the callable transport, context headers, and persistence plumbing on
 October 20th, 2025.)
 
 ## Quick Start Example
 
-```rust
+```rust,no_run
 use firebase_rs_sdk::app::api::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::functions::{get_functions, register_functions_component};
 use serde_json::json;
 
-fn main() -> firebase_rs_sdk::functions::error::FunctionsResult<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     register_functions_component();
 
     let app = initialize_app(

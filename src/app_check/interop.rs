@@ -2,8 +2,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::app_check::api;
 use crate::app_check::errors::AppCheckResult;
-#[cfg(target_arch = "wasm32")]
-use crate::app_check::errors::AppCheckError;
 use crate::app_check::types::{
     AppCheck, AppCheckInternalListener, AppCheckTokenResult, ListenerHandle, ListenerType,
 };
@@ -33,7 +31,6 @@ impl FirebaseAppCheckInternal {
         api::get_token(&self.app_check, force_refresh)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn get_token_async(
         &self,
         force_refresh: bool,
@@ -41,31 +38,12 @@ impl FirebaseAppCheckInternal {
         self.get_token(force_refresh)
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub async fn get_token_async(
-        &self,
-        force_refresh: bool,
-    ) -> AppCheckResult<AppCheckTokenResult> {
-        let _ = force_refresh;
-        Err(AppCheckError::Internal(
-            "App Check token retrieval is not yet implemented for wasm targets".to_string(),
-        ))
-    }
-
     pub fn get_limited_use_token(&self) -> AppCheckResult<AppCheckTokenResult> {
         api::get_limited_use_token(&self.app_check)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn get_limited_use_token_async(&self) -> AppCheckResult<AppCheckTokenResult> {
         self.get_limited_use_token()
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub async fn get_limited_use_token_async(&self) -> AppCheckResult<AppCheckTokenResult> {
-        Err(AppCheckError::Internal(
-            "Limited-use App Check tokens are not yet implemented for wasm targets".to_string(),
-        ))
     }
 
     pub fn add_token_listener(&self, listener: AppCheckInternalListener) -> AppCheckResult<()> {

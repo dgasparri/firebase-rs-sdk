@@ -95,6 +95,8 @@ pub mod api;
 mod errors;
 mod interop;
 mod logger;
+#[cfg(feature = "wasm-web")]
+mod persistence;
 mod providers;
 mod state;
 mod token_provider;

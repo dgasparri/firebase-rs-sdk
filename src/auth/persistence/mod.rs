@@ -167,6 +167,18 @@ impl ClosurePersistence {
     }
 }
 
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+mod indexed_db;
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+pub use indexed_db::IndexedDbPersistence;
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+mod file;
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+pub use file::FilePersistence;
+
 impl AuthPersistence for ClosurePersistence {
     fn set(&self, state: Option<PersistedAuthState>) -> AuthResult<()> {
         (self.set_fn)(state)

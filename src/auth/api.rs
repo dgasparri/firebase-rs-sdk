@@ -72,7 +72,14 @@ impl Auth {
 
     /// Constructs an `Auth` instance using in-memory persistence.
     pub fn new(app: FirebaseApp) -> AuthResult<Self> {
-        Self::new_with_persistence(app, Arc::new(InMemoryPersistence::default()))
+        #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+        let persistence: Arc<dyn AuthPersistence + Send + Sync> =
+            Arc::new(crate::auth::persistence::IndexedDbPersistence::new());
+
+        #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+        let persistence: Arc<dyn AuthPersistence + Send + Sync> =
+            Arc::new(InMemoryPersistence::default());
+        Self::new_with_persistence(app, persistence)
     }
 
     /// Constructs an `Auth` instance with a caller-provided persistence backend.
@@ -341,17 +348,8 @@ impl Auth {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn get_token_async(&self, force_refresh: bool) -> AuthResult<Option<String>> {
         self.get_token(force_refresh)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub async fn get_token_async(&self, force_refresh: bool) -> AuthResult<Option<String>> {
-        let _ = force_refresh;
-        Err(AuthError::NotImplemented(
-            "Auth token retrieval is not yet implemented for wasm targets".into(),
-        ))
     }
 
     /// Exposes this auth instance as a Firestore token provider.

@@ -16,7 +16,7 @@ It includes error handling, configuration options, and integration with Firebase
 
 ## Porting status
 
-- auth 25% `[###       ]`
+- auth 30% `[###       ]`
 
 ==As of October 21th, 2025== 
 
@@ -24,7 +24,7 @@ Prompt: Compare the original JS/Typescript files in ./packages/auth and the port
 
 Porting Estimate
 
-  - Roughly ~25% parity: Rust covers core email/password REST flows and some OAuth scaffolding, but large swaths of
+  - Roughly ~30% parity: Rust covers core email/password REST flows, persistence, and some OAuth scaffolding, but large swaths of
   the JS module (custom token, phone, MFA, browser helpers, advanced settings) remain unported (packages/auth/src/api/
   index.ts:56, packages/auth/src/core/index.ts:292).
 
@@ -202,28 +202,25 @@ The JavaScript implementation is significantly broader. Missing pieces include:
 
 ## Next Steps
 
-1. **Async token accessors**
-   - Finish wiring the new async token retrieval helpers (`Auth::get_token_async`) so native and wasm builds share a
-     consistent pipeline, updating dependent services and documentation along the way.
-2. **Persistence layer**
+1. **Persistence layer**
    - Add IndexedDB persistence, storage selection policies, and native (desktop/server) durability options to complement
      the existing in-memory and web storage adapters.
-3. **Token lifecycle**
+2. **Token lifecycle**
    - Flesh out refresh observers (`beforeAuthStateChanged`), emulator behaviour, and more granular backoff/queueing.
-4. **Provider expansion**
+3. **Provider expansion**
    - Port OAuth provider infrastructure (credential building, popup/redirect flows) and phone auth scaffolding.
-5. **Account management APIs**
+4. **Account management APIs**
    - Add action code handling (email verification completion, password reset lookup) and richer error mapping to
      complement the password reset / verification / update / delete / re-auth flows now available.
-6. **MFA**
+5. **MFA**
    - Bring over the MFA subsystem (enrollment, challenge, resolver objects).
-7. **Platform adapters**
+6. **Platform adapters**
    - Add browser/React Native/Cordova specific implementations for popup/redirect handlers and persistence quirks.
    - Provide reference crates or documentation for hooking the new OAuth handler traits into common environments (WASM,
      desktop webviews, native mobile shells).
    - Ship example adapters exercising the handler traits end-to-end (WASM popup, desktop redirect) to validate the API
      surface and ease consumer adoption.
-8. **Testing**
+7. **Testing**
    - Translate core JS tests to cover sign-in flows, persistence, provider behaviour, and token refresh.
 
 ## Immediate Porting Focus (authenticated consumers)
