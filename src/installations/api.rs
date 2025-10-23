@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 
+use async_lock::Mutex as AsyncMutex;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use rand::{thread_rng, RngCore};
@@ -16,8 +17,12 @@ use crate::installations::constants::{
     INSTALLATIONS_COMPONENT_NAME, INSTALLATIONS_INTERNAL_COMPONENT_NAME,
 };
 use crate::installations::error::{internal_error, InstallationsResult};
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+use crate::installations::persistence::FilePersistence;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::installations::persistence::IndexedDbPersistence;
 use crate::installations::persistence::{
-    FilePersistence, InstallationsPersistence, PersistedAuthToken, PersistedInstallation,
+    InstallationsPersistence, PersistedAuthToken, PersistedInstallation,
 };
 use crate::installations::rest::{RegisteredInstallation, RestClient};
 use crate::installations::types::InstallationToken;
@@ -32,7 +37,7 @@ struct InstallationsInner {
     config: AppConfig,
     rest_client: RestClient,
     persistence: Arc<dyn InstallationsPersistence>,
-    state: Mutex<Option<InstallationEntry>>,
+    state: AsyncMutex<CachedState>,
 }
 
 impl std::fmt::Debug for InstallationsInner {
@@ -50,6 +55,18 @@ struct InstallationEntry {
     fid: String,
     refresh_token: String,
     auth_token: InstallationToken,
+}
+
+#[derive(Debug, Default)]
+struct CachedState {
+    loaded: bool,
+    initializing: bool,
+    entry: Option<InstallationEntry>,
+}
+
+enum EnsureAction {
+    Load,
+    Register,
 }
 
 impl InstallationEntry {
@@ -84,33 +101,34 @@ pub struct InstallationsInternal {
 }
 
 impl InstallationsInternal {
-    pub fn get_id(&self) -> InstallationsResult<String> {
-        self.installations.get_id()
+    pub async fn get_id(&self) -> InstallationsResult<String> {
+        self.installations.get_id().await
     }
 
-    pub fn get_token(&self, force_refresh: bool) -> InstallationsResult<InstallationToken> {
-        self.installations.get_token(force_refresh)
+    pub async fn get_token(&self, force_refresh: bool) -> InstallationsResult<InstallationToken> {
+        self.installations.get_token(force_refresh).await
     }
 }
 
-static INSTALLATIONS_CACHE: LazyLock<Mutex<HashMap<String, Arc<Installations>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static INSTALLATIONS_CACHE: LazyLock<StdMutex<HashMap<String, Arc<Installations>>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
 
 impl Installations {
     fn new(app: FirebaseApp) -> InstallationsResult<Self> {
         let config = extract_app_config(&app)?;
         let rest_client = RestClient::new()?;
+        #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+        let persistence: Arc<dyn InstallationsPersistence> = Arc::new(IndexedDbPersistence::new());
+
+        #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
         let persistence: Arc<dyn InstallationsPersistence> = Arc::new(FilePersistence::default()?);
-        let initial_state = persistence
-            .read(app.name())?
-            .map(InstallationEntry::from_persisted);
         Ok(Self {
             inner: Arc::new(InstallationsInner {
                 app,
                 config,
                 rest_client,
                 persistence,
-                state: Mutex::new(initial_state),
+                state: AsyncMutex::new(CachedState::default()),
             }),
         })
     }
@@ -119,106 +137,186 @@ impl Installations {
         &self.inner.app
     }
 
-    pub fn get_id(&self) -> InstallationsResult<String> {
-        let entry = self.ensure_entry()?;
+    pub async fn get_id(&self) -> InstallationsResult<String> {
+        let entry = self.ensure_entry().await?;
         Ok(entry.fid)
     }
 
-    pub fn get_token(&self, force_refresh: bool) -> InstallationsResult<InstallationToken> {
-        let entry = self.ensure_entry()?;
+    pub async fn get_token(&self, force_refresh: bool) -> InstallationsResult<InstallationToken> {
+        let entry = self.ensure_entry().await?;
         if !force_refresh && !entry.auth_token.is_expired() {
             return Ok(entry.auth_token.clone());
         }
 
-        let new_token = self.inner.rest_client.generate_auth_token(
-            &self.inner.config,
-            &entry.fid,
-            &entry.refresh_token,
-        )?;
+        let fid = entry.fid.clone();
+        let refresh_token = entry.refresh_token.clone();
+        let new_token = self
+            .inner
+            .rest_client
+            .generate_auth_token(&self.inner.config, &fid, &refresh_token)
+            .await?;
 
         {
-            let mut state = self.inner.state.lock().unwrap();
-            match state.as_mut() {
-                Some(stored) if stored.fid == entry.fid => stored.auth_token = new_token.clone(),
+            let mut state = self.inner.state.lock().await;
+            match state.entry.as_mut() {
+                Some(stored) if stored.fid == fid => stored.auth_token = new_token.clone(),
                 Some(stored) => {
                     *stored = InstallationEntry {
-                        fid: entry.fid.clone(),
-                        refresh_token: entry.refresh_token.clone(),
+                        fid: fid.clone(),
+                        refresh_token: refresh_token.clone(),
                         auth_token: new_token.clone(),
                     };
                 }
                 None => {
-                    state.replace(InstallationEntry {
-                        fid: entry.fid.clone(),
-                        refresh_token: entry.refresh_token.clone(),
+                    state.entry = Some(InstallationEntry {
+                        fid: fid.clone(),
+                        refresh_token: refresh_token.clone(),
                         auth_token: new_token.clone(),
                     });
                 }
             }
         }
 
-        self.persist_current_state()?;
+        self.persist_current_state().await?;
 
         Ok(new_token)
     }
 
-    fn ensure_entry(&self) -> InstallationsResult<InstallationEntry> {
-        if let Some(entry) = self.inner.state.lock().unwrap().clone() {
-            return Ok(entry);
-        }
+    async fn ensure_entry(&self) -> InstallationsResult<InstallationEntry> {
+        loop {
+            let action = {
+                let state = self.inner.state.lock().await;
+                if let Some(entry) = state.entry.clone() {
+                    return Ok(entry);
+                }
+                if state.initializing {
+                    None
+                } else if !state.loaded {
+                    Some(EnsureAction::Load)
+                } else {
+                    Some(EnsureAction::Register)
+                }
+            };
 
-        let registered = self.register_remote_installation()?;
-        let mut state = self.inner.state.lock().unwrap();
-        if let Some(existing) = state.as_ref() {
-            return Ok(existing.clone());
+            match action {
+                None => {
+                    continue;
+                }
+                Some(EnsureAction::Load) => {
+                    {
+                        let mut state = self.inner.state.lock().await;
+                        if state.entry.is_some() {
+                            continue;
+                        }
+                        if state.initializing {
+                            continue;
+                        }
+                        state.loaded = true;
+                        state.initializing = true;
+                    }
+
+                    let load_result = self.inner.persistence.read(self.inner.app.name()).await;
+
+                    let persisted = {
+                        let mut state = self.inner.state.lock().await;
+                        state.initializing = false;
+                        if let Some(entry) = state.entry.clone() {
+                            return Ok(entry);
+                        }
+                        load_result?
+                    };
+
+                    if let Some(persisted) = persisted {
+                        let entry = InstallationEntry::from_persisted(persisted);
+                        let mut state = self.inner.state.lock().await;
+                        state.entry = Some(entry.clone());
+                        return Ok(entry);
+                    }
+                    // Fall through to registration on the next loop iteration.
+                }
+                Some(EnsureAction::Register) => {
+                    {
+                        let mut state = self.inner.state.lock().await;
+                        if state.entry.is_some() {
+                            continue;
+                        }
+                        if state.initializing {
+                            continue;
+                        }
+                        state.initializing = true;
+                    }
+
+                    let register_result = self.register_remote_installation().await;
+
+                    let entry = {
+                        let mut state = self.inner.state.lock().await;
+                        state.initializing = false;
+                        if let Some(entry) = state.entry.clone() {
+                            return Ok(entry);
+                        }
+                        let registered = register_result?;
+                        state.entry = Some(registered.clone());
+                        state.loaded = true;
+                        registered
+                    };
+
+                    self.persist_entry(&entry).await?;
+                    return Ok(entry);
+                }
+            }
         }
-        state.replace(registered.clone());
-        drop(state);
-        self.persist_entry(&registered)?;
-        Ok(registered)
     }
 
-    fn register_remote_installation(&self) -> InstallationsResult<InstallationEntry> {
+    async fn register_remote_installation(&self) -> InstallationsResult<InstallationEntry> {
         let fid = generate_fid()?;
         let registered = self
             .inner
             .rest_client
-            .register_installation(&self.inner.config, &fid)?;
+            .register_installation(&self.inner.config, &fid)
+            .await?;
         Ok(InstallationEntry::from_registered(registered))
     }
 
-    fn persist_entry(&self, entry: &InstallationEntry) -> InstallationsResult<()> {
+    async fn persist_entry(&self, entry: &InstallationEntry) -> InstallationsResult<()> {
         let persisted = entry.to_persisted()?;
         self.inner
             .persistence
             .write(self.inner.app.name(), &persisted)
+            .await
     }
 
-    fn persist_current_state(&self) -> InstallationsResult<()> {
-        let current = self.inner.state.lock().unwrap().clone();
+    async fn persist_current_state(&self) -> InstallationsResult<()> {
+        let current = {
+            let state = self.inner.state.lock().await;
+            state.entry.clone()
+        };
         if let Some(entry) = current {
-            self.persist_entry(&entry)?;
+            self.persist_entry(&entry).await?;
         }
         Ok(())
     }
 
     /// Deletes the current Firebase Installation, clearing cached state and persisted data.
-    pub fn delete(&self) -> InstallationsResult<()> {
-        let entry = { self.inner.state.lock().unwrap().clone() };
+    pub async fn delete(&self) -> InstallationsResult<()> {
+        let entry = {
+            let state = self.inner.state.lock().await;
+            state.entry.clone()
+        };
 
         if let Some(entry) = entry.clone() {
-            self.inner.rest_client.delete_installation(
-                &self.inner.config,
-                &entry.fid,
-                &entry.refresh_token,
-            )?;
+            self.inner
+                .rest_client
+                .delete_installation(&self.inner.config, &entry.fid, &entry.refresh_token)
+                .await?;
         }
 
-        self.inner.persistence.clear(self.inner.app.name())?;
+        self.inner.persistence.clear(self.inner.app.name()).await?;
 
         {
-            let mut state = self.inner.state.lock().unwrap();
-            *state = None;
+            let mut state = self.inner.state.lock().await;
+            state.entry = None;
+            state.loaded = true;
+            state.initializing = false;
         }
 
         INSTALLATIONS_CACHE
@@ -346,8 +444,8 @@ pub fn get_installations(app: Option<FirebaseApp>) -> InstallationsResult<Arc<In
 }
 
 /// Deletes the cached Firebase Installation for the given instance.
-pub fn delete_installations(installations: &Installations) -> InstallationsResult<()> {
-    installations.delete()
+pub async fn delete_installations(installations: &Installations) -> InstallationsResult<()> {
+    installations.delete().await
 }
 
 pub fn get_installations_internal(
@@ -467,8 +565,8 @@ mod tests {
         (installations, cache_dir, app_name, app)
     }
 
-    #[test]
-    fn get_id_registers_installation_once() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_id_registers_installation_once() {
         let _env_guard = env_guard();
         let Some(server) = try_start_server() else {
             eprintln!("Skipping get_id_registers_installation_once: unable to start mock server");
@@ -486,8 +584,8 @@ mod tests {
         });
 
         let (installations, cache_dir, _app_name, _app) = setup_installations(&server);
-        let fid1 = installations.get_id().unwrap();
-        let fid2 = installations.get_id().unwrap();
+        let fid1 = installations.get_id().await.unwrap();
+        let fid2 = installations.get_id().await.unwrap();
 
         let hits = create_mock.hits();
         if hits == 0 {
@@ -505,8 +603,8 @@ mod tests {
         let _ = fs::remove_dir_all(cache_dir);
     }
 
-    #[test]
-    fn get_token_refreshes_when_forced() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_token_refreshes_when_forced() {
         let _env_guard = env_guard();
         let Some(server) = try_start_server() else {
             eprintln!("Skipping get_token_refreshes_when_forced: unable to start mock server");
@@ -535,10 +633,10 @@ mod tests {
         });
 
         let (installations, cache_dir, _app_name, _app) = setup_installations(&server);
-        let token1 = installations.get_token(false).unwrap();
+        let token1 = installations.get_token(false).await.unwrap();
         assert_eq!(token1.token, "token1");
 
-        let token2 = installations.get_token(true).unwrap();
+        let token2 = installations.get_token(true).await.unwrap();
         assert_eq!(token2.token, "token2");
 
         let hits = refresh_mock.hits();
@@ -554,8 +652,8 @@ mod tests {
         let _ = fs::remove_dir_all(cache_dir);
     }
 
-    #[test]
-    fn loads_entry_from_persistence() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn loads_entry_from_persistence() {
         let _env_guard = env_guard();
         let Some(server) = try_start_server() else {
             eprintln!("Skipping loads_entry_from_persistence: unable to start mock server");
@@ -591,7 +689,7 @@ mod tests {
             refresh_token: "cached-refresh".into(),
             auth_token: PersistedAuthToken::from_runtime(&token).unwrap(),
         };
-        persistence.write(&app_name, &persisted).unwrap();
+        persistence.write(&app_name, &persisted).await.unwrap();
 
         std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
         std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
@@ -602,8 +700,8 @@ mod tests {
         std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
         std::env::remove_var("FIREBASE_INSTALLATIONS_CACHE_DIR");
 
-        let fid = installations.get_id().unwrap();
-        let cached_token = installations.get_token(false).unwrap();
+        let fid = installations.get_id().await.unwrap();
+        let cached_token = installations.get_token(false).await.unwrap();
 
         let hits = create_mock.hits();
         if hits == 0 {
@@ -616,13 +714,13 @@ mod tests {
             );
         }
 
-        assert!(persistence.read(&app_name).unwrap().is_some());
+        assert!(persistence.read(&app_name).await.unwrap().is_some());
 
         let _ = fs::remove_dir_all(cache_dir);
     }
 
-    #[test]
-    fn delete_removes_state_and_persistence() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn delete_removes_state_and_persistence() {
         let _env_guard = env_guard();
         let Some(server) = try_start_server() else {
             eprintln!("Skipping delete_removes_state_and_persistence: unable to start mock server");
@@ -653,7 +751,7 @@ mod tests {
             refresh_token: "refresh".into(),
             auth_token: PersistedAuthToken::from_runtime(&token).unwrap(),
         };
-        persistence.write(&app_name, &persisted).unwrap();
+        persistence.write(&app_name, &persisted).await.unwrap();
 
         std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
         std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
@@ -664,9 +762,9 @@ mod tests {
         std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
         std::env::remove_var("FIREBASE_INSTALLATIONS_CACHE_DIR");
 
-        assert_eq!(installations.get_id().unwrap(), "fid-from-server");
+        assert_eq!(installations.get_id().await.unwrap(), "fid-from-server");
 
-        installations.delete().unwrap();
+        installations.delete().await.unwrap();
 
         let hits = delete_mock.hits();
         if hits == 0 {
@@ -677,7 +775,7 @@ mod tests {
             assert_eq!(hits, 1);
         }
 
-        assert!(persistence.read(&app_name).unwrap().is_none());
+        assert!(persistence.read(&app_name).await.unwrap().is_none());
 
         let recreate_mock = server.mock(|when, then| {
             when.method(POST).path("/projects/project/installations");
@@ -690,7 +788,7 @@ mod tests {
                 }));
         });
 
-        let new_fid = installations.get_id().unwrap();
+        let new_fid = installations.get_id().await.unwrap();
         if recreate_mock.hits() == 0 {
             eprintln!(
                 "Expected re-registration after delete but mock server did not observe the call"
@@ -702,8 +800,8 @@ mod tests {
         let _ = fs::remove_dir_all(cache_dir);
     }
 
-    #[test]
-    fn internal_component_exposes_id_and_token() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn internal_component_exposes_id_and_token() {
         let _env_guard = env_guard();
         let Some(server) = try_start_server() else {
             eprintln!(
@@ -745,11 +843,11 @@ mod tests {
             return;
         }
 
-        let fid_public = installations.get_id().unwrap();
-        let fid_internal = internal.get_id().unwrap();
+        let fid_public = installations.get_id().await.unwrap();
+        let fid_internal = internal.get_id().await.unwrap();
         assert_eq!(fid_public, fid_internal);
 
-        let token_internal = internal.get_token(true).unwrap();
+        let token_internal = internal.get_token(true).await.unwrap();
         if refresh_mock.hits() == 0 {
             eprintln!(
                 "Skipping token assertion in internal_component_exposes_id_and_token: no request observed"

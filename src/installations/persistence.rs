@@ -1,8 +1,6 @@
-use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 
@@ -39,17 +37,35 @@ pub struct PersistedInstallation {
     pub auth_token: PersistedAuthToken,
 }
 
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
 pub trait InstallationsPersistence: Send + Sync {
-    fn read(&self, app_name: &str) -> InstallationsResult<Option<PersistedInstallation>>;
-    fn write(&self, app_name: &str, entry: &PersistedInstallation) -> InstallationsResult<()>;
-    fn clear(&self, app_name: &str) -> InstallationsResult<()>;
+    async fn read(&self, app_name: &str) -> InstallationsResult<Option<PersistedInstallation>>;
+    async fn write(&self, app_name: &str, entry: &PersistedInstallation)
+        -> InstallationsResult<()>;
+    async fn clear(&self, app_name: &str) -> InstallationsResult<()>;
 }
 
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+use std::fs;
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+use std::path::PathBuf;
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+use std::sync::Arc;
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 #[derive(Clone, Debug)]
 pub struct FilePersistence {
     base_dir: Arc<PathBuf>,
 }
 
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 impl FilePersistence {
     pub fn new(base_dir: PathBuf) -> InstallationsResult<Self> {
         fs::create_dir_all(&base_dir).map_err(|err| {
@@ -81,8 +97,17 @@ impl FilePersistence {
     }
 }
 
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
 impl InstallationsPersistence for FilePersistence {
-    fn read(&self, app_name: &str) -> InstallationsResult<Option<PersistedInstallation>> {
+    async fn read(&self, app_name: &str) -> InstallationsResult<Option<PersistedInstallation>> {
         let path = self.file_for(app_name);
         if !path.exists() {
             return Ok(None);
@@ -104,7 +129,11 @@ impl InstallationsPersistence for FilePersistence {
         Ok(Some(entry))
     }
 
-    fn write(&self, app_name: &str, entry: &PersistedInstallation) -> InstallationsResult<()> {
+    async fn write(
+        &self,
+        app_name: &str,
+        entry: &PersistedInstallation,
+    ) -> InstallationsResult<()> {
         let path = self.file_for(app_name);
         let bytes = serde_json::to_vec(entry).map_err(|err| {
             internal_error(format!(
@@ -122,7 +151,7 @@ impl InstallationsPersistence for FilePersistence {
         })
     }
 
-    fn clear(&self, app_name: &str) -> InstallationsResult<()> {
+    async fn clear(&self, app_name: &str) -> InstallationsResult<()> {
         let path = self.file_for(app_name);
         if path.exists() {
             fs::remove_file(&path).map_err(|err| {
@@ -137,6 +166,205 @@ impl InstallationsPersistence for FilePersistence {
     }
 }
 
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+mod wasm_persistence {
+    use super::{
+        internal_error, InstallationsPersistence, InstallationsResult, PersistedInstallation,
+    };
+    use crate::platform::browser::indexed_db;
+    use serde::{Deserialize, Serialize};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue};
+    use web_sys::{BroadcastChannel, MessageEvent};
+
+    const DATABASE_NAME: &str = "firebase-installations-database";
+    const DATABASE_VERSION: u32 = 1;
+    const STORE_NAME: &str = "firebase-installations-store";
+    const BROADCAST_CHANNEL: &str = "firebase-installations-updates";
+
+    #[derive(Clone, Debug, Default)]
+    pub struct IndexedDbPersistence;
+
+    impl IndexedDbPersistence {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    #[cfg_attr(all(feature = "wasm-web", target_arch = "wasm32"), async_trait::async_trait(?Send))]
+    impl InstallationsPersistence for IndexedDbPersistence {
+        async fn read(&self, app_name: &str) -> InstallationsResult<Option<PersistedInstallation>> {
+            ensure_broadcast_channel();
+            if let Some(cached) = cache_get(app_name) {
+                return Ok(cached);
+            }
+
+            let db = open_db().await?;
+            let stored = indexed_db::get_string(&db, STORE_NAME, app_name)
+                .await
+                .map_err(map_indexed_db_error)?;
+            let entry = match stored {
+                Some(json) => {
+                    let parsed = serde_json::from_str(&json).map_err(|err| {
+                        internal_error(format!("Failed to parse stored installation: {err}"))
+                    })?;
+                    Some(parsed)
+                }
+                None => None,
+            };
+            cache_set(app_name, entry.clone());
+            Ok(entry)
+        }
+
+        async fn write(
+            &self,
+            app_name: &str,
+            entry: &PersistedInstallation,
+        ) -> InstallationsResult<()> {
+            ensure_broadcast_channel();
+            let json = serde_json::to_string(entry).map_err(|err| {
+                internal_error(format!("Failed to serialize installation: {err}"))
+            })?;
+            let db = open_db().await?;
+            indexed_db::put_string(&db, STORE_NAME, app_name, &json)
+                .await
+                .map_err(map_indexed_db_error)?;
+            cache_set(app_name, Some(entry.clone()));
+            broadcast_update(app_name, BroadcastPayload::Set(entry.clone()));
+            Ok(())
+        }
+
+        async fn clear(&self, app_name: &str) -> InstallationsResult<()> {
+            ensure_broadcast_channel();
+            let db = open_db().await?;
+            let existed = indexed_db::get_string(&db, STORE_NAME, app_name)
+                .await
+                .map_err(map_indexed_db_error)?
+                .is_some();
+            if existed {
+                indexed_db::delete_key(&db, STORE_NAME, app_name)
+                    .await
+                    .map_err(map_indexed_db_error)?;
+            }
+            cache_set(app_name, None);
+            broadcast_update(app_name, BroadcastPayload::Remove);
+            Ok(())
+        }
+    }
+
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    struct BroadcastMessage {
+        app_name: String,
+        payload: BroadcastPayload,
+    }
+
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    enum BroadcastPayload {
+        Set(PersistedInstallation),
+        Remove,
+    }
+
+    thread_local! {
+        static CACHE: RefCell<HashMap<String, Option<PersistedInstallation>>> = RefCell::new(HashMap::new());
+        static CHANNEL: RefCell<Option<BroadcastChannel>> = RefCell::new(None);
+        static HANDLER: RefCell<Option<Closure<dyn FnMut(MessageEvent)>>> = RefCell::new(None);
+    }
+
+    async fn open_db() -> InstallationsResult<web_sys::IdbDatabase> {
+        indexed_db::open_database_with_store(DATABASE_NAME, DATABASE_VERSION, STORE_NAME)
+            .await
+            .map_err(map_indexed_db_error)
+    }
+
+    fn cache_get(app_name: &str) -> Option<Option<PersistedInstallation>> {
+        CACHE.with(|cache| cache.borrow().get(app_name).cloned())
+    }
+
+    fn cache_set(app_name: &str, value: Option<PersistedInstallation>) {
+        CACHE.with(|cache| {
+            cache.borrow_mut().insert(app_name.to_string(), value);
+        });
+    }
+
+    fn ensure_broadcast_channel() {
+        CHANNEL.with(|cell| {
+            if cell.borrow().is_some() {
+                return;
+            }
+            match BroadcastChannel::new(BROADCAST_CHANNEL) {
+                Ok(channel) => {
+                    let handler = Closure::wrap(Box::new(|event: MessageEvent| {
+                        if let Some(text) = event.data().as_string() {
+                            if let Ok(message) = serde_json::from_str::<BroadcastMessage>(&text) {
+                                handle_broadcast(message);
+                            }
+                        }
+                    }) as Box<dyn FnMut(_)>);
+                    channel.set_onmessage(Some(handler.as_ref().unchecked_ref()));
+                    HANDLER.with(|slot| {
+                        slot.replace(Some(handler));
+                    });
+                    cell.replace(Some(channel));
+                }
+                Err(err) => {
+                    log_warning(
+                        "Failed to initialise installations BroadcastChannel",
+                        Some(&err),
+                    );
+                }
+            }
+        });
+    }
+
+    fn handle_broadcast(message: BroadcastMessage) {
+        match message.payload {
+            BroadcastPayload::Set(entry) => cache_set(&message.app_name, Some(entry)),
+            BroadcastPayload::Remove => cache_set(&message.app_name, None),
+        }
+    }
+
+    fn broadcast_update(app_name: &str, payload: BroadcastPayload) {
+        CHANNEL.with(|cell| {
+            if cell.borrow().is_none() {
+                ensure_broadcast_channel();
+            }
+        });
+
+        CHANNEL.with(|cell| {
+            if let Some(channel) = cell.borrow().as_ref() {
+                let message = BroadcastMessage {
+                    app_name: app_name.to_string(),
+                    payload,
+                };
+                if let Ok(serialized) = serde_json::to_string(&message) {
+                    if let Err(err) = channel.post_message(&JsValue::from_str(&serialized)) {
+                        log_warning("Failed to broadcast installations update", Some(&err));
+                    }
+                }
+            }
+        });
+    }
+
+    fn log_warning(message: &str, err: Option<&JsValue>) {
+        if let Some(err) = err {
+            web_sys::console::warn_2(&JsValue::from_str(message), err);
+        } else {
+            web_sys::console::warn_1(&JsValue::from_str(message));
+        }
+    }
+
+    fn map_indexed_db_error<E: std::fmt::Display>(
+        err: E,
+    ) -> crate::installations::error::InstallationsError {
+        internal_error(format!("IndexedDB error: {err}"))
+    }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+pub use wasm_persistence::IndexedDbPersistence;
+
 fn system_time_to_millis(time: SystemTime) -> InstallationsResult<u64> {
     let duration = time
         .duration_since(UNIX_EPOCH)
@@ -148,24 +376,26 @@ fn system_time_to_millis(time: SystemTime) -> InstallationsResult<u64> {
 mod tests {
     use super::*;
     use crate::installations::types::InstallationToken;
-    use std::fs;
     use std::time::{Duration, SystemTime};
 
-    fn temp_dir() -> PathBuf {
+    #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+    fn temp_dir() -> std::path::PathBuf {
         let mut path = std::env::temp_dir();
         let unique = format!("installations-persistence-{}", uuid());
         path.push(unique);
         path
     }
 
+    #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
     fn uuid() -> String {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         format!("{}", COUNTER.fetch_add(1, Ordering::SeqCst))
     }
 
-    #[test]
-    fn file_persistence_round_trip() {
+    #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn file_persistence_round_trip() {
         let dir = temp_dir();
         let persistence = FilePersistence::new(dir.clone()).unwrap();
         let token = InstallationToken {
@@ -178,12 +408,12 @@ mod tests {
             auth_token: PersistedAuthToken::from_runtime(&token).unwrap(),
         };
 
-        persistence.write("app", &entry).unwrap();
-        let loaded = persistence.read("app").unwrap().unwrap();
+        persistence.write("app", &entry).await.unwrap();
+        let loaded = persistence.read("app").await.unwrap().unwrap();
         assert_eq!(loaded, entry);
 
-        persistence.clear("app").unwrap();
-        assert!(persistence.read("app").unwrap().is_none());
-        fs::remove_dir_all(dir).ok();
+        persistence.clear("app").await.unwrap();
+        assert!(persistence.read("app").await.unwrap().is_none());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

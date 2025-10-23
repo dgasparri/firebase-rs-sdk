@@ -25,7 +25,8 @@ Coverage is around 35 %.
 use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::installations::{get_installations, InstallationToken};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
    let app = initialize_app(
        FirebaseOptions {
            api_key: Some("AIza...".into()),
@@ -37,8 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
    )?;
 
    let installations = get_installations(Some(app.clone()))?;
-   let fid = installations.get_id()?;
-   let InstallationToken { token, expires_at } = installations.get_token(false)?;
+   let fid = installations.get_id().await?;
+   let InstallationToken { token, expires_at } = installations.get_token(false).await?;
    println!("FID={fid}, token={token}, expires={expires_at:?}");
    Ok(())
 }
@@ -47,33 +48,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Implemented
 - Component registration exposing `get_installations` with per-app caching (`src/installations/api.rs:146`).
 - App config extraction and validation mirroring the JS helper (`src/installations/config.rs:6`).
-- REST client that registers installations and generates auth tokens using `reqwest` with retry on server errors (`src/installations/rest.rs:15`).
-- `get_id` now performs real registration, caches the returned FID/refresh token/auth token trio, and persists it to disk (`src/installations/api.rs:63`).
-- `get_token(force_refresh)` refreshes expired tokens via the REST endpoint, updates the cached entry, and writes the refreshed token back to the persistence store (`src/installations/api.rs:76`).
-- `delete_installations` removes the registered installation via REST, clears in-memory state, and deletes the persisted cache entry (`src/installations/api.rs:200`).
-- File-backed persistence that stores a per-app JSON record and loads it on startup (`src/installations/persistence.rs:1`).
-- Unit tests covering config validation, REST serialization/parsing (skipping when sockets are unavailable), persistence round-trips, delete behaviour, and service behaviour for forced refreshes (`src/installations/rest.rs:156`, `src/installations/api.rs:188`, `src/installations/persistence.rs:80`).
+- Async REST client with a native `reqwest` implementation and a WASM `fetch` backend behind the `wasm-web` feature (`src/installations/rest/native.rs:1`, `src/installations/rest/wasm.rs:1`).
+- `Installations` public/internal APIs are now async, performing registration, token refresh, and delete operations without blocking (`src/installations/api.rs:112`).
+- File-backed persistence for native targets and IndexedDB + BroadcastChannel-backed persistence for wasm builds (`src/installations/persistence.rs`).
+- Unit tests covering config validation, async REST flows, persistence round-trips, delete behaviour, and service behaviour for forced refreshes (`src/installations/rest/tests.rs:1`, `src/installations/api.rs:472`, `src/installations/persistence.rs:80`).
 - Private `installations-internal` component provides shared `get_id`/`get_token` helpers (`src/installations/api.rs:210`).
 
 ## Still to do
 - Add concurrency coordination and migrations for the persistence layer (IndexedDB-style pending markers, multi-process guards).
 - Implement JS parity APIs: `onIdChange` and internal factory helpers for other modules.
 - Add ETag handling, heartbeat/X-Firebase-Client integration, and exponential backoff policies for REST requests.
-- Support multi-environment behaviour (web/WASM vs native) including pluggable storage backends.
 - Provide emulator support, diagnostics logging, and richer error mapping from REST responses.
 - Expand integration tests and shared fixtures to cover retry paths and error propagation.
 
 ## Next steps - Detailed completion plan
-1. **Introduce a wasm-aware REST client**
-   - Split `RestClient` into native (`reqwest::blocking`) and wasm (`window.fetch`) implementations behind `cfg` flags, sharing the request/response models.
-   - Rework `register_installation`, `generate_auth_token`, and `delete_installation` to return `Future`s and wrap the blocking path in a ready future on native targets.
-   - Update `Installations` APIs (`get_id`, `get_token`, `delete_installations`) to await the new client and propagate errors in the existing `InstallationsResult` shape.
-   - Document the design choice (Rust fetch shim instead of custom JS) in this README so downstream modules understand the dependency.
-2. **Integrate wasm persistence and listeners**
-   - Add an IndexedDB-backed `InstallationsPersistence` (mirroring the messaging token store) with BroadcastChannel/storage-event support so browser tabs stay in sync.
-   - Keep the file-based persistence for native targets and surface a trait so other modules can swap in custom backends.
-3. **Unblock Messaging’s FCM REST flow**
+1. **Unblock Messaging’s FCM REST flow**
    - Expose a lightweight internal API that returns the installation entry (FID + refresh/auth tokens + expiry) so `src/messaging` can call the FCM registration endpoints.
-   - Once the wasm client is in place, update messaging to replace the placeholder installation info with real data and add tests/docs covering the create/update/delete flows.
-4. **Follow-on parity work**
-   - Revisit JS parity items (`onIdChange`, pending-registration markers, retry/backoff, heartbeat headers) after the wasm port stabilises.
+   - Update messaging to replace the placeholder installation info with real data and add tests/docs covering the create/update/delete flows.
+   - Add example snippets demonstrating how messaging can await the new async Installations APIs.
+2. **Strengthen persistence coordination**
+   - Mirror the JS pending-registration markers to avoid duplicate network calls when multiple awaiters race initialization.
+   - Add retry/backoff policies on IndexedDB opening failures and surface structured telemetry for cache operations.
+3. **Follow-on parity work**
+   - Revisit JS parity items (`onIdChange`, heartbeat headers, emulator tooling) once the messaging integration settles.
+   - Expand structured logging and diagnostics so native and wasm targets surface actionable errors to consuming modules.

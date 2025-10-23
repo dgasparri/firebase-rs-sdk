@@ -204,7 +204,6 @@ async fn open_db() -> MessagingResult<web_sys::IdbDatabase> {
         .map_err(|err| internal_error(err.to_string()))
 }
 
-
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 fn cache_get(app_key: &str) -> Option<Option<TokenRecord>> {
     TOKEN_CACHE.with(|cache| cache.borrow().get(app_key).cloned())

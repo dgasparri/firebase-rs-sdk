@@ -10,7 +10,8 @@ use firebase_rs_sdk::installations::{
     delete_installations, get_installations_internal, InstallationToken,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FirebaseOptions {
         api_key: Some("AIza_your_api_key".into()),
         project_id: Some("your-project-id".into()),
@@ -22,19 +23,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Resolve the internal component; this mirrors what other Firebase services do.
     let installations_internal = get_installations_internal(Some(app.clone()))?;
-    let installations =
-        firebase_rs_sdk::installations::get_installations(Some(app.clone()))?;
+    let installations = firebase_rs_sdk::installations::get_installations(Some(app.clone()))?;
 
-    let fid = installations_internal.get_id()?;
+    let fid = installations_internal.get_id().await?;
     println!("Internal component FID: {fid}");
 
     // Internal component exposes the same token API as the public service.
-    let InstallationToken { token, expires_at } = installations_internal.get_token(false)?;
+    let InstallationToken { token, expires_at } = installations_internal.get_token(false).await?;
     println!("Internal auth token: {token}");
     println!("Expires at: {:?}", expires_at);
 
     // Optionally clean up the installation afterwards.
-    delete_installations(&installations)?;
+    delete_installations(&installations).await?;
 
     Ok(())
 }
