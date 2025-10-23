@@ -8,6 +8,10 @@ For each submodule, ignore all the `.eslintrc.js`, `api-extractor.json`, `karma.
 
 If common services are needed, they should NOT be in the folder of the single module but rather at the root of the Rust code ./src or in a separate directory.
 
+### Shared platform utilities
+
+Cross-module helpers that abstract browser/native differences are collected under `./src/platform`. For example, the IndexedDB bindings used by messaging live there so other modules (installations, app-check, etc.) can reuse them instead of re-implementing storage glue. Before building a new WASM-specific helper, scan `./src/platform` to avoid duplicating existing work and extend it in place when the functionality is broadly useful.
+
 Try to adhere as much as possible to the public JS APIs, so that it is easy for a programmer to look at the JS documentation and infer how the Rust APIs should work. But the code behind the API should be using Rust logic and Rust's specific way of programming. Ignore all the JS specific requirements, or if useful code them in a way that an experienced Rust programmer would code them. If popular and well known Rust library exists for some specific tasks (such as base64, reqwest, etc.) feel free to use those.
 
 Each module's root file (`./src/{module}/mod.rs`) must remain tidy and only re-export the public API surface using `pub use` items accompanied by inline documentation. All types and functions that form the public API should be referenced through this file rather than being defined there directly. All types and functions that form the public API should be made public only through this file.
