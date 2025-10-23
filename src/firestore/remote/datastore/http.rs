@@ -522,9 +522,7 @@ mod tests {
             then.status(200).json_body(response_clone.clone());
         });
 
-        let client = reqwest::blocking::Client::builder()
-            .build()
-            .expect("reqwest client");
+        let client = reqwest::Client::builder().build().expect("reqwest client");
 
         let connection_builder = Connection::builder(database_id.clone())
             .with_client(client)

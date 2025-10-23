@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use reqwest::blocking::{Client, RequestBuilder};
-use reqwest::{Method, StatusCode};
+use reqwest::{Client, Method, RequestBuilder, StatusCode};
 use serde_json::Value as JsonValue;
 
 use crate::firestore::error::{internal_error, FirestoreResult};
 use crate::firestore::model::DatabaseId;
+use crate::util::runtime::block_on;
 
 use super::rpc_error::map_http_error;
 
@@ -79,16 +79,44 @@ impl Connection {
         body: Option<JsonValue>,
         context: &RequestContext,
     ) -> FirestoreResult<JsonValue> {
-        let mut request = self.build_request(method, path, context);
+        let connection = self.clone();
+        let path_owned = path.to_owned();
+        let context_cloned = context.clone();
+        block_on(connection.invoke_json_owned(method, path_owned, body, context_cloned))
+    }
+
+    pub fn invoke_json_optional(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<JsonValue>,
+        context: &RequestContext,
+    ) -> FirestoreResult<Option<JsonValue>> {
+        let connection = self.clone();
+        let path_owned = path.to_owned();
+        let context_cloned = context.clone();
+        block_on(connection.invoke_json_optional_owned(method, path_owned, body, context_cloned))
+    }
+
+    async fn invoke_json_owned(
+        self,
+        method: Method,
+        path: String,
+        body: Option<JsonValue>,
+        context: RequestContext,
+    ) -> FirestoreResult<JsonValue> {
+        let mut request = self.build_request(method, &path, &context);
         if let Some(body) = body {
             request = request.json(&body);
         }
         let response = request
             .send()
+            .await
             .map_err(|err| internal_error(err.to_string()))?;
         let status = response.status();
         let text = response
             .text()
+            .await
             .map_err(|err| internal_error(err.to_string()))?;
         if status.is_success() {
             if text.is_empty() {
@@ -101,23 +129,25 @@ impl Connection {
         }
     }
 
-    pub fn invoke_json_optional(
-        &self,
+    async fn invoke_json_optional_owned(
+        self,
         method: Method,
-        path: &str,
+        path: String,
         body: Option<JsonValue>,
-        context: &RequestContext,
+        context: RequestContext,
     ) -> FirestoreResult<Option<JsonValue>> {
-        let mut request = self.build_request(method, path, context);
+        let mut request = self.build_request(method, &path, &context);
         if let Some(body) = body {
             request = request.json(&body);
         }
         let response = request
             .send()
+            .await
             .map_err(|err| internal_error(err.to_string()))?;
         let status = response.status();
         let text = response
             .text()
+            .await
             .map_err(|err| internal_error(err.to_string()))?;
         if status.is_success() {
             if text.is_empty() {
