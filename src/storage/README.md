@@ -2,9 +2,9 @@
 
 ## Introduction
 
-This module ports core pieces of the Firebase Storage Web SDK to Rust so applications 
-can discover buckets, navigate object paths, and perform common download, metadata, 
-and upload operations in a synchronous, `reqwest`-powered environment.
+This module ports core pieces of the Firebase Storage Web SDK to Rust so applications
+can discover buckets, navigate object paths, and perform common download, metadata,
+and upload operations using an async `reqwest` client that works on native and wasm targets.
 
 It provides functionality to interact with Firebase Storage, including
 uploading and downloading files, managing metadata, and handling storage references.
@@ -46,8 +46,8 @@ Key Gaps
   - JS exposes string uploads and streaming/blob downloads (packages/storage/src/api.ts:129, packages/storage/src/
   reference.ts:201), but the Rust port only offers byte-buffer APIs—no upload_string, get_blob, or get_stream.
   - The modular upload task with observers, pause/resume/cancel, and snapshot events (packages/storage/src/task.ts:62,
-  packages/storage/src/public-types.ts:214) is reduced to a synchronous helper without callbacks or state transitions in
-  Rust (src/storage/upload.rs:40).
+  packages/storage/src/public-types.ts:214) is only partially implemented: the async `UploadTask` covers resumable flows
+  but still lacks observer hooks and state transitions (src/storage/upload.rs:40).
   - Error coverage is narrower: the Rust enum covers a handful of codes (src/storage/error.rs:1), whereas the JS SDK
   handles the full suite including auth/quota/retry cases (packages/storage/src/implementation/error.ts:88), and there’s
   no token-refresh logic on 401/403 responses.
@@ -79,7 +79,8 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::storage::*;
 
-fn main() {
+#[tokio::main]
+async fn main() -> StorageResult<()> {
     let options = FirebaseOptions {
         storage_bucket: Some("BUCKET_NAME".into()),
         ..Default::default()
@@ -88,12 +89,10 @@ fn main() {
     let app = initialize_app(options, Some(FirebaseAppSettings::default()))
         .expect("failed to initialize app");
 
-    let storage = get_storage_for_app(Some(app), None)
-        .expect("storage component not available");
+    let storage = get_storage_for_app(Some(app), None)?;
 
     let photos = storage
-        .root_reference()
-        .expect("missing default bucket")
+        .root_reference()?
         .child("photos");
 
     // Upload a photo; small payloads are sent via multipart upload while larger blobs use the resumable API.
@@ -104,18 +103,22 @@ fn main() {
     let metadata = photos
         .child("welcome.png")
         .upload_bytes(image_bytes, Some(upload_metadata))
-        .expect("upload failed");
-    println!("Uploaded {} to bucket {}", metadata.name.unwrap_or_default(), metadata.bucket.unwrap_or_default());
+        .await?;
+    println!(
+        "Uploaded {} to bucket {}",
+        metadata.name.unwrap_or_default(),
+        metadata.bucket.unwrap_or_default()
+    );
 
     // List the directory and stream the first few kilobytes of each item.
-    let listing = photos.list_all().expect("failed to list objects");
+    let listing = photos.list_all().await?;
     for object in listing.items {
-        let url = object.get_download_url().expect("missing download URL");
-        let bytes = object
-            .get_bytes(Some(256 * 1024))
-            .expect("download limited to 256 KiB");
+        let url = object.get_download_url().await?;
+        let bytes = object.get_bytes(Some(256 * 1024)).await?;
         println!("{} -> {} bytes", url, bytes.len());
     }
+
+    Ok(())
 }
 ```
 
@@ -133,7 +136,7 @@ fn main() {
 - Ported the core `StorageReference` operations: metadata fetch/update, hierarchical listing (`list`/`list_all`), direct
   downloads via `get_bytes`, signed URL generation (`get_download_url`), and object deletion. Corresponding request
   builders now emit byte-download, download-URL, and delete requests with unit coverage.
-- Added upload support: multipart uploads expose a synchronous `upload_bytes` helper, and resumable uploads are modelled
+- Added upload support: multipart uploads expose an async `upload_bytes` helper, and resumable uploads are modelled
   through a Rust-centric `UploadTask` that streams chunks, surfaces progress callbacks, and finalises with parsed
   metadata. Request builders for multipart/resumable flows are unit-tested with emulator-style mocks.
 - Expanded metadata and type models: `ObjectMetadata` now tracks MD5/CRC/ETag values, parses download tokens into a
@@ -142,6 +145,8 @@ fn main() {
 - Authentication and App Check headers are now injected automatically: emulator overrides feed `Authorization`
   headers, while live environments consult the Auth/App Check providers to emit `Authorization`,
   `X-Firebase-AppCheck`, `X-Firebase-Storage-Version`, and `X-Firebase-GMPID` metadata on every request.
+- Unified async transport built on `reqwest::Client`, so native and wasm targets share the same retry logic while
+  exposing an `async` public API.
 
 ## Still To Do
 

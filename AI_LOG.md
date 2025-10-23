@@ -409,3 +409,182 @@ Async Bridge & Gating
   or gloo_net) once the async internals are ready.
 
   Let me know which module you’d like to tackle next and I’ll dive in.
+
+
+Thinking
+  I'll wrap up by summarizing the changes made and highlighting the tests run, including cargo check and wasm check.
+  I'll also note that tests depend on the environment, which the user mentioned passes despite some earlier limitations.
+
+> Firestore Async Step
+
+  - Swapped the Firestore connection layer to the async reqwest::Client, then wrapped the calls with the shared
+  util::runtime::block_on helper so the existing synchronous API stays intact (src/firestore/remote/connection.rs:3-
+  210).
+  - Updated the Http datastore tests to build the async client (src/firestore/remote/datastore/http.rs:520-539).
+
+  Shared Helper
+
+  - Added util::runtime::block_on as the central blocking bridge so other modules can reuse the same runtime while we
+  continue the async migration (src/util/runtime.rs, src/util/mod.rs).
+
+  Verification
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+
+  Great! Firestore’s on the async track. Next stop is the Functions module so we can knock out the remaining
+  reqwest::blocking hold-outs. I’ll follow the same playbook we used for Auth and Firestore:
+
+  1. Introduce async clients in the core request path (still driving them with util::runtime::block_on so the public API
+  stays sync for now).
+  2. Update any tests or helper builders that construct blocking clients.
+  3. Keep wasm stubs untouched—they’re already cfg’d out.
+
+  I’ll start refactoring src/functions/transport.rs and the associated callers. Let’s dive in.
+
+Thinking
+  I’m outlining how we added an async trait to replace blocking calls in the callable transport, introduced the
+  invoke_callable_async function used by CallableFunction::call_async, and updated the README to reflect these changes.
+  I’ll note relevant file locations and suggest next steps like implementing a wasm transport, plus mention running
+  tests with cargo test functions.
+
+> Transport Refactor
+
+  - Converted the callable transport into an async trait and exposed a shared invoke_callable_async, keeping the native
+  runtime on the async reqwest::Client while stubbing wasm for now (src/functions/transport.rs:5-207).
+  - Updated CallableFunction::call_async to await the new helper so the request path is fully async from the API layer
+  downward (src/functions/api.rs:216).
+  - Tweaked the module README to document the async transport layer and preserved blocking convenience only as a wrapper
+  (src/functions/README.md:47-55).
+
+  Tests: cargo test functions
+
+  Next Steps:
+
+  1. Replace the wasm stub with a real fetch-backed transport so call_async works on wasm32.
+  2. Start plumbing messaging token lookups into the callable headers as planned.
+
+ Updated Plan
+  └ Implementing the wasm32 callable transport and wiring messaging tokens requires several coordinated changes, so
+    outlining the work will keep things organized.
+    □ Assess current transport/context code and identify hooks for wasm fetch and messaging token plumbing.
+    □ Implement wasm fetch-backed callable transport with appropriate feature gating and error handling.
+    □ Extend context provider to fetch messaging tokens for callable headers and update tests/README as needed.
+    □ Run targeted tests and summarize changes.
+
+Thinking
+  I'll wrap up by highlighting the key changes in context, transport, and README files, noting the tests I've run, and
+  suggesting clear next steps for the user to follow. The goal is a concise yet friendly summary that covers features,
+  testing, and potential further actions.
+
+> Functions Updates
+
+  - Added a real wasm transport that drives callable invocations through fetch, mirrors native timeouts with
+  AbortController, and reuses shared error handling so wasm callers get parity with native (src/functions/
+  transport.rs:200-360).
+  - Context provider now asks Messaging for a fresh/cached token (and still falls back to the native cache path) so the
+  Firebase-Instance-ID-Token header is attached automatically when available (src/functions/context.rs:87-119).
+  - README documents the new wasm transport and FCM token plumbing, and retunes the follow-up plan toward serializer
+  parity, wasm validation, and richer error handling (src/functions/README.md:55-112).
+
+  Tests run:
+
+  - cargo test functions::api::tests::https_callable_
+  - cargo check --target wasm32-unknown-unknown
+
+  Next steps:
+
+  1. Port the callable serializer helpers and URL utilities (https_callable_from_url, emulator hooks).
+  2. Stand up wasm-bindgen-test coverage for fetch transport/timeouts and expand wasm usage docs.
+  3. Surface backend details payloads and cancellation hooks to round out error handling.
+
+Thinking
+  I’m thinking through how to adapt a blocking HttpClient for wasm, where blocking and threads aren’t possible. Since
+  the storage API is synchronous now, making it wasm-compatible likely means adding async alternatives and gating
+  blocking code out for wasm builds. This will require a significant refactor, similar to what was done for functions.
+  I’ll verify this by trying a wasm compilation to confirm blocking features cause failures.
+
+• Ran cargo check --target wasm32-unknown-unknown -p firebase-rs-sdk
+
+more than working on functions, I'd rather work on storage to make it wasm-compatible
+
+• Explored
+  └ List storage
+
+> Thinking
+  I’m thinking through how to adapt a blocking HttpClient for wasm, where blocking and threads aren’t possible. Since
+  the storage API is synchronous now, making it wasm-compatible likely means adding async alternatives and gating
+  blocking code out for wasm builds. This will require a significant refactor, similar to what was done for functions.
+  I’ll verify this by trying a wasm compilation to confirm blocking features cause failures.
+
+  └ Read mod.rs
+
+> Thinking
+  I'm examining how the storage request transport currently uses reqwest::blocking::Client even for wasm targets
+  and why compilation succeeds despite potential incompatibilities. It seems the blocking client is conditionally
+  excluded from builds, but for wasm, blocking HTTP isn't feasible, so I’m thinking about introducing asynchronous
+  HTTP transport specifically for wasm with traits or separate implementations, likely requiring async functions and
+  wasm_bindgen_futures. Due to event loop requirements, fully synchronous wrappers on wasm won't work, so I'll consider
+  splitting HttpClient into wasm-native modules with async-only APIs while keeping synchronous ones for native targets,
+  planning incremental refactors and checking StorageReference functions next.
+
+• Explored
+  └ Read reference.rs
+
+> Thinking
+  This is a big task aiming to make storage wasm-compatible by adding async alternatives while keeping sync methods for
+  native. I'll plan introducing new async request structs and methods, adding conditional compilation to handle wasm vs
+  native differences, and figuring out async timing and backoff without blocking, possibly by adding or creating async
+  delay helpers since wasm can't use thread sleep. I'll focus on bridging existing sync code to async futures on native,
+  and fully async fetch logic on wasm.
+
+• Explored
+  └ Read backoff.rs
+
+> Thinking
+  I’m sketching a plan to handle asynchronous delays on wasm by adding a runtime module for async sleep, switching
+  BackoffState to produce delays for async waiting, and using crates like gloo-timers for wasm-compatible async loops.
+  I want to propose migrating storage requests to async with bridging for native sync support, then update docs. I’ll
+  share this plan with the user for feedback before starting big changes.
+
+> Great, happy to pivot. Making the storage client work on wasm will touch several layers, so here’s the game plan I’d
+  follow to keep things tractable:
+
+  - Split the transport layer. Extract the existing reqwest::blocking client behind a thin StorageTransport trait, then
+  add a wasm implementation that drives requests with fetch/AbortController (very similar to what we just built for
+  Functions). The wasm transport will expose async fn execute_async(...), while the native side keeps execute plus a
+  tiny async wrapper.
+  - Async-first service API. Extend FirebaseStorageImpl with run_request_async / run_upload_request_async. All storage
+  operations (get_bytes, upload_bytes, list, etc.) will gain *_async variants; on non-wasm targets the existing blocking
+  methods just call the async ones via the shared runtime, and we #[cfg(target_arch = "wasm32")]-gate the sync helpers
+  out.
+  - Backoff/timers. Move the retry sleeps behind a helper (e.g. storage::util::sleep) so native uses std::thread::sleep
+  while wasm awaits a TimeoutFuture (likely via a lightweight dependency such as gloo-timers).
+  - Headers & auth. Reuse the current header preparation logic so Auth/App Check/App ID metadata flow through unchanged.
+  For wasm we’ll skip the synchronous get_token calls and rely on each provider’s async API.
+  - Documentation & tests. Update src/storage/README.md with wasm support status, add guidance about feature gates, and
+  port a couple of integration/unit tests to wasm-bindgen-test once the async surface is in place.
+
+  If that direction looks good—with async APIs on wasm and backwards-compatible sync wrappers on native—I’ll start with
+  the transport refactor and ripple the changes upward. Let me know if you’d like to adjust the scope (e.g. wasm-only
+  download support first, uploads later) before I dive in.
+
+▌ It must be in line with the ./WASM_PLAN.md, and I would rather to have a single code to maintain, so make the API
+▌ async and use reqwest in async mode, and then wrap it in futures:: or other blocking mechanism
+
+
+if we abandon the idea of backward compatibility of the public API, would that make our work easier?
+
+> Yes—dropping the “existing sync API must stay” constraint would simplify the migration a lot.
+
+  - We could switch Storage (and the rest of the stack) straight to async-first types, following the WASM plan’s
+  direction for a single code path.
+  - No need to maintain bridging shims (block_on, duplicate *_async/*_sync helpers, dual transport traits, etc.).
+  Everything would just await and we’d run reqwest::Client in async mode on both native and wasm.
+  - Tests/docs/examples could move to async idioms immediately, instead of carrying synchronous variants.
+
+  The trade-off is obvious: anyone depending on the current blocking APIs would have to update their code (probably a
+  major-version bump). If we’re willing to make that breaking change, it will dramatically cut the scope and ongoing
+  maintenance cost of the WASM work.
+
+▌ 

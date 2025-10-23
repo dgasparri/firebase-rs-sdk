@@ -187,27 +187,27 @@ impl FirebaseStorageImpl {
         HttpClient::new(self.is_using_emulator(), config)
     }
 
-    pub fn run_request<O>(&self, info: RequestInfo<O>) -> StorageResult<O> {
+    pub async fn run_request<O>(&self, info: RequestInfo<O>) -> StorageResult<O> {
         let client = self.http_client()?;
-        let info = self.prepare_request(info)?;
-        client.execute(info)
+        let info = self.prepare_request(info).await?;
+        client.execute(info).await
     }
 
-    pub fn run_upload_request<O>(&self, info: RequestInfo<O>) -> StorageResult<O> {
+    pub async fn run_upload_request<O>(&self, info: RequestInfo<O>) -> StorageResult<O> {
         let client = self.upload_http_client()?;
-        let info = self.prepare_request(info)?;
-        client.execute(info)
+        let info = self.prepare_request(info).await?;
+        client.execute(info).await
     }
 
-    fn prepare_request<O>(&self, mut info: RequestInfo<O>) -> StorageResult<RequestInfo<O>> {
-        if let Some(token) = self.auth_token()? {
+    async fn prepare_request<O>(&self, mut info: RequestInfo<O>) -> StorageResult<RequestInfo<O>> {
+        if let Some(token) = self.auth_token().await? {
             if !token.is_empty() {
                 info.headers
                     .insert("Authorization".to_string(), format!("Firebase {token}"));
             }
         }
 
-        if let Some(token) = self.app_check_token()? {
+        if let Some(token) = self.app_check_token().await? {
             if !token.is_empty() {
                 info.headers
                     .insert("X-Firebase-AppCheck".to_string(), token);
@@ -234,7 +234,7 @@ impl FirebaseStorageImpl {
         Ok(info)
     }
 
-    fn auth_token(&self) -> StorageResult<Option<String>> {
+    async fn auth_token(&self) -> StorageResult<Option<String>> {
         if let Some(token) = {
             let state = self.state.lock().unwrap();
             state.override_auth_token.clone()
@@ -255,7 +255,7 @@ impl FirebaseStorageImpl {
             }
         };
 
-        match auth.get_token(false) {
+        match auth.get_token_async(false).await {
             Ok(Some(token)) if token.is_empty() => Ok(None),
             Ok(Some(token)) => Ok(Some(token)),
             Ok(None) => Ok(None),
@@ -265,7 +265,7 @@ impl FirebaseStorageImpl {
         }
     }
 
-    fn app_check_token(&self) -> StorageResult<Option<String>> {
+    async fn app_check_token(&self) -> StorageResult<Option<String>> {
         let app_check = match self
             .app_check_provider
             .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
@@ -280,7 +280,8 @@ impl FirebaseStorageImpl {
         };
 
         let result = app_check
-            .get_token(false)
+            .get_token_async(false)
+            .await
             .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
 
         if let Some(error) = result.error {
@@ -320,6 +321,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
+    use tokio::runtime::Runtime;
 
     fn unique_settings(prefix: &str) -> FirebaseAppSettings {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -378,7 +380,9 @@ mod tests {
             .connect_emulator("localhost", 9199, Some("mock-token".into()))
             .unwrap();
 
-        let prepared = storage.prepare_request(test_request()).unwrap();
+        let prepared = Runtime::new()
+            .unwrap()
+            .block_on(async { storage.prepare_request(test_request()).await.unwrap() });
 
         assert_eq!(
             prepared.headers.get("Authorization"),
@@ -436,7 +440,9 @@ mod tests {
     #[test]
     fn prepare_request_includes_app_check_header_when_available() {
         let storage = build_storage_with(|app| register_app_check(app));
-        let prepared = storage.prepare_request(test_request()).unwrap();
+        let prepared = Runtime::new()
+            .unwrap()
+            .block_on(async { storage.prepare_request(test_request()).await.unwrap() });
 
         assert_eq!(
             prepared.headers.get("X-Firebase-AppCheck"),

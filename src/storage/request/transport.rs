@@ -1,7 +1,6 @@
 use crate::storage::error::{internal_error, StorageError, StorageResult};
 use crate::storage::util::is_url;
-use reqwest::blocking::{Client, Response};
-use reqwest::{StatusCode, Url};
+use reqwest::{Client, Response, StatusCode, Url};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -16,7 +15,7 @@ pub struct ResponsePayload {
 }
 
 impl ResponsePayload {
-    fn from_response(response: Response) -> StorageResult<Self> {
+    async fn from_response(response: Response) -> StorageResult<Self> {
         let status = response.status();
         let mut headers = HashMap::new();
         for (key, value) in response.headers().iter() {
@@ -26,6 +25,7 @@ impl ResponsePayload {
         }
         let body = response
             .bytes()
+            .await
             .map_err(|err| internal_error(format!("failed to read response body: {err}")))?
             .to_vec();
         Ok(Self {
@@ -62,7 +62,7 @@ impl HttpClient {
         })
     }
 
-    pub fn execute<O>(&self, info: RequestInfo<O>) -> StorageResult<O> {
+    pub async fn execute<O>(&self, info: RequestInfo<O>) -> StorageResult<O> {
         let mut backoff = BackoffState::new(self.backoff.clone());
 
         loop {
@@ -72,10 +72,10 @@ impl HttpClient {
 
             let delay = backoff.next_delay();
             if delay > Duration::from_millis(0) {
-                std::thread::sleep(delay);
+                sleep(delay).await;
             }
 
-            let result = self.try_once(&info);
+            let result = self.try_once(&info).await;
 
             match result {
                 Ok(payload) => {
@@ -105,7 +105,7 @@ impl HttpClient {
         }
     }
 
-    fn try_once<O>(&self, info: &RequestInfo<O>) -> Result<ResponsePayload, RequestError> {
+    async fn try_once<O>(&self, info: &RequestInfo<O>) -> Result<ResponsePayload, RequestError> {
         let mut url = self.prepare_url(&info.url).map_err(RequestError::Fatal)?;
         if !info.query_params.is_empty() {
             {
@@ -137,7 +137,7 @@ impl HttpClient {
             RequestBody::Empty => {}
         }
 
-        let response = request_builder.send().map_err(|err| {
+        let response = request_builder.send().await.map_err(|err| {
             if err.is_timeout() {
                 RequestError::Timeout
             } else {
@@ -145,7 +145,9 @@ impl HttpClient {
             }
         })?;
 
-        ResponsePayload::from_response(response).map_err(RequestError::Fatal)
+        ResponsePayload::from_response(response)
+            .await
+            .map_err(RequestError::Fatal)
     }
 
     fn prepare_url(&self, raw: &str) -> StorageResult<Url> {
@@ -162,6 +164,22 @@ impl HttpClient {
                 .map_err(|err| internal_error(format!("invalid storage URL: {err}")))
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn sleep(duration: Duration) {
+    tokio::time::sleep(duration).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn sleep(duration: Duration) {
+    use gloo_timers::future::TimeoutFuture;
+
+    let millis = duration.as_millis().min(u32::MAX as u128) as u32;
+    if millis == 0 {
+        return;
+    }
+    TimeoutFuture::new(millis).await;
 }
 
 fn should_retry<O>(status: StatusCode, info: &RequestInfo<O>) -> bool {

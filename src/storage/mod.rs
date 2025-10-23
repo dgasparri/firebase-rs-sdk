@@ -42,7 +42,8 @@
 //! use firebase_rs_sdk::app::*;
 //! use firebase_rs_sdk::storage::*;
 //!
-//! fn main() {
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let options = FirebaseOptions {
 //!         storage_bucket: Some("BUCKET_NAME".into()),
 //!         ..Default::default()
@@ -67,18 +68,21 @@
 //!     let metadata = photos
 //!         .child("welcome.png")
 //!         .upload_bytes(image_bytes, Some(upload_metadata))
-//!         .expect("upload failed");
-//!     println!("Uploaded {} to bucket {}", metadata.name.unwrap_or_default(), metadata.bucket.unwrap_or_default());
+//!         .await?;
+//!     println!(
+//!         "Uploaded {} to bucket {}",
+//!         metadata.name.unwrap_or_default(),
+//!         metadata.bucket.unwrap_or_default()
+//!     );
 //!
 //!     // List the directory and stream the first few kilobytes of each item.
-//!     let listing = photos.list_all().expect("failed to list objects");
+//!     let listing = photos.list_all().await?;
 //!     for object in listing.items {
-//!         let url = object.get_download_url().expect("missing download URL");
-//!         let bytes = object
-//!             .get_bytes(Some(256 * 1024))
-//!             .expect("download limited to 256 KiB");
+//!         let url = object.get_download_url().await?;
+//!         let bytes = object.get_bytes(Some(256 * 1024)).await?;
 //!         println!("{} -> {} bytes", url, bytes.len());
 //!     }
+//!     Ok(())
 //! }
 //! ```
 

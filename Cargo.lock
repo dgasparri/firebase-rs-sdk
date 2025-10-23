@@ -578,6 +578,7 @@ dependencies = [
  "chrono",
  "futures",
  "getrandom",
+ "gloo-timers",
  "httpmock",
  "js-sys",
  "once_cell",

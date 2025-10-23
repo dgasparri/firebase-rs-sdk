@@ -112,7 +112,7 @@ impl UploadTask {
     /// Uploads the next chunk and invokes the provided progress callback.
     ///
     /// Returns `Ok(Some(metadata))` when the upload finishes and the remote metadata is available.
-    pub fn upload_next_with_progress<F>(
+    pub async fn upload_next_with_progress<F>(
         &mut self,
         mut progress: F,
     ) -> StorageResult<Option<ObjectMetadata>>
@@ -136,10 +136,10 @@ impl UploadTask {
         }
 
         if !self.resumable {
-            return self.upload_multipart(progress);
+            return self.upload_multipart(progress).await;
         }
 
-        self.ensure_resumable_session()?;
+        self.ensure_resumable_session().await?;
         self.state = UploadTaskState::Running;
 
         let storage = self.reference.storage();
@@ -166,7 +166,7 @@ impl UploadTask {
             chunk,
             finalize,
         );
-        let status = match storage.run_upload_request(request) {
+        let status = match storage.run_upload_request(request).await {
             Ok(status) => status,
             Err(err) => {
                 self.reset_multiplier();
@@ -191,12 +191,12 @@ impl UploadTask {
     }
 
     /// Uploads the next chunk without emitting progress callbacks.
-    pub fn upload_next(&mut self) -> StorageResult<Option<ObjectMetadata>> {
-        self.upload_next_with_progress(|_| {})
+    pub async fn upload_next(&mut self) -> StorageResult<Option<ObjectMetadata>> {
+        self.upload_next_with_progress(|_| {}).await
     }
 
     /// Runs the task to completion while notifying `progress` for each chunk.
-    pub fn run_to_completion_with_progress<F>(
+    pub async fn run_to_completion_with_progress<F>(
         mut self,
         mut progress: F,
     ) -> StorageResult<ObjectMetadata>
@@ -204,7 +204,7 @@ impl UploadTask {
         F: FnMut(UploadProgress),
     {
         loop {
-            match self.upload_next_with_progress(&mut progress)? {
+            match self.upload_next_with_progress(&mut progress).await? {
                 Some(metadata) => return Ok(metadata),
                 None => continue,
             }
@@ -212,11 +212,11 @@ impl UploadTask {
     }
 
     /// Runs the task to completion without progress callbacks.
-    pub fn run_to_completion(self) -> StorageResult<ObjectMetadata> {
-        self.run_to_completion_with_progress(|_| {})
+    pub async fn run_to_completion(self) -> StorageResult<ObjectMetadata> {
+        self.run_to_completion_with_progress(|_| {}).await
     }
 
-    fn ensure_resumable_session(&mut self) -> StorageResult<()> {
+    async fn ensure_resumable_session(&mut self) -> StorageResult<()> {
         if !self.resumable || self.upload_url.is_some() {
             return Ok(());
         }
@@ -227,12 +227,15 @@ impl UploadTask {
             self.metadata.clone(),
             self.total_bytes,
         );
-        let url = storage.run_upload_request(request)?;
+        let url = storage.run_upload_request(request).await?;
         self.upload_url = Some(url);
         Ok(())
     }
 
-    fn upload_multipart<F>(&mut self, mut progress: F) -> StorageResult<Option<ObjectMetadata>>
+    async fn upload_multipart<F>(
+        &mut self,
+        mut progress: F,
+    ) -> StorageResult<Option<ObjectMetadata>>
     where
         F: FnMut(UploadProgress),
     {
@@ -249,7 +252,7 @@ impl UploadTask {
             self.metadata.clone(),
         );
 
-        match storage.run_upload_request(request) {
+        match storage.run_upload_request(request).await {
             Ok(metadata) => {
                 self.transferred = self.total_bytes;
                 self.state = UploadTaskState::Completed;

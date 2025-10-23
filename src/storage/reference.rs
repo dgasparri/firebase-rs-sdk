@@ -84,18 +84,18 @@ impl StorageReference {
     ///
     /// Returns [`StorageError`](crate::storage::StorageError) with code
     /// `storage/invalid-root-operation` if the reference points to the bucket root.
-    pub fn get_metadata(&self) -> StorageResult<ObjectMetadata> {
+    pub async fn get_metadata(&self) -> StorageResult<ObjectMetadata> {
         self.ensure_not_root("get_metadata")?;
         let request = get_metadata_request(&self.storage, &self.location);
-        let json = self.storage.run_request(request)?;
+        let json = self.storage.run_request(request).await?;
         Ok(ObjectMetadata::from_value(json))
     }
 
     /// Lists objects and prefixes immediately under this reference.
-    pub fn list(&self, options: Option<ListOptions>) -> StorageResult<ListResult> {
+    pub async fn list(&self, options: Option<ListOptions>) -> StorageResult<ListResult> {
         let opts = options.unwrap_or_default();
         let request = list_request(&self.storage, &self.location, &opts);
-        let json = self.storage.run_request(request)?;
+        let json = self.storage.run_request(request).await?;
         parse_list_result(&self.storage, self.location.bucket(), json)
     }
 
@@ -103,14 +103,14 @@ impl StorageReference {
     ///
     /// This mirrors the Firebase Web SDK `listAll` helper and repeatedly calls [`list`](Self::list)
     /// until the backend stops returning a `nextPageToken`.
-    pub fn list_all(&self) -> StorageResult<ListResult> {
+    pub async fn list_all(&self) -> StorageResult<ListResult> {
         let mut merged = ListResult::default();
         let mut page_token: Option<String> = None;
 
         loop {
             let mut options = ListOptions::default();
             options.page_token = page_token.clone();
-            let page = self.list(Some(options))?;
+            let page = self.list(Some(options)).await?;
             merged.prefixes.extend(page.prefixes);
             merged.items.extend(page.items);
 
@@ -130,10 +130,13 @@ impl StorageReference {
     ///
     /// Returns [`storage/invalid-root-operation`](crate::storage::StorageErrorCode::InvalidRootOperation)
     /// when invoked on the bucket root.
-    pub fn update_metadata(&self, metadata: SettableMetadata) -> StorageResult<ObjectMetadata> {
+    pub async fn update_metadata(
+        &self,
+        metadata: SettableMetadata,
+    ) -> StorageResult<ObjectMetadata> {
         self.ensure_not_root("update_metadata")?;
         let request = update_metadata_request(&self.storage, &self.location, metadata);
-        let json = self.storage.run_request(request)?;
+        let json = self.storage.run_request(request).await?;
         Ok(ObjectMetadata::from_value(json))
     }
 
@@ -142,11 +145,11 @@ impl StorageReference {
     /// The optional `max_download_size_bytes` mirrors the Web SDK behaviour: when supplied the
     /// backend is asked for at most that many bytes and the response is truncated if the server
     /// ignores the range header.
-    pub fn get_bytes(&self, max_download_size_bytes: Option<u64>) -> StorageResult<Vec<u8>> {
+    pub async fn get_bytes(&self, max_download_size_bytes: Option<u64>) -> StorageResult<Vec<u8>> {
         self.ensure_not_root("get_bytes")?;
         let request =
             download_bytes_request(&self.storage, &self.location, max_download_size_bytes);
-        let mut bytes = self.storage.run_request(request)?;
+        let mut bytes = self.storage.run_request(request).await?;
 
         if let Some(limit) = max_download_size_bytes {
             let limit_usize = usize::try_from(limit).map_err(|_| {
@@ -161,18 +164,18 @@ impl StorageReference {
     }
 
     /// Returns a signed download URL for the object.
-    pub fn get_download_url(&self) -> StorageResult<String> {
+    pub async fn get_download_url(&self) -> StorageResult<String> {
         self.ensure_not_root("get_download_url")?;
         let request = download_url_request(&self.storage, &self.location);
-        let url = self.storage.run_request(request)?;
+        let url = self.storage.run_request(request).await?;
         url.ok_or_else(no_download_url)
     }
 
     /// Permanently deletes the object referenced by this path.
-    pub fn delete_object(&self) -> StorageResult<()> {
+    pub async fn delete_object(&self) -> StorageResult<()> {
         self.ensure_not_root("delete_object")?;
         let request = delete_object_request(&self.storage, &self.location);
-        self.storage.run_request(request)
+        self.storage.run_request(request).await
     }
 
     /// Uploads a small blob in a single multipart request.
@@ -190,9 +193,13 @@ impl StorageReference {
     /// let app = initialize_app(options, Some(FirebaseAppSettings::default())).unwrap();
     /// let storage = get_storage_for_app(Some(app), None).unwrap();
     /// let avatar = storage.root_reference().unwrap().child("avatars/user.png");
-    /// avatar.upload_bytes(vec![0_u8; 1024], None).unwrap();
+    /// tokio::runtime::Runtime::new()
+    ///     .unwrap()
+    ///     .block_on(async {
+    ///         avatar.upload_bytes(vec![0_u8; 1024], None).await.unwrap();
+    ///     });
     /// ```
-    pub fn upload_bytes(
+    pub async fn upload_bytes(
         &self,
         data: impl Into<Vec<u8>>,
         metadata: Option<UploadMetadata>,
@@ -200,7 +207,7 @@ impl StorageReference {
         self.ensure_not_root("upload_bytes")?;
         let request =
             multipart_upload_request(&self.storage, &self.location, data.into(), metadata);
-        self.storage.run_upload_request(request)
+        self.storage.run_upload_request(request).await
     }
 
     /// Creates a resumable upload task that can be advanced chunk by chunk or run to completion.
