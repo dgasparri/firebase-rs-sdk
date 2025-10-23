@@ -141,6 +141,11 @@ pub fn read_token(app_key: &str) -> MessagingResult<Option<TokenRecord>> {
     memory_store::read(app_key)
 }
 
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+pub async fn read_token_async(app_key: &str) -> MessagingResult<Option<TokenRecord>> {
+    read_token(app_key)
+}
+
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 pub async fn read_token(app_key: &str) -> MessagingResult<Option<TokenRecord>> {
     ensure_broadcast_channel();
@@ -161,6 +166,11 @@ pub async fn read_token(app_key: &str) -> MessagingResult<Option<TokenRecord>> {
     };
     cache_set(app_key, record.clone());
     Ok(record)
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+pub async fn read_token_async(app_key: &str) -> MessagingResult<Option<TokenRecord>> {
+    read_token(app_key).await
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
