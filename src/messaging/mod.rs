@@ -2,6 +2,8 @@
 mod api;
 mod constants;
 pub mod error;
+#[cfg(any(test, all(feature = "wasm-web", target_arch = "wasm32")))]
+mod fcm_rest;
 mod subscription;
 mod support;
 mod sw_manager;

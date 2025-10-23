@@ -10,10 +10,16 @@ use crate::component::types::{
 };
 use crate::component::{Component, ComponentType};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::installations::config::extract_app_config;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::installations::{get_installations_internal, InstallationEntryData};
 use crate::messaging::constants::MESSAGING_COMPONENT_NAME;
 use crate::messaging::error::{
     internal_error, invalid_argument, token_deletion_failed, MessagingResult,
+};
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::messaging::fcm_rest::{
+    FcmClient, FcmRegistrationRequest, FcmSubscription, FcmUpdateRequest,
 };
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::token_store::{self, InstallationInfo, SubscriptionInfo, TokenRecord};
@@ -27,7 +33,7 @@ use crate::messaging::constants::DEFAULT_VAPID_KEY;
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::error::{available_in_window, permission_blocked, unsupported_browser};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use wasm_bindgen_futures::JsFuture;
 
@@ -272,6 +278,9 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
     let vapid_key = vapid_key
         .filter(|key| !key.trim().is_empty())
         .unwrap_or(DEFAULT_VAPID_KEY);
+    let app_config =
+        extract_app_config(messaging.app()).map_err(|err| internal_error(err.to_string()))?;
+    let fcm_client = FcmClient::new()?;
 
     let mut sw_manager = ServiceWorkerManager::new();
     let registration = sw_manager.register_default().await?;
@@ -294,20 +303,70 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
 
     let store_key = app_store_key(messaging);
     let now_ms = current_timestamp_ms();
+    let subscription_payload = FcmSubscription {
+        endpoint: &subscription_info.endpoint,
+        auth: &subscription_info.auth,
+        p256dh: &subscription_info.p256dh,
+        application_pub_key: if subscription_info.vapid_key == DEFAULT_VAPID_KEY {
+            None
+        } else {
+            Some(subscription_info.vapid_key.as_str())
+        },
+    };
+
     if let Some(record) = token_store::read_token(&store_key).await? {
         if let Some(existing) = &record.subscription {
-            let installation_fresh = !record.installation.auth_token_expired(now_ms);
-            if existing == &subscription_info
-                && !record.is_expired(now_ms, TOKEN_EXPIRATION_MS)
-                && installation_fresh
-            {
-                return Ok(record.token);
+            if existing == &subscription_info {
+                let installation_needs_refresh = record.installation.auth_token_expired(now_ms);
+                if !record.is_expired(now_ms, TOKEN_EXPIRATION_MS) && !installation_needs_refresh {
+                    return Ok(record.token);
+                }
+
+                let installation_info =
+                    fetch_installation_info(messaging, installation_needs_refresh).await?;
+                let update_request = FcmUpdateRequest {
+                    registration_token: &record.token,
+                    registration: FcmRegistrationRequest {
+                        project_id: &app_config.project_id,
+                        api_key: &app_config.api_key,
+                        installation_auth_token: &installation_info.auth_token,
+                        subscription: subscription_payload.clone(),
+                    },
+                };
+
+                let token = fcm_client.update_token(&update_request).await?;
+                let record = TokenRecord {
+                    token: token.clone(),
+                    create_time_ms: now_ms,
+                    subscription: Some(subscription_info),
+                    installation: installation_info,
+                };
+                token_store::write_token(&store_key, &record).await?;
+                return Ok(token);
             }
         }
+
+        let installation_info = fetch_installation_info(messaging, true).await?;
+        let _ = fcm_client
+            .delete_token(
+                &app_config.project_id,
+                &app_config.api_key,
+                &installation_info.auth_token,
+                &record.token,
+            )
+            .await;
+        let _ = token_store::remove_token(&store_key).await?;
     }
 
-    let token = generate_token();
     let installation_info = fetch_installation_info(messaging, true).await?;
+    let registration_request = FcmRegistrationRequest {
+        project_id: &app_config.project_id,
+        api_key: &app_config.api_key,
+        installation_auth_token: &installation_info.auth_token,
+        subscription: subscription_payload,
+    };
+
+    let token = fcm_client.register_token(&registration_request).await?;
     let record = TokenRecord {
         token: token.clone(),
         create_time_ms: now_ms,
@@ -320,12 +379,61 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
+    use crate::messaging::subscription::PushSubscriptionManager;
+    use crate::messaging::sw_manager::ServiceWorkerManager;
+
     let store_key = app_store_key(messaging);
-    if token_store::remove_token(&store_key).await? {
-        Ok(true)
-    } else {
-        Err(token_deletion_failed("No token stored for this app"))
+    let record = match token_store::read_token(&store_key).await? {
+        Some(record) => record,
+        None => return Err(token_deletion_failed("No token stored for this app")),
+    };
+
+    let app_config =
+        extract_app_config(messaging.app()).map_err(|err| internal_error(err.to_string()))?;
+    let installation_info = fetch_installation_info(messaging, true).await?;
+    let fcm_client = FcmClient::new()?;
+
+    fcm_client
+        .delete_token(
+            &app_config.project_id,
+            &app_config.api_key,
+            &installation_info.auth_token,
+            &record.token,
+        )
+        .await?;
+
+    let removed = token_store::remove_token(&store_key).await?;
+
+    let mut sw_manager = ServiceWorkerManager::new();
+    let registration = sw_manager.register_default().await?;
+    let sw_registration = registration.as_web_sys();
+    let push_manager = sw_registration
+        .push_manager()
+        .map_err(|err| internal_error(format_js_error("pushManager", err)))?;
+    let subscription_value = JsFuture::from(
+        push_manager
+            .get_subscription()
+            .map_err(|err| internal_error(format_js_error("getSubscription", err)))?,
+    )
+    .await
+    .map_err(|err| internal_error(format_js_error("getSubscription", err)))?;
+
+    if !subscription_value.is_null() && !subscription_value.is_undefined() {
+        let subscription: web_sys::PushSubscription = subscription_value
+            .dyn_into()
+            .map_err(|_| internal_error("PushManager.getSubscription returned unexpected value"))?;
+        let promise = subscription
+            .unsubscribe()
+            .map_err(|err| internal_error(format_js_error("PushSubscription.unsubscribe", err)))?;
+        let _ = JsFuture::from(promise)
+            .await
+            .map_err(|err| internal_error(format_js_error("PushSubscription.unsubscribe", err)))?;
     }
+
+    let mut push_manager = PushSubscriptionManager::new();
+    push_manager.clear_cache();
+
+    Ok(removed)
 }
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
@@ -393,6 +501,21 @@ fn dummy_installation_info() -> InstallationInfo {
         refresh_token: String::new(),
         auth_token: String::new(),
         auth_token_expiration_ms: u64::MAX,
+    }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+fn format_js_error(operation: &str, err: JsValue) -> String {
+    if let Some(message) = err.as_string() {
+        format!("{operation} failed: {message}")
+    } else if let Some(exception) = err.dyn_ref::<web_sys::DomException>() {
+        format!(
+            "{operation} failed: {}: {}",
+            exception.name(),
+            exception.message()
+        )
+    } else {
+        format!("{operation} failed: {:?}", err)
     }
 }
 

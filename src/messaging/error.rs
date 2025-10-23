@@ -12,6 +12,9 @@ pub enum MessagingErrorCode {
     InvalidServiceWorkerRegistration,
     TokenSubscribeFailed,
     TokenUnsubscribeFailed,
+    TokenSubscribeNoToken,
+    TokenUpdateFailed,
+    TokenUpdateNoToken,
 }
 
 impl MessagingErrorCode {
@@ -31,6 +34,9 @@ impl MessagingErrorCode {
             }
             MessagingErrorCode::TokenSubscribeFailed => "messaging/token-subscribe-failed",
             MessagingErrorCode::TokenUnsubscribeFailed => "messaging/token-unsubscribe-failed",
+            MessagingErrorCode::TokenSubscribeNoToken => "messaging/token-subscribe-no-token",
+            MessagingErrorCode::TokenUpdateFailed => "messaging/token-update-failed",
+            MessagingErrorCode::TokenUpdateNoToken => "messaging/token-update-no-token",
         }
     }
 }
@@ -105,4 +111,22 @@ pub fn token_subscribe_failed(message: impl Into<String>) -> MessagingError {
 
 pub fn token_unsubscribe_failed(message: impl Into<String>) -> MessagingError {
     MessagingError::new(MessagingErrorCode::TokenUnsubscribeFailed, message)
+}
+
+pub fn token_subscribe_no_token() -> MessagingError {
+    MessagingError::new(
+        MessagingErrorCode::TokenSubscribeNoToken,
+        "FCM returned no token when subscribing the user to push.",
+    )
+}
+
+pub fn token_update_failed(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(MessagingErrorCode::TokenUpdateFailed, message)
+}
+
+pub fn token_update_no_token() -> MessagingError {
+    MessagingError::new(
+        MessagingErrorCode::TokenUpdateNoToken,
+        "FCM returned no token when updating the user to push.",
+    )
 }

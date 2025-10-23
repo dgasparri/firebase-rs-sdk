@@ -63,13 +63,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Expand integration tests and shared fixtures to cover retry paths and error propagation.
 
 ## Next steps - Detailed completion plan
-1. **Unblock Messaging’s FCM REST flow**
-   - Expose a lightweight internal API that returns the installation entry (FID + refresh/auth tokens + expiry) so `src/messaging` can call the FCM registration endpoints.
-   - Update messaging to replace the placeholder installation info with real data and add tests/docs covering the create/update/delete flows.
-   - Add example snippets demonstrating how messaging can await the new async Installations APIs.
+1. **Document & test the shared messaging flow**
+   - Add an example (and wasm doc snippets) that shows messaging awaiting `InstallationsInternal::get_installation_entry` before contacting FCM.
+   - Port the key `token-manager` tests from the JS SDK to ensure retry/backoff behaviour matches expectations.
 2. **Strengthen persistence coordination**
-   - Mirror the JS pending-registration markers to avoid duplicate network calls when multiple awaiters race initialization.
-   - Add retry/backoff policies on IndexedDB opening failures and surface structured telemetry for cache operations.
+   - Extend the new pending-registration markers with structured telemetry/backoff so repeated failures remain observable.
+   - Add retry/backoff policies on IndexedDB opening failures and consider exposing metrics to consumers.
 3. **Follow-on parity work**
    - Revisit JS parity items (`onIdChange`, heartbeat headers, emulator tooling) once the messaging integration settles.
    - Expand structured logging and diagnostics so native and wasm targets surface actionable errors to consuming modules.

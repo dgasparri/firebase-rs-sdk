@@ -54,7 +54,7 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
   mirroring the IndexedDB-backed token manager with IndexedDB on wasm (plus BroadcastChannel sync) and in-memory
   fallback on native targets. Weekly refresh logic invalidates tokens after 7 days to trigger regeneration.
 - WASM builds now reuse the async Installations component to cache real FID/refresh/auth tokens alongside the
-  messaging token store, preparing the FCM REST integration.
+  messaging token store and perform real FCM registration/update/delete calls.
 - Minimal error types for invalid arguments, internal failures and token deletion.
 - Non-WASM unit test coverage for permission/token flows, invalid arguments, token deletion, service worker and push
   subscription stubs.
@@ -69,8 +69,7 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
 
 ## Next steps - Detailed completion plan
 
-1. Adopt the async Installations refresh path documented in `src/installations/README.md` (wasm `fetch` client + shared persistence) so messaging can obtain real FIS tokens on every target.
-2. Implement the Installations/FCM REST interactions for token create/update/delete, mirroring `internals/token-manager.ts`.
-3. Add multi-tab coordination (BroadcastChannel/localStorage) so IndexedDB state stays in sync across contexts.
-4. Port message delivery APIs (`onMessage`, `onBackgroundMessage`) and event dispatchers, including WASM gating for background handlers.
-5. Expand the error catalog to match `packages/messaging/src/util/errors.ts`, update documentation and backfill tests for the newly added behaviours.
+1. Harden the new FCM REST integration with richer retry/backoff logic and unit tests that model server-side failures (mirroring `requests.test.ts`).
+2. Add multi-tab coordination (BroadcastChannel/storage events) so service worker updates fan out to every context and avoid duplicate registrations.
+3. Port message delivery APIs (`onMessage`, `onBackgroundMessage`) and event dispatchers, including WASM gating for background handlers.
+4. Expand the error catalog to match `packages/messaging/src/util/errors.ts`, update documentation and backfill tests for the newly added behaviours.
