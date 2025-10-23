@@ -9,6 +9,8 @@ use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentType};
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::installations::{get_installations_internal, InstallationEntryData};
 use crate::messaging::constants::MESSAGING_COMPONENT_NAME;
 use crate::messaging::error::{
     internal_error, invalid_argument, token_deletion_failed, MessagingResult,
@@ -17,6 +19,8 @@ use crate::messaging::error::{
 use crate::messaging::token_store::{self, InstallationInfo, SubscriptionInfo, TokenRecord};
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use crate::messaging::token_store::{self, InstallationInfo, TokenRecord};
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::constants::DEFAULT_VAPID_KEY;
@@ -206,7 +210,7 @@ async fn get_token_impl(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
 
     #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
     {
-        get_token_native(messaging, vapid_key)
+        get_token_native(messaging, vapid_key).await
     }
 }
 
@@ -215,7 +219,10 @@ fn app_store_key(messaging: &Messaging) -> String {
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-fn get_token_native(messaging: &Messaging, vapid_key: Option<&str>) -> MessagingResult<String> {
+async fn get_token_native(
+    messaging: &Messaging,
+    vapid_key: Option<&str>,
+) -> MessagingResult<String> {
     if let Some(key) = vapid_key {
         if key.trim().is_empty() {
             return Err(invalid_argument("VAPID key must not be empty"));
@@ -289,18 +296,23 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
     let now_ms = current_timestamp_ms();
     if let Some(record) = token_store::read_token(&store_key).await? {
         if let Some(existing) = &record.subscription {
-            if existing == &subscription_info && !record.is_expired(now_ms, TOKEN_EXPIRATION_MS) {
+            let installation_fresh = !record.installation.auth_token_expired(now_ms);
+            if existing == &subscription_info
+                && !record.is_expired(now_ms, TOKEN_EXPIRATION_MS)
+                && installation_fresh
+            {
                 return Ok(record.token);
             }
         }
     }
 
     let token = generate_token();
+    let installation_info = fetch_installation_info(messaging, true).await?;
     let record = TokenRecord {
         token: token.clone(),
         create_time_ms: now_ms,
         subscription: Some(subscription_info),
-        installation: dummy_installation_info(),
+        installation: installation_info,
     };
     token_store::write_token(&store_key, &record).await?;
     Ok(token)
@@ -314,6 +326,46 @@ async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
     } else {
         Err(token_deletion_failed("No token stored for this app"))
     }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+async fn fetch_installation_info(
+    messaging: &Messaging,
+    force_refresh: bool,
+) -> MessagingResult<InstallationInfo> {
+    let internal = get_installations_internal(Some(messaging.inner.app.clone()))
+        .map_err(|err| internal_error(format!("Failed to initialise installations: {err}")))?;
+
+    let InstallationEntryData {
+        fid,
+        refresh_token,
+        mut auth_token,
+    } = internal
+        .get_installation_entry()
+        .await
+        .map_err(|err| internal_error(format!("Failed to load installation entry: {err}")))?;
+
+    if force_refresh || auth_token.is_expired() {
+        auth_token = internal.get_token(true).await.map_err(|err| {
+            internal_error(format!("Failed to refresh installation token: {err}"))
+        })?;
+    }
+
+    let expires_at_ms = system_time_to_millis(auth_token.expires_at)?;
+
+    Ok(InstallationInfo {
+        fid,
+        refresh_token,
+        auth_token: auth_token.token,
+        auth_token_expiration_ms: expires_at_ms,
+    })
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+fn system_time_to_millis(time: SystemTime) -> MessagingResult<u64> {
+    time.duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .map_err(|_| internal_error("Installation token expiration precedes UNIX epoch"))
 }
 
 fn current_timestamp_ms() -> u64 {
@@ -334,6 +386,7 @@ fn current_timestamp_ms() -> u64 {
 }
 const TOKEN_EXPIRATION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 fn dummy_installation_info() -> InstallationInfo {
     InstallationInfo {
         fid: "placeholder".to_string(),

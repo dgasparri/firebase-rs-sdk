@@ -16,3 +16,13 @@ impl InstallationToken {
         SystemTime::now() >= self.expires_at
     }
 }
+
+/// Public data describing a cached Firebase Installation entry.
+///
+/// This mirrors the Installation entry returned by the JS SDK (`InstallationEntry`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallationEntryData {
+    pub fid: String,
+    pub refresh_token: String,
+    pub auth_token: InstallationToken,
+}

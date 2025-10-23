@@ -15,6 +15,10 @@ pub struct SubscriptionInfo {
     pub p256dh: String,
 }
 
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    allow(dead_code)
+)]
 const AUTH_TOKEN_REFRESH_BUFFER_MS: u64 = 60_000;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -52,6 +56,10 @@ pub struct InstallationInfo {
 }
 
 impl InstallationInfo {
+    #[cfg_attr(
+        not(all(feature = "wasm-web", target_arch = "wasm32")),
+        allow(dead_code)
+    )]
     pub fn auth_token_expired(&self, now_ms: u64) -> bool {
         now_ms + AUTH_TOKEN_REFRESH_BUFFER_MS >= self.auth_token_expiration_ms
     }

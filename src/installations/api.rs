@@ -25,7 +25,7 @@ use crate::installations::persistence::{
     InstallationsPersistence, PersistedAuthToken, PersistedInstallation,
 };
 use crate::installations::rest::{RegisteredInstallation, RestClient};
-use crate::installations::types::InstallationToken;
+use crate::installations::types::{InstallationEntryData, InstallationToken};
 
 #[derive(Clone, Debug)]
 pub struct Installations {
@@ -93,6 +93,14 @@ impl InstallationEntry {
             auth_token: PersistedAuthToken::from_runtime(&self.auth_token)?,
         })
     }
+
+    fn into_public(self) -> InstallationEntryData {
+        InstallationEntryData {
+            fid: self.fid,
+            refresh_token: self.refresh_token,
+            auth_token: self.auth_token,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -107,6 +115,10 @@ impl InstallationsInternal {
 
     pub async fn get_token(&self, force_refresh: bool) -> InstallationsResult<InstallationToken> {
         self.installations.get_token(force_refresh).await
+    }
+
+    pub async fn get_installation_entry(&self) -> InstallationsResult<InstallationEntryData> {
+        self.installations.installation_entry().await
     }
 }
 
@@ -180,6 +192,11 @@ impl Installations {
         self.persist_current_state().await?;
 
         Ok(new_token)
+    }
+
+    pub async fn installation_entry(&self) -> InstallationsResult<InstallationEntryData> {
+        let entry = self.ensure_entry().await?;
+        Ok(entry.into_public())
     }
 
     async fn ensure_entry(&self) -> InstallationsResult<InstallationEntry> {

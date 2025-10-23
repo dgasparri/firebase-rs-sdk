@@ -53,6 +53,8 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
 - Token persistence layer that stores token metadata (including subscription details and creation time) per app,
   mirroring the IndexedDB-backed token manager with IndexedDB on wasm (plus BroadcastChannel sync) and in-memory
   fallback on native targets. Weekly refresh logic invalidates tokens after 7 days to trigger regeneration.
+- WASM builds now reuse the async Installations component to cache real FID/refresh/auth tokens alongside the
+  messaging token store, preparing the FCM REST integration.
 - Minimal error types for invalid arguments, internal failures and token deletion.
 - Non-WASM unit test coverage for permission/token flows, invalid arguments, token deletion, service worker and push
   subscription stubs.

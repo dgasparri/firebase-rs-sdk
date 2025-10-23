@@ -11,4 +11,4 @@ pub use api::{
     delete_installations, get_installations, get_installations_internal,
     register_installations_component, Installations, InstallationsInternal,
 };
-pub use types::InstallationToken;
+pub use types::{InstallationEntryData, InstallationToken};
