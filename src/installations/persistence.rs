@@ -50,6 +50,16 @@ pub trait InstallationsPersistence: Send + Sync {
     async fn write(&self, app_name: &str, entry: &PersistedInstallation)
         -> InstallationsResult<()>;
     async fn clear(&self, app_name: &str) -> InstallationsResult<()>;
+
+    async fn try_acquire_registration_lock(&self, app_name: &str) -> InstallationsResult<bool> {
+        let _ = app_name;
+        Ok(true)
+    }
+
+    async fn release_registration_lock(&self, app_name: &str) -> InstallationsResult<()> {
+        let _ = app_name;
+        Ok(())
+    }
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
@@ -183,6 +193,8 @@ mod wasm_persistence {
     const DATABASE_VERSION: u32 = 1;
     const STORE_NAME: &str = "firebase-installations-store";
     const BROADCAST_CHANNEL: &str = "firebase-installations-updates";
+    const PENDING_PREFIX: &str = "pending::";
+    const PENDING_TIMEOUT_MS: u64 = 60_000;
 
     #[derive(Clone, Debug, Default)]
     pub struct IndexedDbPersistence;
@@ -248,8 +260,41 @@ mod wasm_persistence {
                     .await
                     .map_err(map_indexed_db_error)?;
             }
+            let pending_key = pending_key(app_name);
+            let _ = indexed_db::delete_key(&db, STORE_NAME, &pending_key).await;
             cache_set(app_name, None);
             broadcast_update(app_name, BroadcastPayload::Remove);
+            Ok(())
+        }
+
+        async fn try_acquire_registration_lock(&self, app_name: &str) -> InstallationsResult<bool> {
+            ensure_broadcast_channel();
+            let db = open_db().await?;
+            let key = pending_key(app_name);
+            let now = current_timestamp_ms();
+            if let Some(raw) = indexed_db::get_string(&db, STORE_NAME, &key)
+                .await
+                .map_err(map_indexed_db_error)?
+            {
+                if let Ok(timestamp) = raw.parse::<u64>() {
+                    if now.saturating_sub(timestamp) < PENDING_TIMEOUT_MS {
+                        return Ok(false);
+                    }
+                }
+            }
+
+            indexed_db::put_string(&db, STORE_NAME, &key, &now.to_string())
+                .await
+                .map_err(map_indexed_db_error)?;
+            Ok(true)
+        }
+
+        async fn release_registration_lock(&self, app_name: &str) -> InstallationsResult<()> {
+            let db = open_db().await?;
+            let key = pending_key(app_name);
+            let _ = indexed_db::delete_key(&db, STORE_NAME, &key)
+                .await
+                .map_err(map_indexed_db_error)?;
             Ok(())
         }
     }
@@ -276,6 +321,10 @@ mod wasm_persistence {
         indexed_db::open_database_with_store(DATABASE_NAME, DATABASE_VERSION, STORE_NAME)
             .await
             .map_err(map_indexed_db_error)
+    }
+
+    fn pending_key(app_name: &str) -> String {
+        format!("{PENDING_PREFIX}{app_name}")
     }
 
     fn cache_get(app_name: &str) -> Option<Option<PersistedInstallation>> {
@@ -359,6 +408,10 @@ mod wasm_persistence {
         err: E,
     ) -> crate::installations::error::InstallationsError {
         internal_error(format!("IndexedDB error: {err}"))
+    }
+
+    fn current_timestamp_ms() -> u64 {
+        js_sys::Date::now() as u64
     }
 }
 

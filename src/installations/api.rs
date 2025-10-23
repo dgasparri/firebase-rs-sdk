@@ -69,6 +69,16 @@ enum EnsureAction {
     Register,
 }
 
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+async fn concurrency_yield() {
+    wasm_bindgen_futures::yield_now().await;
+}
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+async fn concurrency_yield() {
+    std::thread::yield_now();
+}
+
 impl InstallationEntry {
     fn from_registered(value: RegisteredInstallation) -> Self {
         Self {
@@ -217,6 +227,7 @@ impl Installations {
 
             match action {
                 None => {
+                    concurrency_yield().await;
                     continue;
                 }
                 Some(EnsureAction::Load) => {
@@ -263,21 +274,61 @@ impl Installations {
                         state.initializing = true;
                     }
 
+                    if !self
+                        .inner
+                        .persistence
+                        .try_acquire_registration_lock(self.inner.app.name())
+                        .await?
+                    {
+                        {
+                            let mut state = self.inner.state.lock().await;
+                            state.initializing = false;
+                        }
+                        concurrency_yield().await;
+                        continue;
+                    }
+
                     let register_result = self.register_remote_installation().await;
 
                     let entry = {
                         let mut state = self.inner.state.lock().await;
                         state.initializing = false;
                         if let Some(entry) = state.entry.clone() {
+                            let _ = self
+                                .inner
+                                .persistence
+                                .release_registration_lock(self.inner.app.name())
+                                .await;
                             return Ok(entry);
                         }
-                        let registered = register_result?;
+                        let registered = match register_result {
+                            Ok(value) => value,
+                            Err(err) => {
+                                let _ = self
+                                    .inner
+                                    .persistence
+                                    .release_registration_lock(self.inner.app.name())
+                                    .await;
+                                return Err(err);
+                            }
+                        };
                         state.entry = Some(registered.clone());
                         state.loaded = true;
                         registered
                     };
 
-                    self.persist_entry(&entry).await?;
+                    if let Err(err) = self.persist_entry(&entry).await {
+                        let _ = self
+                            .inner
+                            .persistence
+                            .release_registration_lock(self.inner.app.name())
+                            .await;
+                        return Err(err);
+                    }
+                    self.inner
+                        .persistence
+                        .release_registration_lock(self.inner.app.name())
+                        .await?;
                     return Ok(entry);
                 }
             }
@@ -335,6 +386,12 @@ impl Installations {
             state.loaded = true;
             state.initializing = false;
         }
+
+        let _ = self
+            .inner
+            .persistence
+            .release_registration_lock(self.inner.app.name())
+            .await;
 
         INSTALLATIONS_CACHE
             .lock()
