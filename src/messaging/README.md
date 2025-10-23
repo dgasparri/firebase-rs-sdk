@@ -60,7 +60,7 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
 ## Still to do
 
 - Track permission changes across sessions and expose notification status helpers similar to the JS SDK.
-- Call the Installations and FCM REST endpoints to create, refresh and delete tokens, including weekly refresh checks.
+- Call the Installations and FCM REST endpoints to create, refresh and delete tokens, including weekly refresh checks. Review the async/wasm client work in `src/installations` for reusable patterns before wiring the Messaging flows.
 - Coordinate multi-tab state and periodic refresh triggers using IndexedDB change listeners (BroadcastChannel / storage events).
 - Foreground/background message listeners, payload decoding and background handlers.
 - Environment-specific guards (SW vs window scope), emulator/testing helpers and extended error coverage.
