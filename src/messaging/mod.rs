@@ -7,7 +7,7 @@ mod fcm_rest;
 mod subscription;
 mod support;
 mod sw_manager;
-mod token_store;
+pub(crate) mod token_store;
 mod types;
 
 pub use api::{

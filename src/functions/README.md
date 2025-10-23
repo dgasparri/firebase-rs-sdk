@@ -1,73 +1,94 @@
 # Firebase Functions Port (Rust)
 
-This directory contains the initial Rust scaffolding for the Firebase Cloud Functions (client) SDK. The objective is to
-mirror `@firebase/functions` so apps can call HTTPS callable functions and other backends.
+## Introduction
 
+The `functions` module provides a Rust port of the Firebase Cloud Functions (client) SDK so
+applications can invoke HTTPS callable backends from native or WASM targets. The goal is to mirror
+the modular JavaScript API (`@firebase/functions`) while using idiomatic Rust primitives.
 
 ## Porting status
 
-- functions 5% `[#         ]`
+- functions 20% `[##        ]`
 
-==As of October 20th, 2025== 
+(Estimated after landing the HTTPS callable transport, error mapping, and request plumbing on
+October 20th, 2025.)
 
-Prompt: Compare the original JS/Typescript files in ./packages/functions and the ported files in Rust in ./src/functions, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
+## Quick Start Example
 
-I'm assessing how much the Rust stub covers compared to the full JS implementation. It looks like the Rust side offers
-  just minimal structure—component registration and basic stub calls returning the same data—while JS has rich features
-  like HTTP calls, streaming, context handling, and multiple dependencies. Based on missing elements like network
-  calls, emulator connection, auth tokens, serializers, error mapping, and tests (mostly in packages/functions/src/),
-  I estimate coverage around 5%. I'll provide a summary listing the Rust files with implemented features and JS files
-  showing missing functionality to clearly present the gaps.
+```rust
+use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::functions::{get_functions, register_functions_component};
+use serde_json::json;
 
-Estimated coverage is about 5 % of the JS Functions SDK.
+fn main() -> firebase_rs_sdk::functions::error::FunctionsResult<()> {
+    register_functions_component();
 
-  - Present in Rust: component registration and retrieval plus a stub callable wrapper (src/functions/api.rs:1), basic
-  error codes (src/functions/error.rs:1), constants (src/functions/constants.rs:1), and the README noting current scope
-  (src/functions/README.md:1). Callable functions just echo the payload via JSON roundtrip—no transport or provider
-  integration.
-  - Missing: the full service implementation that handles fetch transport, auth/app-check/messaging headers, emulator
-  wiring, timeouts, retries, and streaming (packages/functions/src/service.ts:1, packages/functions/src/context.ts:1);
-  serialization helpers for Firestore types (packages/functions/src/serializer.ts:1); rich error mapping and custom
-  details (packages/functions/src/error.ts:1); public API utilities like httpsCallableFromURL, connectFunctionsEmulator,
-  and options handling (packages/functions/src/api.ts:1); configuration/emulator detection (packages/functions/src/
-  config.ts:1); and the comprehensive test suite (packages/functions/src/callable.test.ts:1, etc.).
+    let app = initialize_app(
+        FirebaseOptions {
+            project_id: Some("demo-project".into()),
+            ..Default::default()
+        },
+        Some(FirebaseAppSettings::default()),
+    )?;
 
-  Given that only the API skeleton exists without any network behavior, serialization, or platform integrations, the
-  current Rust port covers roughly one-twentieth of the features provided by the JavaScript module.
+    let functions = get_functions(Some(app), None)?;
+    let callable = functions
+        .https_callable::<serde_json::Value, serde_json::Value>("helloWorld")?;
 
+    let response = callable.call(&json!({ "message": "hi" }))?;
+    println!("response: {response:?}");
+    Ok(())
+}
+```
 
+## Implemented
 
-## Current Functionality
+- Component registration so `Functions` instances can be resolved from a `FirebaseApp` container.
+- Native HTTPS callable transport built on `reqwest::blocking`, returning decoded JSON payloads.
+- Error code mapping aligned with the JS SDK (`packages/functions/src/error.ts`) including backend
+  `status` translation and message propagation.
+- Custom-domain targeting (including emulator-style origins) by interpreting the instance
+  identifier passed to `get_functions`.
+- Unit test (`https_callable_invokes_backend`) that validates request/response wiring against an
+  HTTP mock server (skips automatically when sockets are unavailable).
+- Context provider that pulls Auth and App Check credentials from the component system and injects
+  the appropriate `Authorization` / `X-Firebase-AppCheck` headers on outgoing callable requests.
 
-- **Component wiring** – `register_functions_component` exposes a public `functions` component allowing apps to resolve a
-  `Functions` instance (optionally per-region) via the shared component container.
-- **Functions service stub** – `https_callable` returns a `CallableFunction` that currently performs a local
-  serialize/deserialize roundtrip, acting as a placeholder for real HTTP calls.
-- **Region support** – Component factory honours instance identifiers for multi-region functions (defaults to
-  `us-central1`).
-- **Errors/constants** – Basic error types (`functions/internal`, `functions/invalid-argument`) and component name
-  constant.
-- **Tests** – Simple unit test that exercises `https_callable` to confirm data roundtrips.
+## Still to do
 
-This is sufficient for wiring and API shape, but it doesn’t actually invoke deployed Cloud Functions.
+- Messaging token lookup so callable requests can include the
+  `Firebase-Instance-ID-Token` header when FCM is configured (`packages/functions/src/context.ts`).
+- Serializer parity for Firestore Timestamp, GeoPoint, and other special values used by callable
+  payloads (`packages/functions/src/serializer.ts`).
+- Emulator helpers (`connectFunctionsEmulator`) and environment detection to configure the base
+  origin (`packages/functions/src/service.ts`).
+- Streaming callable support (`httpsCallable().stream`) that handles server-sent events.
+- Public helpers like `httpsCallableFromURL` and region selection utilities from
+  `packages/functions/src/api.ts`.
+- Comprehensive error detail decoding (custom `details` payload) and cancellation handling.
+- Broader test coverage mirroring `packages/functions/src/callable.test.ts`.
 
-## Work Remaining (vs `packages/functions`)
+## Next steps - Detailed completion plan
 
-1. **HTTPS callable transport**
-   - Implement network layer (REST/Callable) including auth headers, App Check integration, timeout/retry logic, and
-     data serialization using the functions serializer.
-2. **Emulator support**
-   - Honour emulator origin configuration and environment variables as in the JS SDK.
-3. **Context and auth tokens**
-   - Integrate with Auth/App Check to attach `Authorization` and `X-Firebase-AppCheck` headers automatically.
-4. **Error handling parity**
-   - Port error code mapping (HTTPS error codes to FunctionsError), custom error data, and cancellation behaviour.
-5. **Function serialization**
-   - Bring over the full serializer (handles Firestore Timestamps, GeoPoints, etc.) used for callable payloads.
-6. **Modular helpers**
-   - Implement helper functions for region selection, `httpsCallableFromURL`, and other convenience APIs.
-7. **Testing**
-   - Translate JS unit tests and add integration tests against the emulator for callable success/failure paths.
-
-Completing these items will transition the Rust Functions module from a stub to a parity implementation capable of
-calling deployed Cloud Functions.
+1. **Cross-platform callable transport**
+   - Define a `CallableTransport` trait in `src/functions/transport.rs` with both native and wasm
+     implementations.
+   - Keep the current blocking reqwest path under `cfg(not(target_arch = "wasm32"))` and add a stub
+     wasm transport that will later be backed by `web_sys::fetch`.
+   - Adjust `CallableFunction::call` to delegate through the trait so transports can be swapped
+     without touching higher layers.
+2. **Async context plumbing**
+   - Make the functions context provider async to mirror the JS `ContextProvider`, then surface
+     asynchronous callable APIs (`call_async`) while keeping blocking helpers for native targets.
+   - Ensure auth/app-check/messaging token fetchers expose async entry points on wasm and native
+     (wrapping in `block_on` where needed for compatibility).
+3. **Messaging token integration**
+   - Expose a cached FCM token accessor from the messaging module so the callable context can attach
+     the `Firebase-Instance-ID-Token` header when available.
+4. **Serializer parity & URL utilities**
+   - Port the callable serializer helpers (Firestore timestamps, GeoPoints) and add helpers such as
+     `https_callable_from_url` and `connect_functions_emulator` for full API coverage.
+5. **Testing & documentation**
+   - Add wasm-specific integration tests using `wasm-bindgen-test`, update examples, and expand the
+     README with wasm configuration notes once the transports and async APIs land.
