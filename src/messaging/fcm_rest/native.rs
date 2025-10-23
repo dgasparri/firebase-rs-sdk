@@ -2,9 +2,10 @@ use reqwest::header::{HeaderMap as ReqHeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Response, Url};
 
 use super::{
-    build_body, build_headers, map_subscribe_response, map_update_response, FcmRegistrationRequest,
-    FcmResponse, FcmUpdateRequest, FCM_API_URL,
+    backoff_delay_ms, build_body, build_headers, is_retriable_status, map_subscribe_response,
+    map_update_response, FcmRegistrationRequest, FcmResponse, FcmUpdateRequest, FCM_API_URL,
 };
+use crate::messaging::constants::FCM_MAX_RETRIES;
 use crate::messaging::error::{
     internal_error, token_subscribe_failed, token_unsubscribe_failed, token_update_failed,
     MessagingResult,
@@ -17,6 +18,7 @@ pub struct FcmClient {
 }
 
 impl FcmClient {
+    #[allow(dead_code)]
     pub fn new() -> MessagingResult<Self> {
         let base = std::env::var("FIREBASE_MESSAGING_FCM_ENDPOINT")
             .unwrap_or_else(|_| FCM_API_URL.to_string());
@@ -46,17 +48,44 @@ impl FcmClient {
             request.installation_auth_token,
         )?)?;
         let body = build_body(&request.subscription);
+        let mut attempt = 0u32;
 
-        let response = self
-            .http
-            .post(url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|err| token_subscribe_failed(err.to_string()))?;
+        loop {
+            match self
+                .http
+                .post(url.clone())
+                .headers(headers.clone())
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    let parsed = self.parse_response(response).await?;
 
-        map_subscribe_response(self.parse_response(response).await?)
+                    if status.is_success() {
+                        return map_subscribe_response(parsed);
+                    }
+
+                    if is_retriable_status(status.as_u16()) && attempt < FCM_MAX_RETRIES {
+                        let delay = backoff_delay_ms(attempt);
+                        attempt += 1;
+                        super::sleep_ms(delay).await;
+                        continue;
+                    }
+
+                    return map_subscribe_response(parsed);
+                }
+                Err(err) => {
+                    if attempt >= FCM_MAX_RETRIES {
+                        return Err(token_subscribe_failed(err.to_string()));
+                    }
+                    let delay = backoff_delay_ms(attempt);
+                    attempt += 1;
+                    super::sleep_ms(delay).await;
+                }
+            }
+        }
     }
 
     pub async fn update_token(&self, request: &FcmUpdateRequest<'_>) -> MessagingResult<String> {
@@ -69,17 +98,44 @@ impl FcmClient {
             request.registration.installation_auth_token,
         )?)?;
         let body = build_body(&request.registration.subscription);
+        let mut attempt = 0u32;
 
-        let response = self
-            .http
-            .patch(url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|err| token_update_failed(err.to_string()))?;
+        loop {
+            match self
+                .http
+                .patch(url.clone())
+                .headers(headers.clone())
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    let parsed = self.parse_response(response).await?;
 
-        map_update_response(self.parse_response(response).await?)
+                    if status.is_success() {
+                        return map_update_response(parsed);
+                    }
+
+                    if is_retriable_status(status.as_u16()) && attempt < FCM_MAX_RETRIES {
+                        let delay = backoff_delay_ms(attempt);
+                        attempt += 1;
+                        super::sleep_ms(delay).await;
+                        continue;
+                    }
+
+                    return map_update_response(parsed);
+                }
+                Err(err) => {
+                    if attempt >= FCM_MAX_RETRIES {
+                        return Err(token_update_failed(err.to_string()));
+                    }
+                    let delay = backoff_delay_ms(attempt);
+                    attempt += 1;
+                    super::sleep_ms(delay).await;
+                }
+            }
+        }
     }
 
     pub async fn delete_token(
@@ -91,20 +147,53 @@ impl FcmClient {
     ) -> MessagingResult<()> {
         let url = self.registration_instance_endpoint(project_id, registration_token)?;
         let headers = header_map(build_headers(api_key, installation_auth)?)?;
+        let mut attempt = 0u32;
 
-        let response = self
-            .http
-            .delete(url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|err| token_unsubscribe_failed(err.to_string()))?;
+        loop {
+            match self
+                .http
+                .delete(url.clone())
+                .headers(headers.clone())
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    let parsed = self.parse_response(response).await?;
 
-        let parsed = self.parse_response(response).await?;
-        if let Some(error) = parsed.error {
-            return Err(token_unsubscribe_failed(error.message));
+                    if status.is_success() {
+                        if let Some(error) = parsed.error {
+                            return Err(token_unsubscribe_failed(error.message));
+                        }
+                        return Ok(());
+                    }
+
+                    if is_retriable_status(status.as_u16()) && attempt < FCM_MAX_RETRIES {
+                        let delay = backoff_delay_ms(attempt);
+                        attempt += 1;
+                        super::sleep_ms(delay).await;
+                        continue;
+                    }
+
+                    return Err(parsed
+                        .error
+                        .map(|err| token_unsubscribe_failed(err.message))
+                        .unwrap_or_else(|| {
+                            token_unsubscribe_failed(format!(
+                                "FCM delete failed with status {status}"
+                            ))
+                        }));
+                }
+                Err(err) => {
+                    if attempt >= FCM_MAX_RETRIES {
+                        return Err(token_unsubscribe_failed(err.to_string()));
+                    }
+                    let delay = backoff_delay_ms(attempt);
+                    attempt += 1;
+                    super::sleep_ms(delay).await;
+                }
+            }
         }
-        Ok(())
     }
 
     fn registration_endpoint(&self, project_id: &str) -> MessagingResult<Url> {

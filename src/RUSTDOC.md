@@ -11,12 +11,12 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 |--------|----------------------|-|
 | [app]           | 60% | `[############        ]` |
 | [storage]       | 60% | `[############        ]` |
-| [installations] | 35% | `[#######             ]` |
+| [installations] | 45% | `[#########           ]` |
+| [messaging]     | 40% | `[########            ]` |
 | [ai]            | 30% | `[######              ]` |
 | [database]      | 30% | `[######              ]` |
 | [auth]          | 25% | `[#####               ]` |
 | [firestore]     | 25% | `[#####               ]` |
-| [messaging]     | 25% | `[#####               ]` |
 | [remote_config] | 25% | `[#####               ]` |
 | [analytics]     | 20% | `[####                ]` |
 | [app_check]     | 20% | `[####                ]` |

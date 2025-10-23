@@ -1,3 +1,8 @@
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
 use std::sync::{Arc, LazyLock};
 
 use rand::distributions::Alphanumeric;
@@ -15,7 +20,8 @@ use crate::installations::config::extract_app_config;
 use crate::installations::{get_installations_internal, InstallationEntryData};
 use crate::messaging::constants::MESSAGING_COMPONENT_NAME;
 use crate::messaging::error::{
-    internal_error, invalid_argument, token_deletion_failed, MessagingResult,
+    available_in_service_worker, available_in_window, internal_error, invalid_argument,
+    token_deletion_failed, MessagingResult,
 };
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::fcm_rest::{
@@ -26,12 +32,15 @@ use crate::messaging::token_store::{self, InstallationInfo, SubscriptionInfo, To
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use crate::messaging::token_store::{self, InstallationInfo, TokenRecord};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::messaging::types::MessagePayload;
+use crate::messaging::types::{MessageHandler, Unsubscribe};
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::constants::DEFAULT_VAPID_KEY;
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-use crate::messaging::error::{available_in_window, permission_blocked, unsupported_browser};
+use crate::messaging::error::{permission_blocked, unsupported_browser};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use wasm_bindgen::{JsCast, JsValue};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
@@ -45,7 +54,23 @@ pub struct Messaging {
 #[derive(Debug)]
 struct MessagingInner {
     app: FirebaseApp,
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    on_message_handler: Mutex<Option<HandlerEntry>>,
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    on_background_message_handler: Mutex<Option<HandlerEntry>>,
 }
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+struct HandlerEntry {
+    id: usize,
+    handler: MessageHandler,
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+static NEXT_ON_MESSAGE_ID: AtomicUsize = AtomicUsize::new(1);
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+static NEXT_ON_BACKGROUND_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Notification permission states as exposed by the Web Notifications API.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,8 +85,15 @@ pub enum PermissionState {
 
 impl Messaging {
     fn new(app: FirebaseApp) -> Self {
+        let inner = MessagingInner {
+            app,
+            #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+            on_message_handler: Mutex::new(None),
+            #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+            on_background_message_handler: Mutex::new(None),
+        };
         Self {
-            inner: Arc::new(MessagingInner { app }),
+            inner: Arc::new(inner),
         }
     }
 
@@ -83,6 +115,38 @@ impl Messaging {
 
     pub async fn delete_token(&self) -> MessagingResult<bool> {
         delete_token_impl(self).await
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    pub(crate) fn dispatch_on_message(&self, payload: MessagePayload) {
+        let handler = {
+            self.inner
+                .on_message_handler
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|entry| entry.handler.clone())
+        };
+        if let Some(handler) = handler {
+            handler(payload);
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    pub(crate) fn dispatch_on_background_message(&self, payload: MessagePayload) {
+        let handler = {
+            self.inner
+                .on_background_message_handler
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|entry| entry.handler.clone())
+        };
+        if let Some(handler) = handler {
+            handler(payload);
+        }
     }
 }
 
@@ -222,6 +286,83 @@ async fn get_token_impl(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
 
 fn app_store_key(messaging: &Messaging) -> String {
     messaging.inner.app.name().to_string()
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+pub fn on_message(messaging: &Messaging, handler: MessageHandler) -> MessagingResult<Unsubscribe> {
+    if web_sys::window().is_none() {
+        return Err(available_in_window(
+            "on_message must be called in a Window context",
+        ));
+    }
+
+    let id = NEXT_ON_MESSAGE_ID.fetch_add(1, Ordering::SeqCst);
+    let messaging_clone = messaging.clone();
+    {
+        let mut guard = messaging_clone.inner.on_message_handler.lock().unwrap();
+        *guard = Some(HandlerEntry { id, handler });
+    }
+
+    Ok(Box::new(move || {
+        let mut guard = messaging_clone.inner.on_message_handler.lock().unwrap();
+        if guard.as_ref().map(|entry| entry.id) == Some(id) {
+            *guard = None;
+        }
+    }))
+}
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+pub fn on_message(
+    _messaging: &Messaging,
+    _handler: MessageHandler,
+) -> MessagingResult<Unsubscribe> {
+    Err(available_in_window(
+        "on_message must be called in a Window context (wasm target only)",
+    ))
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+pub fn on_background_message(
+    messaging: &Messaging,
+    handler: MessageHandler,
+) -> MessagingResult<Unsubscribe> {
+    if web_sys::window().is_some() {
+        return Err(available_in_service_worker(
+            "on_background_message must be called in a Service Worker context",
+        ));
+    }
+
+    let id = NEXT_ON_BACKGROUND_ID.fetch_add(1, Ordering::SeqCst);
+    let messaging_clone = messaging.clone();
+    {
+        let mut guard = messaging_clone
+            .inner
+            .on_background_message_handler
+            .lock()
+            .unwrap();
+        *guard = Some(HandlerEntry { id, handler });
+    }
+
+    Ok(Box::new(move || {
+        let mut guard = messaging_clone
+            .inner
+            .on_background_message_handler
+            .lock()
+            .unwrap();
+        if guard.as_ref().map(|entry| entry.id) == Some(id) {
+            *guard = None;
+        }
+    }))
+}
+
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+pub fn on_background_message(
+    _messaging: &Messaging,
+    _handler: MessageHandler,
+) -> MessagingResult<Unsubscribe> {
+    Err(available_in_service_worker(
+        "on_background_message must be called in a Service Worker context (wasm target only)",
+    ))
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
@@ -598,6 +739,48 @@ mod tests {
         assert_eq!(token1, token2);
 
         block_on_ready(messaging_again.delete_token()).unwrap();
+    }
+
+    #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+    #[test]
+    fn on_message_returns_window_error_on_non_wasm() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let messaging = get_messaging(Some(app)).unwrap();
+
+        let handler: MessageHandler = Arc::new(|_| {});
+        let err = match super::on_message(&messaging, handler) {
+            Ok(unsub) => {
+                unsub();
+                panic!("expected on_message to fail on non-wasm targets");
+            }
+            Err(err) => err,
+        };
+        assert_eq!(err.code_str(), "messaging/available-in-window");
+    }
+
+    #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+    #[test]
+    fn on_background_message_returns_sw_error_on_non_wasm() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let messaging = get_messaging(Some(app)).unwrap();
+
+        let handler: MessageHandler = Arc::new(|_| {});
+        let err = match super::on_background_message(&messaging, handler) {
+            Ok(unsub) => {
+                unsub();
+                panic!("expected on_background_message to fail on non-wasm targets");
+            }
+            Err(err) => err,
+        };
+        assert_eq!(err.code_str(), "messaging/available-in-sw");
     }
 
     fn block_on_ready<F: Future>(future: F) -> F::Output {

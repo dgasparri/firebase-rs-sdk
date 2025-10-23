@@ -4,9 +4,10 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response};
 
 use super::{
-    build_body, build_headers, map_subscribe_response, map_update_response, FcmRegistrationRequest,
-    FcmResponse, FcmUpdateRequest, FCM_API_URL,
+    backoff_delay_ms, build_body, build_headers, is_retriable_status, map_subscribe_response,
+    map_update_response, FcmRegistrationRequest, FcmResponse, FcmUpdateRequest, FCM_API_URL,
 };
+use crate::messaging::constants::FCM_MAX_RETRIES;
 use crate::messaging::error::{
     internal_error, token_subscribe_failed, token_unsubscribe_failed, token_update_failed,
     MessagingResult,
@@ -33,12 +34,40 @@ impl FcmClient {
         let body = serde_json::to_string(&build_body(&request.subscription))
             .map_err(|err| internal_error(format!("Failed to encode FCM request: {err}")))?;
 
-        let response = self
-            .send_request(url, "POST", headers, Some(body))
-            .await
-            .map_err(token_subscribe_failed)?;
+        let mut attempt = 0u32;
 
-        map_subscribe_response(self.parse_response(response).await?)
+        loop {
+            match self
+                .send_request(url.clone(), "POST", headers.clone(), Some(body.clone()))
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    let parsed = self.parse_response(response).await?;
+
+                    if status.is_success() {
+                        return map_subscribe_response(parsed);
+                    }
+
+                    if is_retriable_status(status as u16) && attempt < FCM_MAX_RETRIES {
+                        let delay = backoff_delay_ms(attempt);
+                        attempt += 1;
+                        super::sleep_ms(delay).await;
+                        continue;
+                    }
+
+                    return map_subscribe_response(parsed);
+                }
+                Err(err) => {
+                    if attempt >= FCM_MAX_RETRIES {
+                        return Err(token_subscribe_failed(err));
+                    }
+                    let delay = backoff_delay_ms(attempt);
+                    attempt += 1;
+                    super::sleep_ms(delay).await;
+                }
+            }
+        }
     }
 
     pub async fn update_token(&self, request: &FcmUpdateRequest<'_>) -> MessagingResult<String> {
@@ -53,12 +82,40 @@ impl FcmClient {
         let body = serde_json::to_string(&build_body(&request.registration.subscription))
             .map_err(|err| internal_error(format!("Failed to encode FCM request: {err}")))?;
 
-        let response = self
-            .send_request(url, "PATCH", headers, Some(body))
-            .await
-            .map_err(token_update_failed)?;
+        let mut attempt = 0u32;
 
-        map_update_response(self.parse_response(response).await?)
+        loop {
+            match self
+                .send_request(url.clone(), "PATCH", headers.clone(), Some(body.clone()))
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    let parsed = self.parse_response(response).await?;
+
+                    if status.is_success() {
+                        return map_update_response(parsed);
+                    }
+
+                    if is_retriable_status(status as u16) && attempt < FCM_MAX_RETRIES {
+                        let delay = backoff_delay_ms(attempt);
+                        attempt += 1;
+                        super::sleep_ms(delay).await;
+                        continue;
+                    }
+
+                    return map_update_response(parsed);
+                }
+                Err(err) => {
+                    if attempt >= FCM_MAX_RETRIES {
+                        return Err(token_update_failed(err));
+                    }
+                    let delay = backoff_delay_ms(attempt);
+                    attempt += 1;
+                    super::sleep_ms(delay).await;
+                }
+            }
+        }
     }
 
     pub async fn delete_token(
@@ -70,17 +127,50 @@ impl FcmClient {
     ) -> MessagingResult<()> {
         let url = self.registration_instance_endpoint(project_id, registration_token);
         let headers = build_headers(api_key, installation_auth)?;
+        let mut attempt = 0u32;
 
-        let response = self
-            .send_request(url, "DELETE", headers, None)
-            .await
-            .map_err(token_unsubscribe_failed)?;
+        loop {
+            match self
+                .send_request(url.clone(), "DELETE", headers.clone(), None)
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    let parsed = self.parse_response(response).await?;
 
-        let parsed = self.parse_response(response).await?;
-        if let Some(error) = parsed.error {
-            return Err(token_unsubscribe_failed(error.message));
+                    if status.is_success() {
+                        if let Some(error) = parsed.error {
+                            return Err(token_unsubscribe_failed(error.message));
+                        }
+                        return Ok(());
+                    }
+
+                    if is_retriable_status(status as u16) && attempt < FCM_MAX_RETRIES {
+                        let delay = backoff_delay_ms(attempt);
+                        attempt += 1;
+                        super::sleep_ms(delay).await;
+                        continue;
+                    }
+
+                    return Err(parsed
+                        .error
+                        .map(|err| token_unsubscribe_failed(err.message))
+                        .unwrap_or_else(|| {
+                            token_unsubscribe_failed(format!(
+                                "FCM delete failed with status {status}"
+                            ))
+                        }));
+                }
+                Err(err) => {
+                    if attempt >= FCM_MAX_RETRIES {
+                        return Err(token_unsubscribe_failed(err));
+                    }
+                    let delay = backoff_delay_ms(attempt);
+                    attempt += 1;
+                    super::sleep_ms(delay).await;
+                }
+            }
         }
-        Ok(())
     }
 
     fn registration_endpoint(&self, project_id: &str) -> String {

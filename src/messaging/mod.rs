@@ -8,8 +8,12 @@ mod subscription;
 mod support;
 mod sw_manager;
 mod token_store;
+mod types;
 
-pub use api::{get_messaging, register_messaging_component, Messaging, PermissionState};
+pub use api::{
+    get_messaging, on_background_message, on_message, register_messaging_component, Messaging,
+    PermissionState,
+};
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 pub use subscription::PushSubscriptionManager;
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
@@ -21,3 +25,4 @@ pub use sw_manager::ServiceWorkerRegistrationHandle;
 pub use sw_manager::{ServiceWorkerManager, ServiceWorkerRegistrationHandle};
 
 pub use sw_manager::ServiceWorkerManager;
+pub use types::{FcmOptions, MessageHandler, MessagePayload, NotificationPayload, Unsubscribe};

@@ -7,6 +7,7 @@ pub enum MessagingErrorCode {
     Internal,
     PermissionBlocked,
     AvailableInWindow,
+    AvailableInServiceWorker,
     UnsupportedBrowser,
     FailedDefaultRegistration,
     InvalidServiceWorkerRegistration,
@@ -25,6 +26,7 @@ impl MessagingErrorCode {
             MessagingErrorCode::Internal => "messaging/internal",
             MessagingErrorCode::PermissionBlocked => "messaging/permission-blocked",
             MessagingErrorCode::AvailableInWindow => "messaging/available-in-window",
+            MessagingErrorCode::AvailableInServiceWorker => "messaging/available-in-sw",
             MessagingErrorCode::UnsupportedBrowser => "messaging/unsupported-browser",
             MessagingErrorCode::FailedDefaultRegistration => {
                 "messaging/failed-service-worker-registration"
@@ -88,6 +90,10 @@ pub fn permission_blocked(message: impl Into<String>) -> MessagingError {
 
 pub fn available_in_window(message: impl Into<String>) -> MessagingError {
     MessagingError::new(MessagingErrorCode::AvailableInWindow, message)
+}
+
+pub fn available_in_service_worker(message: impl Into<String>) -> MessagingError {
+    MessagingError::new(MessagingErrorCode::AvailableInServiceWorker, message)
 }
 
 pub fn unsupported_browser(message: impl Into<String>) -> MessagingError {

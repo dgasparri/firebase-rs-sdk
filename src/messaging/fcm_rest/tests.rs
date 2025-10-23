@@ -8,8 +8,7 @@ mod native_tests {
     use serde_json::json;
 
     fn client_with_server(server: &MockServer) -> FcmClient {
-        std::env::set_var("FIREBASE_MESSAGING_FCM_ENDPOINT", server.base_url());
-        FcmClient::new().expect("client")
+        FcmClient::with_base_url(&server.base_url()).expect("client")
     }
 
     fn subscription<'a>() -> FcmSubscription<'a> {
@@ -25,7 +24,6 @@ mod native_tests {
     async fn register_token_success() {
         let server = MockServer::start();
         let client = client_with_server(&server);
-        std::env::remove_var("FIREBASE_MESSAGING_FCM_ENDPOINT");
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -47,14 +45,12 @@ mod native_tests {
         let token = client.register_token(&request).await.unwrap();
         assert_eq!(token, "fcm-token");
         mock.assert();
-        std::env::remove_var("FIREBASE_MESSAGING_FCM_ENDPOINT");
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn register_token_no_token_errors() {
         let server = MockServer::start();
         let client = client_with_server(&server);
-        std::env::remove_var("FIREBASE_MESSAGING_FCM_ENDPOINT");
 
         server.mock(|when, then| {
             when.method(POST).path("/projects/project-id/registrations");
@@ -72,14 +68,12 @@ mod native_tests {
 
         let err = client.register_token(&request).await.unwrap_err();
         assert_eq!(err.code_str(), token_subscribe_no_token().code_str());
-        std::env::remove_var("FIREBASE_MESSAGING_FCM_ENDPOINT");
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn update_token_success() {
         let server = MockServer::start();
         let client = client_with_server(&server);
-        std::env::remove_var("FIREBASE_MESSAGING_FCM_ENDPOINT");
 
         let mock = server.mock(|when, then| {
             when.method("PATCH")
@@ -104,14 +98,12 @@ mod native_tests {
         let token = client.update_token(&request).await.unwrap();
         assert_eq!(token, "updated-token");
         mock.assert();
-        std::env::remove_var("FIREBASE_MESSAGING_FCM_ENDPOINT");
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn delete_token_success() {
         let server = MockServer::start();
         let client = client_with_server(&server);
-        std::env::remove_var("FIREBASE_MESSAGING_FCM_ENDPOINT");
 
         let mock = server.mock(|when, then| {
             when.method(DELETE)
@@ -128,6 +120,5 @@ mod native_tests {
             .await
             .unwrap();
         mock.assert();
-        std::env::remove_var("FIREBASE_MESSAGING_FCM_ENDPOINT");
     }
 }

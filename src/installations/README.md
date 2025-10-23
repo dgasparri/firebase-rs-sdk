@@ -3,7 +3,7 @@
 The Installations module issues Firebase Installation IDs (FIDs) and scoped auth tokens used by other Firebase services. This Rust port mirrors the public JS API while speaking directly to the official Firebase Installations REST endpoints.
 
 ## Porting status
-- installations 35% `[####      ]`
+- installations 45% `[#####     ]`
 
 ==As of October 20th, 2025==
 

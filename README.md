@@ -11,12 +11,12 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 |--------|----------------------|-|
 | [app](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app)                     | 60% | `[############        ]` |
 | [storage](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage)             | 60% | `[############        ]` |
-| [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) | 35% | `[#######             ]` |
+| [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) | 45% | `[#########           ]` |
+| [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         | 40% | `[########            ]` |
 | [ai](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/ai)                       | 30% | `[######              ]` |
 | [database](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/database)           | 30% | `[######              ]` |
 | [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)                   | 25% | `[#####               ]` |
 | [firestore](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore)         | 25% | `[#####               ]` |
-| [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         | 25% | `[#####               ]` |
 | [remote-config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config) | 25% | `[#####               ]` |
 | [analytics](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/analytics)         | 20% | `[####                ]` |
 | [app_check](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check)         | 20% | `[####                ]` |

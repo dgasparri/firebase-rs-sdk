@@ -6,7 +6,7 @@ Rust implementation of the Firebase Cloud Messaging (FCM) web SDK surface. The g
 
 ## Porting status
 
-- messaging 25% `[###       ]`
+- messaging 40% `[####      ]`
 
 ## Quick Start Example
 
@@ -55,6 +55,7 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
   fallback on native targets. Weekly refresh logic invalidates tokens after 7 days to trigger regeneration.
 - WASM builds now reuse the async Installations component to cache real FID/refresh/auth tokens alongside the
   messaging token store and perform real FCM registration/update/delete calls.
+- FCM REST requests share an exponential backoff (429/5xx aware) retry strategy to mirror the JS SDK behaviour.
 - Minimal error types for invalid arguments, internal failures and token deletion.
 - Non-WASM unit test coverage for permission/token flows, invalid arguments, token deletion, service worker and push
   subscription stubs.

@@ -11,3 +11,8 @@ pub const REGISTRATION_POLL_INTERVAL_MS: i32 = 100;
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 pub const DEFAULT_VAPID_KEY: &str =
     "BDOU99-h67HcA6JeFXHbSNMu7e2yNNu3RzoMj8TM4W88jITfq7ZmPvIM1Iv-4_l2LxQcYwhqby2xGpWwzjfAnG4";
+
+#[allow(dead_code)]
+pub const FCM_RETRY_BASE_DELAY_MS: u64 = 5_000;
+#[allow(dead_code)]
+pub const FCM_MAX_RETRIES: u32 = 3;
