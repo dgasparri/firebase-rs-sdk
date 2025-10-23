@@ -167,19 +167,22 @@ Comparing to the TypeScript implementation reveals functionality that still need
 
 ## Next Steps
 
-1. **Persistence layer**
+1. **Async token fetchers**
+   - Wire the newly introduced async token helpers (`get_token_async`, `get_limited_use_token_async`) to real network
+     flows on both native and wasm targets, then update dependent services and documentation to consume them.
+2. **Persistence layer**
    - Implement token storage abstraction and port the IndexedDB/localStorage fallbacks.
-2. **Refresh scheduler**
+3. **Refresh scheduler**
    - Add proactive refresh logic with timer management, page visibility handling, and error retries.
-3. **Recaptcha clients**
+4. **Recaptcha clients**
    - Complete reCAPTCHA provider implementations, including script injection, token exchange, and enterprise support.
-4. **Debug token flow**
+5. **Debug token flow**
    - Mirror the JS debug token registration, persistence, and developer-mode warnings.
-5. **Internal API parity**
+6. **Internal API parity**
    - Port limited-use token APIs, heartbeat wiring, and provider factory helpers from `internal-api.ts`/`factory.ts`.
-6. **Testing parity**
+7. **Testing parity**
    - Translate JS unit tests to Rust to cover refresh cycles, storage, and error paths.
-7. **Documentation/examples**
+8. **Documentation/examples**
    - Expand docs once the missing features land to show typical activation/refresh flows.
 
 Addressing these items will bring the Rust App Check module up to feature parity with the JavaScript SDK and ready other
