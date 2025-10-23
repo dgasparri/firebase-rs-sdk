@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use reqwest::blocking::Client;
+use reqwest::Client;
 use reqwest::StatusCode;
 use serde::Serialize;
 
 use crate::analytics::error::{internal_error, invalid_argument, network_error, AnalyticsResult};
+use crate::util::runtime::block_on;
 
 /// Configuration used to dispatch analytics events through the GA4 Measurement Protocol.
 #[derive(Clone, Debug)]
@@ -109,44 +110,57 @@ impl MeasurementProtocolDispatcher {
         event_name: &str,
         params: &BTreeMap<String, String>,
     ) -> AnalyticsResult<()> {
-        let payload = MeasurementPayload {
-            client_id,
-            events: vec![MeasurementEvent {
-                name: event_name,
-                params,
+        let payload = MeasurementPayloadOwned {
+            client_id: client_id.to_owned(),
+            events: vec![MeasurementEventOwned {
+                name: event_name.to_owned(),
+                params: params.clone(),
             }],
         };
 
-        let response = self
-            .client
-            .post(self.config.endpoint.as_str())
-            .query(&[
-                ("measurement_id", self.config.measurement_id()),
-                ("api_secret", self.config.api_secret()),
-            ])
-            .json(&payload)
-            .send()
-            .map_err(|err| network_error(format!("failed to send analytics event: {err}")))?;
+        let body = serde_json::to_vec(&payload).map_err(|err| {
+            internal_error(format!("failed to serialise analytics payload: {err}"))
+        })?;
 
-        if response.status().is_success() {
-            return Ok(());
-        }
+        let endpoint = self.config.endpoint.as_str().to_owned();
+        let measurement_id = self.config.measurement_id().to_owned();
+        let api_secret = self.config.api_secret().to_owned();
+        let client = self.client.clone();
 
-        let status = response.status();
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "<unavailable response body>".to_string());
+        block_on(async move {
+            let response = client
+                .post(&endpoint)
+                .query(&[
+                    ("measurement_id", measurement_id.as_str()),
+                    ("api_secret", api_secret.as_str()),
+                ])
+                .header("content-type", "application/json")
+                .body(body)
+                .send()
+                .await
+                .map_err(|err| network_error(format!("failed to send analytics event: {err}")))?;
 
-        let message = match status {
-            StatusCode::BAD_REQUEST => {
-                format!("measurement protocol rejected the event (400). Response: {body}")
+            if response.status().is_success() {
+                return Ok(());
             }
-            _ => format!(
-                "measurement protocol request failed with status {status}. Response: {body}"
-            ),
-        };
 
-        Err(network_error(message))
+            let status = response.status();
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "<unavailable response body>".to_string());
+
+            let message = match status {
+                StatusCode::BAD_REQUEST => {
+                    format!("measurement protocol rejected the event (400). Response: {body}")
+                }
+                _ => format!(
+                    "measurement protocol request failed with status {status}. Response: {body}"
+                ),
+            };
+
+            Err(network_error(message))
+        })
     }
 
     pub fn config(&self) -> &MeasurementProtocolConfig {
@@ -155,14 +169,14 @@ impl MeasurementProtocolDispatcher {
 }
 
 #[derive(Serialize)]
-struct MeasurementPayload<'a> {
-    client_id: &'a str,
-    events: Vec<MeasurementEvent<'a>>,
+struct MeasurementPayloadOwned {
+    client_id: String,
+    events: Vec<MeasurementEventOwned>,
 }
 
 #[derive(Serialize)]
-struct MeasurementEvent<'a> {
-    name: &'a str,
+struct MeasurementEventOwned {
+    name: String,
     #[serde(rename = "params")]
-    params: &'a BTreeMap<String, String>,
+    params: BTreeMap<String, String>,
 }

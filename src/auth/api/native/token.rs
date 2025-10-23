@@ -1,4 +1,4 @@
-use super::block_on_future;
+use crate::util::runtime::block_on;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -56,7 +56,7 @@ pub(crate) fn refresh_id_token_with_endpoint(
     api_key: &str,
     refresh_token: &str,
 ) -> AuthResult<RefreshTokenResponse> {
-    block_on_future(refresh_id_token_with_endpoint_async(
+    block_on(refresh_id_token_with_endpoint_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),

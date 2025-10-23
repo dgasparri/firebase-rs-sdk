@@ -7,7 +7,7 @@ use crate::auth::persistence::{
 use crate::platform::browser::indexed_db::{
     delete_key, get_string, open_database_with_store, put_string, IndexedDbError,
 };
-use futures::executor::block_on;
+use crate::util::runtime::block_on;
 use serde_json::{from_str as deserialize_state, to_string as serialize_state};
 use wasm_bindgen_futures::spawn_local;
 

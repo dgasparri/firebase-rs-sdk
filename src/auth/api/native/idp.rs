@@ -1,4 +1,4 @@
-use super::block_on_future;
+use crate::util::runtime::block_on;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -48,7 +48,7 @@ pub fn sign_in_with_idp(
     api_key: &str,
     request: &SignInWithIdpRequest,
 ) -> AuthResult<SignInWithIdpResponse> {
-    block_on_future(sign_in_with_idp_async(
+    block_on(sign_in_with_idp_async(
         client.clone(),
         api_key.to_owned(),
         request.clone(),

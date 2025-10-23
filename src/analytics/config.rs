@@ -1,12 +1,13 @@
 use std::time::Duration;
 
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde::Deserialize;
 
 use crate::analytics::error::{
     config_fetch_failed, internal_error, missing_measurement_id, AnalyticsResult,
 };
 use crate::app::FirebaseApp;
+use crate::util::runtime::block_on;
 
 /// Minimal dynamic configuration returned by the Firebase Analytics config endpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,6 +58,13 @@ pub(crate) fn fetch_dynamic_config(app: &FirebaseApp) -> AnalyticsResult<Dynamic
         )
     })?;
 
+    block_on(fetch_dynamic_config_async(app_id, api_key))
+}
+
+async fn fetch_dynamic_config_async(
+    app_id: String,
+    api_key: String,
+) -> AnalyticsResult<DynamicConfig> {
     let url = dynamic_config_url(&app_id);
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
@@ -68,12 +76,14 @@ pub(crate) fn fetch_dynamic_config(app: &FirebaseApp) -> AnalyticsResult<Dynamic
         .header("x-goog-api-key", api_key)
         .header("Accept", "application/json")
         .send()
+        .await
         .map_err(|err| config_fetch_failed(format!("failed to fetch analytics config: {err}")))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response
             .text()
+            .await
             .unwrap_or_else(|_| "<unavailable response body>".to_string());
         return Err(config_fetch_failed(format!(
             "analytics config request failed with status {status}: {body}"
@@ -82,6 +92,7 @@ pub(crate) fn fetch_dynamic_config(app: &FirebaseApp) -> AnalyticsResult<Dynamic
 
     let parsed: RemoteConfigResponse = response
         .json()
+        .await
         .map_err(|err| config_fetch_failed(format!("invalid analytics config response: {err}")))?;
 
     let measurement_id = match parsed.measurement_id {

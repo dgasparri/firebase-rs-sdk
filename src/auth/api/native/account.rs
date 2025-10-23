@@ -6,7 +6,7 @@ use crate::auth::model::{
     GetAccountInfoResponse, ProviderUserInfo, SignInWithPasswordRequest, SignInWithPasswordResponse,
 };
 
-use super::block_on_future;
+use crate::util::runtime::block_on;
 
 fn identity_toolkit_url(base: &str, path: &str, api_key: &str) -> String {
     format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key)
@@ -115,7 +115,7 @@ pub fn send_password_reset_email(
     api_key: &str,
     email: &str,
 ) -> AuthResult<()> {
-    block_on_future(send_oob_code_async(
+    block_on(send_oob_code_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -133,7 +133,7 @@ pub fn send_email_verification(
     api_key: &str,
     id_token: &str,
 ) -> AuthResult<()> {
-    block_on_future(send_oob_code_async(
+    block_on(send_oob_code_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -175,7 +175,7 @@ pub fn confirm_password_reset(
     oob_code: &str,
     new_password: &str,
 ) -> AuthResult<()> {
-    block_on_future(confirm_password_reset_async(
+    block_on(confirm_password_reset_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -215,7 +215,7 @@ pub fn update_account(
     api_key: &str,
     params: &UpdateAccountRequest,
 ) -> AuthResult<UpdateAccountResponse> {
-    block_on_future(update_account_async(
+    block_on(update_account_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -294,7 +294,7 @@ pub fn verify_password(
     api_key: &str,
     request: &SignInWithPasswordRequest,
 ) -> AuthResult<SignInWithPasswordResponse> {
-    block_on_future(verify_password_async(
+    block_on(verify_password_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -334,7 +334,7 @@ pub fn delete_account(
     api_key: &str,
     id_token: &str,
 ) -> AuthResult<()> {
-    block_on_future(delete_account_async(
+    block_on(delete_account_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -385,7 +385,7 @@ pub fn get_account_info(
     api_key: &str,
     id_token: &str,
 ) -> AuthResult<GetAccountInfoResponse> {
-    block_on_future(get_account_info_async(
+    block_on(get_account_info_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),

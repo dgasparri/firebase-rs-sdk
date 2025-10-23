@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
@@ -8,9 +7,6 @@ use reqwest::Client;
 use reqwest::Url;
 use serde::Serialize;
 use serde_json::Value;
-use tokio::runtime::{Builder, Runtime};
-
-use std::sync::LazyLock;
 
 mod account;
 mod idp;
@@ -37,7 +33,7 @@ use crate::component::types::{
 };
 use crate::component::{Component, ComponentContainer, ComponentType};
 use crate::firestore::remote::datastore::TokenProviderArc;
-use crate::util::{backoff, PartialObserver};
+use crate::util::{backoff, runtime::block_on, PartialObserver};
 use account::{
     confirm_password_reset, delete_account, get_account_info, send_email_verification,
     send_password_reset_email, update_account, verify_password, UpdateAccountRequest,
@@ -47,21 +43,6 @@ use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
 
 const DEFAULT_OAUTH_REQUEST_URI: &str = "http://localhost";
 const DEFAULT_IDENTITY_TOOLKIT_ENDPOINT: &str = "https://identitytoolkit.googleapis.com/v1";
-
-static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to build tokio runtime")
-});
-
-pub(super) fn block_on_future<F, T>(future: F) -> T
-where
-    F: Future<Output = T> + 'static,
-    T: 'static,
-{
-    TOKIO_RUNTIME.block_on(future)
-}
 
 pub struct Auth {
     app: FirebaseApp,
@@ -276,7 +257,7 @@ impl Auth {
         let body =
             serde_json::to_vec(request).map_err(|err| AuthError::Network(err.to_string()))?;
 
-        block_on_future(async move {
+        block_on(async move {
             let response = client
                 .post(url)
                 .header("content-type", "application/json")
