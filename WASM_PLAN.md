@@ -24,7 +24,8 @@ This plan captures the steps required to make the Auth module (and dependent cra
 
 ## Phase 3 – Storage & Database HTTP Stack
 - [ ] Refactor Storage and Realtime Database modules, which currently rely on `reqwest::blocking`, to support both native and wasm clients.
-  - [ ] Introduce an HTTP client trait (`StorageHttpClient`) with native and wasm implementations.
+  - [x] Replace the storage transport with a unified async `reqwest::Client`, using Tokio on native targets and `fetch` via `reqwest` on wasm (`gloo-timers` for retry delays). This change intentionally disrupts the previous blocking public API: storage operations now return futures, aligning with wasm expectations. It is the caller’s responsibility to drive the async runtime. Function names follow the Firebase JS SDK naming (no `_async` suffix) even when they return futures.
+  - [ ] Convert the remaining database transport to async in the same style, removing blocking entry points and reusing the shared backoff logic.
   - [ ] Rewrite token acquisition paths (`auth_token`, `app_check_token`) to operate asynchronously on wasm; where unsupported, document the limitation and disable signed requests.
   - [ ] Revisit tests that use `httpmock` (which binds to localhost). For wasm builds, replace them with pure in-process mocks or flag them as native-only.
 
@@ -38,6 +39,7 @@ This plan captures the steps required to make the Auth module (and dependent cra
 - [ ] Update module READMEs to describe the async API surface and wasm caveats.
 - [ ] Add minimal wasm examples (e.g. embedded in `examples/`) that demonstrate acquiring tokens and making a REST call.
 - [ ] Document how to build/run wasm tests, including any required npm tooling or bundlers.
+- [ ] Call out explicitly that the library now uses async-first APIs (mirroring Firebase JS naming without `_async` suffixes) and that users must provide an executor when running on native platforms.
 
 ## Phase 6 – CI & Regression Testing
 - [ ] Configure CI jobs that run `cargo check --target wasm32-unknown-unknown --features wasm-web`.
@@ -54,9 +56,14 @@ This plan captures the steps required to make the Auth module (and dependent cra
 - **Phase 0**: Documented instructions for wasm toolchain; dependency gating validated.
 - **Phase 1**: `Auth` builds and runs on wasm (tests behind feature flag); native behavior unchanged.
 - **Phase 2**: Async token provider trait in place; native modules still compile.
-- **Phase 3**: Storage/Database either async-ready or explicitly disabled on wasm with docs.
+- **Phase 3**: Storage/Database expose async-only APIs that mirror Firebase JS naming (no `_async` suffix), with callers responsible for runtime management; wasm builds share the same transport as native.
 - **Phase 4**: Firestore/Messaging pathways audited with either async support or wasm guards.
 - **Phase 5**: Updated README + wasm example.
 - **Phase 6**: CI coverage for wasm builds.
+
+## Next Options / Focus Areas
+1. Sweep remaining storage call sites and examples to adopt the async API (no `_async` naming), add a dedicated async example, and document runtime requirements for native consumers.
+2. Tackle the Realtime Database transport, replacing blocking `reqwest` usage with the shared async client and mirroring Firebase JS function names.
+3. Add wasm-targeted regression tests (e.g. `wasm-bindgen-test`) that exercise the new async storage transport and timeout behaviour.
 
 Progress should be tracked in this document; check boxes as work completes and append notes/links to PRs for traceability.

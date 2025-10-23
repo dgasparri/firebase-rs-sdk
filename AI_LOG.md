@@ -587,4 +587,41 @@ if we abandon the idea of backward compatibility of the public API, would that m
   major-version bump). If we’re willing to make that breaking change, it will dramatically cut the scope and ongoing
   maintenance cost of the WASM work.
 
-▌ 
+▌  Thinking
+  This is a big refactor to convert the storage module to use async reqwest with conditional dependencies for wasm and
+  native. I'll overhaul the HTTP client, storage service, and upload tasks to async, replacing blocking calls and adding
+  async sleep helpers per target. Tests will also need async adaptation with Tokio. I'll carefully update dependencies,
+  Cargo features, and code structure while preserving existing response handling. This plan covers large multi-file
+  changes and breaking API updates, so I’ll keep an eye on smooth transition and README notes.
+
+• Explored
+  └ Search fn get_token in auth
+    Read mod.rs
+    Search get_token_async in app_check
+    Read interop.rs, api.rs
+
+> Thinking
+  I’m figuring out which storage-related functions need to become async, including upload and metadata retrieval
+  methods, and laying out a clear step-by-step to adjust the code modules and dependencies accordingly for smooth async
+  operation.
+
+• Explored
+  └ Search \.upload_bytes in src
+    Read builders.rs
+
+update ./WASM_PLAN.md with the next options, stating clearly that we are going to disrupt the public API to make the
+▌ library wasm-compatible and async when reasonable to do so. It will be the user's responsibility to manage the async
+▌ side. The names, even for async functions, must follow as much as possible the naming of the Firebase JS SDK naming,
+▌ so no _async appendix should be added to the function names
+
+• E
+
+> Updated WASM_PLAN.md to lock in the async-first strategy:
+
+  - Phase 3 now documents the deliberate breaking change: storage APIs are async-only, mirror Firebase JS names (no
+  _async suffix), and require callers to supply an executor.
+  - Phase 5 notes the need to highlight async usage in docs/examples and clarify runtime responsibilities.
+  - Added next focus areas covering storage call-site cleanups, database transport refactor, and wasm regression tests.
+
+  All done—ready for the next step.
+
