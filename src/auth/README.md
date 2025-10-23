@@ -202,25 +202,28 @@ The JavaScript implementation is significantly broader. Missing pieces include:
 
 ## Next Steps
 
-1. **Persistence layer**
+1. **Async token accessors**
+   - Finish wiring the new async token retrieval helpers (`Auth::get_token_async`) so native and wasm builds share a
+     consistent pipeline, updating dependent services and documentation along the way.
+2. **Persistence layer**
    - Add IndexedDB persistence, storage selection policies, and native (desktop/server) durability options to complement
      the existing in-memory and web storage adapters.
-2. **Token lifecycle**
+3. **Token lifecycle**
    - Flesh out refresh observers (`beforeAuthStateChanged`), emulator behaviour, and more granular backoff/queueing.
-3. **Provider expansion**
+4. **Provider expansion**
    - Port OAuth provider infrastructure (credential building, popup/redirect flows) and phone auth scaffolding.
-4. **Account management APIs**
+5. **Account management APIs**
    - Add action code handling (email verification completion, password reset lookup) and richer error mapping to
      complement the password reset / verification / update / delete / re-auth flows now available.
-5. **MFA**
+6. **MFA**
    - Bring over the MFA subsystem (enrollment, challenge, resolver objects).
-6. **Platform adapters**
+7. **Platform adapters**
    - Add browser/React Native/Cordova specific implementations for popup/redirect handlers and persistence quirks.
    - Provide reference crates or documentation for hooking the new OAuth handler traits into common environments (WASM,
      desktop webviews, native mobile shells).
    - Ship example adapters exercising the handler traits end-to-end (WASM popup, desktop redirect) to validate the API
      surface and ease consumer adoption.
-7. **Testing**
+8. **Testing**
    - Translate core JS tests to cover sign-in flows, persistence, provider behaviour, and token refresh.
 
 ## Immediate Porting Focus (authenticated consumers)

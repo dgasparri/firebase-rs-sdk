@@ -341,6 +341,19 @@ impl Auth {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn get_token_async(&self, force_refresh: bool) -> AuthResult<Option<String>> {
+        self.get_token(force_refresh)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn get_token_async(&self, force_refresh: bool) -> AuthResult<Option<String>> {
+        let _ = force_refresh;
+        Err(AuthError::NotImplemented(
+            "Auth token retrieval is not yet implemented for wasm targets".into(),
+        ))
+    }
+
     /// Exposes this auth instance as a Firestore token provider.
     pub fn token_provider(self: &Arc<Self>) -> TokenProviderArc {
         crate::auth::token_provider::auth_token_provider_arc(self.clone())
