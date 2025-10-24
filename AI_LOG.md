@@ -965,3 +965,38 @@ Thinking
 ▌    |                      ^^^^^ could not find `token` in `platform`
 ▌
 
+
+Thinking
+  I’m noting that we added new wasm-focused tests and the wasm-bindgen-test dev dependency. Since
+  tests compile only for wasm, I’m including clear instructions for running them—like using wasm-
+  pack test --headless --chrome -- --features wasm-web—because cargo test won’t run them by
+  default. I’ll mention the tests verify app, auth, and app_check, remind about the persistent
+  warning, and explain why actual test execution couldn’t be done here.
+
+> - Added a wasm-only smoke test suite (tests/wasm_smoke.rs) using wasm-bindgen-test. It
+  checks that initialize_app still rejects missing options, that the wasm Auth stub reports
+  NotImplemented, and that a custom App Check provider yields the expected token (standard and
+  limited-use). The tests create/tear down isolated apps so the registry stays clean.
+  - Introduced the shared async token trait in wasm builds by exporting platform::token, and gated
+  Firestore-dependent providers so the wasm target compiles without extra modules.
+  - Wired support tooling: added the wasm-bindgen-test dev dependency for wasm targets and updated
+  async call sites (auth/app_check) plus helper harness updates (src/app/core_components.rs,
+  app_check API).
+
+  Build: cargo check (native) and cargo check --target wasm32-unknown-unknown --features wasm-web
+  both pass (existing warnings about unused web helpers remain).
+
+  To run the new browser-based tests locally, build them with cargo test --target wasm32-unknown-
+  unknown --features wasm-web --no-run, then execute via wasm-bindgen-test (e.g. wasm-pack test
+  --headless --chrome -- --features wasm-web).
+
+
+
+
+ - Added a GitHub Actions workflow wasm-tests that runs on pushes/PRs, installs the wasm
+  toolchain, installs wasm-pack, and executes wasm-pack test --node -- --features wasm-web --
+  --test wasm_smoke so our WASM smoke suite is exercised automatically (.github/workflows/wasm-
+  tests.yml:1-31).
+
+  Next step: monitor the first CI run to confirm the Node runner completes successfully and adjust
+  the command if any feature flag/timeout tweaks are needed.
