@@ -49,11 +49,9 @@
 //!         ..Default::default()
 //!     };
 //!
-//!     let app = initialize_app(options, Some(FirebaseAppSettings::default()))
-//!         .expect("failed to initialize app");
+//!     let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
 //!
-//!     let storage = get_storage_for_app(Some(app), None)
-//!         .expect("storage component not available");
+//!     let storage = get_storage_for_app(Some(app), None).await?;
 //!
 //!     let photos = storage
 //!         .root_reference()

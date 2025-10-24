@@ -61,14 +61,16 @@ pub fn register_storage_component() {
     ensure_registered();
 }
 
-pub fn get_storage_for_app(
+pub async fn get_storage_for_app(
     app: Option<FirebaseApp>,
     bucket_url: Option<&str>,
 ) -> StorageResult<Arc<FirebaseStorageImpl>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => get_app(None)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     let provider = registry::get_provider(&app, STORAGE_TYPE);

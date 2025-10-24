@@ -321,7 +321,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::runtime::Runtime;
+    use std::future::Future;
 
     fn unique_settings(prefix: &str) -> FirebaseAppSettings {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -352,13 +352,15 @@ mod tests {
         )
     }
 
-    fn build_storage_with<F>(configure: F) -> FirebaseStorageImpl
+    async fn build_storage_with<F, Fut>(configure: F) -> FirebaseStorageImpl
     where
-        F: Fn(&FirebaseApp),
+        F: Fn(&FirebaseApp) -> Fut,
+        Fut: Future<Output = ()>,
     {
         let app = initialize_app(base_options(), Some(unique_settings("storage-service")))
+            .await
             .expect("failed to initialize app");
-        configure(&app);
+        configure(&app).await;
 
         let container = app.container();
         let auth_provider = container.get_provider("auth-internal");
@@ -373,16 +375,14 @@ mod tests {
         .expect("storage construction should succeed")
     }
 
-    #[test]
-    fn prepare_request_adds_headers_for_emulator_override() {
-        let storage = build_storage_with(|_| {});
+    #[tokio::test]
+    async fn prepare_request_adds_headers_for_emulator_override() {
+        let storage = build_storage_with(|_| async {}).await;
         storage
             .connect_emulator("localhost", 9199, Some("mock-token".into()))
             .unwrap();
 
-        let prepared = Runtime::new()
-            .unwrap()
-            .block_on(async { storage.prepare_request(test_request()).await.unwrap() });
+        let prepared = storage.prepare_request(test_request()).await.unwrap();
 
         assert_eq!(
             prepared.headers.get("Authorization"),
@@ -441,12 +441,10 @@ mod tests {
         app.container().add_or_overwrite_component(component);
     }
 
-    #[test]
-    fn prepare_request_includes_app_check_header_when_available() {
-        let storage = build_storage_with(|app| register_app_check(app));
-        let prepared = Runtime::new()
-            .unwrap()
-            .block_on(async { storage.prepare_request(test_request()).await.unwrap() });
+    #[tokio::test]
+    async fn prepare_request_includes_app_check_header_when_available() {
+        let storage = build_storage_with(|app| async move { register_app_check(app) }).await;
+        let prepared = storage.prepare_request(test_request()).await.unwrap();
 
         assert_eq!(
             prepared.headers.get("X-Firebase-AppCheck"),

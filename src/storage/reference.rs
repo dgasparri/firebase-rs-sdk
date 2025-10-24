@@ -183,21 +183,21 @@ impl StorageReference {
     /// # Examples
     ///
     /// ```no_run
+    /// # use std::error::Error;
     /// # use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
     /// # use firebase_rs_sdk::storage::get_storage_for_app;
     ///
+    /// # async fn run() -> Result<(), Box<dyn Error>> {
     /// let options = FirebaseOptions {
     ///     storage_bucket: Some("my-bucket".into()),
     ///     ..Default::default()
     /// };
-    /// let app = initialize_app(options, Some(FirebaseAppSettings::default())).unwrap();
-    /// let storage = get_storage_for_app(Some(app), None).unwrap();
+    /// let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
+    /// let storage = get_storage_for_app(Some(app), None).await?;
     /// let avatar = storage.root_reference().unwrap().child("avatars/user.png");
-    /// tokio::runtime::Runtime::new()
-    ///     .unwrap()
-    ///     .block_on(async {
-    ///         avatar.upload_bytes(vec![0_u8; 1024], None).await.unwrap();
-    ///     });
+    /// avatar.upload_bytes(vec![0_u8; 1024], None).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn upload_bytes(
         &self,
