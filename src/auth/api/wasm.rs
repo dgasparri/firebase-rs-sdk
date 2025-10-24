@@ -140,26 +140,30 @@ impl Auth {
         Err(not_supported())
     }
 
-    pub fn sign_in_with_oauth_credential(
+    pub async fn sign_in_with_oauth_credential(
         &self,
         _credential: AuthCredential,
     ) -> AuthResult<UserCredential> {
         Err(not_supported())
     }
 
-    pub fn send_password_reset_email(&self, _email: &str) -> AuthResult<()> {
+    pub async fn send_password_reset_email(&self, _email: &str) -> AuthResult<()> {
         Err(not_supported())
     }
 
-    pub fn confirm_password_reset(&self, _oob_code: &str, _new_password: &str) -> AuthResult<()> {
+    pub async fn confirm_password_reset(
+        &self,
+        _oob_code: &str,
+        _new_password: &str,
+    ) -> AuthResult<()> {
         Err(not_supported())
     }
 
-    pub fn send_email_verification(&self) -> AuthResult<()> {
+    pub async fn send_email_verification(&self) -> AuthResult<()> {
         Err(not_supported())
     }
 
-    pub fn update_profile(
+    pub async fn update_profile(
         &self,
         _display_name: Option<&str>,
         _photo_url: Option<&str>,
@@ -167,34 +171,34 @@ impl Auth {
         Err(not_supported())
     }
 
-    pub fn update_email(&self, _email: &str) -> AuthResult<Arc<User>> {
+    pub async fn update_email(&self, _email: &str) -> AuthResult<Arc<User>> {
         Err(not_supported())
     }
 
-    pub fn update_password(&self, _password: &str) -> AuthResult<Arc<User>> {
+    pub async fn update_password(&self, _password: &str) -> AuthResult<Arc<User>> {
         Err(not_supported())
     }
 
-    pub fn delete_user(&self) -> AuthResult<()> {
+    pub async fn delete_user(&self) -> AuthResult<()> {
         Err(not_supported())
     }
 
-    pub fn unlink_providers(&self, _provider_ids: &[&str]) -> AuthResult<Arc<User>> {
+    pub async fn unlink_providers(&self, _provider_ids: &[&str]) -> AuthResult<Arc<User>> {
         Err(not_supported())
     }
 
-    pub fn get_account_info(&self) -> AuthResult<crate::auth::model::GetAccountInfoResponse> {
+    pub async fn get_account_info(&self) -> AuthResult<crate::auth::model::GetAccountInfoResponse> {
         Err(not_supported())
     }
 
-    pub fn link_with_oauth_credential(
+    pub async fn link_with_oauth_credential(
         &self,
         _credential: AuthCredential,
     ) -> AuthResult<UserCredential> {
         Err(not_supported())
     }
 
-    pub fn reauthenticate_with_password(
+    pub async fn reauthenticate_with_password(
         &self,
         _email: &str,
         _password: &str,
@@ -202,7 +206,7 @@ impl Auth {
         Err(not_supported())
     }
 
-    pub fn reauthenticate_with_oauth_credential(
+    pub async fn reauthenticate_with_oauth_credential(
         &self,
         _credential: AuthCredential,
     ) -> AuthResult<Arc<User>> {

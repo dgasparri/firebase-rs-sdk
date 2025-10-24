@@ -7,6 +7,7 @@ mod wasm_demo {
     use serde_json::Value;
     use serde_wasm_bindgen::from_value;
     use wasm_bindgen::prelude::*;
+    use wasm_bindgen_futures::spawn_local;
 
     struct JsPopupHandler;
 
@@ -63,10 +64,15 @@ mod wasm_demo {
     pub fn start() -> Result<(), JsValue> {
         let auth = initialize_auth().map_err(|err| JsValue::from_str(&err.to_string()))?;
         let provider = configure_provider();
+
         // This will panic until the surrounding JS glue returns a valid credential payload.
-        let _credential = provider
-            .sign_in_with_popup(&auth)
-            .map_err(|err| JsValue::from_str(&err.to_string()))?;
+        let auth_clone = auth.clone();
+        let provider_clone = provider.clone();
+        spawn_local(async move {
+            if let Err(err) = provider_clone.sign_in_with_popup(&auth_clone).await {
+                web_sys::console::error_1(&JsValue::from_str(&err.to_string()));
+            }
+        });
         Ok(())
     }
 }

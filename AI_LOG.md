@@ -1000,3 +1000,128 @@ Thinking
 
   Next step: monitor the first CI run to confirm the Node runner completes successfully and adjust
   the command if any feature flag/timeout tweaks are needed.
+
+
+
+> PROMPT: reading the ./AGENTS.md file and the ./WASM_PLAN.md, check the files in the modules auth, app_check and messaging and
+▌ check if stage 2 is completed
+
+Thinking
+  I'm preparing a detailed summary of Stage 2 progress, covering key modules like Auth, App Check, and Messaging with
+  specific code line references. I'll highlight missing asynchronous trait implementations, wasm bridging stubs, and
+  absent tests, carefully gathering stub line numbers and paths to support the final evaluation message clearly.
+
+• Explored
+  └ Read wasm.rs, api.rs
+    Search wasm_bindgen_test in messaging
+
+• Updated Plan
+  └ ✔ Review ./AGENTS.md and ./WASM_PLAN.md to understand Stage 2 requirements
+    ✔ Inspect auth, app_check, and messaging module files for Stage 2 criteria
+    ✔ Assess whether Stage 2 is complete for each module and summarize findings
+
+> Thinking
+  I'm preparing a detailed final message outlining that Stage 2 is incomplete, highlighting unresolved async integration
+  issues in Auth, App Check, and Messaging modules with specific file references, missing wasm-bindgen tests, and
+  suggesting clear next steps to finish the async refactoring, wasm client implementation, and testing deliverables.
+
+• Explored
+  └ Read api.rs
+
+> Thinking
+  I see that get_token_native still returns a random token without using the async token provider trait, so messaging
+  fetches tokens directly from the store, which doesn't meet Stage 2's requirements. I’ll highlight the lack of async
+  wasm tests for token flows and note tests currently rely on block_on, missing true async coverage. I'll prepare a
+  concise final message with bullet points and suggested next steps.
+
+> Stage 2 Status
+
+  - Stage 2 is not complete; auth, app_check, and messaging still rely on sync shims and lack the shared async/wasm
+  plumbing the plan calls for.
+  - Auth src/auth/api/native/account.rs:112 still wraps REST calls in util::runtime::block_on, so the public API isn’t
+  fully async; token refresh remains a TODO with no timer-based task src/auth/api/native/mod.rs:965; the wasm path is
+  entirely stubbed and returns NotImplemented for every operation src/auth/api/wasm.rs:17, so there is no wasm transport
+  or token refresh at all.
+  - App Check src/app_check/api.rs:16 blocks on get_app and delegates to providers that are strictly synchronous
+  src/app_check/types.rs:127, leaving the planned async HTTP/timer flow unimplemented and forcing consumers to poll
+  synchronously despite the AsyncTokenProvider trait.
+  - Messaging src/messaging/api.rs:259 still blocks to fetch the app and the native branch simply reads/writes a local
+  token cache src/messaging/api.rs:371, so the module never consumes the shared AsyncTokenProvider or the async token
+  contracts described in Stage 2.
+  - Tests/wasm The Stage 2 deliverable of targeted async + wasm tests hasn’t landed—auth’s wasm implementation is a
+  stub src/auth/api/wasm.rs:17 and none of the three modules ship wasm-bindgen tests covering token refresh, messaging
+  registration, or app check attestation.
+  - Next steps 1) Replace the remaining block_on wrappers in these modules with real async flows (including timer-based
+  refresh) and wire messaging through the shared AsyncTokenProvider; 2) Implement the wasm auth client plus accompanying
+  wasm-bindgen tests so token/app-check/messaging scenarios run under the wasm-web feature before calling Stage 2 done.
+
+
+
+Thinking
+  I’m focusing on replacing block_on calls with async functions to meet Stage 1’s wasm-ready requirement. This involves
+  converting ensure_registered to async or adding an async version like ensure_core_components_registered. I’ll check
+  how these functions integrate with initialize_app and consider using async initialization tools like async_once or
+  OnceCell to avoid blocking while preserving existing API behavior.
+
+• Explored
+  └ Read mod.rs
+
+> Thinking
+  I'm working on converting ensure_core_components_registered and related core component registration to
+  fully async without blocking calls like block_on, aiming for compatibility with wasm. I'm considering using
+  once_cell::sync::OnceCell combined with futures::future::Shared to allow multiple awaiters, restructuring registration
+  steps into an async function awaited by initialize_app. This approach should support async initialization while
+  avoiding new dependencies and maintaining project constraints. I'll need to adjust call sites to use await and ensure
+  futures features are enabled for .boxed() and .shared().
+
+• Explored
+  └ Search ensure_core_components_registered
+
+> Thinking
+  I’m laying out how to convert key functions to async, update call sites to await, and replace blocking sync primitives
+  with async-friendly versions—especially for Stage 1 focusing on app initialization. I also want to check dependencies
+  in Cargo.toml before starting edits to ensure compatibility and meet wasm and native async requirements.
+
+
+Updated Plan
+  └ Finished the app module async init refactor and began the auth async migration, but app_check/messaging still need
+    work.
+    ✔ Assess current async/wasm readiness of the app module to scope Stage 1 work
+    ✔ Refactor app module runtime initialisation (Stage 1) and convert shared platform utilities for async scheduling
+    □ Port auth/app_check/messaging to async token/timer infrastructure (Stage 2 core code changes)
+    □ Add or update tests, docs, and READMEs; verify Stage 1 & 2 completion
+
+> Thinking
+  I'm wrapping up a summary that highlights the new platform/runtime.rs module, async updates to Auth functions and
+  tests, and partial completion of Stage 2 with pending app_check and messaging tasks. I'll note that while tests
+  haven’t run yet, formatting will be done using cargo fmt, and mention existing unrelated modifications like those in
+  CONTRIBUTING.md for user awareness.
+
+• Ran cargo fmt
+
+> Thinking
+  I’m outlining the main updates: making ensure_core_components_registered async with new platform/runtime, overhauling
+  Auth to async with tests and scheduling refresh using the new runtime, and noting incomplete app_check/messaging
+  updates. I’ll include clear next steps and mention the untouched but existing CONTRIBUTING.md change for completeness.
+
+> Auth and App groundwork now run on the async runtime. I added src/platform/runtime.rs plus the associated wiring so
+  ensure_core_components_registered is awaited instead of relying on block_on, which clears the Stage 1 blocker for
+  wasm-safe initialization. On top of that, the native Auth implementation is fully async: all REST helpers (account.rs,
+  idp.rs) and the public API surface now return futures, background token refresh is scheduled through the new platform
+  runtime (Tokio on native, gloo_timers on wasm), and the tests/examples were updated to await the new signatures.
+  The wasm stub mirrors those async signatures, and the OAuth provider helpers were made async so popup/redirect flows
+  compile against the updated Auth API.
+
+  Open items before Stage 2 is truly finished: app_check and messaging still use synchronous shims (block_on, direct
+  token persistence) and haven’t been moved onto the shared async runtime or token provider yet; docs/READMEs still
+  describe the old synchronous API. I also noticed an existing change in CONTRIBUTING.md that predates this work.
+
+  Next steps (suggested):
+
+  1. Port app_check to async—drop the block_on(get_app) call, make provider callbacks async, and switch persistence/
+  timer handling over to platform::runtime.
+  2. Repeat for messaging, especially the app lookup/token cache paths, and hook it into AsyncTokenProvider.
+  3. Refresh module docs/README files and run the test matrix (cargo test, wasm smoke) once those conversions are in
+  place.
+
+  I ran cargo fmt; tests still need to be re-run after the remaining Stage 2 conversions.

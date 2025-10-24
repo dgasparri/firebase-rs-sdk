@@ -167,7 +167,7 @@ pub async fn initialize_app(
     options: FirebaseOptions,
     settings: Option<FirebaseAppSettings>,
 ) -> AppResult<FirebaseApp> {
-    ensure_core_components_registered();
+    ensure_core_components_registered().await;
     let _guard = global_app_guard();
     let settings = merged_settings(settings);
     let name = normalize_name(&settings)?;
@@ -216,7 +216,7 @@ pub async fn initialize_app(
 ///
 /// Passing `None` looks up the default app entry.
 pub async fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
-    ensure_core_components_registered();
+    ensure_core_components_registered().await;
     let _guard = global_app_guard();
     let lookup = name.unwrap_or(DEFAULT_ENTRY_NAME);
     if let Some(app) = apps_guard().get(lookup) {
@@ -229,7 +229,7 @@ pub async fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
 
 /// Returns a snapshot of all registered `FirebaseApp` instances.
 pub async fn get_apps() -> Vec<FirebaseApp> {
-    ensure_core_components_registered();
+    ensure_core_components_registered().await;
     let _guard = global_app_guard();
     apps_guard().values().cloned().collect()
 }
@@ -255,7 +255,7 @@ pub async fn initialize_server_app(
     options: Option<FirebaseOptions>,
     settings: Option<FirebaseServerAppSettings>,
 ) -> AppResult<FirebaseServerApp> {
-    ensure_core_components_registered();
+    ensure_core_components_registered().await;
 
     if is_browser() && !is_web_worker() {
         return Err(AppError::InvalidServerAppEnvironment);

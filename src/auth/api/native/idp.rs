@@ -1,4 +1,3 @@
-use crate::util::runtime::block_on;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -43,16 +42,12 @@ pub struct SignInWithIdpRequest {
 }
 
 /// Signs a user in with an identity provider using the `signInWithIdp` REST endpoint.
-pub fn sign_in_with_idp(
+pub async fn sign_in_with_idp(
     client: &Client,
     api_key: &str,
     request: &SignInWithIdpRequest,
 ) -> AuthResult<SignInWithIdpResponse> {
-    block_on(sign_in_with_idp_async(
-        client.clone(),
-        api_key.to_owned(),
-        request.clone(),
-    ))
+    sign_in_with_idp_async(client.clone(), api_key.to_owned(), request.clone()).await
 }
 
 async fn sign_in_with_idp_async(

@@ -24,6 +24,15 @@ Copy also the doc files in the docs-devsite folder. Those files will be used by 
 
 Now you can delete the JS SDK folder, as it will not needed anymore.
 
+### Setting up the testing environment
+
+Testing for the wasm-unknown-unknown target and wasm-web feature are done with the [wasm-bindgen](https://github.com/wasm-bindgen/wasm-bindgen) library.
+
+To install the library:
+
+> cargo install wasm-bindgen-cli
+
+
 ## Common AI prompts to develop code/documentation for this library
 
 This library is mainly written by AI. Detailed instructions for the AI are given in the ./AGENTS.md file. Here are some of the prompts we commonly used to work on the library. It is not an extensive list of the prompts, but so far they have worked fine for us.

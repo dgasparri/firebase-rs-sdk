@@ -9,21 +9,21 @@ use crate::component::types::{
     ComponentError, ComponentType, DynService, InstanceFactory, InstantiationMode,
 };
 use crate::component::{Component, ComponentContainer};
-use futures::executor::block_on;
-
-use std::sync::LazyLock;
+use async_lock::OnceCell;
 
 /// Ensures the core Firebase components are registered before app initialization.
-pub fn ensure_registered() {
-    LazyLock::force(&REGISTERED);
+pub async fn ensure_registered() {
+    REGISTERED
+        .get_or_init(|| async {
+            register_platform_logger_component();
+            register_heartbeat_component();
+            api::register_version("@firebase/app", SDK_VERSION, None).await;
+            api::register_version("fire-js", "", None).await;
+        })
+        .await;
 }
 
-static REGISTERED: LazyLock<()> = LazyLock::new(|| {
-    register_platform_logger_component();
-    register_heartbeat_component();
-    block_on(api::register_version("@firebase/app", SDK_VERSION, None));
-    block_on(api::register_version("fire-js", "", None));
-});
+static REGISTERED: OnceCell<()> = OnceCell::new();
 
 fn register_platform_logger_component() {
     let factory: InstanceFactory = Arc::new(|container: &ComponentContainer, _| {

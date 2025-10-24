@@ -6,8 +6,6 @@ use crate::auth::model::{
     GetAccountInfoResponse, ProviderUserInfo, SignInWithPasswordRequest, SignInWithPasswordResponse,
 };
 
-use crate::util::runtime::block_on;
-
 fn identity_toolkit_url(base: &str, path: &str, api_key: &str) -> String {
     format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key)
 }
@@ -109,13 +107,13 @@ struct ErrorBody {
     message: Option<String>,
 }
 
-pub fn send_password_reset_email(
+pub async fn send_password_reset_email(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     email: &str,
 ) -> AuthResult<()> {
-    block_on(send_oob_code_async(
+    send_oob_code_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -124,16 +122,17 @@ pub fn send_password_reset_email(
             email: Some(email.to_owned()),
             id_token: None,
         },
-    ))
+    )
+    .await
 }
 
-pub fn send_email_verification(
+pub async fn send_email_verification(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     id_token: &str,
 ) -> AuthResult<()> {
-    block_on(send_oob_code_async(
+    send_oob_code_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -142,7 +141,8 @@ pub fn send_email_verification(
             email: None,
             id_token: Some(id_token.to_owned()),
         },
-    ))
+    )
+    .await
 }
 
 async fn send_oob_code_async(
@@ -168,14 +168,14 @@ async fn send_oob_code_async(
     }
 }
 
-pub fn confirm_password_reset(
+pub async fn confirm_password_reset(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     oob_code: &str,
     new_password: &str,
 ) -> AuthResult<()> {
-    block_on(confirm_password_reset_async(
+    confirm_password_reset_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
@@ -183,7 +183,8 @@ pub fn confirm_password_reset(
             oob_code: oob_code.to_owned(),
             new_password: new_password.to_owned(),
         },
-    ))
+    )
+    .await
 }
 
 async fn confirm_password_reset_async(
@@ -209,18 +210,19 @@ async fn confirm_password_reset_async(
     }
 }
 
-pub fn update_account(
+pub async fn update_account(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     params: &UpdateAccountRequest,
 ) -> AuthResult<UpdateAccountResponse> {
-    block_on(update_account_async(
+    update_account_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
         params.clone(),
-    ))
+    )
+    .await
 }
 
 async fn update_account_async(
@@ -288,18 +290,19 @@ async fn update_account_async(
     }
 }
 
-pub fn verify_password(
+pub async fn verify_password(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     request: &SignInWithPasswordRequest,
 ) -> AuthResult<SignInWithPasswordResponse> {
-    block_on(verify_password_async(
+    verify_password_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
         request.clone(),
-    ))
+    )
+    .await
 }
 
 async fn verify_password_async(
@@ -328,18 +331,19 @@ async fn verify_password_async(
     }
 }
 
-pub fn delete_account(
+pub async fn delete_account(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     id_token: &str,
 ) -> AuthResult<()> {
-    block_on(delete_account_async(
+    delete_account_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
         id_token.to_owned(),
-    ))
+    )
+    .await
 }
 
 async fn delete_account_async(
@@ -379,18 +383,19 @@ struct GetAccountInfoRequest {
     id_token: String,
 }
 
-pub fn get_account_info(
+pub async fn get_account_info(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     id_token: &str,
 ) -> AuthResult<GetAccountInfoResponse> {
-    block_on(get_account_info_async(
+    get_account_info_async(
         client.clone(),
         endpoint.to_owned(),
         api_key.to_owned(),
         id_token.to_owned(),
-    ))
+    )
+    .await
 }
 
 async fn get_account_info_async(

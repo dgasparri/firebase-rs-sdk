@@ -144,23 +144,23 @@ impl OAuthProvider {
 
     /// Runs the configured popup handler and returns the produced credential.
     /// Executes the sign-in flow using a popup handler.
-    pub fn sign_in_with_popup(&self, auth: &Auth) -> AuthResult<UserCredential> {
+    pub async fn sign_in_with_popup(&self, auth: &Auth) -> AuthResult<UserCredential> {
         let handler = auth.popup_handler().ok_or(AuthError::NotImplemented(
             "OAuth popup handler not registered",
         ))?;
         let request = self.build_request(auth)?;
         let credential = handler.open_popup(request)?;
-        auth.sign_in_with_oauth_credential(credential)
+        auth.sign_in_with_oauth_credential(credential).await
     }
 
     /// Links the current user with this provider using a popup flow.
-    pub fn link_with_popup(&self, auth: &Auth) -> AuthResult<UserCredential> {
+    pub async fn link_with_popup(&self, auth: &Auth) -> AuthResult<UserCredential> {
         let handler = auth.popup_handler().ok_or(AuthError::NotImplemented(
             "OAuth popup handler not registered",
         ))?;
         let request = self.build_request(auth)?;
         let credential = handler.open_popup(request)?;
-        auth.link_with_oauth_credential(credential)
+        auth.link_with_oauth_credential(credential).await
     }
 
     /// Delegates to the redirect handler to start a redirect based flow.
@@ -196,7 +196,7 @@ impl OAuthProvider {
     /// The provider does not influence result parsing at this stage; the
     /// handler is responsible for decoding whichever callback mechanism the
     /// hosting platform uses.
-    pub fn get_redirect_result(auth: &Auth) -> AuthResult<Option<UserCredential>> {
+    pub async fn get_redirect_result(auth: &Auth) -> AuthResult<Option<UserCredential>> {
         let handler = auth.redirect_handler().ok_or(AuthError::NotImplemented(
             "OAuth redirect handler not registered",
         ))?;
@@ -208,10 +208,13 @@ impl OAuthProvider {
 
         match handler.complete_redirect()? {
             Some(credential) => match pending.operation {
-                RedirectOperation::Link => auth.link_with_oauth_credential(credential).map(Some),
-                RedirectOperation::SignIn => {
-                    auth.sign_in_with_oauth_credential(credential).map(Some)
+                RedirectOperation::Link => {
+                    auth.link_with_oauth_credential(credential).await.map(Some)
                 }
+                RedirectOperation::SignIn => auth
+                    .sign_in_with_oauth_credential(credential)
+                    .await
+                    .map(Some),
             },
             None => Ok(None),
         }

@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use reqwest::Client;
@@ -12,8 +12,7 @@ mod account;
 mod idp;
 pub mod token;
 
-use crate::app::AppError;
-use crate::app::FirebaseApp;
+use crate::app::{AppError, FirebaseApp, LOGGER as APP_LOGGER};
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::{
     AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider, GetAccountInfoResponse,
@@ -34,6 +33,7 @@ use crate::component::types::{
 use crate::component::{Component, ComponentContainer, ComponentType};
 #[cfg(feature = "firestore")]
 use crate::firestore::remote::datastore::TokenProviderArc;
+use crate::platform::runtime::{sleep as runtime_sleep, spawn_detached};
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::PartialObserver;
 use account::{
@@ -453,22 +453,26 @@ impl Auth {
     }
 
     /// Signs in using an OAuth credential produced by popup/redirect flows.
-    pub fn sign_in_with_oauth_credential(
+    pub async fn sign_in_with_oauth_credential(
         &self,
         credential: AuthCredential,
     ) -> AuthResult<UserCredential> {
-        self.exchange_oauth_credential(credential, None)
+        self.exchange_oauth_credential(credential, None).await
     }
 
     /// Sends a password reset email to the specified address.
-    pub fn send_password_reset_email(&self, email: &str) -> AuthResult<()> {
+    pub async fn send_password_reset_email(&self, email: &str) -> AuthResult<()> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
-        send_password_reset_email(&self.rest_client, &endpoint, &api_key, email)
+        send_password_reset_email(&self.rest_client, &endpoint, &api_key, email).await
     }
 
     /// Confirms a password reset OOB code and applies the new password.
-    pub fn confirm_password_reset(&self, oob_code: &str, new_password: &str) -> AuthResult<()> {
+    pub async fn confirm_password_reset(
+        &self,
+        oob_code: &str,
+        new_password: &str,
+    ) -> AuthResult<()> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         confirm_password_reset(
@@ -478,19 +482,20 @@ impl Auth {
             oob_code,
             new_password,
         )
+        .await
     }
 
     /// Sends an email verification message to the currently signed-in user.
-    pub fn send_email_verification(&self) -> AuthResult<()> {
+    pub async fn send_email_verification(&self) -> AuthResult<()> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
-        send_email_verification(&self.rest_client, &endpoint, &api_key, &id_token)
+        send_email_verification(&self.rest_client, &endpoint, &api_key, &id_token).await
     }
 
     /// Updates the current user's display name and photo URL.
-    pub fn update_profile(
+    pub async fn update_profile(
         &self,
         display_name: Option<&str>,
         photo_url: Option<&str>,
@@ -513,68 +518,69 @@ impl Auth {
             }
         }
 
-        self.perform_account_update(user, request)
+        self.perform_account_update(user, request).await
     }
 
     /// Updates the current user's email address.
-    pub fn update_email(&self, email: &str) -> AuthResult<Arc<User>> {
+    pub async fn update_email(&self, email: &str) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let mut request = UpdateAccountRequest::new(id_token);
         request.email = Some(email.to_string());
-        self.perform_account_update(user, request)
+        self.perform_account_update(user, request).await
     }
 
     /// Updates the current user's password.
-    pub fn update_password(&self, password: &str) -> AuthResult<Arc<User>> {
+    pub async fn update_password(&self, password: &str) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let mut request = UpdateAccountRequest::new(id_token);
         request.password = Some(password.to_string());
-        self.perform_account_update(user, request)
+        self.perform_account_update(user, request).await
     }
 
     /// Deletes the current user from Firebase Auth.
-    pub fn delete_user(&self) -> AuthResult<()> {
+    pub async fn delete_user(&self) -> AuthResult<()> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
-        delete_account(&self.rest_client, &endpoint, &api_key, &id_token)?;
+        delete_account(&self.rest_client, &endpoint, &api_key, &id_token).await?;
         self.sign_out();
         Ok(())
     }
 
     /// Unlinks the specified providers from the current user.
-    pub fn unlink_providers(&self, provider_ids: &[&str]) -> AuthResult<Arc<User>> {
+    pub async fn unlink_providers(&self, provider_ids: &[&str]) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let mut request = UpdateAccountRequest::new(id_token);
         request.delete_providers = provider_ids.iter().map(|id| id.to_string()).collect();
-        self.perform_account_update(user, request)
+        self.perform_account_update(user, request).await
     }
 
     /// Fetches the latest account info for the current user.
-    pub fn get_account_info(&self) -> AuthResult<GetAccountInfoResponse> {
+    pub async fn get_account_info(&self) -> AuthResult<GetAccountInfoResponse> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
-        get_account_info(&self.rest_client, &endpoint, &api_key, &id_token)
+        get_account_info(&self.rest_client, &endpoint, &api_key, &id_token).await
     }
 
     /// Links an OAuth credential with the currently signed-in user.
-    pub fn link_with_oauth_credential(
+    pub async fn link_with_oauth_credential(
         &self,
         credential: AuthCredential,
     ) -> AuthResult<UserCredential> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         self.exchange_oauth_credential(credential, Some(id_token))
+            .await
     }
 
     /// Reauthenticates the current user with email and password.
-    pub fn reauthenticate_with_password(
+    pub async fn reauthenticate_with_password(
         &self,
         email: &str,
         password: &str,
@@ -587,21 +593,23 @@ impl Auth {
 
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
-        let response = verify_password(&self.rest_client, &endpoint, &api_key, &request)?;
+        let response = verify_password(&self.rest_client, &endpoint, &api_key, &request).await?;
         self.apply_password_reauth(response)
     }
 
     /// Reauthenticates the current user with an OAuth credential.
-    pub fn reauthenticate_with_oauth_credential(
+    pub async fn reauthenticate_with_oauth_credential(
         &self,
         credential: AuthCredential,
     ) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
-        let result = self.exchange_oauth_credential(credential, Some(user.get_id_token(false)?))?;
+        let result = self
+            .exchange_oauth_credential(credential, Some(user.get_id_token(false)?))
+            .await?;
         Ok(result.user)
     }
 
-    fn exchange_oauth_credential(
+    async fn exchange_oauth_credential(
         &self,
         credential: AuthCredential,
         id_token: Option<String>,
@@ -617,7 +625,7 @@ impl Auth {
         };
 
         let api_key = self.api_key()?;
-        let response = sign_in_with_idp(&self.rest_client, &api_key, &request)?;
+        let response = sign_in_with_idp(&self.rest_client, &api_key, &request).await?;
         let user_arc = self.upsert_user_from_idp_response(&response, &oauth_credential)?;
         let provider_id = response
             .provider_id
@@ -638,14 +646,14 @@ impl Auth {
         })
     }
 
-    fn perform_account_update(
+    async fn perform_account_update(
         &self,
         current_user: Arc<User>,
         request: UpdateAccountRequest,
     ) -> AuthResult<Arc<User>> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
-        let response = update_account(&self.rest_client, &endpoint, &api_key, &request)?;
+        let response = update_account(&self.rest_client, &endpoint, &api_key, &request).await?;
         let updated_user = self.apply_account_update(&current_user, &response)?;
         self.listeners.notify(updated_user.clone());
         Ok(updated_user)
@@ -962,9 +970,42 @@ impl Auth {
         Ok(user_arc)
     }
 
-    fn schedule_refresh_for_user(&self, _user: Arc<User>) {
-        // TODO(async-wasm): Reintroduce async timer-based refresh once the shared runtime utilities land.
+    fn schedule_refresh_for_user(&self, user: Arc<User>) {
         self.cancel_scheduled_refresh();
+
+        let Some(expiration) = user.token_manager().expiration_time() else {
+            return;
+        };
+
+        let trigger_time = expiration
+            .checked_sub(self.token_refresh_tolerance)
+            .unwrap_or(expiration);
+        let now = SystemTime::now();
+        let delay = trigger_time
+            .duration_since(now)
+            .unwrap_or(Duration::from_secs(0));
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        *self.refresh_cancel.lock().unwrap() = Some(cancel_flag.clone());
+
+        let Some(auth_arc) = self.self_arc() else {
+            return;
+        };
+
+        let user_for_refresh = user.clone();
+        spawn_detached(async move {
+            if !delay.is_zero() {
+                runtime_sleep(delay).await;
+            }
+
+            if cancel_flag.load(Ordering::SeqCst) {
+                return;
+            }
+
+            if let Err(err) = auth_arc.refresh_user_token(&user_for_refresh).await {
+                APP_LOGGER.warn(format!("Failed to refresh Auth token: {err}"));
+            }
+        });
     }
 
     fn cancel_scheduled_refresh(&self) {
@@ -1343,7 +1384,7 @@ mod tests {
             then.status(200);
         });
 
-        auth.send_password_reset_email(TEST_EMAIL)
+        block_on(auth.send_password_reset_email(TEST_EMAIL))
             .expect("password reset should succeed");
 
         mock.assert();
@@ -1366,8 +1407,7 @@ mod tests {
             then.status(200);
         });
 
-        auth.send_email_verification()
-            .expect("email verification should succeed");
+        block_on(auth.send_email_verification()).expect("email verification should succeed");
 
         mock.assert();
     }
@@ -1388,7 +1428,7 @@ mod tests {
             then.status(200);
         });
 
-        auth.confirm_password_reset("reset-code", "new-secret")
+        block_on(auth.confirm_password_reset("reset-code", "new-secret"))
             .expect("confirm reset should succeed");
 
         mock.assert();
@@ -1419,8 +1459,7 @@ mod tests {
             }));
         });
 
-        let user = auth
-            .update_profile(Some("New Name"), None)
+        let user = block_on(auth.update_profile(Some("New Name"), None))
             .expect("update profile should succeed");
 
         mock.assert();
@@ -1456,7 +1495,7 @@ mod tests {
             }));
         });
 
-        auth.update_profile(Some("Existing"), None)
+        block_on(auth.update_profile(Some("Existing"), None))
             .expect("initial update should succeed");
         set_mock.assert();
 
@@ -1479,9 +1518,8 @@ mod tests {
             }));
         });
 
-        let user = auth
-            .update_profile(Some(""), None)
-            .expect("clear update should succeed");
+        let user =
+            block_on(auth.update_profile(Some(""), None)).expect("clear update should succeed");
 
         clear_mock.assert();
         assert!(user.info().display_name.is_none());
@@ -1511,9 +1549,8 @@ mod tests {
             }));
         });
 
-        let user = auth
-            .update_email("new@example.com")
-            .expect("update email should succeed");
+        let user =
+            block_on(auth.update_email("new@example.com")).expect("update email should succeed");
 
         mock.assert();
         assert_eq!(user.info().email.as_deref(), Some("new@example.com"));
@@ -1547,9 +1584,8 @@ mod tests {
             }));
         });
 
-        let user = auth
-            .update_password("new-secret")
-            .expect("update password should succeed");
+        let user =
+            block_on(auth.update_password("new-secret")).expect("update password should succeed");
 
         mock.assert();
         assert_eq!(user.uid(), TEST_UID);
@@ -1575,7 +1611,7 @@ mod tests {
             then.status(200);
         });
 
-        auth.delete_user().expect("delete user should succeed");
+        block_on(auth.delete_user()).expect("delete user should succeed");
 
         mock.assert();
         assert!(auth.current_user().is_none());
@@ -1605,8 +1641,7 @@ mod tests {
             }));
         });
 
-        let user = auth
-            .reauthenticate_with_password(REAUTH_EMAIL, TEST_PASSWORD)
+        let user = block_on(auth.reauthenticate_with_password(REAUTH_EMAIL, TEST_PASSWORD))
             .expect("reauth should succeed");
 
         mock.assert();
@@ -1647,9 +1682,8 @@ mod tests {
             }));
         });
 
-        let user = auth
-            .unlink_providers(&[GOOGLE_PROVIDER_ID])
-            .expect("unlink should succeed");
+        let user =
+            block_on(auth.unlink_providers(&[GOOGLE_PROVIDER_ID])).expect("unlink should succeed");
 
         mock.assert();
         assert_eq!(user.uid(), TEST_UID);
@@ -1670,7 +1704,7 @@ mod tests {
                 .body("{\"error\":{\"message\":\"INVALID_PROVIDER_ID\"}}");
         });
 
-        let result = auth.unlink_providers(&[GOOGLE_PROVIDER_ID]);
+        let result = block_on(auth.unlink_providers(&[GOOGLE_PROVIDER_ID]));
 
         mock.assert();
         assert!(matches!(
@@ -1709,9 +1743,7 @@ mod tests {
             }));
         });
 
-        let response = auth
-            .get_account_info()
-            .expect("get account info should succeed");
+        let response = block_on(auth.get_account_info()).expect("get account info should succeed");
 
         mock.assert();
         assert_eq!(response.users.len(), 1);
@@ -1742,7 +1774,7 @@ mod tests {
                 .body("{\"error\":{\"message\":\"INVALID_ID_TOKEN\"}}");
         });
 
-        let result = auth.get_account_info();
+        let result = block_on(auth.get_account_info());
 
         mock.assert();
         assert!(matches!(

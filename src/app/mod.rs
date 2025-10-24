@@ -106,12 +106,12 @@ pub use types::{
     FirebaseServerAppSettings, VersionService,
 };
 
-use std::sync::LazyLock;
+use async_lock::OnceCell;
 
-pub(crate) fn ensure_core_components_registered() {
-    LazyLock::force(&CORE_COMPONENTS_REGISTERED);
+pub(crate) async fn ensure_core_components_registered() {
+    CORE_COMPONENTS_REGISTERED
+        .get_or_init(core_components::ensure_registered)
+        .await;
 }
 
-static CORE_COMPONENTS_REGISTERED: LazyLock<()> = LazyLock::new(|| {
-    core_components::ensure_registered();
-});
+static CORE_COMPONENTS_REGISTERED: OnceCell<()> = OnceCell::new();
