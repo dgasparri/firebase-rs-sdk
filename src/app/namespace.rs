@@ -2,34 +2,31 @@ use crate::app::api;
 use crate::app::errors::AppResult;
 use crate::app::logger::{LogCallback, LogLevel, LogOptions};
 use crate::app::types::{FirebaseApp, FirebaseAppSettings, FirebaseOptions};
-use crate::auth::error::{AuthError, AuthResult};
-use crate::auth::{self, Auth};
-use std::sync::Arc;
 
 pub struct FirebaseNamespace;
 
 impl FirebaseNamespace {
     /// Public entry point mirroring the JS `initializeApp` helper.
-    pub fn initialize_app(
+    pub async fn initialize_app(
         options: FirebaseOptions,
         settings: Option<FirebaseAppSettings>,
     ) -> AppResult<FirebaseApp> {
-        api::initialize_app(options, settings)
+        api::initialize_app(options, settings).await
     }
 
     /// Returns an initialized `FirebaseApp` by name or the default app when `None` is provided.
-    pub fn app(name: Option<&str>) -> AppResult<FirebaseApp> {
-        api::get_app(name)
+    pub async fn app(name: Option<&str>) -> AppResult<FirebaseApp> {
+        api::get_app(name).await
     }
 
     /// Lists all apps that have been initialized in the current process.
-    pub fn apps() -> Vec<FirebaseApp> {
-        api::get_apps()
+    pub async fn apps() -> Vec<FirebaseApp> {
+        api::get_apps().await
     }
 
     /// Registers an additional library version for platform logging.
-    pub fn register_version(library: &str, version: &str, variant: Option<&str>) {
-        api::register_version(library, version, variant)
+    pub async fn register_version(library: &str, version: &str, variant: Option<&str>) {
+        api::register_version(library, version, variant).await
     }
 
     /// Updates the global log verbosity for Firebase.
@@ -47,13 +44,13 @@ impl FirebaseNamespace {
         api::SDK_VERSION
     }
 
-    /// Provides access to the Auth service for the given (or default) app.
-    pub fn auth(app: Option<FirebaseApp>) -> AuthResult<Arc<Auth>> {
-        auth::api::register_auth_component();
-        let app = match app {
-            Some(app) => app,
-            None => api::get_app(None).map_err(AuthError::from)?,
-        };
-        auth::api::auth_for_app(app)
-    }
+    // TODO(async-wasm): Re-enable once the Stage 2 auth migration exposes async-aware components.
+    // pub async fn auth(app: Option<FirebaseApp>) -> AuthResult<Arc<Auth>> {
+    //     auth::api::register_auth_component();
+    //     let app = match app {
+    //         Some(app) => app,
+    //         None => api::get_app(None).await.map_err(AuthError::from)?,
+    //     };
+    //     auth::api::auth_for_app(app).await
+    // }
 }

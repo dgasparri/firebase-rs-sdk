@@ -24,7 +24,8 @@
 //! ```rust
 //! use firebase_rs_sdk::app::*;
 //!
-//! fn main() -> AppResult<()> {
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> AppResult<()> {
 //!     // Configure your Firebase project credentials. These values are placeholders that allow the
 //!     // example to compile without contacting Firebase services.
 //!     let options = FirebaseOptions {
@@ -41,7 +42,7 @@
 //!     };
 //!
 //!     // Create (or reuse) the app instance.
-//!     let app = initialize_app(options, Some(settings))?;
+//!     let app = initialize_app(options, Some(settings)).await?;
 //!     println!(
 //!         "Firebase app '{}' initialised (project: {:?})",
 //!         app.name(),
@@ -49,11 +50,11 @@
 //!     );
 //!
 //!     // You can look the app up later using its name.
-//!     let resolved = get_app(Some(app.name()))?;
+//!     let resolved = get_app(Some(app.name())).await?;
 //!     println!("Resolved app '{}' via registry", resolved.name());
 //!
 //!     // The registry can also enumerate every active app.
-//!     let apps = get_apps();
+//!     let apps = get_apps().await;
 //!     println!("Currently loaded apps: {}", apps.len());
 //!     for listed in apps {
 //!         println!(
@@ -64,7 +65,7 @@
 //!     }
 //!
 //!     // When finished, delete the app to release resources and remove it from the registry.
-//!     delete_app(&app)?;
+//!     delete_app(&app).await?;
 //!     println!("App '{}' deleted", app.name());
 //!
 //!     Ok(())

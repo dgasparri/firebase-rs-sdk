@@ -59,7 +59,8 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 ```rust
 use firebase_rs_sdk::app::*;
 
-fn main() -> AppResult<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> AppResult<()> {
     // Configure your Firebase project credentials. These values are placeholders that allow the
     // example to compile without contacting Firebase services.
     let options = FirebaseOptions {
@@ -76,7 +77,7 @@ fn main() -> AppResult<()> {
     };
 
     // Create (or reuse) the app instance.
-    let app = initialize_app(options, Some(settings))?;
+    let app = initialize_app(options, Some(settings)).await?;
     println!(
         "Firebase app '{}' initialised (project: {:?})",
         app.name(),
@@ -84,11 +85,11 @@ fn main() -> AppResult<()> {
     );
 
     // You can look the app up later using its name.
-    let resolved = get_app(Some(app.name()))?;
+    let resolved = get_app(Some(app.name())).await?;
     println!("Resolved app '{}' via registry", resolved.name());
 
     // The registry can also enumerate every active app.
-    let apps = get_apps();
+    let apps = get_apps().await;
     println!("Currently loaded apps: {}", apps.len());
     for listed in apps {
         println!(
@@ -99,18 +100,21 @@ fn main() -> AppResult<()> {
     }
 
     // When finished, delete the app to release resources and remove it from the registry.
-    delete_app(&app)?;
+    delete_app(&app).await?;
     println!("App '{}' deleted", app.name());
 
     Ok(())
 }
 ```
 
+> **Runtime note:** The example uses `tokio` as the async executor for native builds. When targeting WASM, rely on
+> `wasm-bindgen-futures::spawn_local` or the host runtime instead.
+
 
 ## What’s Implemented
 
-- **Core API surface** (`api.rs` / `namespace.rs`)
-  - `initialize_app`, `get_app`, `get_apps`, `delete_app`, and server-app stubbed entry points.
+- **Core async API surface** (`api.rs` / `namespace.rs`)
+  - `initialize_app`, `get_app`, `get_apps`, `delete_app`, and server-app entry points now expose async-first signatures that mirror the Firebase JS naming.
   - Basic namespace exposure so other services can obtain the default app instance.
 - **Component infrastructure** (`component.rs`, `registry.rs`)
   - Component container/provider abstractions and global registration logic that mirror the JS `ComponentContainer`.
@@ -152,30 +156,34 @@ The TypeScript module still includes functionality that is only partially or not
 
 ### Detailed Completion Plan
 
-1. **Heartbeat subsystem**
+1. **Async namespace bridging**
+   - Restore the `FirebaseNamespace::auth` helper once the Stage 2 identity modules are migrated, ensuring namespace lookups expose async-aware service access for Auth/App Check/Messaging.
+
+2. **Heartbeat subsystem**
    - Extend the new heartbeat service with IndexedDB-backed persistence and header construction logic that matches the JS algorithm (payload size limits, grouping, cleanup). Provide native fallbacks as needed and expose the header API to consumers.
 
-2. **Platform logger service & version components**
+3. **Platform logger service & version components**
    - Implement `PlatformLoggerServiceImpl` so the app container can produce the Firebase user-agent string. Ensure `register_version` registers a `ComponentType::Version` component (not just storing strings) to align with JS.
    - Add a Rust equivalent to `registerCoreComponents`, invoked during module init, to register both platform logger and heartbeat services and to call `register_version` for the core bundle.
 
-3. **Server app parity**
+4. **Server app parity**
    - Replace the `initialize_server_app` stub with the logic from `firebaseServerApp.ts`: environment checks, hashed naming, FinalizationRegistry/ref-count handling, token TTL validation, and version registration (`serverapp` variant). Extend `FirebaseServerApp` model with ref counting and cleanup semantics, plus `_is_firebase_server_app` helpers.
 
-4. **Internal API coverage**
+5. **Internal API coverage**
    - Expose equivalents of `_addComponent`, `_addOrOverwriteComponent`, `_clearComponents`, `_getProvider`, `_removeServiceInstance`, and `_isFirebaseServerApp`. Update tests to use them and ensure registry broadcasts new components to existing apps.
    - Fix the `'app'` component registration to return the actual `FirebaseApp` (matching JS `Component('app', () => this, …)`).
 
-5. **Option/environment helpers**
+6. **Option/environment helpers**
    - Implement `get_default_app_config`, `is_browser`, `is_web_worker`, and deep equality utilities so auto-initialization and duplicate-detection match JS behaviour (including optional measurement ID handling and whitespace normalization).
 
-6. **Testing parity**
+7. **Testing parity**
    - Port `api.test.ts`, `firebaseApp.test.ts`, `firebaseServerApp.test.ts`, `internal.test.ts`, `heartbeatService.test.ts`, `indexeddb.test.ts`, and `platformLoggerService.test.ts` into Rust unit tests using the shared `test_support` scaffolding. Stub IndexedDB/browser-specific pieces with `wasm-bindgen-test` where appropriate.
 
-7. **Documentation & examples**
+8. **Documentation & examples**
    - Update README/examples once the above functionality lands, documenting server-app usage, heartbeat integration, and platform logging hooks.
 
 ### Recent Progress
+- Converted the public `app` API (initialize/get/delete/register_version) to async while preserving Firebase JS naming, updating the namespace bridge, module docs, and module tests to use async runtimes.
 - Registered the `platform-logger` and `heartbeat` components in Rust, delivering in-memory heartbeat storage and automatic version reporting to match the JS core registration flow (`src/app/core_components.rs`, `src/app/heartbeat.rs`, `src/app/platform_logger.rs`).
 - Ported core `initializeApp`/`getApp`/`deleteApp` scenarios from the JS test suite to Rust, covering duplicate detection, component registration, version registration, and teardown behaviour (`src/app/api.rs`).
 

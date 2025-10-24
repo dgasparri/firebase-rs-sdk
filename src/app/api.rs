@@ -163,7 +163,7 @@ fn server_app_hash(options: &FirebaseOptions, settings: &FirebaseServerAppSettin
 ///
 /// When an app with the same normalized name already exists, the existing instance is
 /// returned as long as the configuration matches. A mismatch results in `AppError::DuplicateApp`.
-pub fn initialize_app(
+pub async fn initialize_app(
     options: FirebaseOptions,
     settings: Option<FirebaseAppSettings>,
 ) -> AppResult<FirebaseApp> {
@@ -215,7 +215,7 @@ pub fn initialize_app(
 /// Retrieves a previously initialized `FirebaseApp` by name.
 ///
 /// Passing `None` looks up the default app entry.
-pub fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
+pub async fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
     ensure_core_components_registered();
     let _guard = global_app_guard();
     let lookup = name.unwrap_or(DEFAULT_ENTRY_NAME);
@@ -228,14 +228,14 @@ pub fn get_app(name: Option<&str>) -> AppResult<FirebaseApp> {
 }
 
 /// Returns a snapshot of all registered `FirebaseApp` instances.
-pub fn get_apps() -> Vec<FirebaseApp> {
+pub async fn get_apps() -> Vec<FirebaseApp> {
     ensure_core_components_registered();
     let _guard = global_app_guard();
     apps_guard().values().cloned().collect()
 }
 
 /// Deletes the provided `FirebaseApp` from the global registry and tears down services.
-pub fn delete_app(app: &FirebaseApp) -> AppResult<()> {
+pub async fn delete_app(app: &FirebaseApp) -> AppResult<()> {
     let _guard = global_app_guard();
     let name = app.name().to_string();
     let removed = apps_guard().remove(&name);
@@ -251,7 +251,7 @@ pub fn delete_app(app: &FirebaseApp) -> AppResult<()> {
 }
 
 /// Creates or reuses a server-side `FirebaseServerApp` instance from options and settings.
-pub fn initialize_server_app(
+pub async fn initialize_server_app(
     options: Option<FirebaseOptions>,
     settings: Option<FirebaseServerAppSettings>,
 ) -> AppResult<FirebaseServerApp> {
@@ -313,13 +313,13 @@ pub fn initialize_server_app(
         server_apps_guard().insert(name.clone(), server_app.clone());
     }
 
-    register_version("@firebase/app", SDK_VERSION, Some("serverapp"));
+    register_version("@firebase/app", SDK_VERSION, Some("serverapp")).await;
 
     Ok(server_app)
 }
 
 /// Registers a library version component so it can be queried by other Firebase services.
-pub fn register_version(library: &str, version: &str, variant: Option<&str>) {
+pub async fn register_version(library: &str, version: &str, variant: Option<&str>) {
     let _guard = global_app_guard();
     let mut library_key = PLATFORM_LOG_STRING
         .get(library)
@@ -385,6 +385,7 @@ mod tests {
     use crate::app::registry;
     use crate::component::types::{ComponentType, DynService, InstanceFactory, InstantiationMode};
     use crate::component::Component;
+    use futures::executor::block_on;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, LazyLock, Mutex};
 
@@ -437,7 +438,7 @@ mod tests {
     #[test]
     fn initialize_app_creates_default_app() {
         with_serialized_test(|| {
-            let app = super::initialize_app(test_options(), None).expect("init app");
+            let app = block_on(super::initialize_app(test_options(), None)).expect("init app");
             assert_eq!(app.name(), DEFAULT_ENTRY_NAME);
         });
     }
@@ -445,13 +446,13 @@ mod tests {
     #[test]
     fn initialize_app_creates_named_app() {
         with_serialized_test(|| {
-            let app = super::initialize_app(
+            let app = block_on(super::initialize_app(
                 test_options(),
                 Some(FirebaseAppSettings {
                     name: Some("MyApp".to_string()),
                     automatic_data_collection_enabled: None,
                 }),
-            )
+            ))
             .expect("init named app");
             assert_eq!(app.name(), "MyApp");
         });
@@ -461,8 +462,8 @@ mod tests {
     fn initialize_app_with_same_options_returns_same_instance() {
         with_serialized_test(|| {
             let opts = test_options();
-            let app1 = super::initialize_app(opts.clone(), None).expect("first init");
-            let app2 = super::initialize_app(opts, None).expect("second init");
+            let app1 = block_on(super::initialize_app(opts.clone(), None)).expect("first init");
+            let app2 = block_on(super::initialize_app(opts, None)).expect("second init");
             let container1 = app1.container().inner.clone();
             let container2 = app2.container().inner.clone();
             assert!(Arc::ptr_eq(&container1, &container2));
@@ -478,11 +479,11 @@ mod tests {
                 name: Some(app_name.clone()),
                 automatic_data_collection_enabled: None,
             };
-            let _ =
-                super::initialize_app(opts1.clone(), Some(settings.clone())).expect("first init");
+            let _ = block_on(super::initialize_app(opts1.clone(), Some(settings.clone())))
+                .expect("first init");
             let mut opts2 = opts1.clone();
             opts2.api_key = Some("other-key".to_string());
-            let result = super::initialize_app(opts2, Some(settings));
+            let result = block_on(super::initialize_app(opts2, Some(settings)));
             assert!(matches!(result, Err(AppError::DuplicateApp { .. })));
         });
     }
@@ -495,11 +496,11 @@ mod tests {
                 name: Some("dup".to_string()),
                 automatic_data_collection_enabled: Some(true),
             };
-            let _ =
-                super::initialize_app(opts.clone(), Some(settings.clone())).expect("first init");
+            let _ = block_on(super::initialize_app(opts.clone(), Some(settings.clone())))
+                .expect("first init");
             let mut other = settings.clone();
             other.automatic_data_collection_enabled = Some(false);
-            let result = super::initialize_app(opts, Some(other));
+            let result = block_on(super::initialize_app(opts, Some(other)));
             assert!(matches!(result, Err(AppError::DuplicateApp { .. })));
         });
     }
@@ -507,7 +508,7 @@ mod tests {
     #[test]
     fn automatic_data_collection_defaults_true() {
         with_serialized_test(|| {
-            let app = super::initialize_app(test_options(), None).expect("init app");
+            let app = block_on(super::initialize_app(test_options(), None)).expect("init app");
             assert!(app.automatic_data_collection_enabled());
         });
     }
@@ -515,13 +516,13 @@ mod tests {
     #[test]
     fn automatic_data_collection_respects_setting() {
         with_serialized_test(|| {
-            let app = super::initialize_app(
+            let app = block_on(super::initialize_app(
                 test_options(),
                 Some(FirebaseAppSettings {
                     name: None,
                     automatic_data_collection_enabled: Some(false),
                 }),
-            )
+            ))
             .expect("init app");
             assert!(!app.automatic_data_collection_enabled());
         });
@@ -535,7 +536,7 @@ mod tests {
             let _ = registry::register_component(make_test_component(&name1));
             let _ = registry::register_component(make_test_component(&name2));
 
-            let app = super::initialize_app(test_options(), None).expect("init app");
+            let app = block_on(super::initialize_app(test_options(), None)).expect("init app");
             assert!(app.container().get_provider(&name1).is_component_set());
             assert!(app.container().get_provider(&name2).is_component_set());
         });
@@ -544,13 +545,13 @@ mod tests {
     #[test]
     fn delete_app_marks_app_deleted_and_clears_registry() {
         with_serialized_test(|| {
-            let app = super::initialize_app(test_options(), None).expect("init app");
+            let app = block_on(super::initialize_app(test_options(), None)).expect("init app");
             let name = app.name().to_string();
             {
                 let apps = registry::apps_guard();
                 assert!(apps.contains_key(&name));
             }
-            assert!(super::delete_app(&app).is_ok());
+            assert!(block_on(super::delete_app(&app)).is_ok());
             assert!(app.is_deleted());
             {
                 let apps = registry::apps_guard();
@@ -563,7 +564,7 @@ mod tests {
     fn register_version_registers_component() {
         with_serialized_test(|| {
             let library = next_name("lib");
-            super::register_version(&library, "1.0.0", None);
+            block_on(super::register_version(&library, "1.0.0", None));
             let components = registry::registered_components_guard();
             let expected = format!("{}-version", library);
             assert!(components.keys().any(|key| key.as_ref() == expected));
@@ -573,8 +574,8 @@ mod tests {
     #[test]
     fn get_app_returns_existing_app() {
         with_serialized_test(|| {
-            let created = super::initialize_app(test_options(), None).expect("init app");
-            let fetched = super::get_app(None).expect("get app");
+            let created = block_on(super::initialize_app(test_options(), None)).expect("init app");
+            let fetched = block_on(super::get_app(None)).expect("get app");
             assert_eq!(created.name(), fetched.name());
         });
     }
@@ -582,7 +583,7 @@ mod tests {
     #[test]
     fn get_app_nonexistent_fails() {
         with_serialized_test(|| {
-            let result = super::get_app(Some("missing"));
+            let result = block_on(super::get_app(Some("missing")));
             assert!(matches!(result, Err(AppError::NoApp { .. })));
         });
     }
