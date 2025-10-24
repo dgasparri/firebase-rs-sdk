@@ -1521,7 +1521,7 @@ pub fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Database>> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::app::api::initialize_app;

@@ -1,0 +1,33 @@
+name: wasm-tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  wasm-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Run wasm smoke tests
+        env:
+          WASM_BINDGEN_TEST_TIMEOUT: "30"
+        run: |
+          wasm-pack test --node -- --features wasm-web -- --test wasm_smoke

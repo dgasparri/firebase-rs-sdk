@@ -93,7 +93,7 @@ fn map_refresh_error(status: StatusCode, body: &str) -> AuthError {
     AuthError::Network(format!("Token refresh failed with status {status}"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::test_support::start_mock_server;

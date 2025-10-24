@@ -459,7 +459,7 @@ fn extract_error_message(raw: &str) -> Option<String> {
 
 static LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/database"));
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use httpmock::prelude::*;

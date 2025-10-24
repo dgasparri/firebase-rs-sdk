@@ -1129,7 +1129,7 @@ pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
