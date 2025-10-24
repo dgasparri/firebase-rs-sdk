@@ -21,9 +21,9 @@ async fn insert_documents() -> Result<(), Box<dyn std::error::Error>> {
     let app_check =
         initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider)).await?;
     let app_check_internal = FirebaseAppCheckInternal::new(app_check);
-    let firestore = get_firestore(Some(app.clone()))?;
+    let firestore = get_firestore(Some(app.clone())).await?;
     let client = FirestoreClient::with_http_datastore_authenticated(
-        firebase_rs_sdk::firestore::api::Firestore::from_arc(firestore.clone()),
+        Firestore::from_arc(firestore.clone()),
         auth.token_provider(),
         Some(app_check_internal.token_provider()),
     )?;
@@ -31,14 +31,14 @@ async fn insert_documents() -> Result<(), Box<dyn std::error::Error>> {
     ada.insert("first".into(), FirestoreValue::from_string("Ada"));
     ada.insert("last".into(), FirestoreValue::from_string("Lovelace"));
     ada.insert("born".into(), FirestoreValue::from_integer(1815));
-    let ada_snapshot = client.add_doc("users", ada)?;
+    let ada_snapshot = client.add_doc("users", ada).await?;
     println!("Document written with ID: {}", ada_snapshot.id());
     let mut alan = BTreeMap::new();
     alan.insert("first".into(), FirestoreValue::from_string("Alan"));
     alan.insert("middle".into(), FirestoreValue::from_string("Mathison"));
     alan.insert("last".into(), FirestoreValue::from_string("Turing"));
     alan.insert("born".into(), FirestoreValue::from_integer(1912));
-    let alan_snapshot = client.add_doc("users", alan)?;
+    let alan_snapshot = client.add_doc("users", alan).await?;
     println!("Document written with ID: {}", alan_snapshot.id());
     Ok(())
 }

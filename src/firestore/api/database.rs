@@ -151,11 +151,13 @@ pub fn register_firestore_component() {
 ///
 /// When `app` is `None` the default Firebase app is used. Multiple calls with
 /// the same app yield the same shared `Arc<Firestore>` handle.
-pub fn get_firestore(app: Option<FirebaseApp>) -> FirestoreResult<Arc<Firestore>> {
+pub async fn get_firestore(app: Option<FirebaseApp>) -> FirestoreResult<Arc<Firestore>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => get_app(None)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     let provider = app::registry::get_provider(&app, FIRESTORE_COMPONENT_NAME);
@@ -183,26 +185,30 @@ mod tests {
         }
     }
 
-    #[test]
-    fn get_firestore_registers_component() {
+    #[tokio::test]
+    async fn get_firestore_registers_component() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let firestore = get_firestore(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let firestore = get_firestore(Some(app)).await.unwrap();
         assert_eq!(firestore.project_id(), "project");
         assert_eq!(firestore.database(), "(default)");
     }
 
-    #[test]
-    fn custom_database_identifier() {
+    #[tokio::test]
+    async fn custom_database_identifier() {
         register_firestore_component();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let provider = app::registry::get_provider(&app, FIRESTORE_COMPONENT_NAME);
         let instance = provider
             .initialize::<Firestore>(

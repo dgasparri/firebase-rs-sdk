@@ -1242,3 +1242,39 @@ Updated the docs to reflect the async/wasm progress and coding expectations:
   public items should leak from inner files.
 
   No code changes or new warnings beyond these doc updates.
+
+
+I'm considering how to convert the Firestore client and related traits to async, balancing gradual change with
+  the goal of removing blocking calls like block_on. This involves marking key traits and clients async, updating
+  implementations step-by-step while maintaining some synchronous interfaces temporarily, and then updating call sites
+  across the codebase including tests and examples. I want to begin with the Datastore trait to lay the groundwork for
+  this gradual migration.
+
+
+Thinking
+  I’m recapping the major async changes around Firestore and token providers, highlighting key files updated, tests
+  converted to tokio async, and noting that while tests pass with cargo check and cargo check --tests, example builds
+  still fail due to unrelated modules like database setups. I'll call out specific paths and remind about the updated
+  async APIs and runtime scheduling integration.
+
+> - Firestore’s datastore stack is fully async now: HttpDatastore and InMemoryDatastore implement async_trait (src/
+  firestore/remote/datastore/http.rs:1, src/firestore/remote/datastore/in_memory.rs:1), Connection no longer blocks
+  (invoke_json* are async) (src/firestore/remote/connection.rs:1), and retry handling uses the shared runtime sleepers
+  instead of thread::sleep.
+  - Token providers moved to async APIs so Firestore no longer blocks on Auth/App Check bridges (src/firestore/remote/
+  datastore/mod.rs:1, src/app_check/token_provider.rs:1, src/auth/token_provider.rs:1).
+  - The Firestore client surface is async end-to-end: FirestoreClient getters/writers and query helpers now return
+  futures, tests were ported to tokio::test, and get_firestore awaits get_app (src/firestore/api/document.rs:1, src/
+  firestore/api/database.rs:154, src/firestore/api/document.rs:221).
+  - Firestore examples/documentation were updated to reflect the async API (#[tokio::main], .await usage) so new users
+  see the right patterns (examples/firestore_insert_document.rs:1, examples/firestore_select_documents.rs:1, src/
+  firestore/README.md:80, src/firestore/mod.rs:48).
+
+  Validation:
+
+  - cargo fmt
+  - cargo check
+  - cargo check --tests
+
+  cargo check --examples still fails because unrelated Database/Installations examples target unported modules—we’ll
+  address those when we reach their slots in the plan.

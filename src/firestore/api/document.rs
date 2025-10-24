@@ -71,16 +71,16 @@ impl FirestoreClient {
     ///
     /// Returns a snapshot that may or may not contain data depending on whether
     /// the document exists.
-    pub fn get_doc(&self, path: &str) -> FirestoreResult<DocumentSnapshot> {
+    pub async fn get_doc(&self, path: &str) -> FirestoreResult<DocumentSnapshot> {
         let key = operations::validate_document_path(path)?;
-        self.datastore.get_document(&key)
+        self.datastore.get_document(&key).await
     }
 
     /// Writes the provided map of fields into the document at `path`.
     ///
     /// `options.merge == true` mirrors the JS API but is currently unsupported
     /// for the HTTP datastore.
-    pub fn set_doc(
+    pub async fn set_doc(
         &self,
         path: &str,
         data: BTreeMap<String, FirestoreValue>,
@@ -89,24 +89,26 @@ impl FirestoreClient {
         let key = operations::validate_document_path(path)?;
         let encoded = operations::encode_document_data(data)?;
         let merge = options.unwrap_or_default().merge;
-        self.datastore.set_document(&key, encoded, merge)
+        self.datastore.set_document(&key, encoded, merge).await
     }
 
     /// Adds a new document to the collection located at `collection_path` and
     /// returns the resulting snapshot.
-    pub fn add_doc(
+    pub async fn add_doc(
         &self,
         collection_path: &str,
         data: BTreeMap<String, FirestoreValue>,
     ) -> FirestoreResult<DocumentSnapshot> {
         let collection = self.firestore.collection(collection_path)?;
         let doc_ref = collection.doc(None)?;
-        self.set_doc(doc_ref.path().canonical_string().as_str(), data, None)?;
+        self.set_doc(doc_ref.path().canonical_string().as_str(), data, None)
+            .await?;
         self.get_doc(doc_ref.path().canonical_string().as_str())
+            .await
     }
 
     /// Reads a document using the converter attached to a typed reference.
-    pub fn get_doc_with_converter<C>(
+    pub async fn get_doc_with_converter<C>(
         &self,
         reference: &ConvertedDocumentReference<C>,
     ) -> FirestoreResult<TypedDocumentSnapshot<C>>
@@ -114,16 +116,16 @@ impl FirestoreClient {
         C: FirestoreDataConverter,
     {
         let path = reference.path().canonical_string();
-        let snapshot = self.get_doc(path.as_str())?;
+        let snapshot = self.get_doc(path.as_str()).await?;
         let converter = reference.converter();
         Ok(snapshot.into_typed(converter))
     }
 
     /// Executes the provided query and returns its results.
-    pub fn get_docs(&self, query: &Query) -> FirestoreResult<QuerySnapshot> {
+    pub async fn get_docs(&self, query: &Query) -> FirestoreResult<QuerySnapshot> {
         self.ensure_same_database(query.firestore())?;
         let definition = query.definition();
-        let mut documents = self.datastore.run_query(&definition)?;
+        let mut documents = self.datastore.run_query(&definition).await?;
         if definition.limit_type() == LimitType::Last {
             documents.reverse();
         }
@@ -131,19 +133,19 @@ impl FirestoreClient {
     }
 
     /// Executes a converted query, producing typed snapshots.
-    pub fn get_docs_with_converter<C>(
+    pub async fn get_docs_with_converter<C>(
         &self,
         query: &ConvertedQuery<C>,
     ) -> FirestoreResult<TypedQuerySnapshot<C>>
     where
         C: FirestoreDataConverter,
     {
-        let snapshot = self.get_docs(query.raw())?;
+        let snapshot = self.get_docs(query.raw()).await?;
         Ok(TypedQuerySnapshot::new(snapshot, query.converter()))
     }
 
     /// Writes a typed model to the location referenced by `reference`.
-    pub fn set_doc_with_converter<C>(
+    pub async fn set_doc_with_converter<C>(
         &self,
         reference: &ConvertedDocumentReference<C>,
         data: C::Model,
@@ -155,11 +157,11 @@ impl FirestoreClient {
         let converter = reference.converter();
         let map = converter.to_map(&data)?;
         let path = reference.path().canonical_string();
-        self.set_doc(path.as_str(), map, options)
+        self.set_doc(path.as_str(), map, options).await
     }
 
     /// Creates a document with auto-generated ID using the provided converter.
-    pub fn add_doc_with_converter<C>(
+    pub async fn add_doc_with_converter<C>(
         &self,
         collection: &ConvertedCollectionReference<C>,
         data: C::Model,
@@ -171,8 +173,8 @@ impl FirestoreClient {
         let converter = doc_ref.converter();
         let map = converter.to_map(&data)?;
         let path = doc_ref.path().canonical_string();
-        self.set_doc(path.as_str(), map, None)?;
-        let snapshot = self.get_doc(path.as_str())?;
+        self.set_doc(path.as_str(), map, None).await?;
+        let snapshot = self.get_doc(path.as_str()).await?;
         Ok(snapshot.into_typed(converter))
     }
 
@@ -208,25 +210,28 @@ mod tests {
         }
     }
 
-    fn build_client() -> FirestoreClient {
+    async fn build_client() -> FirestoreClient {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let firestore = get_firestore(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let firestore = get_firestore(Some(app)).await.unwrap();
         FirestoreClient::with_in_memory(Firestore::from_arc(firestore))
     }
 
-    #[test]
-    fn set_and_get_document() {
-        let client = build_client();
+    #[tokio::test]
+    async fn set_and_get_document() {
+        let client = build_client().await;
         let mut data = BTreeMap::new();
         data.insert("name".to_string(), FirestoreValue::from_string("Ada"));
         client
             .set_doc("cities/sf", data.clone(), None)
+            .await
             .expect("set doc");
-        let snapshot = client.get_doc("cities/sf").expect("get doc");
+        let snapshot = client.get_doc("cities/sf").await.expect("get doc");
         assert!(snapshot.exists());
         assert_eq!(
             snapshot.data().unwrap().get("name"),
@@ -234,15 +239,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn query_returns_collection_documents() {
-        let client = build_client();
+    #[tokio::test]
+    async fn query_returns_collection_documents() {
+        let client = build_client().await;
         client
             .set_doc(
                 "cities/sf",
                 BTreeMap::from([("name".into(), FirestoreValue::from_string("San Francisco"))]),
                 None,
             )
+            .await
             .unwrap();
         client
             .set_doc(
@@ -250,11 +256,12 @@ mod tests {
                 BTreeMap::from([("name".into(), FirestoreValue::from_string("Los Angeles"))]),
                 None,
             )
+            .await
             .unwrap();
 
         let collection = client.firestore.collection("cities").unwrap();
         let query = collection.query();
-        let snapshot = client.get_docs(&query).expect("query");
+        let snapshot = client.get_docs(&query).await.expect("query");
 
         assert_eq!(snapshot.len(), 2);
         let ids: Vec<_> = snapshot
@@ -314,9 +321,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn typed_set_and_get_document() {
-        let client = build_client();
+    #[tokio::test]
+    async fn typed_set_and_get_document() {
+        let client = build_client().await;
         let collection = client.firestore.collection("people").unwrap();
         let converted = collection.with_converter(PersonConverter);
         let doc_ref = converted.doc(Some("ada")).unwrap();
@@ -328,9 +335,13 @@ mod tests {
 
         client
             .set_doc_with_converter(&doc_ref, person.clone(), None)
+            .await
             .expect("typed set");
 
-        let snapshot = client.get_doc_with_converter(&doc_ref).expect("typed get");
+        let snapshot = client
+            .get_doc_with_converter(&doc_ref)
+            .await
+            .expect("typed get");
         assert!(snapshot.exists());
         assert!(snapshot.from_cache());
         assert!(!snapshot.has_pending_writes());
@@ -339,9 +350,9 @@ mod tests {
         assert_eq!(decoded, person);
     }
 
-    #[test]
-    fn typed_query_returns_converted_results() {
-        let client = build_client();
+    #[tokio::test]
+    async fn typed_query_returns_converted_results() {
+        let client = build_client().await;
         let collection = client.firestore.collection("people").unwrap();
         let converted = collection.with_converter(PersonConverter);
 
@@ -352,11 +363,13 @@ mod tests {
         };
         client
             .set_doc_with_converter(&doc_ref, ada.clone(), None)
+            .await
             .expect("set typed doc");
 
         let query = converted.query();
         let snapshot = client
             .get_docs_with_converter(&query)
+            .await
             .expect("converted query");
 
         let docs = snapshot.documents();
@@ -365,24 +378,30 @@ mod tests {
         assert_eq!(decoded, ada);
     }
 
-    #[test]
-    fn query_with_filters_and_limit() {
+    #[tokio::test]
+    async fn query_with_filters_and_limit() {
         use crate::firestore::api::query::{FilterOperator, OrderDirection};
 
-        let client = build_client();
+        let client = build_client().await;
         let collection = client.firestore.collection("cities").unwrap();
 
         let mut sf = BTreeMap::new();
         sf.insert("name".into(), FirestoreValue::from_string("San Francisco"));
         sf.insert("state".into(), FirestoreValue::from_string("California"));
         sf.insert("population".into(), FirestoreValue::from_integer(860_000));
-        client.set_doc("cities/sf", sf, None).expect("insert sf");
+        client
+            .set_doc("cities/sf", sf, None)
+            .await
+            .expect("insert sf");
 
         let mut la = BTreeMap::new();
         la.insert("name".into(), FirestoreValue::from_string("Los Angeles"));
         la.insert("state".into(), FirestoreValue::from_string("California"));
         la.insert("population".into(), FirestoreValue::from_integer(3_980_000));
-        client.set_doc("cities/la", la, None).expect("insert la");
+        client
+            .set_doc("cities/la", la, None)
+            .await
+            .expect("insert la");
 
         let query = collection
             .query()
@@ -400,7 +419,7 @@ mod tests {
             .limit(1)
             .unwrap();
 
-        let snapshot = client.get_docs(&query).expect("filtered query");
+        let snapshot = client.get_docs(&query).await.expect("filtered query");
         assert_eq!(snapshot.len(), 1);
         let doc = &snapshot.documents()[0];
         assert_eq!(doc.id(), "la");

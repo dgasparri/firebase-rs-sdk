@@ -2,13 +2,14 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use async_trait::async_trait;
+
 use crate::app_check::errors::AppCheckError;
 use crate::app_check::FirebaseAppCheckInternal;
 use crate::firestore::error::{
     internal_error, invalid_argument, unauthenticated, unavailable, FirestoreError, FirestoreResult,
 };
 use crate::firestore::remote::datastore::{TokenProvider, TokenProviderArc};
-use futures::executor::block_on;
 
 /// Bridges App Check token retrieval into Firestore's [`TokenProvider`] trait.
 pub struct AppCheckTokenProvider {
@@ -45,11 +46,15 @@ impl Clone for AppCheckTokenProvider {
     }
 }
 
+#[async_trait]
 impl TokenProvider for AppCheckTokenProvider {
-    fn get_token(&self) -> FirestoreResult<Option<String>> {
+    async fn get_token(&self) -> FirestoreResult<Option<String>> {
         let force_refresh = self.force_refresh.swap(false, Ordering::SeqCst);
-        let result =
-            block_on(self.app_check.get_token(force_refresh)).map_err(map_app_check_error)?;
+        let result = self
+            .app_check
+            .get_token(force_refresh)
+            .await
+            .map_err(map_app_check_error)?;
 
         if let Some(error) = result.error {
             return Err(map_app_check_error(error));

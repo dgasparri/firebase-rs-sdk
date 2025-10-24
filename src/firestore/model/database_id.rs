@@ -58,25 +58,29 @@ mod tests {
         }
     }
 
-    #[test]
-    fn builds_from_app() {
+    #[tokio::test]
+    async fn builds_from_app() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let db = DatabaseId::from_app(&app).unwrap();
         assert_eq!(db.project_id(), "project");
         assert_eq!(db.database(), DEFAULT_DATABASE_ID);
     }
 
-    #[test]
-    fn missing_project_id_errors() {
+    #[tokio::test]
+    async fn missing_project_id_errors() {
         let options = FirebaseOptions {
             api_key: Some("test".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let err = DatabaseId::from_app(&app).unwrap_err();
         assert_eq!(err.code_str(), "firestore/missing-project-id");
     }

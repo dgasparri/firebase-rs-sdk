@@ -282,19 +282,21 @@ mod tests {
         }
     }
 
-    fn setup_firestore() -> Firestore {
+    async fn setup_firestore() -> Firestore {
         let options = FirebaseOptions {
             project_id: Some("test-project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let firestore = get_firestore(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let firestore = get_firestore(Some(app)).await.unwrap();
         Firestore::from_arc(firestore)
     }
 
-    #[test]
-    fn collection_and_document_roundtrip() {
-        let firestore = setup_firestore();
+    #[tokio::test]
+    async fn collection_and_document_roundtrip() {
+        let firestore = setup_firestore().await;
         let collection = firestore.collection("cities").unwrap();
         assert_eq!(collection.id(), "cities");
         let document = collection.doc(Some("sf")).unwrap();
@@ -302,9 +304,9 @@ mod tests {
         assert_eq!(document.parent().id(), "cities");
     }
 
-    #[test]
-    fn auto_id_generation() {
-        let firestore = setup_firestore();
+    #[tokio::test]
+    async fn auto_id_generation() {
+        let firestore = setup_firestore().await;
         let collection = firestore.collection("cities").unwrap();
         let document = collection.doc(None).unwrap();
         assert_eq!(document.parent().id(), "cities");

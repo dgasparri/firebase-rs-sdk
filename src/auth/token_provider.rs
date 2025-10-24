@@ -3,13 +3,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use async_trait::async_trait;
+
 use crate::auth::error::AuthError;
 use crate::auth::Auth;
 use crate::firestore::error::{
     internal_error, unauthenticated, unavailable, FirestoreError, FirestoreResult,
 };
 use crate::firestore::remote::datastore::{TokenProvider, TokenProviderArc};
-use futures::executor::block_on;
 
 pub struct AuthTokenProvider {
     auth: Arc<Auth>,
@@ -40,10 +41,14 @@ impl Clone for AuthTokenProvider {
     }
 }
 
+#[async_trait]
 impl TokenProvider for AuthTokenProvider {
-    fn get_token(&self) -> FirestoreResult<Option<String>> {
+    async fn get_token(&self) -> FirestoreResult<Option<String>> {
         let force_refresh = self.force_refresh.swap(false, Ordering::SeqCst);
-        block_on(self.auth.get_token(force_refresh)).map_err(map_auth_error)
+        self.auth
+            .get_token(force_refresh)
+            .await
+            .map_err(map_auth_error)
     }
 
     fn invalidate_token(&self) {

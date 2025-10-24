@@ -4,7 +4,8 @@ use std::error::Error;
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::firestore::*;
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn Error>> {
     // TODO: Replace these placeholder options with the values from your Firebase project.
     let firebase_config = FirebaseOptions {
         api_key: Some("demo-api-key".into()),
@@ -12,17 +13,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         ..Default::default()
     };
 
-    let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default()))?;
-    let firestore_arc = get_firestore(Some(app.clone()))?;
+    let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default())).await?;
+    let firestore_arc = get_firestore(Some(app.clone())).await?;
     let firestore = Firestore::from_arc(firestore_arc.clone());
 
     // Use the in-memory datastore so the example stays self-contained.
     let client = FirestoreClient::with_in_memory(firestore.clone());
 
-    seed_cities(&client)?;
+    seed_cities(&client).await?;
 
     // Demonstrate fetching all documents in a collection.
-    let cities = get_cities(&firestore, &client)?;
+    let cities = get_cities(&firestore, &client).await?;
 
     println!("Loaded {} cities from Firestore:", cities.len());
     for city in cities {
@@ -38,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let doc_ref = firestore.collection("cities")?.doc(Some(document_id))?;
     let path = doc_ref.path().canonical_string();
-    let snapshot = client.get_doc(path.as_str())?;
+    let snapshot = client.get_doc(path.as_str()).await?;
     println!("\nCity with ID '{document_id}':");
     if let Some(data) = snapshot.data() {
         let name = field_as_string(data, "name").unwrap_or_else(|| "Unknown".into());
@@ -54,12 +55,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// Mirrors the `getCities` helper in `JSEXAMPLE.ts` using the Rust APIs.
-fn get_cities(
+async fn get_cities(
     firestore: &Firestore,
     client: &FirestoreClient,
 ) -> FirestoreResult<Vec<BTreeMap<String, FirestoreValue>>> {
     let query = firestore.collection("cities")?.query();
-    let snapshot = client.get_docs(&query)?;
+    let snapshot = client.get_docs(&query).await?;
 
     let mut documents = Vec::new();
     for doc in snapshot.documents() {
@@ -71,7 +72,7 @@ fn get_cities(
     Ok(documents)
 }
 
-fn seed_cities(client: &FirestoreClient) -> FirestoreResult<()> {
+async fn seed_cities(client: &FirestoreClient) -> FirestoreResult<()> {
     let cities = [
         ("sf", "San Francisco", "California", "USA", 860_000),
         ("la", "Los Angeles", "California", "USA", 3_980_000),
@@ -87,7 +88,7 @@ fn seed_cities(client: &FirestoreClient) -> FirestoreResult<()> {
             "population".into(),
             FirestoreValue::from_integer(population),
         );
-        client.set_doc(&format!("cities/{id}"), data, None)?;
+        client.set_doc(&format!("cities/{id}"), data, None).await?;
     }
 
     Ok(())

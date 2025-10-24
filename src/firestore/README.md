@@ -79,20 +79,23 @@ use firebase_rs_sdk::firestore::*;
 
 use std::collections::BTreeMap;
 use std::time::Duration;
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: replace with your project configuration
     let options = FirebaseOptions {
         project_id: Some("your-project".into()),
         // add other Firebase options as needed
         ..Default::default()
     };
-    let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
+    let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
     let auth = auth_for_app(app.clone())?;
     // Optional: wire App Check tokens into Firestore.
     let app_check_provider = custom_provider(|| token_with_ttl("fake-token", Duration::from_secs(60)));
-    let app_check = initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider))?;
+    let app_check =
+        initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider)).await?;
     let app_check_internal = FirebaseAppCheckInternal::new(app_check);
-    let firestore = get_firestore(Some(app.clone()))?;
+    let firestore = get_firestore(Some(app.clone())).await?;
     let client = FirestoreClient::with_http_datastore_authenticated(
         firebase_rs_sdk::firestore::api::Firestore::from_arc(firestore.clone()),
         auth.token_provider(),
@@ -102,14 +105,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ada.insert("first".into(), FirestoreValue::from_string("Ada"));
     ada.insert("last".into(), FirestoreValue::from_string("Lovelace"));
     ada.insert("born".into(), FirestoreValue::from_integer(1815));
-    let ada_snapshot = client.add_doc("users", ada)?;
+    let ada_snapshot = client.add_doc("users", ada).await?;
     println!("Document written with ID: {}", ada_snapshot.id());
     let mut alan = BTreeMap::new();
     alan.insert("first".into(), FirestoreValue::from_string("Alan"));
     alan.insert("middle".into(), FirestoreValue::from_string("Mathison"));
     alan.insert("last".into(), FirestoreValue::from_string("Turing"));
     alan.insert("born".into(), FirestoreValue::from_integer(1912));
-    let alan_snapshot = client.add_doc("users", alan)?;
+    let alan_snapshot = client.add_doc("users", alan).await?;
     println!("Document written with ID: {}", alan_snapshot.id());
     Ok(())
 }
@@ -124,6 +127,7 @@ If App Check is not enabled for your app, pass `None` as the third argument to
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::firestore::*;
 use std::collections::BTreeMap;
+
 #[derive(Clone)]
 struct MyUser {
    name: String,
@@ -131,8 +135,10 @@ struct MyUser {
 
 #[derive(Clone)]
 struct UserConverter;
+
 impl FirestoreDataConverter for UserConverter {
     type Model = MyUser;
+
     fn to_map(
         &self,
         value: &Self::Model,
@@ -140,17 +146,23 @@ impl FirestoreDataConverter for UserConverter {
         // Encode your model into Firestore fields.
         todo!()
     }
+
     fn from_map(&self, value: &MapValue) -> FirestoreResult<Self::Model> {
         // Decode Firestore fields into your model.
         todo!()
     }
 }
 
-fn example_with_converter(firestore: &Firestore, client: &FirestoreClient) -> FirestoreResult<Option<MyUser>> {
+async fn example_with_converter(
+    firestore: &Firestore,
+    client: &FirestoreClient,
+) -> FirestoreResult<Option<MyUser>> {
     let users = firestore.collection("typed-users")?.with_converter(UserConverter);
     let doc = users.doc(Some("ada"))?;
-    client.set_doc_with_converter(&doc, MyUser { name: "Ada".to_string() }, None)?;
-    let typed_snapshot = client.get_doc_with_converter(&doc)?;
+    client
+        .set_doc_with_converter(&doc, MyUser { name: "Ada".to_string() }, None)
+        .await?;
+    let typed_snapshot = client.get_doc_with_converter(&doc).await?;
     let user: Option<MyUser> = typed_snapshot.data()?;
     Ok(user)
 }

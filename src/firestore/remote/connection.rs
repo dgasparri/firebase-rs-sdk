@@ -5,7 +5,6 @@ use serde_json::Value as JsonValue;
 
 use crate::firestore::error::{internal_error, FirestoreResult};
 use crate::firestore::model::DatabaseId;
-use crate::util::runtime::block_on;
 
 use super::rpc_error::map_http_error;
 
@@ -72,34 +71,30 @@ impl Connection {
         &self.base_url
     }
 
-    pub fn invoke_json(
+    pub async fn invoke_json(
         &self,
         method: Method,
         path: &str,
         body: Option<JsonValue>,
         context: &RequestContext,
     ) -> FirestoreResult<JsonValue> {
-        let connection = self.clone();
-        let path_owned = path.to_owned();
-        let context_cloned = context.clone();
-        block_on(connection.invoke_json_owned(method, path_owned, body, context_cloned))
+        self.invoke_json_owned(method, path.to_owned(), body, context.clone())
+            .await
     }
 
-    pub fn invoke_json_optional(
+    pub async fn invoke_json_optional(
         &self,
         method: Method,
         path: &str,
         body: Option<JsonValue>,
         context: &RequestContext,
     ) -> FirestoreResult<Option<JsonValue>> {
-        let connection = self.clone();
-        let path_owned = path.to_owned();
-        let context_cloned = context.clone();
-        block_on(connection.invoke_json_optional_owned(method, path_owned, body, context_cloned))
+        self.invoke_json_optional_owned(method, path.to_owned(), body, context.clone())
+            .await
     }
 
     async fn invoke_json_owned(
-        self,
+        &self,
         method: Method,
         path: String,
         body: Option<JsonValue>,
@@ -130,7 +125,7 @@ impl Connection {
     }
 
     async fn invoke_json_optional_owned(
-        self,
+        &self,
         method: Method,
         path: String,
         body: Option<JsonValue>,

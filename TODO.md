@@ -61,3 +61,8 @@ It's moved to another github, easier to isntall with rustup
 
   That’s it—no extra packages required. After that you can run wasm-pack test --headless --chrome
   -- --features wasm-web to exercise the new wasm smoke tests.
+
+cargo check
+cargo check --tests
+cargo check --tests --target wasm32-unknown-unknown --features wasm-web
+cargo check --tests --target wasm32-unknown-unknown --features wasm-web

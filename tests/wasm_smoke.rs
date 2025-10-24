@@ -1,11 +1,11 @@
 #![cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 
 use firebase_rs_sdk::app::api::{delete_app, initialize_app};
-use firebase_rs_sdk::app::{errors::AppError, FirebaseApp, FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk::app_check::api::{
+use firebase_rs_sdk::app::{AppError, FirebaseApp, FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::app_check::{
     custom_provider, get_limited_use_token, get_token, initialize_app_check, token_with_ttl,
 };
-use firebase_rs_sdk::app_check::types::AppCheckOptions;
+use firebase_rs_sdk::app_check::AppCheckOptions;
 use firebase_rs_sdk::auth::api::Auth;
 use firebase_rs_sdk::auth::error::AuthError;
 use std::time::Duration;

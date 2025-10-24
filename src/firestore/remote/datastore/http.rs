@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 
 use reqwest::Method;
+
+use async_trait::async_trait;
 
 use crate::firestore::api::query::{Bound, FieldFilter, QueryDefinition};
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
@@ -15,6 +17,8 @@ use crate::firestore::remote::connection::{Connection, ConnectionBuilder, Reques
 use crate::firestore::remote::serializer::JsonProtoSerializer;
 use crate::firestore::value::MapValue;
 use serde_json::{json, Value as JsonValue};
+
+use crate::platform::runtime::sleep as runtime_sleep;
 
 use super::{Datastore, NoopTokenProvider, TokenProviderArc};
 
@@ -82,14 +86,15 @@ impl HttpDatastore {
         }
     }
 
-    fn execute_with_retry<F, T>(&self, mut operation: F) -> FirestoreResult<T>
+    async fn execute_with_retry<F, Fut, T>(&self, mut operation: F) -> FirestoreResult<T>
     where
-        F: FnMut(&RequestContext) -> FirestoreResult<T>,
+        F: FnMut(&RequestContext) -> Fut,
+        Fut: Future<Output = FirestoreResult<T>>,
     {
         let mut attempt = 0usize;
         loop {
-            let context = self.build_request_context()?;
-            match operation(&context) {
+            let context = self.build_request_context().await?;
+            match operation(&context).await {
                 Ok(result) => return Ok(result),
                 Err(err) => {
                     if !self.retry.should_retry(attempt, &err) {
@@ -102,16 +107,16 @@ impl HttpDatastore {
                     }
 
                     let delay = self.retry.backoff_delay(attempt);
-                    thread::sleep(delay);
+                    runtime_sleep(delay).await;
                     attempt += 1;
                 }
             }
         }
     }
 
-    fn build_request_context(&self) -> FirestoreResult<RequestContext> {
-        let auth_token = self.auth_provider.get_token()?;
-        let app_check_token = self.app_check_provider.get_token()?;
+    async fn build_request_context(&self) -> FirestoreResult<RequestContext> {
+        let auth_token = self.auth_provider.get_token().await?;
+        let app_check_token = self.app_check_provider.get_token().await?;
         Ok(RequestContext {
             auth_token,
             app_check_token,
@@ -120,19 +125,23 @@ impl HttpDatastore {
     }
 }
 
+#[async_trait]
 impl Datastore for HttpDatastore {
-    fn get_document(&self, key: &DocumentKey) -> FirestoreResult<DocumentSnapshot> {
+    async fn get_document(&self, key: &DocumentKey) -> FirestoreResult<DocumentSnapshot> {
         let doc_path = format!("documents/{}", key.path().canonical_string());
-        let snapshot = self.execute_with_retry(|context| {
-            self.connection
-                .invoke_json_optional(Method::GET, &doc_path, None, context)
-        })?;
+        let serializer = self.serializer.clone();
+        let snapshot = self
+            .execute_with_retry(|context| async {
+                self.connection
+                    .invoke_json_optional(Method::GET, &doc_path, None, context)
+                    .await
+            })
+            .await?;
 
         if let Some(json) = snapshot {
-            let map_value = self
-                .serializer
+            let map_value = serializer
                 .decode_document_fields(&json)?
-                .unwrap_or_else(|| MapValue::new(std::collections::BTreeMap::new()));
+                .unwrap_or_else(|| MapValue::new(BTreeMap::new()));
             Ok(DocumentSnapshot::new(
                 key.clone(),
                 Some(map_value),
@@ -147,7 +156,12 @@ impl Datastore for HttpDatastore {
         }
     }
 
-    fn set_document(&self, key: &DocumentKey, data: MapValue, merge: bool) -> FirestoreResult<()> {
+    async fn set_document(
+        &self,
+        key: &DocumentKey,
+        data: MapValue,
+        merge: bool,
+    ) -> FirestoreResult<()> {
         if merge {
             return Err(invalid_argument(
                 "HTTP datastore set with merge is not yet implemented",
@@ -155,7 +169,7 @@ impl Datastore for HttpDatastore {
         }
 
         let commit_body = self.serializer.encode_commit_body(key, &data);
-        self.execute_with_retry(|context| {
+        self.execute_with_retry(|context| async {
             self.connection
                 .invoke_json(
                     Method::POST,
@@ -163,11 +177,13 @@ impl Datastore for HttpDatastore {
                     Some(commit_body.clone()),
                     context,
                 )
+                .await
                 .map(|_| ())
         })
+        .await
     }
 
-    fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>> {
+    async fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>> {
         let request_path = if query.parent_path().is_empty() {
             "documents:runQuery".to_string()
         } else {
@@ -181,11 +197,15 @@ impl Datastore for HttpDatastore {
         let body = json!({
             "structuredQuery": structured_query
         });
+        let serializer = self.serializer.clone();
 
-        let response = self.execute_with_retry(|context| {
-            self.connection
-                .invoke_json(Method::POST, &request_path, Some(body.clone()), context)
-        })?;
+        let response = self
+            .execute_with_retry(|context| async {
+                self.connection
+                    .invoke_json(Method::POST, &request_path, Some(body.clone()), context)
+                    .await
+            })
+            .await?;
 
         let results = response
             .as_array()
@@ -200,14 +220,13 @@ impl Datastore for HttpDatastore {
 
             let name = document
                 .get("name")
-                .and_then(|value| value.as_str())
+                .and_then(JsonValue::as_str)
                 .ok_or_else(|| {
                     internal_error("Firestore runQuery document missing 'name' field")
                 })?;
             let key = self.parse_document_name(name)?;
 
-            let map_value = self
-                .serializer
+            let map_value = serializer
                 .decode_document_fields(document)?
                 .unwrap_or_else(|| MapValue::new(BTreeMap::new()));
 
@@ -448,8 +467,8 @@ mod tests {
         assert!(!settings.should_retry(0, &error));
     }
 
-    #[test]
-    fn run_query_fetches_documents() {
+    #[tokio::test]
+    async fn run_query_fetches_documents() {
         let server = match panic::catch_unwind(|| start_mock_server()) {
             Ok(server) => server,
             Err(_) => {
@@ -547,7 +566,7 @@ mod tests {
         let query = firestore.collection("cities").unwrap().query();
         let definition = query.definition();
 
-        let snapshots = datastore.run_query(&definition).expect("query");
+        let snapshots = datastore.run_query(&definition).await.expect("query");
         assert_eq!(snapshots.len(), 2);
         let names: Vec<_> = snapshots.iter().map(|snap| snap.id().to_string()).collect();
         assert_eq!(names, vec!["LA", "SF"]);
