@@ -1220,3 +1220,25 @@ Async refresh and provider plumbing are now in place so Stage 1 (App) and Stage 
   we’ll revisit those at the end.
 
 
+ok, perfect! please update the ./WASM_PLAN.md file with the work done and what it is to be done next. The other
+▌ modules have this order of importance:
+▌
+▌ 1. firestore
+▌ 2. storage
+▌ 3. installations
+▌ 4. remote_config
+▌
+▌ and then the others, in no particular order.
+▌
+▌ Since we are changing each module, please make it more clear in ./AGENTS.md that the only exposed public API for each
+▌ module should be in the ./src/{module}/mod.rs file, where they should be re-exported, so that there's no need to go
+▌ around the module inner structure to find a call or a data type
+
+Updated the docs to reflect the async/wasm progress and coding expectations:
+
+  - WASM_PLAN.md now marks Stage 2 (auth, app_check, messaging) as complete, lists what’s left for Stage 1, and
+  highlights Stage 3 priorities in the requested order: Firestore → Storage → Installations → Remote Config → others.
+  - AGENTS.md now explicitly states that every module must expose its public API only through src/{module}/mod.rs, so no
+  public items should leak from inner files.
+
+  No code changes or new warnings beyond these doc updates.

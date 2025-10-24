@@ -4,8 +4,8 @@ This plan captures the work required to ship the next major version of the fireb
 
 ## Focus Areas
 1. Land Stage 1 by making the `src/app` module fully async-aware and wasm-ready, unblocking downstream crates and documenting any temporary gating.
-2. Deliver Stage 2 by porting `auth`, `app_check`, and `messaging` to the shared async platform so every consumer can rely on the same token and messaging contracts.
-3. Execute Stage 3 across the remaining modules, completing the Storage/Database async adoption, updating examples, and tightening wasm feature guards.
+2. Deliver Stage 2 by porting `auth`, `app_check`, and `messaging` to the shared async platform so every consumer can rely on the same token and messaging contracts. **Status:** ✅ Completed – all three modules now expose async APIs, share the token provider abstraction, and schedule timer-driven refresh using the new platform runtime.
+3. Execute Stage 3 across the remaining modules, completing the Storage/Database async adoption, updating examples, and tightening wasm feature guards. Current priority order (most urgent first): **Firestore → Storage → Installations → Remote Config → other modules.**
 4. This is a major version update. It is OK to make disrupting changes to the old API and change the public API to async when needed/recommended. Creating a clean, wasm compatible library is more important than legacy to the old API. Do not waste time trying to retain the old API. When a module blocks progress, comment out the offending imports with a `// TODO(async-wasm): re-enable once <reason>` note so the workspace keeps moving.
 
 ## Stage 0 – Tooling & Policy Prerequisites
@@ -18,28 +18,30 @@ This plan captures the work required to ship the next major version of the fireb
 - [ ] Review shared crates under `src/component`, `src/util`, `src/logger`, and `src/platform` and note any blockers that must be handled before Stage 1 proceeds.
 
 ## Stage 1 – App Module Foundation (`src/app`)
-- [ ] Refactor the `app` module so its public APIs return futures where appropriate while preserving Firebase JS naming.
-- [ ] Introduce async-aware initialisation logic that can run in wasm (`wasm-bindgen-futures`) and native (`tokio` optional feature) environments.
-- [ ] Audit module registration/component bootstrap paths to remove blocking primitives; migrate them to async `Mutex`/`RwLock` and timer utilities in `src/platform`.
-- [ ] Update or create examples demonstrating async application initialisation, including wasm-specific guidance.
+- [x] Refactor the `app` module so its public APIs return futures where appropriate while preserving Firebase JS naming.
+- [x] Introduce async-aware initialisation logic that can run in wasm (`wasm-bindgen-futures`) and native (`tokio` optional feature) environments.
+- [x] Audit module registration/component bootstrap paths to remove blocking primitives; migrate them to async `Mutex`/`RwLock` and timer utilities in `src/platform`.
+- [ ] Update or create examples demonstrating async application initialisation, including wasm-specific guidance. *(App example updated; still need broader guidance in docs.)*
 - [ ] If downstream modules break during the refactor, gate or comment out their imports/constructors with `// TODO(async-wasm): re-enable …` and track them in the plan.
 - [ ] Add unit tests (native) and wasm-bindgen smoke tests that cover async initialisation, configuration loading, and dependency injection.
 
 ## Stage 2 – Identity Backbone (`src/auth`, `src/app_check`, `src/messaging`)
-- [ ] Refactor `src/auth` so the public API returns futures, backed by async transports split into `auth/api/native.rs` and `auth/api/wasm.rs` implementing a shared trait.
-- [ ] Implement async token refresh using `gloo_timers` (wasm) and runtime-specific timers (native). Remove legacy blocking wrappers as part of the major bump.
-- [ ] Introduce an async token provider trait in `src/platform/token.rs`, ensuring `auth`, `app_check`, and `messaging` consume and expose tokens through the shared abstraction.
-- [ ] Adapt shared messaging transport and push-subscription logic to async primitives, adding wasm feature gates where browser-only facilities are required.
-- [ ] Update `app_check` to use async HTTP clients and timers, aligning with the token provider contract and annotating wasm-only behaviour.
-- [ ] Ensure Stage 2 modules compile alongside Stage 1 even if other modules remain temporarily disabled. Document any TODO gates introduced.
-- [ ] Add targeted unit tests and wasm-bindgen tests covering token issuance, messaging registration, and app check attestation workflows.
+- [x] Refactor `src/auth` so the public API returns futures, backed by async transports split into `auth/api/native.rs` and `auth/api/wasm.rs` implementing a shared trait.
+- [x] Implement async token refresh using `gloo_timers` (wasm) and runtime-specific timers (native). Remove legacy blocking wrappers as part of the major bump.
+- [x] Introduce an async token provider trait in `src/platform/token.rs`, ensuring `auth`, `app_check`, and `messaging` consume and expose tokens through the shared abstraction.
+- [x] Adapt shared messaging transport and push-subscription logic to async primitives, adding wasm feature gates where browser-only facilities are required.
+- [x] Update `app_check` to use async HTTP clients and timers, aligning with the token provider contract and annotating wasm-only behaviour.
+- [x] Ensure Stage 2 modules compile alongside Stage 1 even if other modules remain temporarily disabled. Document any TODO gates introduced.
+- [ ] Add targeted unit tests and wasm-bindgen tests covering token issuance, messaging registration, and app check attestation workflows. *(Native tests updated; wasm coverage still to expand.)*
 
-## Stage 3 – Feature Modules (Firestore, Storage, Realtime Database, Remote Config, Functions, etc.)
+## Stage 3 – Feature Modules (Firestore, Storage, Installations, Remote Config, etc.)
 - [x] Replace the Storage transport with the unified async client, ensuring operations return futures with Firebase JS naming. (Completed – audit remaining call sites for compliance.)
-- [ ] Sweep Storage call sites, READMEs, and examples to ensure they await the async API and highlight runtime requirements.
-- [ ] Rework the Realtime Database client to use the shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
-- [ ] Migrate Firestore to the async token provider/transport, eliminating blocking `reqwest::blocking` usage and aligning query/listener APIs with the JS SDK.
-- [ ] Update Functions, Remote Config, Analytics, Installations, and other modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.
+- [ ] Firestore: migrate to async token/provider infrastructure, remove blocking HTTP, and gate wasm-specific paths. **High priority.**
+- [ ] Storage: sweep call sites, README, and examples to reflect async usage, double-check wasm guards.
+- [ ] Installations: port APIs to async, share the token provider, and integrate with messaging/app_check. **Depends on Firestore/Storage groundwork.**
+- [ ] Remote Config: adopt the async client/runtime once Installations is ready.
+- [ ] Rework Realtime Database client to use shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
+- [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.
 - [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.
 - [ ] Ensure token acquisition hooks (`auth_token`, `app_check_token`) are fully async across the board and document any intentionally unsupported scenarios.
 
