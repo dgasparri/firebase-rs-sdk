@@ -132,11 +132,16 @@ mod tests {
             token: "app-check-123".into(),
         });
         let options = AppCheckOptions::new(provider);
-        let app_check = block_on(initialize_app_check(
-            Some(test_app("app-check-ok")),
-            options,
-        ))
-        .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let app_check = runtime
+            .block_on(initialize_app_check(
+                Some(test_app("app-check-ok")),
+                options,
+            ))
+            .unwrap();
         let internal = FirebaseAppCheckInternal::new(app_check);
         let provider = AppCheckTokenProvider::new(internal);
 
@@ -148,11 +153,16 @@ mod tests {
     fn propagates_errors() {
         let provider = Arc::new(ErrorProvider);
         let options = AppCheckOptions::new(provider);
-        let app_check = block_on(initialize_app_check(
-            Some(test_app("app-check-err")),
-            options,
-        ))
-        .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let app_check = runtime
+            .block_on(initialize_app_check(
+                Some(test_app("app-check-err")),
+                options,
+            ))
+            .unwrap();
         let internal = FirebaseAppCheckInternal::new(app_check);
         let provider = AppCheckTokenProvider::new(internal);
 

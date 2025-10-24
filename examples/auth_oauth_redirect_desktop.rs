@@ -44,7 +44,8 @@ fn configure_provider() -> OAuthProvider {
     provider
 }
 
-fn main() -> AuthResult<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> AuthResult<()> {
     let _app: FirebaseApp = todo!("Initialize Firebase app with your configuration");
     #[allow(unreachable_code)]
     let auth = Auth::builder(_app)
@@ -56,7 +57,7 @@ fn main() -> AuthResult<()> {
     provider.sign_in_with_redirect(&auth)?;
 
     // Later, once the redirect completes and the credential payload is available:
-    if let Some(credential) = OAuthProvider::get_redirect_result(&auth)? {
+    if let Some(credential) = OAuthProvider::get_redirect_result(&auth).await? {
         println!("Signed in with provider {:?}", credential.provider_id);
     }
 

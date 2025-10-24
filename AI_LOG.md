@@ -1125,3 +1125,98 @@ Updated Plan
   place.
 
   I ran cargo fmt; tests still need to be re-run after the remaining Stage 2 conversions.
+
+
+
+
+Thinking
+  I'll highlight the key async changes across app_check, messaging, storage, and examples with specific file and line
+  references. I'll note runtime utilities added for async scheduling, trait and function signature updates to async,
+  testing outcomes with cargo check passing but cargo test failing due to example issues, and mention the Firestore
+  insert example update and README adjustments accordingly.
+
+> Async Runtime & Scheduling
+
+  - Added src/platform/runtime.rs#L1 with cross-target helpers (spawn_detached, sleep) so background work can run on
+  both tokio and wasm executors without hand-rolled block_on.
+  - src/storage/service.rs:418 now wraps App Check component registration in a one-off tokio runtime because
+  initialize_app_check is async.
+
+  App Check Refresh Pipeline
+
+  - src/app_check/api.rs:17 makes initialize_app_check async, awaits get_app, and wires token auto-refresh via
+  schedule_token_refresh.
+  - src/app_check/api.rs:167 logs failed refreshes and cancels timers when auto-refresh is disabled.
+  - src/app_check/types.rs:125 upgrades AppCheckProvider (and CustomProvider/reCAPTCHA providers) to async, while src/
+  app_check/state.rs:122 calls back into api::on_token_stored so every persisted token schedules a refresh. Cancellation
+  handles live in the state map (refresh_cancel).
+
+  Bridges & Tests
+
+  - Firestore’s token bridge now blocks on async APIs for tests (src/app_check/token_provider.rs:133) and uses async
+  providers.
+  - WASM smoke tests await the async initializer (tests/wasm_smoke.rs:62) to keep parity across targets.
+
+  Messaging Entrypoint
+
+  - src/messaging/api.rs:255 exposes get_messaging as async; native tests use a current-thread tokio runtime (src/
+  messaging/api.rs:798) instead of the old single-shot poller. Docs point out the await (src/messaging/README.md:18).
+
+  Examples & Docs
+
+  - The App Check example runs inside an async main (examples/app_check_custom_provider.rs:9) and awaits every network
+  call; the Firestore insert sketch now does the same (examples/firestore_insert_document.rs:9).
+  - Module READMEs were refreshed to show the async usage (src/app_check/README.md:104, src/messaging/README.md:18).
+
+  Verification
+
+  - cargo check
+  - cargo check --tests
+    (cargo test still fails because several optional examples reference unported modules such as Database/
+  Installations.)
+
+  Let me know if you’d like those optional examples updated next.
+
+Async refresh and provider plumbing are now in place so Stage 1 (App) and Stage 2 (Auth/App Check/Messaging)
+  deliverables are effectively done:
+
+  - src/platform/runtime.rs exposes spawn_detached/sleep, letting us remove ad hoc block_on usage while keeping native
+  and wasm targets happy.
+  - App initialisation was cleaned up: core_components::ensure_registered is async, and
+  ensure_core_components_registered().await is called from every public entry point in src/app/api.rs.
+  - Auth uses genuinely async REST operations everywhere (src/auth/api/native/account.rs, .../idp.rs, .../mod.rs) and
+  schedules background refreshes through the platform runtime; wasm stubs mirror the async signatures. OAuth helper
+  flows await the new methods, and the wasm popup example was updated to spawn the async call.
+  - App Check is fully async now: src/app_check/api.rs awaits get_app, queues refreshes, and maintains cancel tokens;
+  AppCheckProvider became an async_trait, and all tests/examples await the right futures. Tokens persisted via
+  state::store_token trigger refresh scheduling.
+  - Messaging’s get_messaging is async and tests/patterns were converted to run through a tokio runtime. Non-wasm
+  quickstart docs show the await.
+  - Examples (app_check_custom_provider.rs, firestore_insert_document.rs) and README snippets now reflect async usage.
+  - Smoke check for wasm and cargo check/cargo check --tests pass (full cargo test still fails due to unrelated
+  database/installations examples, which we’ll revisit at the very end per your direction).
+
+  At this point the library API is consistently async across App, Auth, App Check, and messaging. Let me know where
+  you’d like to focus next in the codebase.
+
+
+
+ Thinking
+  I want to confirm that only two files have changed since the last commit, likely because previous large modifications
+  were already committed. I'll focus on the new addition of a Tokio runtime in src/app_check/token_provider.rs around
+  line 132 and updates in examples/auth_oauth_redirect_desktop.rs near the top. I'll note the test adaptations and
+  that running cargo check and similar commands succeeded except for examples related to unported modules, which we
+  intentionally left unfixed. Then I'll prepare the final message summarizing these points with specific file and line
+  references.
+
+> - Converted the desktop OAuth redirect sample to the new async Auth API so it compiles again: examples/
+  auth_oauth_redirect_desktop.rs:1.
+  - Updated the App Check → Firestore bridge tests to spin up a local tokio runtime before awaiting
+  initialize_app_check, keeping the async conversion self‑contained without leaking async into the test harness: src/
+  app_check/token_provider.rs:132.
+
+  Ran cargo fmt, cargo check, and cargo check --tests (all clean). cargo check --examples still fails because other
+  modules’ examples (database/installations/firestore converters) depend on code paths we haven’t ported yet—as planned,
+  we’ll revisit those at the end.
+
+
