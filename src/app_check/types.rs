@@ -2,7 +2,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use async_trait::async_trait;
+
 use crate::app::FirebaseApp;
+use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::{PartialObserver, Unsubscribe};
 
 use super::errors::{AppCheckError, AppCheckResult};
@@ -155,12 +158,12 @@ impl AppCheck {
         crate::app_check::api::set_token_auto_refresh_enabled(self, enabled);
     }
 
-    pub fn get_token(&self, force_refresh: bool) -> AppCheckResult<AppCheckTokenResult> {
-        crate::app_check::api::get_token(self, force_refresh)
+    pub async fn get_token(&self, force_refresh: bool) -> AppCheckResult<AppCheckTokenResult> {
+        crate::app_check::api::get_token(self, force_refresh).await
     }
 
-    pub fn get_limited_use_token(&self) -> AppCheckResult<AppCheckTokenResult> {
-        crate::app_check::api::get_limited_use_token(self)
+    pub async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckTokenResult> {
+        crate::app_check::api::get_limited_use_token(self).await
     }
 
     pub fn on_token_changed_with_observer(
@@ -193,6 +196,25 @@ impl AppCheck {
     {
         let observer = PartialObserver::new().with_next(on_next);
         self.on_token_changed_with_observer(observer)
+    }
+}
+
+#[async_trait]
+impl AsyncTokenProvider for Arc<AppCheck> {
+    async fn get_token(&self, force_refresh: bool) -> Result<Option<String>, TokenError> {
+        let result = AppCheck::get_token(self, force_refresh)
+            .await
+            .map_err(TokenError::from_error)?;
+
+        if let Some(err) = result.error.or(result.internal_error) {
+            return Err(TokenError::from_error(err));
+        }
+
+        if result.token.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(result.token))
+        }
     }
 }
 

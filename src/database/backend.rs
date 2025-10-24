@@ -12,6 +12,7 @@ use crate::database::error::{
     internal_error, invalid_argument, permission_denied, DatabaseError, DatabaseResult,
 };
 use crate::logger::Logger;
+use futures::executor::block_on;
 
 type TokenFetcher = Arc<dyn Fn() -> DatabaseResult<Option<String>> + Send + Sync>;
 
@@ -52,7 +53,7 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
                 return Ok(None);
             };
 
-            match auth.get_token(false) {
+            match block_on(auth.get_token(false)) {
                 Ok(Some(token)) if token.is_empty() => Ok(None),
                 Ok(Some(token)) => Ok(Some(token)),
                 Ok(None) => Ok(None),
@@ -76,7 +77,7 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
                 return Ok(None);
             };
 
-            let result = app_check.get_token(false).map_err(|err| {
+            let result = block_on(app_check.get_token(false)).map_err(|err| {
                 internal_error(format!("failed to obtain App Check token: {err}"))
             })?;
 

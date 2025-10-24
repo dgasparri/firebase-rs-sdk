@@ -12,13 +12,11 @@
 // #[cfg(target_arch = "wasm32")]
 // pub mod analytics {}
 pub mod app;
-// TODO(async-wasm): Re-enable app_check when Stage 2 completes the async migration.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod app_check;
-// #[cfg(target_arch = "wasm32")]
-// pub mod app_check {}
-// TODO(async-wasm): Re-enable auth module in Stage 2.
-// pub mod auth;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod app_check;
+#[cfg(target_arch = "wasm32")]
+pub mod app_check {}
+pub mod auth;
 pub mod component;
 // TODO(async-wasm): Re-enable data_connect once Stage 3 migration lands.
 // #[cfg(not(target_arch = "wasm32"))]
@@ -33,10 +31,10 @@ pub mod component;
 // pub mod database {}
 
 // TODO(async-wasm): Re-enable firestore once Stage 3 completes.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod firestore;
-// #[cfg(target_arch = "wasm32")]
-// pub mod firestore {}
+#[cfg(feature = "firestore")]
+pub mod firestore;
+#[cfg(not(feature = "firestore"))]
+pub mod firestore {}
 
 // TODO(async-wasm): Re-enable functions module as part of Stage 3.
 // #[cfg(not(target_arch = "wasm32"))]
@@ -50,21 +48,17 @@ pub mod component;
 // #[cfg(target_arch = "wasm32")]
 // pub mod installations {}
 pub mod logger;
-// TODO(async-wasm): Re-enable messaging when Stage 2 migrates push components.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod messaging;
-// #[cfg(target_arch = "wasm32")]
-// pub mod messaging {}
+#[cfg(not(target_arch = "wasm32"))]
+pub mod messaging;
+#[cfg(target_arch = "wasm32")]
+pub mod messaging {}
 
 // TODO(async-wasm): Re-enable performance module in Stage 3.
 // #[cfg(not(target_arch = "wasm32"))]
 // pub mod performance;
 // #[cfg(target_arch = "wasm32")]
 // pub mod performance {}
-#[cfg(not(target_arch = "wasm32"))]
 pub mod platform;
-#[cfg(target_arch = "wasm32")]
-pub mod platform {}
 // TODO(async-wasm): Re-enable remote_config once Stage 3 async transport is ready.
 // #[cfg(not(target_arch = "wasm32"))]
 // pub mod remote_config;

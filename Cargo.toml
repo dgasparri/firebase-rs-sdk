@@ -26,6 +26,7 @@ default = []
 wasm-web = ["wasm-bindgen", "js-sys", "web-sys", "wasm-bindgen-futures"]
 ai-http = []
 experimental-indexed-db = []
+firestore = []
 
 [dependencies]
 chrono = { version = "0.4", features = ["clock"] }

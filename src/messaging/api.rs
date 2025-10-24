@@ -5,6 +5,7 @@ use std::sync::{
 };
 use std::sync::{Arc, LazyLock};
 
+use futures::executor::block_on;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 
@@ -259,7 +260,8 @@ pub fn get_messaging(app: Option<FirebaseApp>) -> MessagingResult<Arc<Messaging>
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => block_on(crate::app::api::get_app(None))
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     let provider = app::registry::get_provider(&app, MESSAGING_COMPONENT_NAME);

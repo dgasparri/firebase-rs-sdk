@@ -2,7 +2,8 @@ use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::auth::*;
 use std::error::Error;
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn Error>> {
     // Configure the Firebase project. Replace the placeholder values with your
     // project's credentials before running the example.
     let options = FirebaseOptions {
@@ -18,7 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // Initialise the core Firebase App instance.
-    let app = initialize_app(options, Some(settings))?;
+    let app = initialize_app(options, Some(settings)).await?;
 
     // Ensure the Auth component is registered so `auth_for_app` succeeds.
     register_auth_component();
@@ -28,7 +29,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let email = "alice@example.com";
     let password = "correct-horse-battery-staple";
 
-    let credential = auth.sign_in_with_email_and_password(email, password)?;
+    let credential = auth
+        .sign_in_with_email_and_password(email, password)
+        .await?;
     println!(
         "Signed in as {} (provider: {:?})",
         credential.user.uid(),
@@ -46,7 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     auth.sign_out();
     println!("Signed out.");
 
-    firebase_rs_sdk::app::api::delete_app(&app)?;
+    firebase_rs_sdk::app::api::delete_app(&app).await?;
     println!("App deleted.");
 
     Ok(())

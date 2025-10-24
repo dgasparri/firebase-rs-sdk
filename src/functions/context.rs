@@ -78,7 +78,7 @@ impl ContextProvider {
 
     async fn fetch_auth_token(&self) -> Option<String> {
         let auth = self.ensure_auth()?;
-        match auth.get_token_async(false).await {
+        match auth.get_token(false).await {
             Ok(Some(token)) if !token.is_empty() => Some(token),
             _ => None,
         }
@@ -122,9 +122,9 @@ impl ContextProvider {
     async fn fetch_app_check_token(&self, limited_use: bool) -> Option<String> {
         let app_check = self.ensure_app_check()?;
         let result = if limited_use {
-            app_check.get_limited_use_token_async().await
+            app_check.get_limited_use_token().await
         } else {
-            app_check.get_token_async(false).await
+            app_check.get_token(false).await
         };
 
         match result {

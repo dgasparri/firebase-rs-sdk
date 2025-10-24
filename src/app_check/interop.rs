@@ -5,8 +5,10 @@ use crate::app_check::errors::AppCheckResult;
 use crate::app_check::types::{
     AppCheck, AppCheckInternalListener, AppCheckTokenResult, ListenerHandle, ListenerType,
 };
+#[cfg(feature = "firestore")]
 use crate::firestore::remote::datastore::TokenProviderArc;
 
+#[cfg(feature = "firestore")]
 use super::token_provider::app_check_token_provider_arc;
 
 #[derive(Clone)]
@@ -27,23 +29,12 @@ impl FirebaseAppCheckInternal {
         &self.app_check
     }
 
-    pub fn get_token(&self, force_refresh: bool) -> AppCheckResult<AppCheckTokenResult> {
-        api::get_token(&self.app_check, force_refresh)
+    pub async fn get_token(&self, force_refresh: bool) -> AppCheckResult<AppCheckTokenResult> {
+        api::get_token(&self.app_check, force_refresh).await
     }
 
-    pub async fn get_token_async(
-        &self,
-        force_refresh: bool,
-    ) -> AppCheckResult<AppCheckTokenResult> {
-        self.get_token(force_refresh)
-    }
-
-    pub fn get_limited_use_token(&self) -> AppCheckResult<AppCheckTokenResult> {
-        api::get_limited_use_token(&self.app_check)
-    }
-
-    pub async fn get_limited_use_token_async(&self) -> AppCheckResult<AppCheckTokenResult> {
-        self.get_limited_use_token()
+    pub async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckTokenResult> {
+        api::get_limited_use_token(&self.app_check).await
     }
 
     pub fn add_token_listener(&self, listener: AppCheckInternalListener) -> AppCheckResult<()> {
@@ -70,6 +61,7 @@ impl FirebaseAppCheckInternal {
     }
 
     /// Exposes the internal App Check instance as a Firestore token provider.
+    #[cfg(feature = "firestore")]
     pub fn token_provider(&self) -> TokenProviderArc {
         app_check_token_provider_arc(self.clone())
     }
@@ -82,6 +74,7 @@ mod tests {
     use crate::app_check::api::{initialize_app_check, token_with_ttl};
     use crate::app_check::types::{AppCheckOptions, AppCheckProvider, AppCheckToken};
     use crate::component::ComponentContainer;
+    use futures::executor::block_on;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -117,7 +110,7 @@ mod tests {
     #[test]
     fn get_token_returns_value() {
         let internal = setup_internal("app-check-internal-test");
-        let result = internal.get_token(false).unwrap();
+        let result = block_on(internal.get_token(false)).unwrap();
         assert_eq!(result.token, "token");
     }
 
@@ -134,15 +127,15 @@ mod tests {
         };
 
         // populate token cache
-        internal.get_token(false).unwrap();
+        block_on(internal.get_token(false)).unwrap();
         internal.add_token_listener(listener.clone()).unwrap();
         assert_eq!(counter.load(Ordering::SeqCst), 1);
 
-        internal.get_token(true).unwrap();
+        block_on(internal.get_token(true)).unwrap();
         assert_eq!(counter.load(Ordering::SeqCst), 2);
 
         internal.remove_token_listener(&listener);
-        internal.get_token(true).unwrap();
+        block_on(internal.get_token(true)).unwrap();
         assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 }

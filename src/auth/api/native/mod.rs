@@ -1,8 +1,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
+use async_trait::async_trait;
 use reqwest::Client;
 use reqwest::Url;
 use serde::Serialize;
@@ -32,8 +32,10 @@ use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentContainer, ComponentType};
+#[cfg(feature = "firestore")]
 use crate::firestore::remote::datastore::TokenProviderArc;
-use crate::util::{backoff, runtime::block_on, PartialObserver};
+use crate::platform::token::{AsyncTokenProvider, TokenError};
+use crate::util::PartialObserver;
 use account::{
     confirm_password_reset, delete_account, get_account_info, send_email_verification,
     send_password_reset_email, update_account, verify_password, UpdateAccountRequest,
@@ -62,6 +64,15 @@ pub struct Auth {
     secure_token_endpoint: Mutex<String>,
     refresh_cancel: Mutex<Option<Arc<AtomicBool>>>,
     self_ref: Mutex<Weak<Auth>>,
+}
+
+#[async_trait]
+impl AsyncTokenProvider for Arc<Auth> {
+    async fn get_token(&self, force_refresh: bool) -> Result<Option<String>, TokenError> {
+        self.get_token(force_refresh)
+            .await
+            .map_err(TokenError::from_error)
+    }
 }
 
 impl Auth {
@@ -152,7 +163,7 @@ impl Auth {
     }
 
     /// Signs a user in using the email/password REST endpoint.
-    pub fn sign_in_with_email_and_password(
+    pub async fn sign_in_with_email_and_password(
         &self,
         email: &str,
         password: &str,
@@ -165,8 +176,9 @@ impl Auth {
             return_secure_token: true,
         };
 
-        let response: SignInWithPasswordResponse =
-            self.execute_request("accounts:signInWithPassword", &api_key, &request)?;
+        let response: SignInWithPasswordResponse = self
+            .execute_request("accounts:signInWithPassword", &api_key, &request)
+            .await?;
 
         let expires_in = self.parse_expires_in(&response.expires_in)?;
         let user = self.build_user_from_response(&response.local_id, &response.email);
@@ -188,7 +200,7 @@ impl Auth {
     }
 
     /// Creates a new user using email/password credentials.
-    pub fn create_user_with_email_and_password(
+    pub async fn create_user_with_email_and_password(
         &self,
         email: &str,
         password: &str,
@@ -201,8 +213,9 @@ impl Auth {
             return_secure_token: true,
         };
 
-        let response: SignUpResponse =
-            self.execute_request("accounts:signUp", &api_key, &request)?;
+        let response: SignUpResponse = self
+            .execute_request("accounts:signUp", &api_key, &request)
+            .await?;
 
         let user = self.build_user_from_response(&response.local_id, &response.email);
         let expires_in = response
@@ -242,7 +255,7 @@ impl Auth {
         || {}
     }
 
-    fn execute_request<TRequest, TResponse>(
+    async fn execute_request<TRequest, TResponse>(
         &self,
         path: &str,
         api_key: &str,
@@ -257,28 +270,26 @@ impl Auth {
         let body =
             serde_json::to_vec(request).map_err(|err| AuthError::Network(err.to_string()))?;
 
-        block_on(async move {
-            let response = client
-                .post(url)
-                .header("content-type", "application/json")
-                .body(body)
-                .send()
-                .await
-                .map_err(|err| AuthError::Network(err.to_string()))?;
+        let response = client
+            .post(url)
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(|err| AuthError::Network(err.to_string()))?;
 
-            if !response.status().is_success() {
-                let message = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string());
-                return Err(AuthError::Network(message));
-            }
-
-            response
-                .json()
+        if !response.status().is_success() {
+            let message = response
+                .text()
                 .await
-                .map_err(|err| AuthError::Network(err.to_string()))
-        })
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(AuthError::Network(message));
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|err| AuthError::Network(err.to_string()))
     }
 
     fn endpoint_url(&self, path: &str, api_key: &str) -> AuthResult<Url> {
@@ -315,7 +326,7 @@ impl Auth {
         Ok(Duration::from_secs(seconds))
     }
 
-    fn refresh_user_token(&self, user: &Arc<User>) -> AuthResult<String> {
+    async fn refresh_user_token(&self, user: &Arc<User>) -> AuthResult<String> {
         let refresh_token = user
             .refresh_token()
             .ok_or_else(|| AuthError::InvalidCredential("Missing refresh token".into()))?;
@@ -326,7 +337,8 @@ impl Auth {
             &secure_endpoint,
             &api_key,
             &refresh_token,
-        )?;
+        )
+        .await?;
         let expires_in = self.parse_expires_in(&response.expires_in)?;
         user.update_tokens(
             Some(response.id_token.clone()),
@@ -339,7 +351,7 @@ impl Auth {
     }
 
     /// Returns the current user's ID token, refreshing when requested.
-    pub fn get_token(&self, force_refresh: bool) -> AuthResult<Option<String>> {
+    pub async fn get_token(&self, force_refresh: bool) -> AuthResult<Option<String>> {
         let user = match self.current_user() {
             Some(user) => user,
             None => return Ok(None),
@@ -351,17 +363,19 @@ impl Auth {
                 .should_refresh(self.token_refresh_tolerance);
 
         if needs_refresh {
-            self.refresh_user_token(&user).map(Some)
+            let token = self.refresh_user_token(&user).await?;
+            Ok(Some(token))
         } else {
             Ok(user.token_manager().access_token())
         }
     }
 
     pub async fn get_token_async(&self, force_refresh: bool) -> AuthResult<Option<String>> {
-        self.get_token(force_refresh)
+        self.get_token(force_refresh).await
     }
 
     /// Exposes this auth instance as a Firestore token provider.
+    #[cfg(feature = "firestore")]
     pub fn token_provider(self: &Arc<Self>) -> TokenProviderArc {
         crate::auth::token_provider::auth_token_provider_arc(self.clone())
     }
@@ -948,67 +962,9 @@ impl Auth {
         Ok(user_arc)
     }
 
-    fn schedule_refresh_for_user(&self, user: Arc<User>) {
-        if user.refresh_token().is_none() {
-            self.cancel_scheduled_refresh();
-            return;
-        }
-
-        let Some(expiration_time) = user.token_manager().expiration_time() else {
-            self.cancel_scheduled_refresh();
-            return;
-        };
-
-        let now = SystemTime::now();
-        let expires_in = match expiration_time.duration_since(now) {
-            Ok(duration) => duration,
-            Err(_) => Duration::from_secs(0),
-        };
-
-        let delay = if expires_in > self.token_refresh_tolerance {
-            expires_in - self.token_refresh_tolerance
-        } else {
-            Duration::from_secs(0)
-        };
-
-        let Some(self_arc) = self.self_arc() else {
-            return;
-        };
-
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-        {
-            let mut guard = self.refresh_cancel.lock().unwrap();
-            if let Some(flag) = guard.take() {
-                flag.store(true, Ordering::SeqCst);
-            }
-            *guard = Some(cancel_flag.clone());
-        }
-
-        let user_arc = user.clone();
-        thread::spawn(move || {
-            if !sleep_with_cancel(delay, &cancel_flag) {
-                return;
-            }
-
-            let mut attempts = 0u32;
-            loop {
-                if cancel_flag.load(Ordering::SeqCst) {
-                    return;
-                }
-
-                match self_arc.refresh_user_token(&user_arc) {
-                    Ok(_) => return,
-                    Err(err) => {
-                        attempts = attempts.saturating_add(1);
-                        let wait = backoff::calculate_backoff_millis(attempts);
-                        eprintln!("Auth token refresh failed (attempt {attempts}): {err}");
-                        if !sleep_with_cancel(Duration::from_millis(wait), &cancel_flag) {
-                            return;
-                        }
-                    }
-                }
-            }
-        });
+    fn schedule_refresh_for_user(&self, _user: Arc<User>) {
+        // TODO(async-wasm): Reintroduce async timer-based refresh once the shared runtime utilities land.
+        self.cancel_scheduled_refresh();
     }
 
     fn cancel_scheduled_refresh(&self) {
@@ -1173,27 +1129,11 @@ pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
     })
 }
 
-fn sleep_with_cancel(mut duration: Duration, cancel_flag: &AtomicBool) -> bool {
-    while duration > Duration::ZERO {
-        if cancel_flag.load(Ordering::SeqCst) {
-            return false;
-        }
-        let step = if duration > Duration::from_millis(250) {
-            Duration::from_millis(250)
-        } else {
-            duration
-        };
-        thread::sleep(step);
-        duration = duration.checked_sub(step).unwrap_or(Duration::ZERO);
-    }
-
-    !cancel_flag.load(Ordering::SeqCst)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
+    use futures::executor::block_on;
     use httpmock::prelude::*;
     use serde_json::json;
 
@@ -1239,7 +1179,7 @@ mod tests {
             }));
         });
 
-        auth.sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD)
+        block_on(auth.sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD))
             .expect("sign-in should succeed");
         mock.assert();
     }
@@ -1267,9 +1207,9 @@ mod tests {
             }));
         });
 
-        let credential = auth
-            .sign_in_with_email_and_password("user@example.com", "secret")
-            .expect("sign-in should succeed");
+        let credential =
+            block_on(auth.sign_in_with_email_and_password("user@example.com", "secret"))
+                .expect("sign-in should succeed");
 
         mock.assert();
         assert_eq!(
@@ -1311,9 +1251,9 @@ mod tests {
             }));
         });
 
-        let credential = auth
-            .create_user_with_email_and_password("user@example.com", "secret")
-            .expect("sign-up should succeed");
+        let credential =
+            block_on(auth.create_user_with_email_and_password("user@example.com", "secret"))
+                .expect("sign-up should succeed");
 
         mock.assert();
         assert_eq!(
@@ -1355,7 +1295,7 @@ mod tests {
             }));
         });
 
-        let result = auth.sign_in_with_email_and_password("user@example.com", "secret");
+        let result = block_on(auth.sign_in_with_email_and_password("user@example.com", "secret"));
 
         mock.assert();
         assert!(matches!(
@@ -1377,7 +1317,8 @@ mod tests {
                 .body("{\"error\":{\"message\":\"INVALID_PASSWORD\"}}");
         });
 
-        let result = auth.sign_in_with_email_and_password("user@example.com", "wrong-password");
+        let result =
+            block_on(auth.sign_in_with_email_and_password("user@example.com", "wrong-password"));
 
         mock.assert();
         assert!(matches!(

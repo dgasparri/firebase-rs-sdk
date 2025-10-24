@@ -255,7 +255,7 @@ impl FirebaseStorageImpl {
             }
         };
 
-        match auth.get_token_async(false).await {
+        match auth.get_token(false).await {
             Ok(Some(token)) if token.is_empty() => Ok(None),
             Ok(Some(token)) => Ok(Some(token)),
             Ok(None) => Ok(None),
@@ -280,7 +280,7 @@ impl FirebaseStorageImpl {
         };
 
         let result = app_check
-            .get_token_async(false)
+            .get_token(false)
             .await
             .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
 

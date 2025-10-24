@@ -1,4 +1,3 @@
-use crate::util::runtime::block_on;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +36,7 @@ struct ErrorBody {
     message: Option<String>,
 }
 
-pub fn refresh_id_token(
+pub async fn refresh_id_token(
     client: &Client,
     api_key: &str,
     refresh_token: &str,
@@ -48,32 +47,19 @@ pub fn refresh_id_token(
         api_key,
         refresh_token,
     )
+    .await
 }
 
-pub(crate) fn refresh_id_token_with_endpoint(
+pub async fn refresh_id_token_with_endpoint(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     refresh_token: &str,
 ) -> AuthResult<RefreshTokenResponse> {
-    block_on(refresh_id_token_with_endpoint_async(
-        client.clone(),
-        endpoint.to_owned(),
-        api_key.to_owned(),
-        refresh_token.to_owned(),
-    ))
-}
-
-async fn refresh_id_token_with_endpoint_async(
-    client: Client,
-    endpoint: String,
-    api_key: String,
-    refresh_token: String,
-) -> AuthResult<RefreshTokenResponse> {
     let url = format!("{endpoint}?key={api_key}");
     let request = RefreshTokenRequest {
         grant_type: "refresh_token",
-        refresh_token,
+        refresh_token: refresh_token.to_owned(),
     };
 
     let response = client
@@ -139,12 +125,12 @@ mod tests {
             }));
         });
 
-        let response = refresh_id_token_with_endpoint(
+        let response = futures::executor::block_on(refresh_id_token_with_endpoint(
             &client,
             &server.url("/token"),
             "test-key",
             "test-refresh",
-        )
+        ))
         .expect("refresh should succeed");
 
         mock.assert();
@@ -166,12 +152,12 @@ mod tests {
                 .body("{\"error\":{\"message\":\"TOKEN_EXPIRED\"}}");
         });
 
-        let result = refresh_id_token_with_endpoint(
+        let result = futures::executor::block_on(refresh_id_token_with_endpoint(
             &client,
             &server.url("/token"),
             "test-key",
             "test-refresh",
-        );
+        ));
 
         mock.assert();
         assert!(matches!(

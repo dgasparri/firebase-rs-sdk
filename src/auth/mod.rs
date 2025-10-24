@@ -94,7 +94,7 @@ pub mod model;
 pub mod oauth;
 pub mod persistence;
 mod token_manager;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "firestore"))]
 pub mod token_provider;
 pub mod types;
 
@@ -117,7 +117,7 @@ pub use persistence::{
     AuthPersistence, ClosurePersistence, InMemoryPersistence, PersistedAuthState,
 };
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "firestore"))]
 #[doc(inline)]
 pub use token_provider::AuthTokenProvider;
 

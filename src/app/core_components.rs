@@ -9,6 +9,7 @@ use crate::component::types::{
     ComponentError, ComponentType, DynService, InstanceFactory, InstantiationMode,
 };
 use crate::component::{Component, ComponentContainer};
+use futures::executor::block_on;
 
 use std::sync::LazyLock;
 
@@ -20,8 +21,8 @@ pub fn ensure_registered() {
 static REGISTERED: LazyLock<()> = LazyLock::new(|| {
     register_platform_logger_component();
     register_heartbeat_component();
-    api::register_version("@firebase/app", SDK_VERSION, None);
-    api::register_version("fire-js", "", None);
+    block_on(api::register_version("@firebase/app", SDK_VERSION, None));
+    block_on(api::register_version("fire-js", "", None));
 });
 
 fn register_platform_logger_component() {

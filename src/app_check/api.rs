@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::app::{get_app, AppError, FirebaseApp};
+use futures::executor::block_on;
 
 use super::errors::{AppCheckError, AppCheckResult};
 use super::logger::LOGGER;
@@ -19,7 +20,7 @@ pub fn initialize_app_check(
     let app = if let Some(app) = app {
         app
     } else {
-        match get_app(None) {
+        match block_on(get_app(None)) {
             Ok(app) => app,
             Err(AppError::NoApp { app_name }) => {
                 return Err(AppCheckError::InvalidConfiguration {
@@ -57,7 +58,10 @@ pub fn set_token_auto_refresh_enabled(app_check: &AppCheck, enabled: bool) {
     }
 }
 
-pub fn get_token(app_check: &AppCheck, force_refresh: bool) -> AppCheckResult<AppCheckTokenResult> {
+pub async fn get_token(
+    app_check: &AppCheck,
+    force_refresh: bool,
+) -> AppCheckResult<AppCheckTokenResult> {
     if !state::is_activated(app_check) {
         return Err(AppCheckError::UseBeforeActivation {
             app_name: app_check.app().name().to_owned(),
@@ -82,7 +86,7 @@ pub fn get_token(app_check: &AppCheck, force_refresh: bool) -> AppCheckResult<Ap
     Ok(AppCheckTokenResult::from_token(token))
 }
 
-pub fn get_limited_use_token(app_check: &AppCheck) -> AppCheckResult<AppCheckTokenResult> {
+pub async fn get_limited_use_token(app_check: &AppCheck) -> AppCheckResult<AppCheckTokenResult> {
     if !state::is_activated(app_check) {
         return Err(AppCheckError::UseBeforeActivation {
             app_name: app_check.app().name().to_owned(),

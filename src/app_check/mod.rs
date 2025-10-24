@@ -37,7 +37,8 @@
 //! use std::sync::Arc;
 //! use std::time::Duration;
 //!
-//! fn main() -> Result<(), Box<dyn Error>> {
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> Result<(), Box<dyn Error>> {
 //!     // Configure the Firebase project. Replace these placeholder values with your
 //!     // own Firebase configuration when running the sample against real services.
 //!     let options = FirebaseOptions {
@@ -52,7 +53,7 @@
 //!         automatic_data_collection_enabled: Some(true),
 //!     };
 //!
-//!     let app = initialize_app(options, Some(settings))?;
+//!     let app = initialize_app(options, Some(settings)).await?;
 //!
 //!     // Create a simple provider that always returns the same demo token.
 //!     let provider = custom_provider(|| token_with_ttl("demo-app-check", Duration::from_secs(60)));
@@ -76,10 +77,10 @@
 //!     let handle = add_token_listener(&app_check, listener, ListenerType::External)?;
 //!
 //!     // Retrieve the current token and a limited-use token.
-//!     let token = get_token(&app_check, false)?;
+//!     let token = get_token(&app_check, false).await?;
 //!     println!("Immediate token fetch: {}", token.token);
 //!
-//!     let limited = get_limited_use_token(&app_check)?;
+//!     let limited = get_limited_use_token(&app_check).await?;
 //!     println!("Limited-use token: {}", limited.token);
 //!
 //!     // Listener handles implement Drop and automatically unsubscribe, but you can
@@ -90,6 +91,9 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! > **Runtime note:** The example uses `tokio` for native async execution. Use the host executor (e.g.
+//! > `wasm-bindgen-futures::spawn_local`) when compiling for WASM.
 
 pub mod api;
 mod errors;
@@ -99,6 +103,7 @@ mod logger;
 mod persistence;
 mod providers;
 mod state;
+#[cfg(feature = "firestore")]
 mod token_provider;
 mod types;
 
@@ -120,6 +125,7 @@ pub use providers::{
     CustomProvider, CustomProviderOptions, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider,
 };
 
+#[cfg(feature = "firestore")]
 #[doc(inline)]
 pub use token_provider::{app_check_token_provider_arc, AppCheckTokenProvider};
 

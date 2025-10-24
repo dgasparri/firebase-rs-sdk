@@ -10,7 +10,9 @@ use crate::auth::oauth::{
     RedirectPersistence,
 };
 use crate::auth::persistence::{AuthPersistence, InMemoryPersistence};
+use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::PartialObserver;
+use async_trait::async_trait;
 
 fn not_supported() -> AuthError {
     AuthError::NotImplemented("auth is not yet supported on wasm32".into())
@@ -58,7 +60,7 @@ impl Auth {
         EmailAuthProvider
     }
 
-    pub fn sign_in_with_email_and_password(
+    pub async fn sign_in_with_email_and_password(
         &self,
         _email: &str,
         _password: &str,
@@ -66,7 +68,7 @@ impl Auth {
         Err(not_supported())
     }
 
-    pub fn create_user_with_email_and_password(
+    pub async fn create_user_with_email_and_password(
         &self,
         _email: &str,
         _password: &str,
@@ -82,12 +84,12 @@ impl Auth {
         || {}
     }
 
-    pub fn get_token(&self, _force_refresh: bool) -> AuthResult<Option<String>> {
+    pub async fn get_token(&self, _force_refresh: bool) -> AuthResult<Option<String>> {
         Err(not_supported())
     }
 
     pub async fn get_token_async(&self, _force_refresh: bool) -> AuthResult<Option<String>> {
-        Err(not_supported())
+        self.get_token(_force_refresh).await
     }
 
     pub fn set_oauth_request_uri(&self, _value: impl Into<String>) {}
@@ -205,6 +207,15 @@ impl Auth {
         _credential: AuthCredential,
     ) -> AuthResult<Arc<User>> {
         Err(not_supported())
+    }
+}
+
+#[async_trait]
+impl AsyncTokenProvider for Arc<Auth> {
+    async fn get_token(&self, force_refresh: bool) -> Result<Option<String>, TokenError> {
+        self.get_token(force_refresh)
+            .await
+            .map_err(TokenError::from_error)
     }
 }
 

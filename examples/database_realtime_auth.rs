@@ -16,7 +16,11 @@ fn prompt(prompt: &str) -> io::Result<String> {
     Ok(line.trim().to_string())
 }
 
-fn ensure_logged_in(auth: &Arc<Auth>, email: &str, password: &str) -> Result<(), Box<dyn Error>> {
+async fn ensure_logged_in(
+    auth: &Arc<Auth>,
+    email: &str,
+    password: &str,
+) -> Result<(), Box<dyn Error>> {
     match auth.current_user() {
         Some(user) if user.email_verified() => {
             println!(
@@ -26,7 +30,8 @@ fn ensure_logged_in(auth: &Arc<Auth>, email: &str, password: &str) -> Result<(),
             Ok(())
         }
         Some(_) | None => {
-            auth.sign_in_with_email_and_password(email, password)?;
+            auth.sign_in_with_email_and_password(email, password)
+                .await?;
             println!("Signed in as {email}");
             Ok(())
         }
@@ -53,7 +58,8 @@ fn attach_query_listener(query: &DatabaseQuery) -> DatabaseResult<ListenerRegist
     })
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn Error>> {
     println!("Firebase Rust SDK demo ({SDK_VERSION})\n");
 
     let api_key = prompt("Enter your Firebase Web API key")?;
@@ -72,11 +78,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         ..Default::default()
     };
 
-    let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
+    let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
 
     register_auth_component();
     let auth = auth_for_app(app.clone())?;
-    ensure_logged_in(&auth, &email, &password)?;
+    ensure_logged_in(&auth, &email, &password).await?;
 
     let database = get_database(Some(app.clone()))?;
     let bucket_reference = database.reference(&bucket)?;

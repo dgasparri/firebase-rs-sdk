@@ -235,22 +235,25 @@ impl FirebaseAuth {
     }
 
     /// Signs a user in with an email and password.
-    pub fn sign_in_with_email_and_password(
+    pub async fn sign_in_with_email_and_password(
         &self,
         email: &str,
         password: &str,
     ) -> AuthResult<UserCredential> {
-        self.inner.sign_in_with_email_and_password(email, password)
+        self.inner
+            .sign_in_with_email_and_password(email, password)
+            .await
     }
 
     /// Creates a new user with the provided email and password.
-    pub fn create_user_with_email_and_password(
+    pub async fn create_user_with_email_and_password(
         &self,
         email: &str,
         password: &str,
     ) -> AuthResult<UserCredential> {
         self.inner
             .create_user_with_email_and_password(email, password)
+            .await
     }
 
     /// Registers an observer that is notified whenever the auth state changes.
