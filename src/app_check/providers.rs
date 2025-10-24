@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
+
 use crate::app::FirebaseApp;
 
 use super::errors::{AppCheckError, AppCheckResult};
@@ -50,12 +52,13 @@ impl CustomProvider {
     }
 }
 
+#[async_trait]
 impl AppCheckProvider for CustomProvider {
-    fn get_token(&self) -> AppCheckResult<AppCheckToken> {
+    async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
         (self.options.get_token)()
     }
 
-    fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
+    async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
         if let Some(callback) = &self.options.get_limited_use_token {
             callback()
         } else {
@@ -74,10 +77,11 @@ impl ReCaptchaV3Provider {
     }
 }
 
+#[async_trait]
 impl AppCheckProvider for ReCaptchaV3Provider {
     fn initialize(&self, _app: &FirebaseApp) {}
 
-    fn get_token(&self) -> AppCheckResult<AppCheckToken> {
+    async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
         Err(AppCheckError::ProviderError {
             message: format!(
                 "ReCAPTCHA v3 provider (site key: {}) is not implemented in the Rust port",
@@ -97,10 +101,11 @@ impl ReCaptchaEnterpriseProvider {
     }
 }
 
+#[async_trait]
 impl AppCheckProvider for ReCaptchaEnterpriseProvider {
     fn initialize(&self, _app: &FirebaseApp) {}
 
-    fn get_token(&self) -> AppCheckResult<AppCheckToken> {
+    async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
         Err(AppCheckError::ProviderError {
             message: format!(
                 "ReCAPTCHA Enterprise provider (site key: {}) is not implemented in the Rust port",

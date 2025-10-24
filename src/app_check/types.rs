@@ -124,13 +124,14 @@ impl AppCheckOptions {
     }
 }
 
+#[async_trait]
 pub trait AppCheckProvider: Send + Sync {
     fn initialize(&self, _app: &FirebaseApp) {}
 
-    fn get_token(&self) -> AppCheckResult<AppCheckToken>;
+    async fn get_token(&self) -> AppCheckResult<AppCheckToken>;
 
-    fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
-        self.get_token()
+    async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
+        self.get_token().await
     }
 }
 
@@ -247,6 +248,7 @@ pub(crate) struct AppCheckState {
     pub observers: Vec<TokenListenerEntry>,
     #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
     pub broadcast_handle: Option<crate::app_check::persistence::BroadcastSubscription>,
+    pub refresh_cancel: Option<Arc<AtomicBool>>,
 }
 
 impl AppCheckState {
@@ -259,6 +261,7 @@ impl AppCheckState {
             observers: Vec::new(),
             #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
             broadcast_handle: None,
+            refresh_cancel: None,
         }
     }
 }

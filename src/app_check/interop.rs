@@ -81,12 +81,13 @@ mod tests {
     #[derive(Clone)]
     struct TestProvider;
 
+    #[async_trait::async_trait]
     impl AppCheckProvider for TestProvider {
-        fn get_token(&self) -> AppCheckResult<AppCheckToken> {
+        async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
             token_with_ttl("token", Duration::from_secs(60))
         }
 
-        fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
+        async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
             token_with_ttl("limited", Duration::from_secs(60))
         }
     }
@@ -103,7 +104,7 @@ mod tests {
         let app = test_app(name);
         let provider = Arc::new(TestProvider);
         let options = AppCheckOptions::new(provider);
-        let app_check = initialize_app_check(Some(app), options).unwrap();
+        let app_check = block_on(initialize_app_check(Some(app), options)).unwrap();
         FirebaseAppCheckInternal::new(app_check)
     }
 

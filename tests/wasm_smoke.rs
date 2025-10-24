@@ -59,7 +59,9 @@ async fn app_check_custom_provider_produces_token() {
 
     let provider = custom_provider(|| token_with_ttl("wasm-token", Duration::from_secs(60)));
     let options = AppCheckOptions::new(provider);
-    let app_check = initialize_app_check(Some(app.clone()), options).expect("initialize app check");
+    let app_check = initialize_app_check(Some(app.clone()), options)
+        .await
+        .expect("initialize app check");
 
     let token = get_token(&app_check, false).await.expect("get token");
     assert_eq!(token.token, "wasm-token");

@@ -59,7 +59,7 @@
 //!     let provider = custom_provider(|| token_with_ttl("demo-app-check", Duration::from_secs(60)));
 //!     let options = AppCheckOptions::new(provider.clone()).with_auto_refresh(true);
 //!
-//!     let app_check = initialize_app_check(Some(app.clone()), options)?;
+//!     let app_check = initialize_app_check(Some(app.clone()), options).await?;
 //!
 //!     // Enable or disable automatic background refresh.
 //!     set_token_auto_refresh_enabled(&app_check, true);
@@ -87,7 +87,7 @@
 //!     // explicitly disconnect if desired.
 //!     handle.unsubscribe();
 //!
-//!     delete_app(&app)?;
+//!     delete_app(&app).await?;
 //!     Ok(())
 //! }
 //! ```

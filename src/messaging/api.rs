@@ -5,7 +5,6 @@ use std::sync::{
 };
 use std::sync::{Arc, LazyLock};
 
-use futures::executor::block_on;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 
@@ -256,11 +255,12 @@ pub fn register_messaging_component() {
     ensure_registered();
 }
 
-pub fn get_messaging(app: Option<FirebaseApp>) -> MessagingResult<Arc<Messaging>> {
+pub async fn get_messaging(app: Option<FirebaseApp>) -> MessagingResult<Arc<Messaging>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => block_on(crate::app::api::get_app(None))
+        None => crate::app::api::get_app(None)
+            .await
             .map_err(|err| internal_error(err.to_string()))?,
     };
 
@@ -670,6 +670,7 @@ mod tests {
     use std::future::Future;
     use std::pin::Pin;
     use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+    use tokio::runtime::Builder;
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -689,8 +690,8 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let messaging = get_messaging(Some(app)).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
         let permission = block_on_ready(messaging.request_permission()).unwrap();
         assert_eq!(permission, PermissionState::Granted);
         let token1 = block_on_ready(messaging.get_token(None)).unwrap();
@@ -707,8 +708,8 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let messaging = get_messaging(Some(app)).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
         let err = block_on_ready(messaging.get_token(Some(" "))).unwrap_err();
         assert_eq!(err.code_str(), "messaging/invalid-argument");
     }
@@ -719,8 +720,8 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let messaging = get_messaging(Some(app)).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
         let err = block_on_ready(messaging.delete_token()).unwrap_err();
         assert_eq!(err.code_str(), "messaging/token-deletion-failed");
     }
@@ -731,12 +732,12 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let messaging = get_messaging(Some(app.clone())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let messaging = block_on_future(get_messaging(Some(app.clone()))).unwrap();
         let token1 = block_on_ready(messaging.get_token(None)).unwrap();
 
         // Re-fetch messaging for the same app and validate the stored token is reused.
-        let messaging_again = get_messaging(Some(app)).unwrap();
+        let messaging_again = block_on_future(get_messaging(Some(app))).unwrap();
         let token2 = block_on_ready(messaging_again.get_token(None)).unwrap();
         assert_eq!(token1, token2);
 
@@ -750,8 +751,8 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let messaging = get_messaging(Some(app)).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
 
         let handler: MessageHandler = Arc::new(|_| {});
         let err = match super::on_message(&messaging, handler) {
@@ -771,8 +772,8 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let messaging = get_messaging(Some(app)).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
 
         let handler: MessageHandler = Arc::new(|_| {});
         let err = match super::on_background_message(&messaging, handler) {
@@ -795,6 +796,18 @@ mod tests {
             Poll::Ready(value) => value,
             Poll::Pending => panic!("future unexpectedly pending"),
         }
+    }
+
+    fn block_on_future<F: Future>(future: F) -> F::Output
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
+        Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
     }
 
     fn noop_waker() -> Waker {

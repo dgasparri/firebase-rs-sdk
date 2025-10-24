@@ -409,8 +409,9 @@ mod tests {
     #[derive(Clone)]
     struct StaticAppCheckProvider;
 
+    #[async_trait::async_trait]
     impl AppCheckProvider for StaticAppCheckProvider {
-        fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
+        async fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
             token_with_ttl("app-check-token", Duration::from_secs(60))
         }
     }
@@ -424,11 +425,14 @@ mod tests {
                       -> Result<DynService, ComponentError> {
                     let provider = Arc::new(StaticAppCheckProvider);
                     let options = AppCheckOptions::new(provider);
-                    let app_check = initialize_app_check(Some(app_clone.clone()), options)
-                        .map_err(|err| ComponentError::InitializationFailed {
-                            name: "app-check-internal".to_string(),
-                            reason: err.to_string(),
-                        })?;
+                    let init_result = tokio::runtime::Runtime::new()
+                        .unwrap()
+                        .block_on(initialize_app_check(Some(app_clone.clone()), options));
+
+                    let app_check = init_result.map_err(|err| ComponentError::InitializationFailed {
+                        name: "app-check-internal".to_string(),
+                        reason: err.to_string(),
+                    })?;
                     Ok(Arc::new(FirebaseAppCheckInternal::new(app_check)) as DynService)
                 },
             );

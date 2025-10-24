@@ -99,8 +99,9 @@ mod tests {
         token: String,
     }
 
+    #[async_trait::async_trait]
     impl AppCheckProvider for StaticTokenProvider {
-        fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
+        async fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
             token_with_ttl(self.token.clone(), Duration::from_secs(60))
         }
     }
@@ -108,8 +109,9 @@ mod tests {
     #[derive(Clone)]
     struct ErrorProvider;
 
+    #[async_trait::async_trait]
     impl AppCheckProvider for ErrorProvider {
-        fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
+        async fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
             Err(AppCheckError::TokenFetchFailed {
                 message: "network".into(),
             })
@@ -130,7 +132,11 @@ mod tests {
             token: "app-check-123".into(),
         });
         let options = AppCheckOptions::new(provider);
-        let app_check = initialize_app_check(Some(test_app("app-check-ok")), options).unwrap();
+        let app_check = block_on(initialize_app_check(
+            Some(test_app("app-check-ok")),
+            options,
+        ))
+        .unwrap();
         let internal = FirebaseAppCheckInternal::new(app_check);
         let provider = AppCheckTokenProvider::new(internal);
 
@@ -142,7 +148,11 @@ mod tests {
     fn propagates_errors() {
         let provider = Arc::new(ErrorProvider);
         let options = AppCheckOptions::new(provider);
-        let app_check = initialize_app_check(Some(test_app("app-check-err")), options).unwrap();
+        let app_check = block_on(initialize_app_check(
+            Some(test_app("app-check-err")),
+            options,
+        ))
+        .unwrap();
         let internal = FirebaseAppCheckInternal::new(app_check);
         let provider = AppCheckTokenProvider::new(internal);
 

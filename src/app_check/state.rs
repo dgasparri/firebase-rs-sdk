@@ -118,6 +118,8 @@ pub fn store_token(app: &AppCheck, token: AppCheckToken) {
             .collect::<Vec<_>>()
     });
 
+    crate::app_check::api::on_token_stored(app, &token);
+
     #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
     persist_token_async(token.clone(), app_name.clone());
 
@@ -131,6 +133,18 @@ pub fn set_auto_refresh(app: &AppCheck, enabled: bool) {
     with_state_mut(&app_name, |state| {
         state.is_token_auto_refresh_enabled = enabled;
     });
+}
+
+pub(crate) fn replace_refresh_cancel(
+    app: &AppCheck,
+    cancel: Option<Arc<AtomicBool>>,
+) -> Option<Arc<AtomicBool>> {
+    let app_name = app.app_name();
+    with_state_mut(&app_name, |state| {
+        let previous = state.refresh_cancel.clone();
+        state.refresh_cancel = cancel.clone();
+        previous
+    })
 }
 
 #[allow(dead_code)]

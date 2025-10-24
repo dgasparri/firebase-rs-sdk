@@ -1,8 +1,9 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::app::{get_app, AppError, FirebaseApp};
-use futures::executor::block_on;
+use crate::platform::runtime::{sleep as runtime_sleep, spawn_detached};
 
 use super::errors::{AppCheckError, AppCheckResult};
 use super::logger::LOGGER;
@@ -13,14 +14,14 @@ use super::types::{
     AppCheckTokenResult, ListenerHandle, ListenerType,
 };
 
-pub fn initialize_app_check(
+pub async fn initialize_app_check(
     app: Option<FirebaseApp>,
     options: AppCheckOptions,
 ) -> AppCheckResult<AppCheck> {
     let app = if let Some(app) = app {
         app
     } else {
-        match block_on(get_app(None)) {
+        match get_app(None).await {
             Ok(app) => app,
             Err(AppError::NoApp { app_name }) => {
                 return Err(AppCheckError::InvalidConfiguration {
@@ -46,6 +47,11 @@ pub fn initialize_app_check(
 
     if auto_refresh {
         LOGGER.debug("App Check auto-refresh enabled");
+        if let Some(token) = state::current_token(&app_check) {
+            schedule_token_refresh(&app_check, &token);
+        }
+    } else {
+        cancel_scheduled_refresh(&app_check);
     }
 
     Ok(app_check)
@@ -55,6 +61,11 @@ pub fn set_token_auto_refresh_enabled(app_check: &AppCheck, enabled: bool) {
     state::set_auto_refresh(app_check, enabled);
     if enabled {
         LOGGER.debug("App Check auto-refresh toggled on");
+        if let Some(token) = state::current_token(app_check) {
+            schedule_token_refresh(app_check, &token);
+        }
+    } else {
+        cancel_scheduled_refresh(app_check);
     }
 }
 
@@ -81,7 +92,7 @@ pub async fn get_token(
             app_name: app_check.app().name().to_owned(),
         })?;
 
-    let token = provider.get_token()?;
+    let token = provider.get_token().await?;
     state::store_token(app_check, token.clone());
     Ok(AppCheckTokenResult::from_token(token))
 }
@@ -98,7 +109,7 @@ pub async fn get_limited_use_token(app_check: &AppCheck) -> AppCheckResult<AppCh
             app_name: app_check.app().name().to_owned(),
         })?;
 
-    let token = provider.get_limited_use_token()?;
+    let token = provider.get_limited_use_token().await?;
     Ok(AppCheckTokenResult::from_token(token))
 }
 
@@ -145,4 +156,55 @@ pub fn recaptcha_enterprise_provider(site_key: impl Into<String>) -> Arc<dyn App
 // Convenience helper to build AppCheck tokens for custom providers.
 pub fn token_with_ttl(token: impl Into<String>, ttl: Duration) -> AppCheckResult<AppCheckToken> {
     AppCheckToken::with_ttl(token, ttl)
+}
+
+const REFRESH_DRIFT: Duration = Duration::from_secs(60);
+
+pub(super) fn on_token_stored(app_check: &AppCheck, token: &AppCheckToken) {
+    schedule_token_refresh(app_check, token);
+}
+
+fn schedule_token_refresh(app_check: &AppCheck, token: &AppCheckToken) {
+    if !state::auto_refresh_enabled(app_check) {
+        cancel_scheduled_refresh(app_check);
+        return;
+    }
+
+    let now = SystemTime::now();
+    let mut delay = match token.expire_time.duration_since(now) {
+        Ok(duration) => duration,
+        Err(_) => Duration::from_secs(0),
+    };
+
+    if delay > REFRESH_DRIFT {
+        delay -= REFRESH_DRIFT;
+    } else {
+        delay = Duration::from_secs(0);
+    }
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    if let Some(previous) = state::replace_refresh_cancel(app_check, Some(cancel_flag.clone())) {
+        previous.store(true, Ordering::SeqCst);
+    }
+
+    let app_clone = app_check.clone();
+    spawn_detached(async move {
+        if !delay.is_zero() {
+            runtime_sleep(delay).await;
+        }
+
+        if cancel_flag.load(Ordering::SeqCst) {
+            return;
+        }
+
+        if let Err(err) = get_token(&app_clone, true).await {
+            LOGGER.warn(format!("Background App Check token refresh failed: {err}"));
+        }
+    });
+}
+
+fn cancel_scheduled_refresh(app_check: &AppCheck) {
+    if let Some(flag) = state::replace_refresh_cancel(app_check, None) {
+        flag.store(true, Ordering::SeqCst);
+    }
 }

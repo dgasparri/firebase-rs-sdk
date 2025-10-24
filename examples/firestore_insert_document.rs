@@ -6,20 +6,20 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 #[allow(dead_code)]
-fn insert_documents() -> Result<(), Box<dyn std::error::Error>> {
+async fn insert_documents() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: replace with your project configuration
     let options = FirebaseOptions {
         project_id: Some("your-project".into()),
         // add other Firebase options as needed
         ..Default::default()
     };
-    let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
+    let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
     let auth = auth_for_app(app.clone())?;
     // Optional: wire App Check tokens into Firestore.
     let app_check_provider =
         custom_provider(|| token_with_ttl("fake-token", Duration::from_secs(60)));
     let app_check =
-        initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider))?;
+        initialize_app_check(Some(app.clone()), AppCheckOptions::new(app_check_provider)).await?;
     let app_check_internal = FirebaseAppCheckInternal::new(app_check);
     let firestore = get_firestore(Some(app.clone()))?;
     let client = FirestoreClient::with_http_datastore_authenticated(

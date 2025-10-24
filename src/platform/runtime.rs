@@ -20,7 +20,7 @@ where
     use tokio::runtime::{Builder, Handle, Runtime};
 
     static BACKGROUND_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-        Builder::new_multi_thread()
+        Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("failed to build background tokio runtime")

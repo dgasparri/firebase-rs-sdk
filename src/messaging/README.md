@@ -29,7 +29,7 @@ async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
     let mut push_manager = PushSubscriptionManager::new();
     let vapid_key = "<your-public-vapid-key>";
 
-    let messaging = messaging::get_messaging(None)?;
+    let messaging = messaging::get_messaging(None).await?;
     if matches!(messaging.request_permission().await?, PermissionState::Granted) {
         let subscription = push_manager.subscribe(&registration, vapid_key).await?;
         let details = subscription.details()?;
