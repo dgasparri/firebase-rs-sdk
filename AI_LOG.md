@@ -2232,3 +2232,159 @@ Updated WASM_PLAN.md to capture the new Remote Config transport tests: the Stage
   We noted them under Stage 3 because they remain TODOs for the module overall, but the async/wasm work is already
   covered by the transports and tests we just added. If you’d like, we can call that distinction out explicitly in the
   plan.
+
+
+Updated WASM_PLAN.md to capture the new Remote Config transport tests: the Stage 3 note now records that we added
+  native httpmock coverage and a wasm request-shaping check while keeping remaining work (persistent storage/backoff/
+  custom signals) clearly flagged. Let me know if you’d like the plan expanded further.
+
+▌ in the plan it says that " remaining work is to add persistent storage/backoff logic and custom signals parity." But
+▌ is this relevant to WASM/async implementation, or just to improve the remote_config module with new features?
+  (persistent storage, backoff metadata, custom signals) rather than being strictly required for async/wasm enablement.
+  We noted them under Stage 3 because they remain TODOs for the module overall, but the async/wasm work is already
+  covered by the transports and tests we just added. If you’d like, we can call that distinction out explicitly in the
+  plan.
+
+▌ Right now I want to strictly focus on the WASM/async changes, it's already a pretty big task. Put any task unrelated
+▌ to the WASM/async implementation inside their respective README.md files ./src/{module}/README.md
+
+• Edited WASM_PLAN.md (+1 -1)
+    50     - [ ] Remote Config: adopt the async client/runtime once Installations is ready.
+    51    -  - 2025-02-14: Converted `get_remote_config`/`fetch` to async and re-enabled the module for wasm. Async HTTP
+            clients now exist for both native (`HttpRemoteConfigFetchClient`) and wasm (`WasmRemoteConfigFetchClient`);
+           remaining work is to add persistent storage/backoff logic and custom signals parity.
+    51    +  - 2025-02-14: Converted `get_remote_config`/`fetch` to async and re-enabled the module for wasm. Async HTTP
+            clients now exist for both native (`HttpRemoteConfigFetchClient`) and wasm (`WasmRemoteConfigFetchClient`).
+    52       - 2025-02-14: Added focused transport tests that exercise the native client against mock HTTP responses and
+            verified wasm request shaping under `wasm-bindgen-test`.
+
+> Trimmed the Stage 3 entry in WASM_PLAN.md so it now tracks only the async/wasm milestones (native + wasm transport
+  and tests). Broader Remote Config parity tasks remain in src/remote_config/README.md, keeping the plan focused on the
+  current WASM/async rollout.
+
+▌ ok, so what is missing from considering Installations and Remote Config complete?
+
+> From an async/wasm standpoint both modules now meet the plan’s requirements: Installations exposes async APIs with
+  wasm-compatible persistence stubs, and Remote Config ships working async transports plus cross-target tests. Remaining
+  work is feature parity rather than platform enablement.
+
+  Installations (src/installations/README.md:75-117, Next Steps section):
+
+  - add concurrency/backoff polish (retry/backoff, onIdChange)
+  - flesh out durable persistence and token refresh features
+  - tighten test coverage
+
+  Remote Config (src/remote_config/README.md:75-95):
+
+  - persistent storage implementations (file/indexed DB)
+  - fetch throttling/backoff metadata
+  - custom signals + logging controls
+  - comprehensive test parity
+
+  Tackling those README TODOs will move each module toward parity with the JS SDK. If you’d like to prioritize or break
+  down any of those tasks next, happy to help.
+
+
+Marked the Installations and Remote Config Stage 3 items as complete in WASM_PLAN.md, noting that any remaining
+  feature-parity work now lives in each module’s README. Let me know if you want to tackle the next items on the plan.
+
+▌ I want now to review the module auth. I see that there is a folder called "native" ./src/auth/api/native, but I would
+▌ like to have minimal code duplication between WASM and native, because code duplication make things complicate to
+▌ maintain. Analythe the module auth and check if it possible to unite the native and wasm code even more
+
+
+I want now to review the module auth. I see that there is a folder called "native" ./src/auth/api/native, but I would
+▌ like to have minimal code duplication between WASM and native, because code duplication make things complicate to
+▌ maintain. Analythe the module auth and check if it possible to unite the native and wasm code even more
+• Updated Plan
+  └ □ Review auth module structure and relevant files to understand native vs wasm separation
+    □ Compare functionality between native and wasm implementations to identify duplication and platform-specific
+      differences
+    □ Summarize findings and recommend opportunities for unification
+    List auth
+    Read api.rs
+    List native
+    Read mod.rs, wasm.rs, token.rs
+
+  features like popups and multi-thread syncing complicate matters. I’m also considering if restful calls via reqwest in
+  wasm are feasible, and whether restructuring the code to reduce duplication and share core logic could work, keeping
+  unimplemented wasm features as stubs. I'll need to confirm specifics like execute_request to complete the evaluation.
+
+• Explored
+  └ Search execute_request in native
+    Read mod.rs
+
+> Thinking
+  I'm thinking through unifying the Auth module to compile for wasm too by adjusting cfg gates and handling platform-
+  specific features like popup handlers; I'll consider splitting shared logic into a common module while keeping small
+  platform wrappers, especially since some async/runtime features and test mocks differ between native and wasm targets.
+
+• Explored
+  └ Read account.rs
+
+> Thinking
+  I’m outlining a plan to unify native and wasm auth code by renaming native to a shared core, gating platform-specific
+  parts with conditional compilation, stubbing unimplemented wasm features, and consolidating common HTTP modules under
+  a shared folder for minimal duplication. I’ll verify dependencies and summarize relevant file references next.
+
+• Explored
+  └ Search register_auth_component in auth
+
+• Updated Plan
+  └ ✔ Review auth module structure and relevant files to understand native vs wasm separation
+    ✔ Compare functionality between native and wasm implementations to identify duplication and platform-specific
+      differences
+    □ Summarize findings and recommend opportunities for unification
+
+> Thinking
+  I'm laying out key points about unifying the auth API for native and wasm targets. I see the native module uses cross-
+  platform crates like reqwest and already gates wasm-specific code, so bridging is doable. The wasm module currently
+  duplicates interfaces with NotImplemented stubs, which is necessary but could be improved. Files like account.rs,
+  idp.rs, and token.rs have no native-only deps and could compile for wasm. I plan to suggest merging the modules, using
+  conditional compilation and traits to separate platform-specific parts like popups or persistence. I’ll also note
+  how restful calls rely on reqwest::Client available on wasm, and concurrency constructs like Arc<Mutex> are wasm-
+  compatible. The Auth builder can be refactored to accept platform-specific strategies. I'll reference specific files
+  and line ranges, and recommend verifying changes with cargo check --target wasm32. This approach should unify code
+  while factoring in wasm limitations and readiness.
+
+> Findings
+
+  - src/auth/api.rs:1-10 hard-splits the public API: native builds re-export api/native, while wasm builds get the
+  separate api/wasm.rs stub. The wasm module mirrors every method signature but simply returns AuthError::NotImplemented
+  (see src/auth/api/wasm.rs:15-212), so we maintain two parallel surfaces.
+  - The “native” implementation already uses cross-platform abstractions: it relies on reqwest::Client, serde, and
+  crate::platform::runtime::{sleep, spawn_detached} plus persistence traits that are cfg-gated for wasm (src/auth/api/
+  native/mod.rs:59-118, src/auth/api/native/mod.rs:146-175). Those crates are enabled for wasm in Cargo.toml, so the
+  code paths can, in principle, compile for both targets.
+  - Supporting modules (src/auth/api/native/account.rs, idp.rs, token.rs) contain pure HTTP/JSON plumbing with no OS-
+  specific code. They could be moved to a shared location and reused unchanged on wasm.
+
+  Opportunities to Reduce Duplication
+
+  1. Promote the native implementation to a shared core. Rename api/native to api/core (or similar) and compile it for
+  both targets. Then, replace the current wasm stub with thin cfg-gated shims inside the shared code for features that
+  still lack browser implementations (popup/redirect flows, IndexedDB persistence gaps). Most methods—including email/
+  password sign-in, token refresh, and account management—can run identically on wasm once the module is shared.
+  2. Introduce platform strategy traits for the few divergent pieces. For example:
+      - An OAuthFlowHandler trait with native and wasm adapters; native keeps the current popup/redirect handler wiring,
+  while the wasm build temporarily supplies a stub strategy that returns NotImplemented.
+      - A persistence factory hook that picks InMemoryPersistence/filesystem on native and IndexedDB (or a stub) on
+  wasm. The entry points already hint at this with cfg’d constructors (src/auth/api/native/mod.rs:83-99).
+  3. Consolidate REST helpers. Move account, idp, and token modules under a shared api/http namespace and import
+  them from the unified Auth implementation so both targets call exactly the same request code. Only the tests would
+  remain native-only (#[cfg(all(test, not(target_arch = "wasm32")))] guards already exist, e.g., src/auth/api/native/
+  token.rs:66-118), keeping wasm builds clean.
+  4. Incrementally enable functionality on wasm. After unifying the code, replace the blanket NotImplemented errors with
+  real behavior feature by feature (sign-in, password reset, etc.). Each can be guarded by a cfg(feature = "wasm-web")
+  flag while still living in the shared module, avoiding split files going forward.
+
+  This approach collapses the current duplication to a handful of targeted cfg blocks, making future async/WASM work in
+  Auth simpler to maintain while leaving larger parity items tracked in src/auth/README.md.
+
+
+ Thinking
+  I’m laying out a detailed plan to rename the native directory to core (or shared) and unify the Rust auth codebase so
+  native and wasm share most implementations. I want to keep wasm-specific features gated with cfg to avoid duplication,
+  ensure dependencies like reqwest and persistence modules work for wasm, remove the separate wasm stub, adjust imports
+  and tests, and retain compatible functionality on both targets. The next step is to carefully execute these moves and
+  updates while verifying compilation and test coverage.
