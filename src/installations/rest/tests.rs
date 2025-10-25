@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 use super::*;
 use crate::installations::error::InstallationsErrorCode;
 

@@ -85,6 +85,37 @@ fn map_installations_error<T>(result: InstallationsResult<T>) -> RemoteConfigRes
     result.map_err(|err| internal_error(err.to_string()))
 }
 
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
+pub trait InstallationsTokenProvider: Send + Sync {
+    async fn installation_id(&self) -> InstallationsResult<String>;
+    async fn installation_token(&self) -> InstallationsResult<String>;
+}
+
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
+impl InstallationsTokenProvider for Installations {
+    async fn installation_id(&self) -> InstallationsResult<String> {
+        self.get_id().await
+    }
+
+    async fn installation_token(&self) -> InstallationsResult<String> {
+        Ok(self.get_token(false).await?.token)
+    }
+}
+
 #[derive(Deserialize)]
 struct RestFetchResponse {
     #[serde(default)]
@@ -106,7 +137,7 @@ pub struct HttpRemoteConfigFetchClient {
     app_id: String,
     sdk_version: String,
     language_code: String,
-    installations: Arc<Installations>,
+    installations: Arc<dyn InstallationsTokenProvider>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -121,7 +152,7 @@ impl HttpRemoteConfigFetchClient {
         app_id: impl Into<String>,
         sdk_version: impl Into<String>,
         language_code: impl Into<String>,
-        installations: Arc<Installations>,
+        installations: Arc<dyn InstallationsTokenProvider>,
     ) -> Self {
         Self {
             client,
@@ -186,9 +217,9 @@ impl HttpRemoteConfigFetchClient {
 #[async_trait::async_trait]
 impl RemoteConfigFetchClient for HttpRemoteConfigFetchClient {
     async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
-        let installation_id = map_installations_error(self.installations.get_id().await)?;
+        let installation_id = map_installations_error(self.installations.installation_id().await)?;
         let installation_token =
-            map_installations_error(self.installations.get_token(false).await)?.token;
+            map_installations_error(self.installations.installation_token().await)?;
         let url = self.build_url();
 
         let headers = self.build_headers(request.e_tag.as_deref())?;
@@ -263,7 +294,7 @@ pub struct WasmRemoteConfigFetchClient {
     app_id: String,
     sdk_version: String,
     language_code: String,
-    installations: Arc<Installations>,
+    installations: Arc<dyn InstallationsTokenProvider>,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
@@ -278,7 +309,7 @@ impl WasmRemoteConfigFetchClient {
         app_id: impl Into<String>,
         sdk_version: impl Into<String>,
         language_code: impl Into<String>,
-        installations: Arc<Installations>,
+        installations: Arc<dyn InstallationsTokenProvider>,
     ) -> Self {
         Self {
             client,
@@ -332,9 +363,9 @@ impl WasmRemoteConfigFetchClient {
 #[async_trait::async_trait(?Send)]
 impl RemoteConfigFetchClient for WasmRemoteConfigFetchClient {
     async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
-        let installation_id = map_installations_error(self.installations.get_id().await)?;
+        let installation_id = map_installations_error(self.installations.installation_id().await)?;
         let installation_token =
-            map_installations_error(self.installations.get_token(false).await)?.token;
+            map_installations_error(self.installations.installation_token().await)?;
         let url = self.build_url();
 
         let body = self.request_body(installation_id, installation_token, request.custom_signals);
@@ -393,6 +424,223 @@ impl RemoteConfigFetchClient for WasmRemoteConfigFetchClient {
                 "fetch returned unexpected status {}",
                 other.as_u16()
             ))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Debug)]
+    struct TestInstallations {
+        installation_id: String,
+        installation_token: String,
+        id_calls: AtomicUsize,
+        token_calls: AtomicUsize,
+    }
+
+    impl TestInstallations {
+        fn new(id: &str, token: &str) -> Self {
+            Self {
+                installation_id: id.to_string(),
+                installation_token: token.to_string(),
+                id_calls: AtomicUsize::new(0),
+                token_calls: AtomicUsize::new(0),
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        fn id_call_count(&self) -> usize {
+            self.id_calls.load(Ordering::SeqCst)
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        fn token_call_count(&self) -> usize {
+            self.token_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[cfg_attr(
+        all(feature = "wasm-web", target_arch = "wasm32"),
+        async_trait::async_trait(?Send)
+    )]
+    #[cfg_attr(
+        not(all(feature = "wasm-web", target_arch = "wasm32")),
+        async_trait::async_trait
+    )]
+    impl InstallationsTokenProvider for TestInstallations {
+        async fn installation_id(&self) -> InstallationsResult<String> {
+            self.id_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.installation_id.clone())
+        }
+
+        async fn installation_token(&self) -> InstallationsResult<String> {
+            self.token_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.installation_token.clone())
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    mod native {
+        use super::*;
+        use httpmock::prelude::*;
+        use serde_json::json;
+        fn fetch_request() -> FetchRequest {
+            let mut signals = HashMap::new();
+            signals.insert("feature".to_string(), JsonValue::Bool(true));
+            FetchRequest {
+                cache_max_age_millis: 60_000,
+                timeout_millis: 5_000,
+                e_tag: Some("\"etag-value\"".to_string()),
+                custom_signals: Some(signals),
+            }
+        }
+
+        #[tokio::test(flavor = "current_thread")]
+        async fn http_fetch_client_returns_config() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/v1/projects/test-project/namespaces/test-namespace:fetch")
+                    .header("content-type", "application/json")
+                    .header("if-none-match", "\"etag-value\"")
+                    .json_body(json!({
+                        "sdk_version": "test-sdk",
+                        "app_instance_id": "test-installation",
+                        "app_instance_id_token": "test-token",
+                        "app_id": "test-app",
+                        "language_code": "en-GB",
+                        "custom_signals": { "feature": true }
+                    }));
+                then.status(200)
+                    .header("ETag", "\"new-etag\"")
+                    .json_body(json!({
+                        "entries": { "welcome": "hello" },
+                        "templateVersion": 42u64
+                    }));
+            });
+
+            let provider = Arc::new(TestInstallations::new("test-installation", "test-token"));
+            let client = HttpRemoteConfigFetchClient::new(
+                Client::builder().build().unwrap(),
+                server.base_url(),
+                "test-project",
+                "test-namespace",
+                "test-api-key",
+                "test-app",
+                "test-sdk",
+                "en-GB",
+                provider.clone(),
+            );
+
+            let response = client.fetch(fetch_request()).await.expect("fetch succeeds");
+            mock.assert();
+
+            assert_eq!(response.status, 200);
+            assert_eq!(response.etag.as_deref(), Some("\"new-etag\""));
+            assert_eq!(response.template_version, Some(42));
+            let config = response.config.expect("config present");
+            assert_eq!(config.get("welcome"), Some(&"hello".to_string()));
+
+            assert_eq!(provider.id_call_count(), 1);
+            assert_eq!(provider.token_call_count(), 1);
+        }
+
+        #[tokio::test(flavor = "current_thread")]
+        async fn http_fetch_client_handles_not_modified() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/v1/projects/test-project/namespaces/test-namespace:fetch");
+                then.status(304);
+            });
+
+            let provider = Arc::new(TestInstallations::new("test-installation", "test-token"));
+            let client = HttpRemoteConfigFetchClient::new(
+                Client::builder().build().unwrap(),
+                server.base_url(),
+                "test-project",
+                "test-namespace",
+                "test-api-key",
+                "test-app",
+                "test-sdk",
+                "en-US",
+                provider.clone(),
+            );
+
+            let mut request = fetch_request();
+            request.custom_signals = None;
+            let response = client.fetch(request).await.expect("fetch succeeds");
+            mock.assert();
+
+            assert_eq!(response.status, 304);
+            assert!(response.config.is_none());
+            assert_eq!(provider.id_call_count(), 1);
+            assert_eq!(provider.token_call_count(), 1);
+        }
+
+        #[tokio::test(flavor = "current_thread")]
+        async fn http_fetch_client_surfaces_server_errors() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/v1/projects/test-project/namespaces/test-namespace:fetch");
+                then.status(503).body("unavailable");
+            });
+
+            let provider = Arc::new(TestInstallations::new("test-installation", "test-token"));
+            let client = HttpRemoteConfigFetchClient::new(
+                Client::builder().build().unwrap(),
+                server.base_url(),
+                "test-project",
+                "test-namespace",
+                "test-api-key",
+                "test-app",
+                "test-sdk",
+                "en-US",
+                provider.clone(),
+            );
+
+            let result = client.fetch(fetch_request()).await;
+            mock.assert();
+            assert!(result.is_err());
+            assert_eq!(provider.id_call_count(), 1);
+            assert_eq!(provider.token_call_count(), 1);
+        }
+    }
+
+    #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+    mod wasm {
+        use super::*;
+        use serde_json::json;
+        use wasm_bindgen_test::wasm_bindgen_test;
+
+        wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+        #[wasm_bindgen_test]
+        fn request_body_includes_custom_signals() {
+            let provider = Arc::new(TestInstallations::new("id", "token"));
+            let client = WasmRemoteConfigFetchClient::new(
+                Client::new(),
+                "https://example.com",
+                "test-project",
+                "test-namespace",
+                "test-api-key",
+                "test-app",
+                "test-sdk",
+                "fr-FR",
+                provider,
+            );
+
+            let mut signals = HashMap::new();
+            signals.insert("flag".to_string(), JsonValue::Bool(true));
+
+            let body = client.request_body("iid".into(), "itoken".into(), Some(signals));
+            assert_eq!(body["language_code"], json!("fr-FR"));
+            assert_eq!(body["custom_signals"].get("flag"), Some(&json!(true)));
         }
     }
 }

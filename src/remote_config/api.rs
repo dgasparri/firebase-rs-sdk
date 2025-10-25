@@ -16,7 +16,9 @@ use crate::remote_config::error::{internal_error, invalid_argument, RemoteConfig
 use crate::remote_config::fetch::HttpRemoteConfigFetchClient;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 use crate::remote_config::fetch::WasmRemoteConfigFetchClient;
-use crate::remote_config::fetch::{FetchRequest, NoopFetchClient, RemoteConfigFetchClient};
+use crate::remote_config::fetch::{
+    FetchRequest, InstallationsTokenProvider, NoopFetchClient, RemoteConfigFetchClient,
+};
 use crate::remote_config::settings::{RemoteConfigSettings, RemoteConfigSettingsUpdate};
 use crate::remote_config::storage::{
     FetchStatus, InMemoryRemoteConfigStorage, RemoteConfigStorage, RemoteConfigStorageCache,
@@ -374,6 +376,7 @@ fn build_fetch_client(app: &FirebaseApp) -> RemoteConfigResult<Arc<dyn RemoteCon
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let installations: Arc<dyn InstallationsTokenProvider> = installations;
         let client = HttpClient::builder()
             .user_agent(format!("firebase-rs-sdk/{}", crate::app::SDK_VERSION))
             .build()
@@ -394,6 +397,7 @@ fn build_fetch_client(app: &FirebaseApp) -> RemoteConfigResult<Arc<dyn RemoteCon
 
     #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
     {
+        let installations: Arc<dyn InstallationsTokenProvider> = installations;
         let client = WasmHttpClient::new();
         let fetch = WasmRemoteConfigFetchClient::new(
             client,

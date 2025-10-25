@@ -185,6 +185,8 @@ mod wasm_persistence {
     use super::{
         internal_error, InstallationsPersistence, InstallationsResult, PersistedInstallation,
     };
+    #[cfg(test)]
+    use super::PersistedAuthToken;
     use crate::platform::browser::indexed_db;
     use serde::{Deserialize, Serialize};
     use std::cell::RefCell;
@@ -424,9 +426,8 @@ mod wasm_persistence {
 
         #[wasm_bindgen_test(async)]
         async fn indexed_db_roundtrip_persists_installation() {
-            reset_persistence().await.expect("reset persistence");
-
             let persistence = IndexedDbPersistence::new();
+            let _ = persistence.clear("wasm-app").await;
             let entry = sample_entry();
 
             persistence
@@ -529,7 +530,7 @@ fn system_time_to_millis(time: SystemTime) -> InstallationsResult<u64> {
     Ok(duration.as_millis() as u64)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(feature = "wasm-web", target_arch = "wasm32"))))]
 mod tests {
     use super::*;
     use crate::installations::types::InstallationToken;
