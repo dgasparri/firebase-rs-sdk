@@ -46,6 +46,7 @@ This plan captures the work required to ship the next major version of the fireb
 - [x] Firestore: migrate to async token/provider infrastructure, remove blocking HTTP, and gate wasm-specific paths. (Completed – datastore/client APIs now async.)
 - [x] Storage: sweep call sites, README, and examples to reflect async usage, double-check wasm guards.
 - [ ] Installations: polish async APIs (concurrency coordination, retry/backoff, `onIdChange`) now that the core async client is in place and shared with Messaging/App Check.
+  - 2025-02-14: Added wasm persistence round-trip tests and documented feature flags; outstanding work remains for concurrency/backoff and `onIdChange`.
 - [ ] Remote Config: adopt the async client/runtime once Installations is ready.
 - [ ] Rework Realtime Database client to use shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
 - [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.

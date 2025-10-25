@@ -55,6 +55,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Unit tests covering config validation, async REST flows, persistence round-trips, delete behaviour, and service behaviour for forced refreshes (`src/installations/rest/tests.rs:1`, `src/installations/api.rs:472`, `src/installations/persistence.rs:80`).
 - Private `installations-internal` component provides shared `get_id`/`get_token` helpers (`src/installations/api.rs:210`).
 
+### WASM Notes
+- Enable the `wasm-web` feature to pull in the fetch-based REST client and browser-specific glue.
+- Add `experimental-indexed-db` alongside `wasm-web` to persist installations to IndexedDB; without it, wasm builds fall back to in-memory persistence while keeping the same API surface.
+- IndexedDB persistence now has wasm-bindgen tests that validate round-trip storage and BroadcastChannel propagation (`src/installations/persistence.rs`).
+
 ## Still to do
 - Add concurrency coordination and migrations for the persistence layer (IndexedDB-style pending markers, multi-process guards).
 - Implement JS parity APIs: `onIdChange` and internal factory helpers for other modules.

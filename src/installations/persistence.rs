@@ -404,6 +404,61 @@ mod wasm_persistence {
         }
     }
 
+    #[cfg(all(
+        test,
+        feature = "wasm-web",
+        feature = "experimental-indexed-db",
+        target_arch = "wasm32"
+    ))]
+    mod tests {
+        use super::*;
+        use crate::installations::types::InstallationToken;
+        use std::time::{Duration, SystemTime};
+        use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
+
+        wasm_bindgen_test_configure!(run_in_browser);
+
+        #[wasm_bindgen_test(async)]
+        async fn indexed_db_roundtrip_persists_installation() {
+            reset_persistence().await.expect("reset persistence");
+
+            let persistence = IndexedDbPersistence::new();
+            let entry = sample_entry();
+
+            persistence
+                .write("wasm-app", &entry)
+                .await
+                .expect("write entry");
+            let loaded = persistence
+                .read("wasm-app")
+                .await
+                .expect("read entry");
+            assert_eq!(loaded, Some(entry.clone()));
+
+            persistence
+                .clear("wasm-app")
+                .await
+                .expect("clear entry");
+            let cleared = persistence
+                .read("wasm-app")
+                .await
+                .expect("read after clear");
+            assert!(cleared.is_none());
+        }
+
+        fn sample_entry() -> PersistedInstallation {
+            let token = InstallationToken {
+                token: "wasm-token".into(),
+                expires_at: SystemTime::now() + Duration::from_secs(600),
+            };
+            PersistedInstallation {
+                fid: "wasm-fid".into(),
+                refresh_token: "wasm-refresh".into(),
+                auth_token: PersistedAuthToken::from_runtime(&token).unwrap(),
+            }
+        }
+    }
+
     fn map_indexed_db_error<E: std::fmt::Display>(
         err: E,
     ) -> crate::installations::error::InstallationsError {
