@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
+    let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
 
     // Resolve the internal component; this mirrors what other Firebase services do.
     let installations_internal = get_installations_internal(Some(app.clone()))?;

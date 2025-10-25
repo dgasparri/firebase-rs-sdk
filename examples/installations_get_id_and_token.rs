@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
+    let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
 
     // Resolve the Installations service from the component container.
     let installations = get_installations(Some(app.clone()))?;

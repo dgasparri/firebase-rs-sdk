@@ -36,9 +36,9 @@ This plan captures the work required to ship the next major version of the fireb
 
 ## Stage 3 – Feature Modules (Firestore, Storage, Installations, Remote Config, etc.)
 - [x] Replace the Storage transport with the unified async client, ensuring operations return futures with Firebase JS naming. (Completed – audit remaining call sites for compliance.)
-- [ ] Firestore: migrate to async token/provider infrastructure, remove blocking HTTP, and gate wasm-specific paths. **High priority.**
-- [ ] Storage: sweep call sites, README, and examples to reflect async usage, double-check wasm guards.
-- [ ] Installations: port APIs to async, share the token provider, and integrate with messaging/app_check. **Depends on Firestore/Storage groundwork.**
+- [x] Firestore: migrate to async token/provider infrastructure, remove blocking HTTP, and gate wasm-specific paths. (Completed – datastore/client APIs now async.)
+- [x] Storage: sweep call sites, README, and examples to reflect async usage, double-check wasm guards.
+- [ ] Installations: polish async APIs (concurrency coordination, retry/backoff, `onIdChange`) now that the core async client is in place and shared with Messaging/App Check.
 - [ ] Remote Config: adopt the async client/runtime once Installations is ready.
 - [ ] Rework Realtime Database client to use shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
 - [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.

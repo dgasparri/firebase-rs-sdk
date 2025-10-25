@@ -76,7 +76,7 @@ async fn concurrency_yield() {
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 async fn concurrency_yield() {
-    std::thread::yield_now();
+    tokio::task::yield_now().await;
 }
 
 impl InstallationEntry {
@@ -624,14 +624,16 @@ mod tests {
         panic::catch_unwind(AssertUnwindSafe(|| MockServer::start())).ok()
     }
 
-    fn setup_installations(
+    async fn setup_installations(
         server: &MockServer,
     ) -> (Arc<Installations>, PathBuf, String, FirebaseApp) {
         let cache_dir = unique_cache_dir();
         std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
         std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
         let settings = unique_settings();
-        let app = initialize_app(base_options(), Some(settings.clone())).unwrap();
+        let app = initialize_app(base_options(), Some(settings.clone()))
+            .await
+            .unwrap();
         let app_name = app.name().to_string();
         let installations = get_installations(Some(app.clone())).unwrap();
         std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
@@ -657,7 +659,7 @@ mod tests {
                 }));
         });
 
-        let (installations, cache_dir, _app_name, _app) = setup_installations(&server);
+        let (installations, cache_dir, _app_name, _app) = setup_installations(&server).await;
         let fid1 = installations.get_id().await.unwrap();
         let fid2 = installations.get_id().await.unwrap();
 
@@ -706,7 +708,7 @@ mod tests {
                 }));
         });
 
-        let (installations, cache_dir, _app_name, _app) = setup_installations(&server);
+        let (installations, cache_dir, _app_name, _app) = setup_installations(&server).await;
         let token1 = installations.get_token(false).await.unwrap();
         assert_eq!(token1.token, "token1");
 
@@ -768,7 +770,9 @@ mod tests {
         std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
         std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
 
-        let app = initialize_app(base_options(), Some(settings)).unwrap();
+        let app = initialize_app(base_options(), Some(settings))
+            .await
+            .unwrap();
         let installations = get_installations(Some(app)).unwrap();
 
         std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
@@ -830,7 +834,9 @@ mod tests {
         std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
         std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
 
-        let app = initialize_app(base_options(), Some(settings)).unwrap();
+        let app = initialize_app(base_options(), Some(settings))
+            .await
+            .unwrap();
         let installations = get_installations(Some(app)).unwrap();
 
         std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
@@ -906,7 +912,7 @@ mod tests {
                 }));
         });
 
-        let (installations, cache_dir, _app_name, app) = setup_installations(&server);
+        let (installations, cache_dir, _app_name, app) = setup_installations(&server).await;
         let internal = get_installations_internal(Some(app)).unwrap();
 
         if create_mock.hits() == 0 {

@@ -70,10 +70,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn extract_app_config_success() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn extract_app_config_success() {
         let options = base_options();
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let config = extract_app_config(&app).unwrap();
         assert_eq!(config.project_id, "project");
         assert_eq!(config.api_key, "apikey");
@@ -81,11 +83,13 @@ mod tests {
         assert_eq!(config.app_name, app.name());
     }
 
-    #[test]
-    fn missing_project_id_returns_error() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn missing_project_id_returns_error() {
         let mut options = base_options();
         options.project_id = None;
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let err = extract_app_config(&app).unwrap_err();
         assert!(err.to_string().contains("Missing App configuration value"));
     }

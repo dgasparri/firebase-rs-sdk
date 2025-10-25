@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
            ..Default::default()
        },
        Some(FirebaseAppSettings::default()),
-   )?;
+   ).await?;
 
    let installations = get_installations(Some(app.clone()))?;
    let fid = installations.get_id().await?;
