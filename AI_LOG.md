@@ -2593,4 +2593,148 @@ Thinking
 • Explored
   └ Read on_disconnect.rs
 
-  Pl
+  
+  1. Realtime Transport Skeleton
+      - Replace the placeholder in src/database/realtime.rs with an async-friendly transport abstraction: start with an
+  enum that can wrap a WebSocket implementation (native via tokio_tungstenite, wasm via web-sys/wasm-bindgen) and fall
+  back to long polling when websockets aren’t available.
+      - Define async connection methods (connect, send, receive) plus a simple state machine so queries/listeners can
+  subscribe to remote events. We can stub server communication initially but set up the API so swapping in real network
+  code is straightforward.
+  2. Integrate with Database
+      - Give Database::register_listener an optional repo/connection handle: when a listener is attached and the backend
+  is REST, keep current behaviour; when realtime transport is available, subscribe to remote events and fan them into
+  the existing dispatch_listeners.
+      - Add async entry points (Database::go_online, go_offline) that spin up or tear down the connection even if
+  they’re no-ops for now.
+  3. Async OnDisconnect
+      - Implement OnDisconnect by queueing operations on the repo/transport. For wasm/native parity, stub the queue when
+  the transport isn’t ready, but expose the async methods already.
+
+  Once that skeleton is in place we can start layering actual websocket/long-poll logic and transaction support. Let me
+  know and I’ll dive into the transport scaffolding.
+
+ Realtime Scaffolding
+
+  - Introduced an async-friendly repo skeleton (src/database/realtime.rs) with a pluggable transport trait. A default
+  no-op transport now backs Repo::new_for_app, and Database holds an Arc<Repo> so targets can call the new go_online/
+  go_offline methods (sync wrappers call into the async versions).
+  - Updated DatabaseInner to store the repo and exposed Database::go_online_async / go_offline_async, keeping the
+  existing listener logic intact (src/database/api.rs).
+  - Documented the new hooks and current wasm behaviour in src/database/README.md.
+
+  Testing
+
+  - cargo check
+  - cargo check --tests
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db --tests
+
+  The repo/transport layer is now ready for a real WebSocket/long-poll implementation in a follow-up step.
+
+ ✅ Added go_online / go_offline entry points to Database, DatabaseReference and DatabaseQuery now expose async
+  methods without the interim block_on shims, and the new Repo abstraction handles connection state using a pluggable
+  RealtimeTransport trait. The default transport (NoopTransport) keeps behaviour unchanged until WebSocket support
+  arrives.
+
+  ### Key Files
+
+  - src/database/api.rs: Async surface for references/queries plus repo integration.
+  - src/database/realtime.rs: New repo + transport scaffolding.
+  - src/database/backend.rs: Async backend wiring retained; no behavioural change here.
+
+  ### Tests / Checks
+
+  - cargo check
+  - cargo check --tests
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db --tests
+
+  With the async API in place and runtime scaffolding ready, the next step is to implement real WebSocket/long-poll
+  transport to deliver remote events.
+
+Realtime Hooks
+
+  - Database now tracks listener registrations and calls go_online() when the first listener is added, and go_offline()
+  once the last listener is removed (src/database/api.rs).
+  - The new repo stub (src/database/realtime.rs) and async backend remain no-ops for now, but the connection lifecycle
+  is wired for future WebSocket/long-poll integrations.
+  - Tests/hooks compile in both native and wasm targets; cargo check still passes.
+
+  Next step: implement a real transport (e.g., WebSocket via tokio-tungstenite or a fetch-based poller) so these hooks
+  start delivering remote events.
+
+
+> Nice—the scaffolding is solid and compiles everywhere. To make the hooks truly useful we’ll want to plug in a
+  transport next. Two follow-on options:
+
+  1. Native WebSocket: add an async transport backed by tokio_tungstenite (or another WS crate), wire it into
+  Repo::new_for_app, and start routing network events into dispatch_listeners.
+  2. WASM transport: add a browser-side implementation using web_sys::WebSocket/wasm-bindgen, with a long‑poll fallback
+  for non-WS environments.
+
+  If you let me know which path to tackle first (native, wasm, or both), I’ll sketch out the implementation details and
+  walk through the code.
+
+▌ I want to end for today, write a detailed summary of what you have done till now and what you have to do yet to finish
+▌ the database in the file WASM_PLAN so that you can restart tomorrow
+
+  Working (6s • Esc to interrupt)
+
+
+> Nice—the scaffolding is solid and compiles everywhere. To make the hooks truly useful we’ll want to plug in a
+  transport next. Two follow-on options:
+
+  1. Native WebSocket: add an async transport backed by tokio_tungstenite (or another WS crate), wire it into
+  Repo::new_for_app, and start routing network events into dispatch_listeners.
+  2. WASM transport: add a browser-side implementation using web_sys::WebSocket/wasm-bindgen, with a long‑poll fallback
+  for non-WS environments.
+
+  If you let me know which path to tackle first (native, wasm, or both), I’ll sketch out the implementation details and
+  walk through the code.
+
+▌ I want to end for today, write a detailed summary of what you have done till now and what you have to do yet to finish
+▌ the database in the file WASM_PLAN so that you can restart tomorrow
+
+  Working (6s • Esc to interrupt)
+
+
+> Sure thing—wrapping up for today. Here’s what we accomplished and what’s next on the async/WASM front for Realtime
+  Database:
+
+  ———
+
+  ### ✅ Today’s Progress
+
+  - Database unified to async: DatabaseReference and DatabaseQuery now expose async methods (e.g., set, get, update,
+  remove, set_with_priority, push) that await the async REST backend. Synchronous wrappers have been removed; direct
+  callers now await the asynchronous operations.
+  - Async REST backend: The REST backend (src/database/backend.rs) uses the async reqwest client, boxed token fetchers,
+  and guardable behaviour so wasm still falls back to the in-memory backend while native builds hit the network.
+  - Realtime scaffolding: Introduced a Repo abstraction with a pluggable RealtimeTransport trait and no‑op transport.
+  Database automatically calls go_online when the first listener is registered and go_offline when the last one is
+  removed, providing hooks for future WebSocket/long-poll transports.
+  - Documentation & plan updates: README and WASM plan now reflect the async/wasm status, noting the missing features
+  (realtime streaming, WebSockets, OnDisconnect, transactions).
+
+  ———
+
+  ### 🚧 What’s Next (Database & Realtime)
+
+  1. Implement native WebSocket transport
+      - Add a transport implementation using tokio_tungstenite (or similar) on native builds.
+      - Handle authentication, message framing, and reconnect logic (basic stubs to start).
+      - Feed incoming events into dispatch_listeners so remote updates reach value/child callbacks.
+  2. Provide wasm transport
+      - Use web_sys::WebSocket (or gloo-net) to connect from wasm builds, with a long-polling fallback if necessary.
+      - Ensure the transport interface (RealtimeTransport) works cross-platform.
+  3. Hook Repo into Database operations
+      - Replace the no-op transport when listeners are present.
+      - Extend OnDisconnect and run_transaction to use the new transport (currently return errors).
+  4. Docs & tests
+      - Update README once streaming is live.
+      - Add integration tests (native/wasm) for listener behaviour.
+      - Ensure wasm docs clearly state any feature flags (e.g., WebSocket dependencies) and fallback behaviour.
+
+  The WASM plan now tracks these remaining steps under Stage 3 so we can pick up exactly where we left off next session.
+  Let me know when you’re ready to dive back in!

@@ -586,8 +586,9 @@ impl Database {
     ) -> DatabaseResult<ListenerRegistration> {
         let id = self.inner.next_listener_id.fetch_add(1, Ordering::SeqCst);
 
-        {
+        let first_listener = {
             let mut listeners = self.inner.listeners.lock().unwrap();
+            let was_empty = listeners.is_empty();
             listeners.insert(
                 id,
                 Listener {
@@ -595,6 +596,14 @@ impl Database {
                     kind: kind.clone(),
                 },
             );
+            was_empty
+        };
+
+        if first_listener {
+            if let Err(err) = self.go_online() {
+                self.remove_listener(id);
+                return Err(err);
+            }
         }
 
         let current_root = match self.root_snapshot() {
@@ -623,8 +632,15 @@ impl Database {
     }
 
     fn remove_listener(&self, id: u64) {
-        let mut listeners = self.inner.listeners.lock().unwrap();
-        listeners.remove(&id);
+        let should_disconnect = {
+            let mut listeners = self.inner.listeners.lock().unwrap();
+            listeners.remove(&id);
+            listeners.is_empty()
+        };
+
+        if should_disconnect {
+            let _ = self.go_offline();
+        }
     }
 
     fn dispatch_listeners(
