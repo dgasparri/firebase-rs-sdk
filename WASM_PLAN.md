@@ -9,16 +9,17 @@ This plan captures the work required to ship the next major version of the fireb
 4. This is a major version update. It is OK to make disrupting changes to the old API and change the public API to async when needed/recommended. Creating a clean, wasm compatible library is more important than legacy to the old API. Do not waste time trying to retain the old API. When a module blocks progress, comment out the offending imports with a `// TODO(async-wasm): re-enable once <reason>` note so the workspace keeps moving.
 
 ## Stage 0 – Tooling & Policy Prerequisites
-- [ ] Ensure the repository builds for `wasm32-unknown-unknown` using `cargo check --target wasm32-unknown-unknown --features wasm-web`.
+- [x] Ensure the repository builds for `wasm32-unknown-unknown` using `cargo check --target wasm32-unknown-unknown --features wasm-web`.
+  - 2025-02-14: Verified `cargo check --target wasm32-unknown-unknown --features wasm-web` (with and without `experimental-indexed-db`) succeeds after re-enabling the `app_check` module for wasm.
   - [✓] Adding the `wasm32-unknown-unknown` target locally (`rustup target add wasm32-unknown-unknown`).
   - [x] Audit workspace dependencies (e.g. `getrandom`, `reqwest`, `openssl`) for wasm support and enable or replace features as needed.
     - 2025-02-14: Confirmed current core deps (`reqwest`, `rand`/`getrandom`, `chrono`, `gloo-timers`) compile on `wasm32-unknown-unknown` with the existing cfg-gated feature flags. Remaining blocking-only modules (database, functions, storage, etc.) stay disabled behind `// TODO(async-wasm)` stubs until their async ports land.
   - [x] Document the required feature flags/commands and add a quickstart section to the contributor docs.
     - 2025-02-14: Added a "WASM build and test quickstart" section in `CONTRIBUTING.md` covering the `wasm-web` feature flag, target installation, and the `cargo check`/`cargo test wasm_smoke` commands.
-- [ ] Publish an async/WASM migration checklist covering naming parity (no `_async` suffixes), feature gating, executor expectations, and the temporary-disable/TODO pattern.
-  - 2025-02-14: Re-evaluated after Stage 2; most guidance now lives in module docs, so this step may be dropped or reframed when the plan is next groomed.
+- [x] Publish an async/WASM migration checklist covering naming parity (no `_async` suffixes), feature gating, executor expectations, and the temporary-disable/TODO pattern.
+  - 2025-02-14: Added `docs/async_wasm_checklist.md` summarising the conventions; future porting work should reference this document.
 - [x] Provide a local smoke-test script (or `just` recipe) that runs native linting plus `cargo test --target wasm32-unknown-unknown --features wasm-web` so contributors validate both targets consistently.
-  - 2025-02-14: Added `scripts/smoke.sh` and `scripts/smoke.bat` covering `cargo fmt`, a trimmed native test run (skipping network-bound cases), `cargo check --target wasm32-unknown-unknown --features wasm-web`, and the wasm smoke test when `app_check` is re-enabled for wasm. Currently skip the wasm test with a TODO notice because `app_check` remains stubbed on wasm.
+  - 2025-02-14: Added `scripts/smoke.sh` and `scripts/smoke.bat` covering `cargo fmt`, a trimmed native test run (skipping network-bound cases), `cargo check --target wasm32-unknown-unknown --features wasm-web`, and the wasm smoke test. The scripts automatically warn and skip the wasm runner when `wasm-bindgen-test-runner` is not installed.
 - [x] Review shared crates under `src/component`, `src/util`, `src/logger`, and `src/platform` and note any blockers that must be handled before Stage 1 proceeds.
   - 2025-02-14: Confirmed the shared crates use async-friendly primitives only; no `std::thread`/blocking IO remains. `platform::runtime` already switches between Tokio and `wasm-bindgen-futures`, and `platform::browser::indexed_db` cleanly stubs when the experimental feature is disabled. No additional blockers identified for wasm.
 
