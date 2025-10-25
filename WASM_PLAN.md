@@ -11,8 +11,10 @@ This plan captures the work required to ship the next major version of the fireb
 ## Stage 0 – Tooling & Policy Prerequisites
 - [ ] Ensure the repository builds for `wasm32-unknown-unknown` using `cargo check --target wasm32-unknown-unknown --features wasm-web`.
   - [✓] Adding the `wasm32-unknown-unknown` target locally (`rustup target add wasm32-unknown-unknown`).
-  - [ ] Audit workspace dependencies (e.g. `getrandom`, `reqwest`, `openssl`) for wasm support and enable or replace features as needed.
-  - [ ] Document the required feature flags/commands and add a quickstart section to the contributor docs.
+  - [x] Audit workspace dependencies (e.g. `getrandom`, `reqwest`, `openssl`) for wasm support and enable or replace features as needed.
+    - 2025-02-14: Confirmed current core deps (`reqwest`, `rand`/`getrandom`, `chrono`, `gloo-timers`) compile on `wasm32-unknown-unknown` with the existing cfg-gated feature flags. Remaining blocking-only modules (database, functions, storage, etc.) stay disabled behind `// TODO(async-wasm)` stubs until their async ports land.
+  - [x] Document the required feature flags/commands and add a quickstart section to the contributor docs.
+    - 2025-02-14: Added a "WASM build and test quickstart" section in `CONTRIBUTING.md` covering the `wasm-web` feature flag, target installation, and the `cargo check`/`cargo test wasm_smoke` commands.
 - [ ] Publish an async/WASM migration checklist covering naming parity (no `_async` suffixes), feature gating, executor expectations, and the temporary-disable/TODO pattern.
 - [ ] Provide a local smoke-test script (or `just` recipe) that runs native linting plus `cargo test --target wasm32-unknown-unknown --features wasm-web` so contributors validate both targets consistently.
 - [ ] Review shared crates under `src/component`, `src/util`, `src/logger`, and `src/platform` and note any blockers that must be handled before Stage 1 proceeds.

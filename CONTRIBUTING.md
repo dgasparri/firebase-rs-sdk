@@ -32,6 +32,24 @@ To install the library:
 
 > cargo install wasm-bindgen-cli
 
+### WASM build and test quickstart
+
+The Rust crate exposes browser-specific functionality behind the `wasm-web` feature flag. Contributors should validate changes against the `wasm32-unknown-unknown` target with the following commands:
+
+1. Ensure the toolchain target is available:
+
+   > rustup target add wasm32-unknown-unknown
+
+2. Check the workspace compiles for wasm with the web feature enabled:
+
+   > cargo check --target wasm32-unknown-unknown --features wasm-web
+
+3. Run the wasm smoke tests (powered by `wasm-bindgen-test`) in headless mode:
+
+   > cargo test --target wasm32-unknown-unknown --features wasm-web wasm_smoke
+
+   The suite in `tests/wasm_smoke.rs` provides a minimal browser-oriented sanity check and should pass before opening a pull request.
+
 
 ## Common AI prompts to develop code/documentation for this library
 
