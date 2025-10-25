@@ -1192,7 +1192,7 @@ pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
 mod tests {
     use super::*;
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
-    use futures::executor::block_on;
+    use tokio::runtime::Builder as TokioRuntimeBuilder;
     use httpmock::prelude::*;
     use serde_json::json;
 
@@ -1209,6 +1209,14 @@ mod tests {
     const GOOGLE_PROVIDER_ID: &str = "google.com";
     const UPDATED_ID_TOKEN: &str = "updated-id-token";
     const UPDATED_REFRESH_TOKEN: &str = "updated-refresh-token";
+
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        TokioRuntimeBuilder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build tokio runtime")
+            .block_on(future)
+    }
 
     fn build_auth(server: &MockServer) -> Arc<Auth> {
         Auth::builder(test_firebase_app_with_api_key(TEST_API_KEY))

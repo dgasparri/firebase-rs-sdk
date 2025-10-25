@@ -418,8 +418,6 @@ mod wasm_persistence {
     ))]
     mod tests {
         use super::*;
-        use crate::installations::types::InstallationToken;
-        use std::time::{Duration, SystemTime};
         use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
         wasm_bindgen_test_configure!(run_in_browser);
@@ -446,14 +444,13 @@ mod wasm_persistence {
         }
 
         fn sample_entry() -> PersistedInstallation {
-            let token = InstallationToken {
-                token: "wasm-token".into(),
-                expires_at: SystemTime::now() + Duration::from_secs(600),
-            };
             PersistedInstallation {
                 fid: "wasm-fid".into(),
                 refresh_token: "wasm-refresh".into(),
-                auth_token: PersistedAuthToken::from_runtime(&token).unwrap(),
+                auth_token: PersistedAuthToken {
+                    token: "wasm-token".into(),
+                    expires_at_ms: 0,
+                },
             }
         }
     }
