@@ -50,6 +50,8 @@ The Rust crate exposes browser-specific functionality behind the `wasm-web` feat
 
    The suite in `tests/wasm_smoke.rs` provides a minimal browser-oriented sanity check and should pass before opening a pull request.
 
+For convenience, the repository also ships `./scripts/smoke.sh` (or `scripts\smoke.bat` on Windows), which chains the formatting check, a trimmed native test run (skipping network-bound cases), the wasm `cargo check`, and the wasm smoke test when the `app_check` module is enabled for wasm.
+
 
 ## Common AI prompts to develop code/documentation for this library
 
