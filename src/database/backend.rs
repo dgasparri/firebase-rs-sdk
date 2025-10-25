@@ -1,19 +1,36 @@
+#[cfg(target_arch = "wasm32")]
+use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, LazyLock, Mutex};
 
+#[cfg(not(target_arch = "wasm32"))]
 use reqwest::blocking::{Client, Response};
+#[cfg(not(target_arch = "wasm32"))]
 use reqwest::{Method, StatusCode};
+#[cfg(target_arch = "wasm32")]
+use serde_json::Value;
+#[cfg(not(target_arch = "wasm32"))]
 use serde_json::{Map, Value};
+#[cfg(not(target_arch = "wasm32"))]
 use url::Url;
 
 use crate::app::FirebaseApp;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::auth::Auth;
+#[cfg(target_arch = "wasm32")]
+use crate::database::error::DatabaseResult;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::database::error::{
     internal_error, invalid_argument, permission_denied, DatabaseError, DatabaseResult,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use crate::logger::Logger;
+#[cfg(not(target_arch = "wasm32"))]
 use futures::executor::block_on;
 
+#[cfg(not(target_arch = "wasm32"))]
 type TokenFetcher = Arc<dyn Fn() -> DatabaseResult<Option<String>> + Send + Sync>;
 
 pub(crate) trait DatabaseBackend: Send + Sync {
@@ -27,6 +44,12 @@ pub(crate) trait DatabaseBackend: Send + Sync {
     fn get(&self, path: &[String], query: &[(String, String)]) -> DatabaseResult<Value>;
 }
 
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn select_backend(_app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
+    Arc::new(InMemoryBackend::default())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
     let options = app.options();
     if let Some(url) = options.database_url {
@@ -147,6 +170,7 @@ impl DatabaseBackend for InMemoryBackend {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct RestBackend {
     client: Client,
     base_url: Url,
@@ -155,6 +179,7 @@ struct RestBackend {
     app_check_token_fetcher: TokenFetcher,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl RestBackend {
     fn new(
         raw_url: String,
@@ -292,10 +317,12 @@ impl RestBackend {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn fetch_token(fetcher: &TokenFetcher) -> DatabaseResult<Option<String>> {
     (fetcher.as_ref())()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl DatabaseBackend for RestBackend {
     fn set(&self, path: &[String], value: Value) -> DatabaseResult<()> {
         let mut params = Vec::with_capacity(1);
@@ -410,6 +437,7 @@ fn get_at_path<'a>(root: &'a Value, path: &[String]) -> Option<&'a Value> {
     Some(current)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn path_starts_with(path: &[String], prefix: &[String]) -> bool {
     if prefix.len() > path.len() {
         return false;
@@ -443,6 +471,7 @@ fn delete_at_path(root: &mut Value, path: &[String]) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_error_message(raw: &str) -> Option<String> {
     if raw.is_empty() {
         return None;
@@ -457,6 +486,7 @@ fn extract_error_message(raw: &str) -> Option<String> {
     Some(raw.to_string())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 static LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/database"));
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

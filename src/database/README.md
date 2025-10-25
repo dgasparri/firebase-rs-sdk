@@ -117,6 +117,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Backend selection that defaults to an in-memory store and upgrades to a REST backend (`reqwest` PUT/PATCH/DELETE/GET) including base query propagation plus optional Auth/App Check token injection.
 - Unit tests covering in-memory semantics, validation edge cases, and REST request wiring through `httpmock`.
 
+### WASM Notes
+
+- The module compiles on wasm targets when the `wasm-web` feature is enabled. At the moment only the in-memory backend is available on wasm; the REST transport remains native-only until the async client is ported.
+- Calling `get_database(None)` is not supported on wasm because the default app lookup is asynchronous. Pass an explicit `FirebaseApp` instance instead.
+
 ## Next Steps
 
 - Real-time transports (`Repo`, `PersistentConnection`, `WebSocketConnection`, `BrowserPollConnection`) so `onValue`/child events react to remote changes.

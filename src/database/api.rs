@@ -1504,7 +1504,20 @@ pub fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Database>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => {
+            #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+            {
+                return Err(internal_error(
+                    "get_database(None) is not supported on wasm; pass a FirebaseApp",
+                ));
+            }
+            #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+            {
+                use futures::executor::block_on;
+                block_on(crate::app::api::get_app(None))
+                    .map_err(|err| internal_error(err.to_string()))?
+            }
+        }
     };
 
     let provider = app::registry::get_provider(&app, DATABASE_COMPONENT_NAME);

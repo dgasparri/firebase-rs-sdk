@@ -51,6 +51,7 @@ This plan captures the work required to ship the next major version of the fireb
   - 2025-02-14: Converted `get_remote_config`/`fetch` to async and re-enabled the module for wasm. Async HTTP clients now exist for both native (`HttpRemoteConfigFetchClient`) and wasm (`WasmRemoteConfigFetchClient`).
   - 2025-02-14: Added focused transport tests that exercise the native client against mock HTTP responses and verified wasm request shaping under `wasm-bindgen-test`; remaining parity work recorded in `src/remote_config/README.md`.
 - [ ] Rework Realtime Database client to use shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
+  - 2025-02-14: Re-enabled the module for wasm builds using the in-memory backend; REST transport and realtime features remain native-only until the async port lands.
 - [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.
 - [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.
 - [ ] Ensure token acquisition hooks (`auth_token`, `app_check_token`) are fully async across the board and document any intentionally unsupported scenarios.

@@ -21,11 +21,7 @@ pub mod component;
 // #[cfg(target_arch = "wasm32")]
 // pub mod data_connect {}
 
-// TODO(async-wasm): Re-enable database module during Stage 3 async sweep.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod database;
-// #[cfg(target_arch = "wasm32")]
-// pub mod database {}
+pub mod database;
 
 // TODO(async-wasm): Re-enable firestore once Stage 3 completes.
 #[cfg(feature = "firestore")]
