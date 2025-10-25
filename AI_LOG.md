@@ -1768,3 +1768,300 @@ Thinking
   Next steps: implement the fetch transport for wasm (still a no-op) and consider wiring Remote Config to Installations
   for real HTTP calls.
 
+Thinking
+  I'm wrapping up Stage 3 for remote config adoption, noting wasm transport considerations and that some parts might
+  still use Noop fetch. Since tests are done, I want to highlight next tasks—like implementing wasm fetch fully or
+  checking priority modules—and suggest updating READMEs or docs to reflect current status before moving forward.
+
+> Remote Config now uses async APIs end-to-end on native and wasm targets:
+
+  - get_remote_config and RemoteConfig::fetch return futures, the native HTTP path runs on async reqwest, and the unit
+  tests drive these futures via a helper runtime (src/remote_config/api.rs:461, src/remote_config/fetch.rs:1-244).
+  - The README example is updated to await both initialize_app and get_remote_config, plus the docs note the wasm
+  behaviour (src/remote_config/README.md:33-51).
+  - Stage 3 in WASM_PLAN.md:42 records the async upgrade.
+
+  Installations docs also highlight the wasm feature flags (src/installations/README.md:45).
+
+  Next steps I recommend:
+
+  1. Implement the fetch transport for wasm (currently still the no-op client).
+  2. Wire Remote Config to Installations’ token provider once the async HTTP path is ready, then add wasm-bindgen
+  coverage for the new behaviour.
+
+
+
+Thinking
+  I'm updating the remote_config README to include usage of the Wasm fetch client with Client::new(), making sure the
+  new struct is properly gated behind the wasm-web feature and noting re-exports. I'll also verify the HTTP backlog plan
+  reflects these changes and confirm testing passes across native and wasm targets before summarizing all modifications.
+
+> Remote Config
+
+  - Switched the fetch pipeline to async across targets: get_remote_config and RemoteConfig::fetch now return futures,
+  the native transport uses async reqwest, and test helpers wrap calls with a local runtime (src/remote_config/api.rs,
+  src/remote_config/fetch.rs).
+  - Added an actual browser transport via WasmRemoteConfigFetchClient, so wasm builds using wasm-web can fetch Remote
+  Config templates with Installations credentials (src/remote_config/fetch.rs).
+  - Updated the module docs to show the awaited API, call out both fetch clients, and document wasm usage in the README
+  (src/remote_config/README.md).
+
+  Plan Update
+
+  - Logged the progress in WASM_PLAN.md, noting that async fetch clients now exist for both native and wasm targets.
+
+  Tests
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+  - cargo test --tests remote_config
+
+  Next steps: wire Remote Config to Installations by default and add persistence/backoff logic once the async transport
+  is integrated.
+
+▌ Remote Config Async & WASM
+
+  - src/lib.rs:15 now exposes Remote Config on wasm builds, backed by async APIs.
+  - src/remote_config/api.rs:379 and the tests compose with async fetch, while a helper runtime keeps unit tests
+  synchronous.
+  - src/remote_config/fetch.rs introduces paired async transports: HttpRemoteConfigFetchClient for native and the new
+  WasmRemoteConfigFetchClient for wasm-web, both powered by async reqwest.
+  - README updates (src/remote_config/README.md:45) document the async usage, native/wasm clients, and wasm feature
+  flags.
+  - WASM_PLAN.md:42 now reflects that Remote Config has async fetch clients on both targets; remaining work is wiring
+  Installations tokens by default and adding persistence/backoff.
+
+  Tests
+
+  - cargo check, cargo check --target wasm32-unknown-unknown --features wasm-web[,experimental-indexed-db]
+  - cargo test --tests remote_config
+
+  Next steps: integrate Installations token providers into the default Remote Config fetch client and extend wasm/native
+  persistence/backoff as tracked in the plan.
+
+  Great! Tests are green across native and wasm targets, and Remote Config now supports async HTTP on both platforms.
+  From here, the most natural follow-up is the Stage 3 item we noted: wire the Remote Config fetch clients to use
+  Installations tokens by default (and add persistence/backoff logic). Let me know if you want me to tackle that next or
+  shift focus elsewhere.
+
+
+
+is the next step "integrate Installations token providers into the default Remote Config fetch client and extend wasm/
+▌ native persistence/backoff as tracked in the plan." part of the WASM plan?
+
+> Yes. In Stage 3 of WASM_PLAN.md, the “Remote Config” bullet tracks finishing the async and wasm migration for that
+  module. The note we just added now reads:
+
+  > Remote Config: adopt the async client/runtime once Installations is ready.
+  > – 2025-02-14: Converted get_remote_config/fetch to async and re-enabled the module for wasm. Async HTTP clients
+  now exist for both native (HttpRemoteConfigFetchClient) and wasm (WasmRemoteConfigFetchClient); remaining work is to
+  integrate Installations tokens by default and add persistent storage/backoff logic.
+
+  So the next action—making Remote Config fetch use Installations tokens, plus adding persistence/backoff—is exactly the
+  remaining work identified in that Stage 3 item.
+
+
+Thinking
+  I'm considering removing the synchronous InstallationsProvider trait in favor of directly using an async
+  Arc<Installations> inside fetch clients, since installation ID and token retrieval are inherently async operations.
+  This approach lets me simplify the fetch logic by awaiting token calls inside fetch(). I'll update the native and
+  wasm clients accordingly, handle error conversions, and define a base URL constant. For wasm, I'll accommodate reqwest
+  differences like lack of timeouts. Next, I'll integrate these changes into the remote_config API, ensuring config
+  options like api_key and app_id are retrieved properly from FirebaseApp.
+
+• Explored
+  └ Search pub struct FirebaseOptions in types.rs
+    Read types.rs
+
+  Restructuring installation token fetching (3m 17s • Esc to interrupt)
+
+Thinking
+  I'm updating the module to gate wasm_persistence behind the experimental-indexed-db feature flag and fallback to stubs
+  when the feature is disabled to avoid compile errors. I also plan to switch to using gloo_timers::future::yield_now
+  for yielding futures. Additionally, I’m removing the now-obsolete InstallationsProvider trait and cleaning up related
+  code to rely on direct Arc<Installations>. Finally, I’ll adjust the remote config builder, imports, and environment
+  variable handling as needed for smooth integration.
+
+
+Thinking
+  I'm wrapping up Stage 3 for remote config adoption, noting wasm transport considerations and that some parts might
+  still use Noop fetch. Since tests are done, I want to highlight next tasks—like implementing wasm fetch fully or
+  checking priority modules—and suggest updating READMEs or docs to reflect current status before moving forward.
+
+  tests drive these futures via a helper runtime (src/remote_config/api.rs:461, src/remote_config/fetch.rs:1-244).
+  - The README example is updated to await both initialize_app and get_remote_config, plus the docs note the wasm
+  Installations docs also highlight the wasm feature flags (src/installations/README.md:45).
+
+  Next steps I recommend:
+
+  1. Implement the fetch transport for wasm (currently still the no-op client).
+  2. Wire Remote Config to Installations’ token provider once the async HTTP path is ready, then add wasm-bindgen
+
+• Explored
+  This is a big plan to replace complex manual fetch code with an async reqwest-based client for wasm, handling feature
+  flags, timeout limitations, and sharing JSON parsing with native code. I’m aiming for a WasmRemoteConfigFetchClient
+  that parallels native but accounts for wasm constraints, re-enabling some serde imports and ensuring smooth cross-
+  platform usage.
+
+
+  Next steps: integrate Installations token providers into the default Remote Config fetch client and extend wasm/native  persistence/backoff as tracked in the plan.
+  module. The note we just added now reads:
+
+  > Remote Config: adopt the async client/runtime once Installations is ready.
+  > – 2025-02-14: Converted get_remote_config/fetch to async and re-enabled the module for wasm. Async HTTP clients
+  now exist for both native (HttpRemoteConfigFetchClient) and wasm (WasmRemoteConfigFetchClient); remaining work is to
+  integrate Installations tokens by default and add persistent storage/backoff logic.
+
+    text = path.read_text()
+    text = text.replace('self.inner.fetch_client.lock().unwrap().clone()',
+        'self.inner.fetch_client.lock().unwrap().clone()')
+    path.write_text(text)
+    PY
+
+
+• Ran
+    new = '        let fetch_client = self.inner.fetch_client.lock().unwrap().clone();\n        let response =
+        fetch_client.fetch(request).await;\n'
+    Path('src/remote_config/api.rs').write_text(text.replace(old, new))
+    PY
+
+• Edited src/remote_config/fetch.rs (+4 -0)
+ 
+• Edited src/remote_config/fetch.rs (+5 -2)
+
+• Edited src/remote_config/fetch.rs (+1 -2)
+
+• Edited src/remote_config/fetch.rs (+4 -2)
+
+> Thinking
+  I'm setting up a synchronous builder function for the fetch client that handles both native and wasm targets with
+  conditional compilation. I'll ensure error mapping, default values like language_code and sdk_version, and logging are  properly integrated, while updating RemoteConfig to use this new client instead of the noop fallback. This involves
+  careful handling of installations and tokens to fit into the fetch client’s initialization flow.
+
+• Edited src/remote_config/fetch.rs (+2 -6)
+
+> Thinking
+  I'm working on integrating the RemoteConfig fetch client to use real installation tokens and handle multiple
+  architectures like wasm and non-wasm. I'll set up helper functions to build the fetch client with proper fallbacks and  environment-based configs, ensuring the client gracefully logs issues and falls back to a Noop client when necessary.
+  This involves careful use of conditional compilation, environment variables, and structured error handling to keep
+  tests unaffected and maintain clean separation between fetch and API modules.
+
+• Edited src/remote_config/api.rs (+6 -2)
+
+• Edited src/remote_config/api.rs (+5 -4)
+
+• Edited src/remote_config/api.rs (+4 -0)
+
+• Edited src/remote_config/api.rs (+85 -1)
+  └ Read api.rs
+
+> Thinking
+  I’m aligning function signatures to accept Arc<Installations> and refining environment variable usage with fully
+  qualified paths. I’m also adjusting headers setup for wasm and native clients, handling config errors and fallbacks
+  properly, and ensuring tests work despite updated traits and defaults. Next, I’ll validate with formatting and
+  compilation checks.
+
+• Ran cargo check
+  └     Checking firebase-rs-sdk v0.11.1 (/mnt/c/Users/dmg/repositories/firebase-rs-sdk)
+       |
+    12 | use crate::installations::{get_installations, Installations};
+    … +14 lines
+       = note: `#[warn(unused_imports)]` on by default
+
+• Explored
+  └ Read lib.rs
+
+• Ran cargo check
+  └     Checking firebase-rs-sdk v0.11.1 (/mnt/c/Users/dmg/repositories/firebase-rs-sdk)
+    error[E0432]: unresolved import `crate::installations::InstallationsResult`
+      --> src/remote_config/fetch.rs:12:43
+       |
+    12 | use crate::installations::{Installations, InstallationsResult};
+    … +63 lines
+
+    Some errors have detailed explanations: E0432, E0599.
+    For more information about an error, try `rustc --explain E0432`.
+    warning: `firebase-rs-sdk` (lib) generated 2 warnings
+    error: could not compile `firebase-rs-sdk` (lib) due to 3 previous errors; 2 warnings emitted
+
+• Explored
+  └ Search pub async fn get_app in api.rs
+    Search get_installations\( in src
+
+> Thinking
+  I’m thinking through how to keep get_installations mostly synchronous while calling an async get_app internally by
+  using block_on outside wasm, and returning an error when None is passed on wasm since blocking isn’t possible there.
+  This means requiring Some(app) in most cases but gracefully handling None with async calls or errors depending on the
+  platform. I’ll also tidy imports and fix warnings related to unused types while updating the remote config builder
+  accordingly.
+
+• Edited src/installations/api.rs (+28 -2)
+• Edited src/remote_config/fetch.rs (+2 -1)
+
+• Edited src/remote_config/api.rs (+1 -1)
+
+• Ran cargo check
+
+• Edited src/remote_config/fetch.rs (+0 -1)
+    13     use crate::installations::error::InstallationsResult;
+• Ran cargo check
+
+• Ran cargo check --target wasm32-unknown-unknown --features wasm-web
+  └     Checking firebase-rs-sdk v0.11.1 (/mnt/c/Users/dmg/repositories/firebase-rs-sdk)
+    error[E0425]: cannot find function `yield_now` in crate `wasm_bindgen_futures`
+      --> src/installations/api.rs:74:27
+       |
+    74 |     wasm_bindgen_futures::yield_now().await;
+    … +244 lines
+
+    Some errors have detailed explanations: E0277, E0308, E0412, E0425, E0599.
+
+  gloo_timers::future::yield_now() for better availability, switching from web_sys::Error to js_sys::Error, and
+  addressing mismatched indexed_db::get_string wrappers by tightening feature gating to exclude wasm persistence code
+  unless experimental-indexed-db is enabled. These fixes should align dependencies and compile targets properly.
+
+• Explored
+  └ Read persistence.rs
+
+> Thinking
+  I'm updating the module to gate wasm_persistence behind the experimental-indexed-db feature flag and fallback to stubs  when the feature is disabled to avoid compile errors. I also plan to switch to using gloo_timers::future::yield_now
+
+• Edited src/installations/api.rs (+1 -1)
+ 
+• Explored
+  └ Search wasm_stub in persistence.rs
+    Read persistence.rs
+    477   +))]
+    478    pub use wasm_persistence::IndexedDbPersistence;
+
+• Explored
+  └ Read persistence.rs
+
+• Edited src/installations/persistence.rs (+5 -1)
+
+• Explored
+  └ Search struct BroadcastSubscription in persistence.rs
+    Search struct BroadcastSubscription in persistence.rs
+    Read persistence.rs
+    Search async_trait in persistence.rs
+    Read fetch.rs
+    Search unsupported_transport in src
+
+• Edited src/remote_config/fetch.rs (+0 -11)
+• Edited src/installations/persistence.rs (+41 -0)
+• Edited src/installations/rest/wasm.rs (+4 -4)
+• Edited src/installations/rest/wasm.rs (+1 -0)
+• Edited src/installations/rest/wasm.rs (+1 -1)
+> Thinking
+  Adjusting JsValue handling for request body
+
+
+• Ran cargo check --target wasm32-unknown-unknown --features wasm-web
+  └     Checking firebase-rs-sdk v0.11.1 (/mnt/c/Users/dmg/repositories/firebase-rs-sdk)
+    error[E0425]: cannot find function `yield_now` in module `gloo_timers::future`
+      --> src/installations/api.rs:74:26
+       |
+    74 |     gloo_timers::future::yield_now().await;
+    … +31 lines
+
