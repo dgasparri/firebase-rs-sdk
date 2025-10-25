@@ -2388,3 +2388,42 @@ I want now to review the module auth. I see that there is a folder called "nativ
   ensure dependencies like reqwest and persistence modules work for wasm, remove the separate wasm stub, adjust imports
   and tests, and retain compatible functionality on both targets. The next step is to carefully execute these moves and
   updates while verifying compilation and test coverage.
+
+
+✅ Updated the Auth tests so they run inside a Tokio runtime even when invoked from synchronous #[test] functions. The
+  change introduces a local helper in src/auth/api/core/mod.rs that builds a current-thread Tokio runtime and uses it
+  to block_on async calls. With this in place, the Auth suite no longer trips over “no reactor running” panics when you
+  execute cargo test --lib.
+
+  Let me know if you’d like to migrate the tests fully to #[tokio::test] in the future or keep this helper pattern.
+
+
+I'm considering the best next steps focusing on async and WASM support, especially converting the synchronous Database
+  backend to an async restful interface using reqwest::Client. This is a large effort involving API changes to async
+  futures and trait design. I’ll propose a prioritized plan starting with converting minimal restful operations in the
+  Database module, followed by unifying async transport, and eventually enabling wasm compilation by gating the database
+  module and introducing async traits. This plan also acknowledges leftover Stage2 testing tasks but recommends focusing
+  first on the async Database rework.
+
+> From the async/WASM plan the big remaining gap is Stage 3’s “Realtime Database” bullet: the module is still
+  synchronous and even commented out for wasm in src/lib.rs. Everything else you’ve just finished (Auth, Installations,
+  Remote Config) is marked complete, so the next logical move is to bring Realtime Database onto the async transport so
+  we can re‑enable it on wasm.
+
+  Here’s the concrete work I’d tackle next:
+
+  1. Convert the REST backend to async reqwest.
+     Replace reqwest::blocking::Client/futures::executor::block_on in src/database/backend.rs with the async client,
+  making DatabaseBackend methods async-friendly (likely returning Futures or moving the network path out of the trait).
+  Rework token fetchers to await auth.get_token/app_check.get_token without blocking.
+  2. Make the Database API async.
+     Update Database::set/update/delete/get (and corresponding query/ref helpers) to return Futures, mirroring the JS
+  SDK naming just like you did for Remote Config. In-memory operations can resolve immediately; network paths will await
+  the backend. Adjust listeners/on_disconnect stubs to compile on wasm even if they still warn/not-implemented.
+  3. Enable the module on wasm and gate missing features.
+     Once the core API compiles for wasm32-unknown-unknown (reqwest works there without blocking), flip the pub
+  mod database cfg in src/lib.rs and add any // TODO(async-wasm) notes for features still pending (Repo/persistent
+  connection, transactions, etc.). Update src/database/README.md to reflect the async/wasm status.
+
+  That sequence keeps us aligned with the migration plan and progressively unlocks the Database module for wasm
+  consumers. If that sounds good, I can start by refactoring the REST backend to async in the next step.
