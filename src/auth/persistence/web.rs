@@ -252,6 +252,7 @@ unsafe impl Sync for StorageListenerHandle {}
 
 struct BroadcastListenerHandle {
     channel: BroadcastChannel,
+    #[allow(dead_code)]
     callback: Closure<dyn FnMut(MessageEvent)>,
 }
 

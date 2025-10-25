@@ -142,6 +142,7 @@ pub fn read_token(app_key: &str) -> MessagingResult<Option<TokenRecord>> {
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[allow(dead_code)]
 pub async fn read_token_async(app_key: &str) -> MessagingResult<Option<TokenRecord>> {
     read_token(app_key)
 }

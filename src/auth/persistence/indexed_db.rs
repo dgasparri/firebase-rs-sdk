@@ -34,6 +34,7 @@ impl IndexedDbPersistence {
         }
     }
 
+    #[allow(dead_code)]
     async fn open_database(&self) -> Result<web_sys::IdbDatabase, AuthError> {
         open_database_with_store(&self.db_name, DB_VERSION, &self.store_name)
             .await

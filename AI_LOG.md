@@ -1654,3 +1654,117 @@ Thinking
   is not available in this environment)
 
   If you install wasm-bindgen-test-runner, rerun the smoke script to exercise the wasm tests end-to-end.
+
+
+Ran git status -sb
+
+> WASM Plan Progress
+
+  - Marked Stage 0’s build requirement complete after verifying cargo check --target wasm32-unknown-unknown --features
+  wasm-web (with and without experimental-indexed-db) succeeds.
+  - Created docs/async_wasm_checklist.md, a concise reference covering naming parity, feature gating, runtime
+  expectations, the TODO pattern, testing, and documentation updates, and checked off the checklist task in
+  WASM_PLAN.md.
+  - Updated the Stage 0 smoke-script note in WASM_PLAN.md to reflect the current behaviour (scripts now run the wasm
+  suite whenever wasm-bindgen-test-runner is installed).
+
+  Next Ideas
+
+
+ Thinking
+  I'm preparing an audit summary for the installations module, covering feature gating, persistence details like wasm's
+  use of IndexedDb with an experimental flag, concurrency, rest client distinctions, tests, and documentation, focusing
+  on highlighting key points without making code changes.
+
+> Installations Audit
+
+  - mod.rs:2 re-exports the async APIs uniformly; wasm builds use the same module surface as native.
+  - api.rs:20-78 selects persistence via cfgs (IndexedDB when wasm-web+experimental-indexed-db, file persistence
+  otherwise) and relies on shared async primitives (async_lock::Mutex, platform::runtime isn’t needed because the module
+  uses wasm_bindgen_futures::yield_now on wasm and tokio::task::yield_now on native).
+  - rest/mod.rs:87-98 provides separate native/wasm HTTP transports; wasm version lives in rest/wasm.rs and is compiled
+  only when wasm-web is enabled.
+  - persistence.rs:199-318 implements IndexedDB-backed storage gated by wasm-web & experimental-indexed-db; the stub
+  fallback remains for native and wasm builds without persistence.
+  - No TODO(async-wasm) guards remain around Installations; module compiles for wasm with both persistence feature
+  states (cargo check --target wasm32-unknown-unknown --features wasm-web and with experimental-indexed-db).
+
+  Next Actions
+
+  1. Add wasm-bindgen tests for the IndexedDB persistence (mirroring the App Check tests) to increase wasm coverage.
+  2. Update src/installations/README.md to document the experimental-indexed-db requirement for browser persistence and
+  note the wasm status.
+
+Installations Audit Highlights
+
+  - Source sync: src/installations matches the checklist—Tokio/async_lock are used on native, while wasm builds rely on
+  wasm_bindgen_futures::yield_now.
+  - Persistence: persistence.rs:199-318 provides a wasm IndexedDB implementation (gated by wasm-web + experimental-
+  indexed-db) and keeps the file-based stub for native builds. All methods compile on wasm, with thread-safe wrappers
+  around the BroadcastChannel handler.
+  - REST transport: rest/mod.rs:87-98 cleanly selects between the native reqwest client and the fetch-based wasm client
+  under wasm-web.
+
+  What’s Missing
+
+  - No wasm-bindgen test coverage yet for the persistence layer.
+  - README lacks an explicit mention of the feature flags for consumers.
+
+  Next Steps
+
+  1. Add wasm persistence tests (e.g., round-trip read/write with wasm-bindgen-test mirroring App Check).
+  2. Update the Installations README to document wasm-web/experimental-indexed-db usage and status; optionally
+  incorporate notes from docs/installations_wasm.md so that standalone file may not be needed.
+
+
+Thinking
+  I'll wrap up by highlighting the new tests that require the experimental-indexed-db feature and wasm-runner, and
+  instruct on using wasm-bindgen-test-runner for execution. I'll also mention the untracked cargo file and list all
+  modified file paths for clarity in the final message.
+
+> Installations WASM
+
+  - Added a wasm-bindgen test suite in src/installations/persistence.rs:204-279 to verify IndexedDB-backed persistence
+  (write/read/clear) when wasm-web and experimental-indexed-db are enabled.
+  - Documented the feature toggles and wasm behaviour in src/installations/README.md:41, noting how persistence falls
+  back to in-memory if experimental-indexed-db is omitted.
+  - Adjusted the IndexedDB helper (src/platform/browser/indexed_db.rs:63-237) to clone requests safely inside JS
+  closures, eliminating orphan impls while keeping the API unchanged.
+  - Extended the Stage 3 note in WASM_PLAN.md:42 to capture the new tests and remaining Installations TODOs.
+
+  Checks
+
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+
+  To run the new wasm tests, install wasm-bindgen-test-runner and execute cargo test --target wasm32-unknown-unknown
+  --features wasm-web,experimental-indexed-db.
+
+▌ Thinking
+  I’m putting together a final summary that highlights removing the unused cargo file, making remote config fetch
+  asynchronous with updated tests, and noting the remaining pre-existing warnings. I’ll also include instructions for
+  running the tests using cargo test --tests remote_config.
+
+> Remote Config Async Upgrade
+
+  - Converted the Remote Config fetch pipeline to async: get_remote_config and RemoteConfig::fetch now return futures,
+  the native HTTP client uses async reqwest, and tests drive these futures via a helper runtime (src/remote_config/
+  api.rs:130-806, src/remote_config/fetch.rs:1-244).
+  - Updated the stub fetch client and README example to match the async API (src/remote_config/api.rs:737-753, src/
+  remote_config/README.md:33-46).
+  - Noted the change in the WASM plan (Stage 3) so future work tracks the remaining wasm transport work
+  (WASM_PLAN.md:42).
+
+  Installations README
+
+  - Documented the wasm feature flags and new persistence tests (src/installations/README.md:45).
+
+  Tests & Checks
+
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+  - cargo test --tests remote_config
+
+  Next steps: implement the fetch transport for wasm (still a no-op) and consider wiring Remote Config to Installations
+  for real HTTP calls.
+

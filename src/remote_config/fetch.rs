@@ -22,6 +22,8 @@ use serde_json::{json, Map as JsonMap};
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, IF_NONE_MATCH};
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::{Client, StatusCode};
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+use reqwest::Client;
 
 /// Parameters describing a fetch attempt.
 #[derive(Clone, Debug, PartialEq)]
