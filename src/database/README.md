@@ -116,11 +116,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `on_value` listeners for references and queries that deliver an initial snapshot and replay callbacks after local writes, returning `ListenerRegistration` handles for manual detach.
 - Backend selection that defaults to an in-memory store and upgrades to a REST backend (`reqwest` PUT/PATCH/DELETE/GET) including base query propagation plus optional Auth/App Check token injection.
 - Unit tests covering in-memory semantics, validation edge cases, and REST request wiring through `httpmock`.
+- Preliminary realtime hooks (`Database::go_online`/`go_offline`) backed by a no-op transport; full websocket/long-poll support is still pending.
 
 ### WASM Notes
 
 - The module compiles on wasm targets when the `wasm-web` feature is enabled. At the moment only the in-memory backend is available on wasm; the REST transport remains native-only until the async client is ported.
 - Calling `get_database(None)` is not supported on wasm because the default app lookup is asynchronous. Pass an explicit `FirebaseApp` instance instead.
+- `go_online`/`go_offline` are currently stubs on wasm (and native) but provide the async surface needed for upcoming realtime work.
 
 ## Next Steps
 

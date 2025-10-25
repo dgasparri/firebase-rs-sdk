@@ -23,11 +23,9 @@ use crate::app::FirebaseApp;
 use crate::app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::auth::Auth;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::database::error::{
-    internal_error, invalid_argument, permission_denied, DatabaseError,
-};
 use crate::database::error::DatabaseResult;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::database::error::{internal_error, invalid_argument, permission_denied, DatabaseError};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::logger::Logger;
 #[cfg(not(target_arch = "wasm32"))]

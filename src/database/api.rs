@@ -20,6 +20,7 @@ use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
 use crate::database::on_disconnect::OnDisconnect;
 use crate::database::push_id::next_push_id;
 use crate::database::query::{QueryBound, QueryIndex, QueryLimit, QueryParams};
+use crate::database::realtime::Repo;
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -29,6 +30,7 @@ pub struct Database {
 struct DatabaseInner {
     app: FirebaseApp,
     backend: Arc<dyn DatabaseBackend>,
+    repo: Arc<Repo>,
     listeners: Mutex<HashMap<u64, Listener>>,
     next_listener_id: AtomicU64,
 }
@@ -38,6 +40,7 @@ impl fmt::Debug for DatabaseInner {
         f.debug_struct("DatabaseInner")
             .field("app", &self.app.name())
             .field("backend", &"dynamic")
+            .field("repo", &"realtime")
             .finish()
     }
 }
@@ -533,11 +536,28 @@ impl Database {
         Self {
             inner: Arc::new(DatabaseInner {
                 backend: select_backend(&app),
+                repo: Repo::new_for_app(&app),
                 app,
                 listeners: Mutex::new(HashMap::new()),
                 next_listener_id: AtomicU64::new(1),
             }),
         }
+    }
+
+    pub async fn go_online_async(&self) -> DatabaseResult<()> {
+        self.inner.repo.go_online().await
+    }
+
+    pub fn go_online(&self) -> DatabaseResult<()> {
+        block_on(self.go_online_async())
+    }
+
+    pub async fn go_offline_async(&self) -> DatabaseResult<()> {
+        self.inner.repo.go_offline().await
+    }
+
+    pub fn go_offline(&self) -> DatabaseResult<()> {
+        block_on(self.go_offline_async())
     }
 
     pub fn app(&self) -> &FirebaseApp {
