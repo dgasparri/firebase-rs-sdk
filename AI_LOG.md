@@ -2427,3 +2427,170 @@ I'm considering the best next steps focusing on async and WASM support, especial
 
   That sequence keeps us aligned with the migration plan and progressively unlocks the Database module for wasm
   consumers. If that sounds good, I can start by refactoring the REST backend to async in the next step.
+
+
+Thinking
+  I'm mapping out how to turn the DatabaseBackend trait and related backends fully async using async_trait, switching
+  RestBackend to async reqwest, and updating the public Database API accordingly while handling complexity in tests and
+  wasm compatibility. I’m considering an incremental approach with async wrappers and runtime blocks to balance progress
+  and usability.
+
+• E
+
+Thinking
+  I’m wrapping up by noting that I’ve introduced asynchronous wrappers for the Database API even though the core
+  functions remain synchronous. The previous step with block_on in auth tests is done, and I’ve already run cargo fmt.
+  Next, I’ll craft the final message reflecting these updates.
+
+> Database Async Wrappers
+
+  - Added asynchronous variants for the common Realtime Database operations (set_async, update_async,
+  get_async, remove_async, set_with_priority_async, set_priority_async, push_async, push_with_value_async, and
+  DatabaseQuery::get_async) while keeping the existing synchronous helpers as thin block_on shims (src/database/api.rs).
+  - Updated tests to run initialize_app via block_on so they compile after the async conversion, and brought in a fixed-
+  token sample for the wasm IndexedDB test (src/database/api.rs, src/installations/persistence.rs).
+  - Tightened cfgs around the backend so wasm builds use only the in-memory backend, while the native REST backend
+  remains gated (src/database/backend.rs).
+
+  Auth Test Adjustments
+
+  - Wrapped remaining async helper calls in Auth token tests with a local Tokio runtime so they no longer panic in
+  environments without a global reactor (src/auth/api/core/mod.rs, src/auth/api/core/token.rs).
+
+  Testing
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db --tests
+
+  Ready for the next async/WASM task when you are!
+
+
+all tests passed, what's next?
+
+> Thinking
+  I'm mapping out the next phase: converting the backend to fully async with reqwest::Client, updating the database
+  layer for async and wasm compatibility, and restructuring for a shared runtime environment. This will set the
+  foundation for real async support beyond the current blocking approach.
+
+> Nice! With the tests green again, the next async/WASM milestone is to finish the Realtime Database transport:
+
+  - Port the REST backend to async. Replace the blocking reqwest::blocking::Client with the async reqwest::Client, and
+  make the backend trait methods (set, update, delete, get) async-friendly so they can await the HTTP requests rather
+  than calling block_on.
+  - Propagate the async surface up the stack. Change DatabaseInner::backend to expose async methods (likely via an
+  async_trait), update Database::set_async/update_async/etc. to await them directly, and gradually retire the blocking
+  shims once callers are updated.
+  - Rework token fetchers for async. The current TokenFetcher closures call into Auth/App Check using block_on; once the
+  backend is async, wire those closures to be async as well (perhaps returning boxed futures) so wasm builds can supply
+  real tokens when available.
+  - Restore REST + wasm parity. After the backend is async, re-enable the REST path for wasm (it already compiles); then
+  we can tackle realtime streaming in a follow-up.
+
+  Let me know when you’re ready and I can start with the backend refactor.
+
+
+Thinking
+  I'm mapping out how to gradually convert database backends to async, introducing an async trait with async-trait,
+  updating InMemory and restful backends accordingly, and balancing wasm constraints and existing sync interfaces; this
+  careful plan covers async reqwest usage, token fetchers, and switching method signatures while maintaining current
+  behavior until a full migration is feasible.
+
+> Awesome—test suite still green, so we’re ready to keep pushing. Since Realtime Database is now enabled for wasm (in-
+  memory backend only), the next logical async/WASM task is porting the REST transport to async reqwest. That involves:
+
+
+IMPORTANT
+  1. Switching src/database/backend.rs to use reqwest::Client and async methods.
+  2. Changing the backend trait to async fn via async_trait, so Database::set_async, query::get_async, etc. can await
+  the network call instead of blocking.
+  3. Updating the token fetch closures to return futures rather than calling block_on, and wiring the API to await them.
+  4. Once the transport is async, we can re-enable the REST backend for wasm builds and start tackling realtime
+  streaming.
+
+  If you’re good with that plan, I’ll start refactoring the backend in the next step.
+
+
+Thinking
+  I'll check if the README needs clarification about RESTful being native-only and note the async conversion but
+  disabled on WASM. I'll also do a final code format run with cargo fmt to keep things tidy before wrapping up.
+
+• Ran cargo fmt
+
+> Thinking
+  I'll explain how the backend was converted to use async traits and async reqwest requests, mention the new async
+  database API with blocking wrappers, note that tests were updated accordingly, and confirm tests ran successfully.
+
+> Realtime DB Async Refactor
+
+  - Converted the DatabaseBackend trait and both backends to async via async_trait, replacing the blocking
+  reqwest::blocking client with the async client and rewriting token fetchers to return boxed futures (src/database/
+  backend.rs).
+  - Updated DatabaseReference/DatabaseQuery operations (set_async, update_async, get_async, remove_async,
+  set_with_priority_async, push_async, etc.) plus supporting helpers (root_snapshot_async, resolve_value_for_path_async)
+  to await the backend; synchronous wrappers now delegate through block_on (src/database/api.rs).
+  - Adjusted backend tests to work with the new async interfaces by boxing token futures and using block_on in
+  expectations.
+
+  Tests
+
+  - cargo check
+  - cargo check --tests
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db --tests
+
+  Next up we can re-enable the REST backend on wasm once we have async fetch glue in place.
+
+Thinking
+  I’m adjusting the backend selection logic to properly exclude non-wasm code by wrapping the TokenFetcher and related
+  auth setup inside a #[cfg(not(target_arch = "wasm32"))] block, ensuring wasm builds skip these parts entirely. I
+  also need to manage imports conditionally to avoid unused warnings and adapt async trait implementations for the new
+  restful backend, paying attention to awaiting futures properly without blocking in wasm contexts.
+
+
+ Thinking
+  I’m reviewing the plan and current state where the RESTful backend remains disabled for wasm due to configuration
+  guards. Although step 3 suggests re-enabling it later, this hasn’t happened yet. The main focus right now is
+  converting the backend to async, so I’m thinking to keep RESTful disabled on wasm for now and update documentation or
+  plans to reflect this status before moving forward.
+
+> Realtime DB Async Transport
+
+  - Reworked select_backend so native builds use the async REST backend with boxed async token fetchers, while wasm
+  builds fall back cleanly to the in-memory backend (src/database/backend.rs).
+  - Converted the REST backend to async: send_request, ensure_success, query_with_tokens, and the trait methods now
+  await reqwest’s async client; token fetch closures return boxed futures and tests were updated to block_on the async
+  calls (src/database/backend.rs).
+  - Updated DatabaseReference/DatabaseQuery internals to await the backend (set_async, update_async, get_async,
+  remove_async, set_with_priority_async, set_priority_async, push_async, resolve_value_for_path_async,
+  root_snapshot_async) and provided thin sync wrappers via block_on for existing callers (src/database/api.rs).
+
+  Testing
+
+  - cargo check
+  - cargo check --tests
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db --tests
+
+  The REST backend now uses the shared async transport; wasm still leverages the in-memory backend until we port the
+  network path, which will be the next step.
+
+Thinking
+  I'm mapping out how to enable REST backend support on wasm by defining new TokenFetcher aliases and stubbing token
+  fetching, while also preparing to start implementing async realtime streaming features, focusing next on the database
+  realtime module and async event handling.
+
+• Explored
+  └ Read realtime.rs
+
+> Thinking
+  I’m laying out a detailed plan to convert core database methods from synchronous to fully asynchronous by renaming
+  existing async variants to their original names and removing sync wrappers. This includes updating call sites, tests,
+  and related modules to use await or block_on, which will be a big but necessary step toward an async-first API. Next,
+  I’ll focus on systematically applying these changes to methods like set, update, get, and others, making sure to
+  maintain test coverage and compatibility.
+
+• Explored
+  └ Read on_disconnect.rs
+
+  Pl

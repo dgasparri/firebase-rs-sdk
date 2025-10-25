@@ -3,14 +3,18 @@ use std::sync::{Arc, LazyLock, Mutex};
 #[cfg(target_arch = "wasm32")]
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 #[cfg(not(target_arch = "wasm32"))]
-use reqwest::blocking::{Client, Response};
+use futures::future::BoxFuture;
+#[cfg(not(target_arch = "wasm32"))]
+use futures::FutureExt;
+#[cfg(not(target_arch = "wasm32"))]
+use reqwest::{Client, Response};
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::{Method, StatusCode};
-#[cfg(target_arch = "wasm32")]
-use serde_json::Value;
 #[cfg(not(target_arch = "wasm32"))]
-use serde_json::{Map, Value};
+use serde_json::Map;
+use serde_json::Value;
 #[cfg(not(target_arch = "wasm32"))]
 use url::Url;
 
@@ -19,100 +23,97 @@ use crate::app::FirebaseApp;
 use crate::app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::auth::Auth;
-#[cfg(target_arch = "wasm32")]
-use crate::database::error::DatabaseResult;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::database::error::{
-    internal_error, invalid_argument, permission_denied, DatabaseError, DatabaseResult,
+    internal_error, invalid_argument, permission_denied, DatabaseError,
 };
+use crate::database::error::DatabaseResult;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::logger::Logger;
 #[cfg(not(target_arch = "wasm32"))]
-use futures::executor::block_on;
+type TokenFetcher =
+    Arc<dyn Fn() -> BoxFuture<'static, DatabaseResult<Option<String>>> + Send + Sync>;
 
-#[cfg(not(target_arch = "wasm32"))]
-type TokenFetcher = Arc<dyn Fn() -> DatabaseResult<Option<String>> + Send + Sync>;
-
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait(?Send)
+)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait)]
 pub(crate) trait DatabaseBackend: Send + Sync {
-    fn set(&self, path: &[String], value: Value) -> DatabaseResult<()>;
-    fn update(
+    async fn set(&self, path: &[String], value: Value) -> DatabaseResult<()>;
+    async fn update(
         &self,
         base_path: &[String],
         updates: Vec<(Vec<String>, Value)>,
     ) -> DatabaseResult<()>;
-    fn delete(&self, path: &[String]) -> DatabaseResult<()>;
-    fn get(&self, path: &[String], query: &[(String, String)]) -> DatabaseResult<Value>;
+    async fn delete(&self, path: &[String]) -> DatabaseResult<()>;
+    async fn get(&self, path: &[String], query: &[(String, String)]) -> DatabaseResult<Value>;
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn select_backend(_app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
-    Arc::new(InMemoryBackend::default())
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
     let options = app.options();
+    #[cfg(not(target_arch = "wasm32"))]
     if let Some(url) = options.database_url {
         let app_for_auth = app.clone();
         let auth_fetcher: TokenFetcher = Arc::new(move || {
             let container = app_for_auth.container();
-
-            let auth_or_none = container
-                .get_provider("auth-internal")
-                .get_immediate_with_options::<Auth>(None, true)
-                .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?;
-
-            let auth = match auth_or_none {
-                Some(auth) => Some(auth),
-                None => container
-                    .get_provider("auth")
+            async move {
+                let auth_or_none = container
+                    .get_provider("auth-internal")
                     .get_immediate_with_options::<Auth>(None, true)
                     .map_err(|err| {
                         internal_error(format!("failed to resolve auth provider: {err}"))
-                    })?,
-            };
-
-            let Some(auth) = auth else {
-                return Ok(None);
-            };
-
-            match block_on(auth.get_token(false)) {
-                Ok(Some(token)) if token.is_empty() => Ok(None),
-                Ok(Some(token)) => Ok(Some(token)),
-                Ok(None) => Ok(None),
-                Err(err) => Err(internal_error(format!(
-                    "failed to obtain auth token: {err}"
-                ))),
+                    })?;
+                let auth = match auth_or_none {
+                    Some(auth) => Some(auth),
+                    None => container
+                        .get_provider("auth")
+                        .get_immediate_with_options::<Auth>(None, true)
+                        .map_err(|err| {
+                            internal_error(format!("failed to resolve auth provider: {err}"))
+                        })?,
+                };
+                let Some(auth) = auth else {
+                    return Ok(None);
+                };
+                match auth.get_token(false).await {
+                    Ok(Some(token)) if token.is_empty() => Ok(None),
+                    Ok(Some(token)) => Ok(Some(token)),
+                    Ok(None) => Ok(None),
+                    Err(err) => Err(internal_error(format!(
+                        "failed to obtain auth token: {err}"
+                    ))),
+                }
             }
+            .boxed()
         });
 
         let app_for_app_check = app.clone();
         let app_check_fetcher: TokenFetcher = Arc::new(move || {
             let container = app_for_app_check.container();
-            let app_check = container
-                .get_provider(APP_CHECK_INTERNAL_COMPONENT_NAME)
-                .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
-                .map_err(|err| {
-                    internal_error(format!("failed to resolve app check provider: {err}"))
+            async move {
+                let app_check = container
+                    .get_provider(APP_CHECK_INTERNAL_COMPONENT_NAME)
+                    .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
+                    .map_err(|err| {
+                        internal_error(format!("failed to resolve app check provider: {err}"))
+                    })?;
+                let Some(app_check) = app_check else {
+                    return Ok(None);
+                };
+                let result = app_check.get_token(false).await.map_err(|err| {
+                    internal_error(format!("failed to obtain App Check token: {err}"))
                 })?;
-
-            let Some(app_check) = app_check else {
-                return Ok(None);
-            };
-
-            let result = block_on(app_check.get_token(false)).map_err(|err| {
-                internal_error(format!("failed to obtain App Check token: {err}"))
-            })?;
-
-            if let Some(error) = result.error.or(result.internal_error) {
-                return Err(internal_error(format!("App Check token error: {error}")));
+                if let Some(error) = result.error.or(result.internal_error) {
+                    return Err(internal_error(format!("App Check token error: {error}")));
+                }
+                if result.token.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(result.token))
+                }
             }
-
-            if result.token.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(result.token))
-            }
+            .boxed()
         });
 
         match RestBackend::new(url, auth_fetcher, app_check_fetcher) {
@@ -123,6 +124,11 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
                 ));
             }
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    if let Some(_url) = options.database_url {
+        // REST backend not yet supported on wasm; fall back to in-memory.
     }
     Arc::new(InMemoryBackend::default())
 }
@@ -139,14 +145,19 @@ impl Default for InMemoryBackend {
     }
 }
 
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait(?Send)
+)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait)]
 impl DatabaseBackend for InMemoryBackend {
-    fn set(&self, path: &[String], value: Value) -> DatabaseResult<()> {
+    async fn set(&self, path: &[String], value: Value) -> DatabaseResult<()> {
         let mut data = self.data.lock().unwrap();
         set_at_path(&mut data, path, value);
         Ok(())
     }
 
-    fn update(
+    async fn update(
         &self,
         _base_path: &[String],
         updates: Vec<(Vec<String>, Value)>,
@@ -158,13 +169,13 @@ impl DatabaseBackend for InMemoryBackend {
         Ok(())
     }
 
-    fn delete(&self, path: &[String]) -> DatabaseResult<()> {
+    async fn delete(&self, path: &[String]) -> DatabaseResult<()> {
         let mut data = self.data.lock().unwrap();
         delete_at_path(&mut data, path);
         Ok(())
     }
 
-    fn get(&self, path: &[String], _query: &[(String, String)]) -> DatabaseResult<Value> {
+    async fn get(&self, path: &[String], _query: &[(String, String)]) -> DatabaseResult<Value> {
         let data = self.data.lock().unwrap();
         Ok(get_at_path(&data, path).cloned().unwrap_or(Value::Null))
     }
@@ -268,47 +279,50 @@ impl RestBackend {
         }
     }
 
-    fn send_request(
+    async fn send_request(
         &self,
         method: Method,
         path: &[String],
         query: &[(String, String)],
         body: Option<&Value>,
     ) -> DatabaseResult<Response> {
-        let augmented_query = self.query_with_tokens(query)?;
+        let augmented_query = self.query_with_tokens(query).await?;
         let url = self.url_for_path(path, &augmented_query)?;
         let mut request = self.client.request(method, url);
         if let Some(payload) = body {
             request = request.json(payload);
         }
 
-        request.send().map_err(|err| self.handle_reqwest_error(err))
+        request
+            .send()
+            .await
+            .map_err(|err| self.handle_reqwest_error(err))
     }
 
-    fn ensure_success(&self, response: Response) -> DatabaseResult<Response> {
+    async fn ensure_success(&self, response: Response) -> DatabaseResult<Response> {
         if response.status().is_success() {
             Ok(response)
         } else {
             let status = response.status();
-            let body = response.text().ok();
+            let body = response.text().await.ok();
             Err(self.handle_http_error(status, body))
         }
     }
 
-    fn query_with_tokens(
+    async fn query_with_tokens(
         &self,
         query: &[(String, String)],
     ) -> DatabaseResult<Vec<(String, String)>> {
         let mut params: Vec<(String, String)> = query.to_vec();
 
         if !params.iter().any(|(key, _)| key == "auth") {
-            if let Some(token) = fetch_token(&self.auth_token_fetcher)? {
+            if let Some(token) = fetch_token(&self.auth_token_fetcher).await? {
                 params.push(("auth".to_string(), token));
             }
         }
 
         if !params.iter().any(|(key, _)| key == "ac") {
-            if let Some(token) = fetch_token(&self.app_check_token_fetcher)? {
+            if let Some(token) = fetch_token(&self.app_check_token_fetcher).await? {
                 params.push(("ac".to_string(), token));
             }
         }
@@ -318,20 +332,27 @@ impl RestBackend {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn fetch_token(fetcher: &TokenFetcher) -> DatabaseResult<Option<String>> {
-    (fetcher.as_ref())()
+async fn fetch_token(fetcher: &TokenFetcher) -> DatabaseResult<Option<String>> {
+    (fetcher.as_ref())().await
 }
 
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait(?Send)
+)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait)]
 #[cfg(not(target_arch = "wasm32"))]
 impl DatabaseBackend for RestBackend {
-    fn set(&self, path: &[String], value: Value) -> DatabaseResult<()> {
+    async fn set(&self, path: &[String], value: Value) -> DatabaseResult<()> {
         let mut params = Vec::with_capacity(1);
         params.push(("print".to_string(), "silent".to_string()));
-        let response = self.send_request(Method::PUT, path, &params, Some(&value))?;
-        self.ensure_success(response).map(|_| ())
+        let response = self
+            .send_request(Method::PUT, path, &params, Some(&value))
+            .await?;
+        self.ensure_success(response).await.map(|_| ())
     }
 
-    fn update(
+    async fn update(
         &self,
         base_path: &[String],
         updates: Vec<(Vec<String>, Value)>,
@@ -359,37 +380,42 @@ impl DatabaseBackend for RestBackend {
         let body = Value::Object(payload);
         let mut params = Vec::with_capacity(1);
         params.push(("print".to_string(), "silent".to_string()));
-        let response = self.send_request(Method::PATCH, base_path, &params, Some(&body))?;
-        self.ensure_success(response).map(|_| ())
+        let response = self
+            .send_request(Method::PATCH, base_path, &params, Some(&body))
+            .await?;
+        self.ensure_success(response).await.map(|_| ())
     }
 
-    fn delete(&self, path: &[String]) -> DatabaseResult<()> {
+    async fn delete(&self, path: &[String]) -> DatabaseResult<()> {
         let mut params = Vec::with_capacity(1);
         params.push(("print".to_string(), "silent".to_string()));
-        let response = self.send_request(Method::DELETE, path, &params, None)?;
+        let response = self
+            .send_request(Method::DELETE, path, &params, None)
+            .await?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(());
         }
-        self.ensure_success(response).map(|_| ())
+        self.ensure_success(response).await.map(|_| ())
     }
 
-    fn get(&self, path: &[String], query: &[(String, String)]) -> DatabaseResult<Value> {
+    async fn get(&self, path: &[String], query: &[(String, String)]) -> DatabaseResult<Value> {
         let mut params = Vec::with_capacity(query.len() + 1);
         if !query.iter().any(|(key, _)| key == "format") {
             params.push(("format".to_string(), "export".to_string()));
         }
         params.extend_from_slice(query);
 
-        let response = self.send_request(Method::GET, path, &params, None)?;
+        let response = self.send_request(Method::GET, path, &params, None).await?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(Value::Null);
         }
 
-        let response = self.ensure_success(response)?;
+        let response = self.ensure_success(response).await?;
 
         response
             .json()
+            .await
             .map_err(|err| internal_error(format!("Failed to decode database response: {err}")))
     }
 }
@@ -492,15 +518,16 @@ static LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/databa
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use futures::executor::block_on;
     use httpmock::prelude::*;
     use serde_json::json;
 
     fn static_token(value: &'static str) -> TokenFetcher {
-        Arc::new(move || Ok(Some(value.to_string())))
+        Arc::new(move || async move { Ok(Some(value.to_string())) }.boxed())
     }
 
     fn empty_token() -> TokenFetcher {
-        Arc::new(|| Ok(None))
+        Arc::new(|| async { Ok(None) }.boxed())
     }
 
     #[test]
@@ -523,7 +550,7 @@ mod tests {
         )
         .expect("rest backend");
 
-        backend.get(&["items".to_string()], &[]).unwrap();
+        block_on(backend.get(&["items".to_string()], &[])).unwrap();
 
         get_mock.assert();
     }
@@ -542,9 +569,7 @@ mod tests {
 
         let backend = RestBackend::new(server.url("/"), empty_token(), empty_token()).unwrap();
 
-        backend
-            .set(&["data".to_string()], json!({"value": true}))
-            .unwrap();
+        block_on(backend.set(&["data".to_string()], json!({"value": true}))).unwrap();
 
         put_mock.assert();
     }

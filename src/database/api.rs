@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::{Map, Number, Value};
 use futures::executor::block_on;
+use serde_json::{Map, Number, Value};
 
 use crate::app;
 use crate::app::FirebaseApp;
@@ -636,8 +636,12 @@ impl Database {
         Ok(())
     }
 
+    async fn root_snapshot_async(&self) -> DatabaseResult<Value> {
+        self.inner.backend.get(&[], &[]).await
+    }
+
     fn root_snapshot(&self) -> DatabaseResult<Value> {
-        self.inner.backend.get(&[], &[])
+        block_on(self.root_snapshot_async())
     }
 
     fn snapshot_from_root(
@@ -757,13 +761,13 @@ impl Database {
     fn snapshot_for_target(&self, target: &ListenerTarget) -> DatabaseResult<DataSnapshot> {
         match target {
             ListenerTarget::Reference(path) => {
-                let value = self.inner.backend.get(path, &[])?;
+                let value = block_on(self.inner.backend.get(path, &[]))?;
                 let reference = self.reference_from_segments(path.clone());
                 Ok(DataSnapshot { reference, value })
             }
             ListenerTarget::Query { path, params } => {
                 let rest_params = params.to_rest_params()?;
-                let value = self.inner.backend.get(path, rest_params.as_slice())?;
+                let value = block_on(self.inner.backend.get(path, rest_params.as_slice()))?;
                 let reference = self.reference_from_segments(path.clone());
                 Ok(DataSnapshot { reference, value })
             }
@@ -804,10 +808,10 @@ impl DatabaseReference {
     }
 
     pub async fn set_async(&self, value: Value) -> DatabaseResult<()> {
-        let value = self.resolve_value_for_path(&self.path, value)?;
-        let old_root = self.database.root_snapshot()?;
-        self.database.inner.backend.set(&self.path, value)?;
-        let new_root = self.database.root_snapshot()?;
+        let value = self.resolve_value_for_path_async(&self.path, value).await?;
+        let old_root = self.database.root_snapshot_async().await?;
+        self.database.inner.backend.set(&self.path, value).await?;
+        let new_root = self.database.root_snapshot_async().await?;
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
@@ -943,13 +947,17 @@ impl DatabaseReference {
                 ));
             }
             segments.extend(relative);
-            let resolved = self.resolve_value_for_path(&segments, value)?;
+            let resolved = self.resolve_value_for_path_async(&segments, value).await?;
             operations.push((segments, resolved));
         }
 
-        let old_root = self.database.root_snapshot()?;
-        self.database.inner.backend.update(&self.path, operations)?;
-        let new_root = self.database.root_snapshot()?;
+        let old_root = self.database.root_snapshot_async().await?;
+        self.database
+            .inner
+            .backend
+            .update(&self.path, operations)
+            .await?;
+        let new_root = self.database.root_snapshot_async().await?;
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
@@ -960,7 +968,7 @@ impl DatabaseReference {
     }
 
     pub async fn get_async(&self) -> DatabaseResult<Value> {
-        self.database.inner.backend.get(&self.path, &[])
+        self.database.inner.backend.get(&self.path, &[]).await
     }
 
     pub fn get(&self) -> DatabaseResult<Value> {
@@ -969,9 +977,9 @@ impl DatabaseReference {
 
     /// Deletes the value at this location using the backend's `DELETE` support.
     pub async fn remove_async(&self) -> DatabaseResult<()> {
-        let old_root = self.database.root_snapshot()?;
-        self.database.inner.backend.delete(&self.path)?;
-        let new_root = self.database.root_snapshot()?;
+        let old_root = self.database.root_snapshot_async().await?;
+        self.database.inner.backend.delete(&self.path).await?;
+        let new_root = self.database.root_snapshot_async().await?;
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
@@ -996,11 +1004,13 @@ impl DatabaseReference {
             ));
         }
 
-        let value = self.resolve_value_for_path(&self.path, value.into())?;
+        let value = self
+            .resolve_value_for_path_async(&self.path, value.into())
+            .await?;
         let payload = pack_with_priority(value, priority);
-        let old_root = self.database.root_snapshot()?;
-        self.database.inner.backend.set(&self.path, payload)?;
-        let new_root = self.database.root_snapshot()?;
+        let old_root = self.database.root_snapshot_async().await?;
+        self.database.inner.backend.set(&self.path, payload).await?;
+        let new_root = self.database.root_snapshot_async().await?;
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
@@ -1022,12 +1032,12 @@ impl DatabaseReference {
         let priority = priority.into();
         validate_priority_value(&priority)?;
 
-        let current = self.database.inner.backend.get(&self.path, &[])?;
+        let current = self.database.inner.backend.get(&self.path, &[]).await?;
         let value = extract_data_owned(&current);
         let payload = pack_with_priority(value, priority);
-        let old_root = self.database.root_snapshot()?;
-        self.database.inner.backend.set(&self.path, payload)?;
-        let new_root = self.database.root_snapshot()?;
+        let old_root = self.database.root_snapshot_async().await?;
+        self.database.inner.backend.set(&self.path, payload).await?;
+        let new_root = self.database.root_snapshot_async().await?;
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
@@ -1079,9 +1089,13 @@ impl DatabaseReference {
         block_on(self.push_with_value_async(value))
     }
 
-    fn resolve_value_for_path(&self, path: &[String], value: Value) -> DatabaseResult<Value> {
+    async fn resolve_value_for_path_async(
+        &self,
+        path: &[String],
+        value: Value,
+    ) -> DatabaseResult<Value> {
         if contains_server_value(&value) {
-            let current = self.database.inner.backend.get(path, &[])?;
+            let current = self.database.inner.backend.get(path, &[]).await?;
             let current_ref = extract_data_ref(&current);
             resolve_server_values(value, Some(current_ref))
         } else {
@@ -1270,6 +1284,7 @@ impl DatabaseQuery {
             .inner
             .backend
             .get(&self.reference.path, params.as_slice())
+            .await
     }
 
     pub fn get(&self) -> DatabaseResult<Value> {
