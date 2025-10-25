@@ -38,6 +38,29 @@ Note that this library is provided _as is__. Even the more developed modules hav
 
 If you want to contribute, donating your time and AI resources is the most valuable way to support this project. See the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) page on how to help.
 
+## Feature Flags
+
+Some parts of the SDK are gated behind cargo features so you can opt in only when you need browser/WASM behaviour:
+
+- `wasm-web`: enables the bindings required to compile the crate for `wasm32-unknown-unknown` (e.g. `wasm-bindgen`, `web-sys`, `gloo-timers`). Activate this when you target the web or run wasm-specific tests.
+- `experimental-indexed-db`: turns on IndexedDB-backed persistence for modules that support it (currently App Check). Without this flag, wasm builds fall back to in-memory storage while keeping the same API.
+
+### Enabling the features in `Cargo.toml`
+
+```toml
+[dependencies]
+firebase-rs-sdk = { version = "0.11", features = ["wasm-web", "experimental-indexed-db"] }
+```
+
+### Running commands with the features
+
+```bash
+cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+cargo test --target wasm32-unknown-unknown --features wasm-web wasm_smoke
+```
+
+If you only need the wasm bindings and not IndexedDB persistence, omit `experimental-indexed-db` from the list.
+
 ##  Why the JS SDK as a source?
 
 Firebase has several official SDKs. From an architectural standpoint, the C++ version might have been a better reference, but the JS SDK is one of the few that implements the services from scratch, without depending on external Java libraries. Moreover, it offers one of the most complete and well-documented APIs. 
@@ -164,4 +187,3 @@ Please be aware that this library is distributed "as is", and the author(s) offe
 ## How to contribute
 
 We welcome contributions from everyone. The porting process is time and AI intensive, if you have any or both of those, your help is appreciated! Please refer to the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) for the details. 
-
