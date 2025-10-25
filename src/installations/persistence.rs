@@ -182,11 +182,11 @@ impl InstallationsPersistence for FilePersistence {
     feature = "experimental-indexed-db"
 ))]
 mod wasm_persistence {
+    #[cfg(test)]
+    use super::PersistedAuthToken;
     use super::{
         internal_error, InstallationsPersistence, InstallationsResult, PersistedInstallation,
     };
-    #[cfg(test)]
-    use super::PersistedAuthToken;
     use crate::platform::browser::indexed_db;
     use serde::{Deserialize, Serialize};
     use std::cell::RefCell;

@@ -23,6 +23,12 @@ use crate::auth::oauth::{
     credential::OAuthCredential, InMemoryRedirectPersistence, OAuthPopupHandler,
     OAuthRedirectHandler, PendingRedirectEvent, RedirectOperation, RedirectPersistence,
 };
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+use crate::auth::persistence::IndexedDbPersistence;
 use crate::auth::persistence::{
     AuthPersistence, InMemoryPersistence, PersistedAuthState, PersistenceListener,
     PersistenceSubscription,
@@ -83,9 +89,21 @@ impl Auth {
 
     /// Constructs an `Auth` instance using in-memory persistence.
     pub fn new(app: FirebaseApp) -> AuthResult<Self> {
-        #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+        #[cfg(all(
+            feature = "wasm-web",
+            feature = "experimental-indexed-db",
+            target_arch = "wasm32"
+        ))]
         let persistence: Arc<dyn AuthPersistence + Send + Sync> =
-            Arc::new(crate::auth::persistence::IndexedDbPersistence::new());
+            Arc::new(IndexedDbPersistence::new());
+
+        #[cfg(all(
+            feature = "wasm-web",
+            not(feature = "experimental-indexed-db"),
+            target_arch = "wasm32"
+        ))]
+        let persistence: Arc<dyn AuthPersistence + Send + Sync> =
+            Arc::new(InMemoryPersistence::default());
 
         #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
         let persistence: Arc<dyn AuthPersistence + Send + Sync> =
