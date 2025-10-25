@@ -127,7 +127,7 @@ impl RemoteConfig {
         Ok(())
     }
 
-    pub fn fetch(&self) -> RemoteConfigResult<()> {
+    pub async fn fetch(&self) -> RemoteConfigResult<()> {
         let now = current_timestamp_millis();
         let settings = self.inner.settings.lock().unwrap().clone();
 
@@ -157,7 +157,7 @@ impl RemoteConfig {
         };
 
         let fetch_client = self.inner.fetch_client.lock().unwrap().clone();
-        let response = fetch_client.fetch(request);
+        let response = fetch_client.fetch(request).await;
 
         let response = match response {
             Ok(res) => res,
@@ -441,8 +441,27 @@ mod tests {
         FetchStatus, FileRemoteConfigStorage, RemoteConfigStorage,
     };
     use std::fs;
+    use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex as StdMutex;
+    use tokio::runtime::Builder;
+
+    fn block_on_future<F: Future>(future: F) -> F::Output
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
+        Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    fn run_fetch(rc: &RemoteConfig) -> RemoteConfigResult<()> {
+        let rc_clone = rc.clone();
+        block_on_future(async move { rc_clone.fetch().await })
+    }
 
     fn remote_config(app: FirebaseApp) -> Arc<RemoteConfig> {
         Arc::new(RemoteConfig::new(app))
@@ -466,13 +485,13 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
         rc.set_defaults(HashMap::from([(
             String::from("welcome"),
             String::from("hello"),
         )]));
-        rc.fetch().unwrap();
+        run_fetch(&rc).unwrap();
         assert!(rc.activate().unwrap());
         assert_eq!(rc.get_string("welcome"), "hello");
         assert_eq!(rc.last_fetch_status(), FetchStatus::Success);
@@ -485,10 +504,10 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
         rc.set_defaults(HashMap::from([(String::from("flag"), String::from("off"))]));
-        rc.fetch().unwrap();
+        run_fetch(&rc).unwrap();
         rc.activate().unwrap();
         assert!(!rc.activate().unwrap());
     }
@@ -499,7 +518,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
         rc.set_defaults(HashMap::from([(
             String::from("feature"),
@@ -517,13 +536,13 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
         rc.set_defaults(HashMap::from([(
             String::from("feature"),
             String::from("true"),
         )]));
-        rc.fetch().unwrap();
+        run_fetch(&rc).unwrap();
         rc.activate().unwrap();
 
         let value = rc.get_value("feature");
@@ -537,7 +556,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
         rc.set_defaults(HashMap::from([(
             String::from("rate"),
@@ -554,13 +573,13 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
         rc.set_defaults(HashMap::from([
             (String::from("feature"), String::from("true")),
             (String::from("secondary"), String::from("value")),
         ]));
-        rc.fetch().unwrap();
+        run_fetch(&rc).unwrap();
         rc.activate().unwrap();
         rc.set_defaults(HashMap::from([
             (String::from("feature"), String::from("false")),
@@ -582,7 +601,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
 
         let value = rc.get_value("not-present");
@@ -598,7 +617,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
 
         let settings = rc.settings();
@@ -618,7 +637,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
 
         rc.set_config_settings(RemoteConfigSettingsUpdate {
@@ -638,7 +657,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
 
         let result = rc.set_config_settings(RemoteConfigSettingsUpdate {
@@ -659,7 +678,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
 
         assert_eq!(rc.last_fetch_status(), FetchStatus::NoFetchYet);
@@ -672,11 +691,11 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
 
-        rc.fetch().unwrap();
-        let result = rc.fetch();
+        run_fetch(&rc).unwrap();
+        let result = run_fetch(&rc);
 
         assert!(result.is_err());
         assert_eq!(rc.last_fetch_status(), FetchStatus::Throttle);
@@ -688,7 +707,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
 
         let response = FetchResponse {
@@ -703,7 +722,7 @@ mod tests {
 
         rc.set_fetch_client(Arc::new(StubFetchClient::new(response)));
 
-        rc.fetch().unwrap();
+        run_fetch(&rc).unwrap();
         assert_eq!(rc.last_fetch_status(), FetchStatus::Success);
 
         assert!(rc.activate().unwrap());
@@ -725,8 +744,9 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl RemoteConfigFetchClient for StubFetchClient {
-        fn fetch(&self, _request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
+        async fn fetch(&self, _request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
             self.response
                 .lock()
                 .unwrap()
@@ -747,7 +767,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
 
         let storage: Arc<dyn RemoteConfigStorage> =
             Arc::new(FileRemoteConfigStorage::new(storage_path.clone()).unwrap());
@@ -763,7 +783,7 @@ mod tests {
             template_version: Some(5),
         })));
 
-        rc.fetch().unwrap();
+        run_fetch(&rc).unwrap();
         rc.activate().unwrap();
 
         drop(rc);

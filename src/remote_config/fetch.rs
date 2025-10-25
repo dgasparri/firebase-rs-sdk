@@ -5,19 +5,23 @@
 //! transport layer for retrieving templates from the backend.
 
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use crate::remote_config::error::{internal_error, RemoteConfigResult};
-use serde::Deserialize;
-use serde_json::{json, Map as JsonMap, Value as JsonValue};
-
+use async_trait::async_trait;
 #[cfg(not(target_arch = "wasm32"))]
-use reqwest::blocking::Client;
+use serde::Deserialize;
+use serde_json::Value as JsonValue;
+#[cfg(not(target_arch = "wasm32"))]
+use serde_json::{json, Map as JsonMap};
+
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, IF_NONE_MATCH};
 #[cfg(not(target_arch = "wasm32"))]
-use reqwest::StatusCode;
+use reqwest::{Client, StatusCode};
 
 /// Parameters describing a fetch attempt.
 #[derive(Clone, Debug, PartialEq)]
@@ -42,16 +46,18 @@ pub struct FetchResponse {
 }
 
 /// Abstraction over the network layer used to retrieve Remote Config templates.
+#[async_trait]
 pub trait RemoteConfigFetchClient: Send + Sync {
-    fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse>;
+    async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse>;
 }
 
 /// Default stub fetch client: returns an empty template with a 200 status.
 #[derive(Default)]
 pub struct NoopFetchClient;
 
+#[async_trait]
 impl RemoteConfigFetchClient for NoopFetchClient {
-    fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
+    async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
         let _ = request;
         Ok(FetchResponse {
             status: 200,
@@ -73,6 +79,7 @@ pub trait InstallationsProvider: Send + Sync {
     fn installation_token(&self) -> RemoteConfigResult<String>;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Deserialize)]
 struct RestFetchResponse {
     #[serde(default)]
@@ -171,8 +178,9 @@ impl HttpRemoteConfigFetchClient {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
 impl RemoteConfigFetchClient for HttpRemoteConfigFetchClient {
-    fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
+    async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
         let installation_id = self.installations.installation_id()?;
         let installation_token = self.installations.installation_token()?;
         let url = self.build_url();
@@ -180,13 +188,13 @@ impl RemoteConfigFetchClient for HttpRemoteConfigFetchClient {
         let headers = self.build_headers(request.e_tag.as_deref())?;
         let body = self.request_body(installation_id, installation_token, request.custom_signals);
 
-        let response = self
-            .client
-            .post(url)
-            .headers(headers)
-            .json(&body)
-            .timeout(Duration::from_millis(request.timeout_millis))
+        let mut builder = self.client.post(url).headers(headers).json(&body);
+
+        builder = builder.timeout(Duration::from_millis(request.timeout_millis));
+
+        let response = builder
             .send()
+            .await
             .map_err(|err| internal_error(format!("remote config fetch failed: {err}")))?;
 
         let mut status = response.status();
@@ -197,7 +205,7 @@ impl RemoteConfigFetchClient for HttpRemoteConfigFetchClient {
             .map(|value| value.to_string());
 
         let response_body = if status == StatusCode::OK {
-            Some(response.json::<RestFetchResponse>().map_err(|err| {
+            Some(response.json::<RestFetchResponse>().await.map_err(|err| {
                 internal_error(format!("failed to parse Remote Config response: {err}"))
             })?)
         } else if status == StatusCode::NOT_MODIFIED {

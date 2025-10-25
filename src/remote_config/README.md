@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let remote_config = get_remote_config(Some(app.clone())).await?;
 
     remote_config.set_defaults(HashMap::from([(String::from("welcome"), String::from("hello"))]));
-    remote_config.fetch()?;
+    remote_config.fetch().await?;
     remote_config.activate()?;
 
     println!("welcome = {}", remote_config.get_string("welcome"));
