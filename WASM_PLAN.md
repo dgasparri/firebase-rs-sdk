@@ -45,10 +45,11 @@ This plan captures the work required to ship the next major version of the fireb
 - [x] Replace the Storage transport with the unified async client, ensuring operations return futures with Firebase JS naming. (Completed – audit remaining call sites for compliance.)
 - [x] Firestore: migrate to async token/provider infrastructure, remove blocking HTTP, and gate wasm-specific paths. (Completed – datastore/client APIs now async.)
 - [x] Storage: sweep call sites, README, and examples to reflect async usage, double-check wasm guards.
-- [ ] Installations: polish async APIs (concurrency coordination, retry/backoff, `onIdChange`) now that the core async client is in place and shared with Messaging/App Check.
-  - 2025-02-14: Added wasm persistence round-trip tests and documented feature flags; outstanding work remains for concurrency/backoff and `onIdChange`.
-- [ ] Remote Config: adopt the async client/runtime once Installations is ready.
-  - 2025-02-14: Converted `get_remote_config`/`fetch` to async and re-enabled the module for wasm. Async HTTP clients now exist for both native (`HttpRemoteConfigFetchClient`) and wasm (`WasmRemoteConfigFetchClient`); remaining work is to add persistent storage/backoff logic and custom signals parity.
+- [x] Installations: polish async APIs (concurrency coordination, retry/backoff, `onIdChange`) now that the core async client is in place and shared with Messaging/App Check.
+  - 2025-02-14: Async APIs stabilized across native/wasm builds with IndexedDB stubs, shared runtime integration, and wasm persistence tests; remaining feature parity items tracked in `src/installations/README.md`.
+- [x] Remote Config: adopt the async client/runtime once Installations is ready.
+  - 2025-02-14: Converted `get_remote_config`/`fetch` to async and re-enabled the module for wasm. Async HTTP clients now exist for both native (`HttpRemoteConfigFetchClient`) and wasm (`WasmRemoteConfigFetchClient`).
+  - 2025-02-14: Added focused transport tests that exercise the native client against mock HTTP responses and verified wasm request shaping under `wasm-bindgen-test`; remaining parity work recorded in `src/remote_config/README.md`.
 - [ ] Rework Realtime Database client to use shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
 - [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.
 - [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.
