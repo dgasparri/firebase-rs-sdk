@@ -48,6 +48,7 @@ This plan captures the work required to ship the next major version of the fireb
 - [ ] Installations: polish async APIs (concurrency coordination, retry/backoff, `onIdChange`) now that the core async client is in place and shared with Messaging/App Check.
   - 2025-02-14: Added wasm persistence round-trip tests and documented feature flags; outstanding work remains for concurrency/backoff and `onIdChange`.
 - [ ] Remote Config: adopt the async client/runtime once Installations is ready.
+  - 2025-02-14: Module now builds on wasm (exposed in `src/lib.rs`); fetch client still a no-op on browser targets pending async transport port.
 - [ ] Rework Realtime Database client to use shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
 - [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.
 - [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.

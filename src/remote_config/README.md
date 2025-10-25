@@ -23,9 +23,10 @@ use std::collections::HashMap;
 
 use firebase_rs_sdk::app::api::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk::remote_config::{get_remote_config, RemoteConfig};
+use firebase_rs_sdk::remote_config::get_remote_config;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FirebaseOptions {
         project_id: Some("demo-project".into()),
         ..Default::default()
@@ -34,8 +35,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         name: Some("demo-app".into()),
         ..Default::default()
     };
-    let app = initialize_app(options, Some(settings))?;
-    let remote_config = get_remote_config(Some(app.clone()))?;
+    let app = initialize_app(options, Some(settings)).await?;
+    let remote_config = get_remote_config(Some(app.clone())).await?;
 
     remote_config.set_defaults(HashMap::from([(String::from("welcome"), String::from("hello"))]));
     remote_config.fetch()?;
@@ -63,6 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Simple process-level cache keyed by app name to avoid redundant component creation.
 - Minimal error type covering `invalid-argument` and `internal` cases.
 - Smoke tests for activation behaviour.
+
+### WASM Notes
+- The module compiles for wasm targets when the `wasm-web` feature is enabled. The default fetch client remains a no-op placeholder; a real fetch transport will land once the HTTP wiring is ported.
+- Persistent storage still relies on the in-memory cache; future work will add IndexedDB-backed storage under `experimental-indexed-db` similar to the Installations module.
 
 ## Still to do
 

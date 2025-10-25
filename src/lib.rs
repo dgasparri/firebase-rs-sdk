@@ -56,11 +56,7 @@ pub mod messaging {}
 // #[cfg(target_arch = "wasm32")]
 // pub mod performance {}
 pub mod platform;
-// TODO(async-wasm): Re-enable remote_config once Stage 3 async transport is ready.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod remote_config;
-// #[cfg(target_arch = "wasm32")]
-// pub mod remote_config {}
+pub mod remote_config;
 
 // TODO(async-wasm): Re-enable storage when Stage 3 auditing completes.
 // #[cfg(not(target_arch = "wasm32"))]

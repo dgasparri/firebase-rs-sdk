@@ -96,9 +96,9 @@ impl RemoteConfig {
     /// # use firebase_rs_sdk::remote_config::get_remote_config;
     /// # use firebase_rs_sdk::app::api::initialize_app;
     /// # use firebase_rs_sdk::app::{FirebaseOptions, FirebaseAppSettings};
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let app = initialize_app(FirebaseOptions::default(), Some(FirebaseAppSettings::default()))?;
-    /// let rc = get_remote_config(Some(app))?;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app = initialize_app(FirebaseOptions::default(), Some(FirebaseAppSettings::default())).await?;
+    /// let rc = get_remote_config(Some(app)).await?;
     /// rc.set_config_settings(RemoteConfigSettingsUpdate {
     ///     fetch_timeout_millis: Some(90_000),
     ///     minimum_fetch_interval_millis: Some(3_600_000),
@@ -376,11 +376,13 @@ pub fn register_remote_config_component() {
     ensure_registered();
 }
 
-pub fn get_remote_config(app: Option<FirebaseApp>) -> RemoteConfigResult<Arc<RemoteConfig>> {
+pub async fn get_remote_config(app: Option<FirebaseApp>) -> RemoteConfigResult<Arc<RemoteConfig>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => crate::app::api::get_app(None)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     if let Some(rc) = REMOTE_CONFIG_CACHE.lock().unwrap().get(app.name()).cloned() {
@@ -443,7 +445,7 @@ mod tests {
     use std::sync::Mutex as StdMutex;
 
     fn remote_config(app: FirebaseApp) -> Arc<RemoteConfig> {
-        get_remote_config(Some(app)).unwrap()
+        Arc::new(RemoteConfig::new(app))
     }
 
     fn unique_settings() -> FirebaseAppSettings {

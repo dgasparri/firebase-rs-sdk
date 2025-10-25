@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - App config extraction and validation mirroring the JS helper (`src/installations/config.rs:6`).
 - Async REST client with a native `reqwest` implementation and a WASM `fetch` backend behind the `wasm-web` feature (`src/installations/rest/native.rs:1`, `src/installations/rest/wasm.rs:1`).
 - `Installations` public/internal APIs are now async, performing registration, token refresh, and delete operations without blocking (`src/installations/api.rs:112`).
-- File-backed persistence for native targets and IndexedDB + BroadcastChannel-backed persistence for wasm builds (`src/installations/persistence.rs`).
+- File-backed persistence for native targets and IndexedDB + BroadcastChannel-backed persistence for wasm builds, including wasm-bindgen tests that verify round-trips when `wasm-web` and `experimental-indexed-db` are enabled (`src/installations/persistence.rs`).
 - Internal helper that surfaces the full installation entry (FID, refresh token, auth token) for other modules such as Messaging (`src/installations/api.rs:185`).
 - Unit tests covering config validation, async REST flows, persistence round-trips, delete behaviour, and service behaviour for forced refreshes (`src/installations/rest/tests.rs:1`, `src/installations/api.rs:472`, `src/installations/persistence.rs:80`).
 - Private `installations-internal` component provides shared `get_id`/`get_token` helpers (`src/installations/api.rs:210`).
