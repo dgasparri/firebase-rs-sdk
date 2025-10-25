@@ -176,7 +176,11 @@ impl InstallationsPersistence for FilePersistence {
     }
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 mod wasm_persistence {
     use super::{
         internal_error, InstallationsPersistence, InstallationsResult, PersistedInstallation,
@@ -429,16 +433,10 @@ mod wasm_persistence {
                 .write("wasm-app", &entry)
                 .await
                 .expect("write entry");
-            let loaded = persistence
-                .read("wasm-app")
-                .await
-                .expect("read entry");
+            let loaded = persistence.read("wasm-app").await.expect("read entry");
             assert_eq!(loaded, Some(entry.clone()));
 
-            persistence
-                .clear("wasm-app")
-                .await
-                .expect("clear entry");
+            persistence.clear("wasm-app").await.expect("clear entry");
             let cleared = persistence
                 .read("wasm-app")
                 .await
@@ -470,8 +468,59 @@ mod wasm_persistence {
     }
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 pub use wasm_persistence::IndexedDbPersistence;
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    not(feature = "experimental-indexed-db")
+))]
+mod wasm_stub {
+    use super::{InstallationsPersistence, InstallationsResult, PersistedInstallation};
+
+    #[derive(Clone, Debug, Default)]
+    pub struct IndexedDbPersistence;
+
+    impl IndexedDbPersistence {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    #[cfg_attr(all(feature = "wasm-web", target_arch = "wasm32"), async_trait::async_trait(?Send))]
+    impl InstallationsPersistence for IndexedDbPersistence {
+        async fn read(
+            &self,
+            _app_name: &str,
+        ) -> InstallationsResult<Option<PersistedInstallation>> {
+            Ok(None)
+        }
+
+        async fn write(
+            &self,
+            _app_name: &str,
+            _entry: &PersistedInstallation,
+        ) -> InstallationsResult<()> {
+            Ok(())
+        }
+
+        async fn clear(&self, _app_name: &str) -> InstallationsResult<()> {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    not(feature = "experimental-indexed-db")
+))]
+pub use wasm_stub::IndexedDbPersistence;
 
 fn system_time_to_millis(time: SystemTime) -> InstallationsResult<u64> {
     let duration = time

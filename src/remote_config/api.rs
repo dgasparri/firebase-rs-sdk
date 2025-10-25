@@ -9,14 +9,23 @@ use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentType};
-use crate::remote_config::constants::REMOTE_CONFIG_COMPONENT_NAME;
+use crate::installations::get_installations;
+use crate::remote_config::constants::{REMOTE_CONFIG_API_URL, REMOTE_CONFIG_COMPONENT_NAME};
 use crate::remote_config::error::{internal_error, invalid_argument, RemoteConfigResult};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::remote_config::fetch::HttpRemoteConfigFetchClient;
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+use crate::remote_config::fetch::WasmRemoteConfigFetchClient;
 use crate::remote_config::fetch::{FetchRequest, NoopFetchClient, RemoteConfigFetchClient};
 use crate::remote_config::settings::{RemoteConfigSettings, RemoteConfigSettingsUpdate};
 use crate::remote_config::storage::{
     FetchStatus, InMemoryRemoteConfigStorage, RemoteConfigStorage, RemoteConfigStorageCache,
 };
 use crate::remote_config::value::{RemoteConfigValue, RemoteConfigValueSource};
+#[cfg(not(target_arch = "wasm32"))]
+use reqwest::Client as HttpClient;
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+use reqwest::Client as WasmHttpClient;
 
 #[derive(Clone)]
 pub struct RemoteConfig {
@@ -44,7 +53,7 @@ impl RemoteConfig {
 
     pub fn with_storage(app: FirebaseApp, storage: Arc<dyn RemoteConfigStorage>) -> Self {
         let storage_cache = RemoteConfigStorageCache::new(storage);
-        let fetch_client: Arc<dyn RemoteConfigFetchClient> = Arc::new(NoopFetchClient::default());
+        let fetch_client: Arc<dyn RemoteConfigFetchClient> = default_fetch_client(&app);
 
         Self {
             inner: Arc::new(RemoteConfigInner {
@@ -322,6 +331,90 @@ impl RemoteConfig {
             );
         }
         all
+    }
+}
+
+fn default_fetch_client(app: &FirebaseApp) -> Arc<dyn RemoteConfigFetchClient> {
+    match build_fetch_client(app) {
+        Ok(client) => client,
+        Err(err) => {
+            crate::app::LOGGER.warn(format!(
+                "remote-config: falling back to noop fetch client: {}",
+                err
+            ));
+            Arc::new(NoopFetchClient::default())
+        }
+    }
+}
+
+fn build_fetch_client(app: &FirebaseApp) -> RemoteConfigResult<Arc<dyn RemoteConfigFetchClient>> {
+    let options = app.options();
+
+    let api_key = options
+        .api_key
+        .clone()
+        .ok_or_else(|| internal_error("Remote Config requires apiKey in FirebaseOptions"))?;
+    let project_id = options
+        .project_id
+        .clone()
+        .ok_or_else(|| internal_error("Remote Config requires projectId in FirebaseOptions"))?;
+    let app_id = options
+        .app_id
+        .clone()
+        .ok_or_else(|| internal_error("Remote Config requires appId in FirebaseOptions"))?;
+    let namespace = project_id.clone();
+    let language_code = std::env::var("FIREBASE_REMOTE_CONFIG_LANGUAGE_CODE")
+        .unwrap_or_else(|_| "en-US".to_string());
+    let sdk_version = format!("w:{}", crate::app::SDK_VERSION);
+    let base_url = std::env::var("FIREBASE_REMOTE_CONFIG_API_URL")
+        .unwrap_or_else(|_| REMOTE_CONFIG_API_URL.to_string());
+
+    let installations =
+        get_installations(Some(app.clone())).map_err(|err| internal_error(err.to_string()))?;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let client = HttpClient::builder()
+            .user_agent(format!("firebase-rs-sdk/{}", crate::app::SDK_VERSION))
+            .build()
+            .map_err(|err| internal_error(format!("Failed to build HTTP client: {err}")))?;
+        let fetch = HttpRemoteConfigFetchClient::new(
+            client,
+            &base_url,
+            project_id,
+            namespace,
+            api_key,
+            app_id,
+            sdk_version,
+            language_code,
+            installations,
+        );
+        return Ok(Arc::new(fetch));
+    }
+
+    #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+    {
+        let client = WasmHttpClient::new();
+        let fetch = WasmRemoteConfigFetchClient::new(
+            client,
+            &base_url,
+            project_id,
+            namespace,
+            api_key,
+            app_id,
+            sdk_version,
+            language_code,
+            installations,
+        );
+        return Ok(Arc::new(fetch));
+    }
+
+    #[cfg(all(target_arch = "wasm32", not(feature = "wasm-web")))]
+    {
+        let _ = installations;
+        return Err(internal_error(
+            "Building Remote Config for wasm32 requires the `wasm-web` feature",
+        ));
     }
 }
 
@@ -744,7 +837,14 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
+    #[cfg_attr(
+        all(feature = "wasm-web", target_arch = "wasm32"),
+        async_trait::async_trait(?Send)
+    )]
+    #[cfg_attr(
+        not(all(feature = "wasm-web", target_arch = "wasm32")),
+        async_trait::async_trait
+    )]
     impl RemoteConfigFetchClient for StubFetchClient {
         async fn fetch(&self, _request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
             self.response

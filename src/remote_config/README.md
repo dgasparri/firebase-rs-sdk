@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - In-memory storage cache that records last fetch status, timestamp, and active config ETAG for parity with
   `StorageCache` in the JS SDK.
 - Fetch logic honours `minimum_fetch_interval_millis`, records metadata, and exposes a pluggable
-  `RemoteConfigFetchClient` with a blocking HTTP implementation.
+  `RemoteConfigFetchClient` with async HTTP implementations for native (`HttpRemoteConfigFetchClient`) and wasm (`WasmRemoteConfigFetchClient`).
 - Template version tracking via `active_template_version` to mirror template metadata exposed in the JS SDK.
 - Basic string retrieval through `get_string`.
 - Simple process-level cache keyed by app name to avoid redundant component creation.
@@ -66,29 +66,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Smoke tests for activation behaviour.
 
 ### WASM Notes
-- The module compiles for wasm targets when the `wasm-web` feature is enabled. The default fetch client remains a no-op placeholder; a real fetch transport will land once the HTTP wiring is ported.
-- Persistent storage still relies on the in-memory cache; future work will add IndexedDB-backed storage under `experimental-indexed-db` similar to the Installations module.
+- The module compiles for wasm targets when the `wasm-web` feature is enabled. The default fetch client uses
+  [`WasmRemoteConfigFetchClient`](crate::remote_config::fetch::WasmRemoteConfigFetchClient) to perform real fetch operations
+  via the browser `fetch` API together with Installations tokens.
+- Persistent storage still relies on the in-memory cache; future work will add IndexedDB-backed storage under
+  `experimental-indexed-db` similar to the Installations module.
 
 ## Still to do
 
 - Persistent storage (web/mobile): add IndexedDB/wasm implementations and select sensible defaults per platform,
   building on the new pluggable storage layer (`packages/remote-config/src/storage`).
-- Fetch & transport: implement HTTP fetch logic, throttling, and ETag handling similar to
-  `packages/remote-config/src/api.ts` and `client/remote_config_fetch_client.ts`.
+- Fetch throttling & resilience: persist throttle metadata, add exponential backoff, and expand error mapping to
+  mirror `client/remote_config_fetch_client.ts` behaviour.
 - Logging & errors: extend error surface (`ErrorCode` equivalents) and log-level tuning (`setLogLevel`).
 - Custom signals & realtime updates: support `setCustomSignals` and realtime update subscriptions (`client/realtime_handler.ts`).
 - Testing parity: port fetch/activation/storage tests from `packages/remote-config/test` once functionality exists.
 
 ## Next Steps - Detailed Completion Plan
 
-1. **Wire HTTP transport by default (blocked on Installations)**
-   - Once the Installations module is ported, supply an `InstallationsProvider` that hands `HttpRemoteConfigFetchClient` the installation ID/token.
-   - Extend fetch handling with throttle metadata persistence and richer error mapping mirroring JS error codes.
+1. **Harden HTTP transport behaviour**
+   - Persist throttle metadata/backoff information across restarts and mirror the JS SDK's throttle policies.
+   - Extend fetch handling with richer error mapping (HTTP status → `RemoteConfigErrorCode`) and logging hooks.
 2. **Add platform-specific persistent storage**
    - Provide IndexedDB/wasm implementations and choose defaults per target while keeping the file backend for native.
    - Mirror JS quota/cleanup behaviour and test warm-up flows across restarts.
 3. **Integrate custom signals and logging controls**
    - Expose setter for custom signals stored alongside metadata; allow toggling between error/debug/silent log levels.
    - Provide tests ensuring signals persist and log level changes propagate.
-
-Work paused here until the Installations module is available; revisit step 1 afterwards to hook up real network fetches.

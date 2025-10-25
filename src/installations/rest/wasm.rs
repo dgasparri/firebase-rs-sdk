@@ -1,3 +1,4 @@
+use js_sys::Error as JsError;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -195,12 +196,12 @@ impl RestClient {
         body: Option<String>,
     ) -> InstallationsResult<Response> {
         let window = window()?;
-        let mut init = RequestInit::new();
-        init.method(method);
-        init.mode(RequestMode::Cors);
+        let init = RequestInit::new();
+        init.set_method(method);
+        init.set_mode(RequestMode::Cors);
         let body_value = body.as_ref().map(|b| JsValue::from_str(b));
         if let Some(value) = body_value.as_ref() {
-            init.body(Some(value));
+            init.set_body(value);
         }
 
         let request = Request::new_with_str_and_init(url.as_str(), &init)
@@ -269,8 +270,10 @@ fn window() -> InstallationsResult<Window> {
 fn js_value_to_string(value: JsValue) -> String {
     if let Some(s) = value.as_string() {
         s
-    } else if let Some(err) = value.dyn_ref::<web_sys::Error>() {
+    } else if let Some(err) = value.dyn_ref::<JsError>() {
         err.message()
+            .as_string()
+            .unwrap_or_else(|| "[object Error]".to_string())
     } else {
         format!("{:?}", value)
     }

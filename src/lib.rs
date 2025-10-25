@@ -39,11 +39,7 @@ pub mod firestore {}
 // #[cfg(target_arch = "wasm32")]
 // pub mod functions {}
 
-// TODO(async-wasm): Re-enable installations module during Stage 3.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod installations;
-// #[cfg(target_arch = "wasm32")]
-// pub mod installations {}
+pub mod installations;
 pub mod logger;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod messaging;

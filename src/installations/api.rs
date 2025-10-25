@@ -26,6 +26,8 @@ use crate::installations::persistence::{
 };
 use crate::installations::rest::{RegisteredInstallation, RestClient};
 use crate::installations::types::{InstallationEntryData, InstallationToken};
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use gloo_timers::future::TimeoutFuture;
 
 #[derive(Clone, Debug)]
 pub struct Installations {
@@ -71,7 +73,7 @@ enum EnsureAction {
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 async fn concurrency_yield() {
-    wasm_bindgen_futures::yield_now().await;
+    TimeoutFuture::new(0).await;
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
@@ -470,7 +472,20 @@ pub fn get_installations(app: Option<FirebaseApp>) -> InstallationsResult<Arc<In
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => {
+            #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+            {
+                return Err(internal_error(
+                    "get_installations(None) is not supported on wasm; pass a FirebaseApp",
+                ));
+            }
+            #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+            {
+                use futures::executor::block_on;
+                block_on(crate::app::api::get_app(None))
+                    .map_err(|err| internal_error(err.to_string()))?
+            }
+        }
     };
 
     if let Some(service) = INSTALLATIONS_CACHE.lock().unwrap().get(app.name()).cloned() {
@@ -528,7 +543,20 @@ pub fn get_installations_internal(
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => {
+            #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+            {
+                return Err(internal_error(
+                    "get_installations_internal(None) is not supported on wasm; pass a FirebaseApp",
+                ));
+            }
+            #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+            {
+                use futures::executor::block_on;
+                block_on(crate::app::api::get_app(None))
+                    .map_err(|err| internal_error(err.to_string()))?
+            }
+        }
     };
 
     let provider = app::registry::get_provider(&app, INSTALLATIONS_INTERNAL_COMPONENT_NAME);
