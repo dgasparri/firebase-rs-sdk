@@ -66,7 +66,7 @@ mod wasm {
         request.set_onupgradeneeded(Some(upgrade_handler.as_ref().unchecked_ref()));
         upgrade_handler.forget();
 
-        let db_js = JsFuture::from(request_to_future(request.into()))
+        let db_js = JsFuture::from(request_to_future(clone_as_idb_request(&request)))
             .await
             .map_err(|err| IndexedDbError::Operation(js_value_to_string(&err)))?;
         let db: IdbDatabase = db_js
@@ -153,7 +153,7 @@ mod wasm {
         let request = factory
             .delete_database(name)
             .map_err(|err| IndexedDbError::Operation(js_value_to_string(&err)))?;
-        JsFuture::from(request_to_future(request.into()))
+        JsFuture::from(request_to_future(clone_as_idb_request(&request)))
             .await
             .map_err(|err| IndexedDbError::Operation(js_value_to_string(&err)))?;
         Ok(())
@@ -182,31 +182,43 @@ mod wasm {
         let error_request = request.clone();
         js_sys::Promise::new(&mut move |resolve, reject| {
             let resolve_fn = resolve.clone();
-            let success =
-                Closure::once(
-                    Box::new(move |_event: Event| match success_request.result() {
-                        Ok(result) => {
-                            let _ = resolve_fn.call1(&JsValue::UNDEFINED, &result);
-                        }
-                        Err(err) => {
-                            let _ = reject.call1(&JsValue::UNDEFINED, &err);
-                        }
-                    }) as Box<dyn FnMut(_)>,
-                );
+            let reject_for_success = reject.clone();
+            let success_request_clone = success_request.clone();
+            let success = Closure::once(
+                Box::new(move |_event: Event| match success_request_clone.result() {
+                    Ok(result) => {
+                        let _ = resolve_fn.call1(&JsValue::UNDEFINED, &result);
+                    }
+                    Err(err) => {
+                        let _ = reject_for_success.call1(&JsValue::UNDEFINED, &err);
+                    }
+                }) as Box<dyn FnMut(_)>,
+            );
             request.set_onsuccess(Some(success.as_ref().unchecked_ref()));
             success.forget();
 
             let reject_fn = reject.clone();
+            let error_request_clone = error_request.clone();
             let error = Closure::once(Box::new(move |_event: Event| {
-                if let Some(err) = error_request.error() {
-                    let _ = reject_fn.call1(&JsValue::UNDEFINED, &err);
-                } else {
-                    let _ = reject_fn.call1(&JsValue::UNDEFINED, &JsValue::NULL);
+                match error_request_clone.error() {
+                    Ok(Some(err)) => {
+                        let _ = reject_fn.call1(&JsValue::UNDEFINED, &err);
+                    }
+                    Ok(None) => {
+                        let _ = reject_fn.call1(&JsValue::UNDEFINED, &JsValue::NULL);
+                    }
+                    Err(js_err) => {
+                        let _ = reject_fn.call1(&JsValue::UNDEFINED, &js_err);
+                    }
                 }
             }) as Box<dyn FnMut(_)>);
             request.set_onerror(Some(error.as_ref().unchecked_ref()));
             error.forget();
         })
+    }
+
+    fn clone_as_idb_request(request: &IdbOpenDbRequest) -> IdbRequest {
+        request.clone().unchecked_into::<IdbRequest>()
     }
 
     fn js_value_to_string(value: &JsValue) -> String {
@@ -219,14 +231,7 @@ mod wasm {
         }
     }
 
-    impl From<IdbOpenDbRequest> for IdbRequest {
-        fn from(request: IdbOpenDbRequest) -> Self {
-            request.unchecked_into::<IdbRequest>()
-        }
-    }
-
     pub use IndexedDbError as Error;
-    pub use IndexedDbResult as Result;
 }
 
 #[cfg(all(
@@ -294,7 +299,6 @@ mod stub {
     }
 
     pub use IndexedDbError as Error;
-    pub use IndexedDbResult as Result;
 }
 
 #[cfg(not(all(

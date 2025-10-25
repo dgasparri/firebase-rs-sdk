@@ -1,9 +1,17 @@
 //! Browser persistence helpers for App Check tokens using IndexedDB.
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 pub use wasm::*;
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 mod wasm {
     use std::sync::Arc;
 
@@ -73,6 +81,7 @@ mod wasm {
             .map(|_| ())
     }
 
+    #[allow(dead_code)]
     pub async fn clear_token(app_id: &str) -> AppCheckResult<()> {
         let db = open_database().await?;
         delete_key(&db, STORE_NAME, app_id)
@@ -82,6 +91,7 @@ mod wasm {
             .map(|_| ())
     }
 
+    #[allow(dead_code)]
     pub async fn reset_persistence() -> AppCheckResult<()> {
         delete_database(DB_NAME).await.map_err(map_error)
     }
@@ -123,7 +133,7 @@ mod wasm {
         callback: Arc<dyn Fn(Option<PersistedToken>) + Send + Sync>,
     ) -> Option<BroadcastSubscription> {
         let channel = BroadcastChannel::new(BROADCAST_CHANNEL).ok()?;
-        let closure = Closure::wrap(Box::new(move |event: MessageEvent| {
+        let handler = Closure::wrap(Box::new(move |event: MessageEvent| {
             if let Some(text) = event.data().as_string() {
                 if let Ok(message) = serde_json::from_str::<BroadcastMessage>(&text) {
                     if message.origin == *INSTANCE_ID {
@@ -135,32 +145,46 @@ mod wasm {
                 }
             }
         }) as Box<dyn FnMut(_)>);
-        channel.set_onmessage(Some(closure.as_ref().unchecked_ref()));
-        Some(BroadcastSubscription::new(channel, closure))
+        Some(BroadcastSubscription::new(channel, handler))
     }
 
+    #[allow(dead_code)]
+    #[derive(Clone)]
     pub struct BroadcastSubscription {
+        inner: Arc<BroadcastSubscriptionInner>,
+    }
+
+    #[allow(dead_code)]
+    struct BroadcastSubscriptionInner {
         channel: BroadcastChannel,
         handler: Closure<dyn FnMut(MessageEvent)>,
     }
 
     impl BroadcastSubscription {
         fn new(channel: BroadcastChannel, handler: Closure<dyn FnMut(MessageEvent)>) -> Self {
-            Self { channel, handler }
+            channel.set_onmessage(Some(handler.as_ref().unchecked_ref()));
+            Self {
+                inner: Arc::new(BroadcastSubscriptionInner { channel, handler }),
+            }
         }
     }
 
-    impl Drop for BroadcastSubscription {
+    impl Drop for BroadcastSubscriptionInner {
         fn drop(&mut self) {
             self.channel.set_onmessage(None);
             let _ = self.channel.close();
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    unsafe impl Send for BroadcastSubscription {}
+    #[cfg(target_arch = "wasm32")]
+    unsafe impl Sync for BroadcastSubscription {}
+
     #[cfg(all(
         test,
-        feature = "wasm-bindgen-test",
         feature = "wasm-web",
+        feature = "experimental-indexed-db",
         target_arch = "wasm32"
     ))]
     mod tests {
@@ -195,6 +219,75 @@ mod wasm {
         }
     }
 }
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    not(feature = "experimental-indexed-db")
+))]
+mod wasm_stub {
+    #![allow(dead_code)]
+    use std::sync::Arc;
+
+    use crate::app_check::errors::AppCheckResult;
+    use crate::app_check::types::AppCheckTokenResult;
+
+    #[derive(Clone, Debug, Default)]
+    pub struct PersistedToken {
+        pub token: String,
+        pub expire_time_ms: u64,
+    }
+
+    impl From<PersistedToken> for AppCheckTokenResult {
+        fn from(value: PersistedToken) -> Self {
+            AppCheckTokenResult {
+                token: value.token,
+                error: None,
+                internal_error: None,
+            }
+        }
+    }
+
+    pub async fn load_token(_app_id: &str) -> AppCheckResult<Option<PersistedToken>> {
+        Ok(None)
+    }
+
+    pub async fn save_token(_app_id: &str, _token: &PersistedToken) -> AppCheckResult<()> {
+        Ok(())
+    }
+
+    pub async fn clear_token(_app_id: &str) -> AppCheckResult<()> {
+        Ok(())
+    }
+
+    pub async fn reset_persistence() -> AppCheckResult<()> {
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    #[derive(Clone, Default)]
+    pub struct BroadcastSubscription;
+
+    #[cfg(target_arch = "wasm32")]
+    unsafe impl Send for BroadcastSubscription {}
+    #[cfg(target_arch = "wasm32")]
+    unsafe impl Sync for BroadcastSubscription {}
+
+    pub fn subscribe(
+        _app_id: Arc<str>,
+        _callback: Arc<dyn Fn(Option<PersistedToken>) + Send + Sync>,
+    ) -> Option<BroadcastSubscription> {
+        None
+    }
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    not(feature = "experimental-indexed-db")
+))]
+#[allow(unused_imports)]
+pub use wasm_stub::*;
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 mod native {

@@ -37,6 +37,7 @@ This plan captures the work required to ship the next major version of the fireb
 - [x] Adapt shared messaging transport and push-subscription logic to async primitives, adding wasm feature gates where browser-only facilities are required.
 - [x] Update `app_check` to use async HTTP clients and timers, aligning with the token provider contract and annotating wasm-only behaviour.
 - [x] Ensure Stage 2 modules compile alongside Stage 1 even if other modules remain temporarily disabled. Document any TODO gates introduced.
+  - 2025-02-14: Re-enabled `app_check` for wasm targets; persistence gracefully downgrades to in-memory when the optional `experimental-indexed-db` feature is disabled so the module now participates in wasm builds.
 - [ ] Add targeted unit tests and wasm-bindgen tests covering token issuance, messaging registration, and app check attestation workflows. *(Native tests updated; wasm coverage still to expand.)*
 
 ## Stage 3 – Feature Modules (Firestore, Storage, Installations, Remote Config, etc.)

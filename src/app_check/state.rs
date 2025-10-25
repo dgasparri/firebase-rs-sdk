@@ -8,10 +8,12 @@ use super::types::{
     AppCheckTokenResult, ListenerHandle, ListenerType, TokenListenerEntry,
 };
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-use crate::app_check::persistence::{
-    load_token, save_token, subscribe, BroadcastSubscription, PersistedToken,
-};
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+use crate::app_check::persistence::{load_token, save_token, subscribe, PersistedToken};
 
 static STATES: LazyLock<Mutex<HashMap<Arc<str>, AppCheckState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -64,7 +66,11 @@ pub fn ensure_activation(
         state.activated = true;
         state.provider = Some(provider.clone());
         state.is_token_auto_refresh_enabled = is_token_auto_refresh_enabled;
-        #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+        #[cfg(all(
+            feature = "wasm-web",
+            target_arch = "wasm32",
+            feature = "experimental-indexed-db"
+        ))]
         {
             if state.broadcast_handle.is_none() {
                 let app_name_clone = app_name.clone();
@@ -93,7 +99,11 @@ pub fn current_token(app: &AppCheck) -> Option<AppCheckToken> {
     let app_name = app.app_name();
     let token = with_state(&app_name, |state| state.token.clone());
 
-    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    #[cfg(all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        feature = "experimental-indexed-db"
+    ))]
     if token.is_none() {
         let app_name_clone = app_name.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -120,7 +130,11 @@ pub fn store_token(app: &AppCheck, token: AppCheckToken) {
 
     crate::app_check::api::on_token_stored(app, &token);
 
-    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    #[cfg(all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        feature = "experimental-indexed-db"
+    ))]
     persist_token_async(token.clone(), app_name.clone());
 
     for listener in listeners {
@@ -190,7 +204,11 @@ fn remove_listener_by_id(app_name: &Arc<str>, listener_id: u64) {
     });
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 fn persist_token_async(token: AppCheckToken, app_name: Arc<str>) {
     use std::time::UNIX_EPOCH;
 
@@ -207,13 +225,20 @@ fn persist_token_async(token: AppCheckToken, app_name: Arc<str>) {
     });
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 fn apply_persisted_token(app_name: Arc<str>, persisted: Option<PersistedToken>) {
     use std::time::{Duration, UNIX_EPOCH};
 
     let maybe_token = persisted.map(|persisted| {
         let expiration = UNIX_EPOCH + Duration::from_millis(persisted.expire_time_ms);
-        AppCheckToken::new(persisted.token, expiration)
+        AppCheckToken {
+            token: persisted.token,
+            expire_time: expiration,
+        }
     });
 
     let result = maybe_token

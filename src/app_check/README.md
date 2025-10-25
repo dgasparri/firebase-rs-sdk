@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 - **Token state management** (`state.rs`)
   - In-memory token cache with listener registration/unregistration and auto-refresh flags.
 - **Browser persistence** (`persistence.rs`)
-  - IndexedDB storage plus BroadcastChannel updates so App Check tokens survive reloads and propagate across tabs (no-ops on native targets).
+  - IndexedDB storage plus BroadcastChannel updates so App Check tokens survive reloads and propagate across tabs (no-ops on native targets or when the optional `experimental-indexed-db` feature is disabled).
 - **Providers** (`providers.rs`)
   - Debug, reCAPTCHA, and limited-use provider scaffolding (mirroring factory wiring in JS) with placeholder behaviour.
 - **Interop surface** (`interop.rs`)

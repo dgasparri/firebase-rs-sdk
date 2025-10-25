@@ -12,10 +12,7 @@
 // #[cfg(target_arch = "wasm32")]
 // pub mod analytics {}
 pub mod app;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod app_check;
-#[cfg(target_arch = "wasm32")]
-pub mod app_check {}
 pub mod auth;
 pub mod component;
 // TODO(async-wasm): Re-enable data_connect once Stage 3 migration lands.

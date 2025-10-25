@@ -8,6 +8,13 @@ use crate::app::FirebaseApp;
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::{PartialObserver, Unsubscribe};
 
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+use crate::app_check::persistence::BroadcastSubscription;
+
 use super::errors::{AppCheckError, AppCheckResult};
 
 pub const APP_CHECK_COMPONENT_NAME: &str = "appCheck";
@@ -246,8 +253,12 @@ pub(crate) struct AppCheckState {
     pub token: Option<AppCheckToken>,
     pub is_token_auto_refresh_enabled: bool,
     pub observers: Vec<TokenListenerEntry>,
-    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-    pub broadcast_handle: Option<crate::app_check::persistence::BroadcastSubscription>,
+    #[cfg(all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        feature = "experimental-indexed-db"
+    ))]
+    pub broadcast_handle: Option<BroadcastSubscription>,
     pub refresh_cancel: Option<Arc<AtomicBool>>,
 }
 
@@ -259,7 +270,11 @@ impl AppCheckState {
             token: None,
             is_token_auto_refresh_enabled: false,
             observers: Vec::new(),
-            #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+            #[cfg(all(
+                feature = "wasm-web",
+                target_arch = "wasm32",
+                feature = "experimental-indexed-db"
+            ))]
             broadcast_handle: None,
             refresh_cancel: None,
         }

@@ -66,3 +66,13 @@ cargo check
 cargo check --tests
 cargo check --tests --target wasm32-unknown-unknown --features wasm-web
 cargo check --tests --target wasm32-unknown-unknown --features wasm-web
+cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+./scripts/smoke.sh (native portion runs; wasm smoke test is skipped with a warning because wasm-bindgen-test-runner
+  is not available in this environment)
+
+
+
+### Check for dead_code
+
+Fai un search for dead_code per capire se serve ancora, è stato messo per tenere pulito il porting
+
