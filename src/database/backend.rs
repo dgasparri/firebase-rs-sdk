@@ -1,7 +1,7 @@
-#[cfg(target_arch = "wasm32")]
-use std::sync::{Arc, Mutex};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, LazyLock, Mutex};
+#[cfg(target_arch = "wasm32")]
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::blocking::{Client, Response};

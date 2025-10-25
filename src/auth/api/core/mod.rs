@@ -1192,9 +1192,9 @@ pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
 mod tests {
     use super::*;
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
-    use tokio::runtime::Builder as TokioRuntimeBuilder;
     use httpmock::prelude::*;
     use serde_json::json;
+    use tokio::runtime::Builder as TokioRuntimeBuilder;
 
     const TEST_API_KEY: &str = "test-api-key";
     const TEST_EMAIL: &str = "user@example.com";

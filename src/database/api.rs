@@ -6,6 +6,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Number, Value};
+use futures::executor::block_on;
 
 use crate::app;
 use crate::app::FirebaseApp;
@@ -802,7 +803,7 @@ impl DatabaseReference {
         }
     }
 
-    pub fn set(&self, value: Value) -> DatabaseResult<()> {
+    pub async fn set_async(&self, value: Value) -> DatabaseResult<()> {
         let value = self.resolve_value_for_path(&self.path, value)?;
         let old_root = self.database.root_snapshot()?;
         self.database.inner.backend.set(&self.path, value)?;
@@ -810,6 +811,10 @@ impl DatabaseReference {
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
+    }
+
+    pub fn set(&self, value: Value) -> DatabaseResult<()> {
+        block_on(self.set_async(value))
     }
 
     /// Creates a query anchored at this reference, mirroring the JS `query()` helper.
@@ -917,7 +922,10 @@ impl DatabaseReference {
     ///
     /// Each key represents a relative child path (e.g. `"profile/name"`).
     /// The method rejects empty keys to mirror the JS SDK behaviour.
-    pub fn update(&self, updates: serde_json::Map<String, Value>) -> DatabaseResult<()> {
+    pub async fn update_async(
+        &self,
+        updates: serde_json::Map<String, Value>,
+    ) -> DatabaseResult<()> {
         if updates.is_empty() {
             return Ok(());
         }
@@ -947,12 +955,20 @@ impl DatabaseReference {
         Ok(())
     }
 
-    pub fn get(&self) -> DatabaseResult<Value> {
+    pub fn update(&self, updates: serde_json::Map<String, Value>) -> DatabaseResult<()> {
+        block_on(self.update_async(updates))
+    }
+
+    pub async fn get_async(&self) -> DatabaseResult<Value> {
         self.database.inner.backend.get(&self.path, &[])
     }
 
+    pub fn get(&self) -> DatabaseResult<Value> {
+        block_on(self.get_async())
+    }
+
     /// Deletes the value at this location using the backend's `DELETE` support.
-    pub fn remove(&self) -> DatabaseResult<()> {
+    pub async fn remove_async(&self) -> DatabaseResult<()> {
         let old_root = self.database.root_snapshot()?;
         self.database.inner.backend.delete(&self.path)?;
         let new_root = self.database.root_snapshot()?;
@@ -961,9 +977,13 @@ impl DatabaseReference {
         Ok(())
     }
 
+    pub fn remove(&self) -> DatabaseResult<()> {
+        block_on(self.remove_async())
+    }
+
     /// Writes the provided value together with its priority, mirroring
     /// `setWithPriority()` in `packages/database/src/api/Reference_impl.ts`.
-    pub fn set_with_priority<V, P>(&self, value: V, priority: P) -> DatabaseResult<()>
+    pub async fn set_with_priority_async<V, P>(&self, value: V, priority: P) -> DatabaseResult<()>
     where
         V: Into<Value>,
         P: Into<Value>,
@@ -986,8 +1006,16 @@ impl DatabaseReference {
         Ok(())
     }
 
+    pub fn set_with_priority<V, P>(&self, value: V, priority: P) -> DatabaseResult<()>
+    where
+        V: Into<Value>,
+        P: Into<Value>,
+    {
+        block_on(self.set_with_priority_async(value, priority))
+    }
+
     /// Updates the priority for this location, mirroring `setPriority()` in the JS SDK.
-    pub fn set_priority<P>(&self, priority: P) -> DatabaseResult<()>
+    pub async fn set_priority_async<P>(&self, priority: P) -> DatabaseResult<()>
     where
         P: Into<Value>,
     {
@@ -1005,6 +1033,13 @@ impl DatabaseReference {
         Ok(())
     }
 
+    pub fn set_priority<P>(&self, priority: P) -> DatabaseResult<()>
+    where
+        P: Into<Value>,
+    {
+        block_on(self.set_priority_async(priority))
+    }
+
     /// Creates a child location with an auto-generated key, mirroring `push()` from the JS SDK.
     ///
     /// Port of `push()` in `packages/database/src/api/Reference_impl.ts`.
@@ -1019,18 +1054,29 @@ impl DatabaseReference {
     /// # Ok(())
     /// # }
     /// ```
+    pub async fn push_async(&self) -> DatabaseResult<DatabaseReference> {
+        self.push_internal_async(None).await
+    }
+
     pub fn push(&self) -> DatabaseResult<DatabaseReference> {
-        self.push_internal(None)
+        block_on(self.push_async())
     }
 
     /// Creates a child location with an auto-generated key and writes the provided value.
     ///
     /// Mirrors the `push(ref, value)` overload from `packages/database/src/api/Reference_impl.ts`.
+    pub async fn push_with_value_async<V>(&self, value: V) -> DatabaseResult<DatabaseReference>
+    where
+        V: Into<Value>,
+    {
+        self.push_internal_async(Some(value.into())).await
+    }
+
     pub fn push_with_value<V>(&self, value: V) -> DatabaseResult<DatabaseReference>
     where
         V: Into<Value>,
     {
-        self.push_internal(Some(value.into()))
+        block_on(self.push_with_value_async(value))
     }
 
     fn resolve_value_for_path(&self, path: &[String], value: Value) -> DatabaseResult<Value> {
@@ -1043,12 +1089,12 @@ impl DatabaseReference {
         }
     }
 
-    fn push_internal(&self, value: Option<Value>) -> DatabaseResult<DatabaseReference> {
+    async fn push_internal_async(&self, value: Option<Value>) -> DatabaseResult<DatabaseReference> {
         let timestamp = current_time_millis()?;
         let key = next_push_id(timestamp);
         let child = self.child(&key)?;
         if let Some(value) = value {
-            child.set(value)?;
+            child.set_async(value).await?;
         }
         Ok(child)
     }
@@ -1217,13 +1263,17 @@ impl DatabaseQuery {
     }
 
     /// Executes the query and returns the JSON payload, mirroring JS `get()`.
-    pub fn get(&self) -> DatabaseResult<Value> {
+    pub async fn get_async(&self) -> DatabaseResult<Value> {
         let params = self.params.to_rest_params()?;
         self.reference
             .database
             .inner
             .backend
             .get(&self.reference.path, params.as_slice())
+    }
+
+    pub fn get(&self) -> DatabaseResult<Value> {
+        block_on(self.get_async())
     }
 
     /// Registers a value listener for this query, mirroring `onValue(query, cb)`.
@@ -1543,6 +1593,7 @@ mod tests {
         equal_to_with_key, increment, limit_to_first, limit_to_last, order_by_child, order_by_key,
         query as compose_query, server_timestamp, start_at,
     };
+    use futures::executor::block_on;
     use httpmock::prelude::*;
     use httpmock::Method::{DELETE, GET, PATCH, PUT};
     use serde_json::{json, Value};
@@ -1566,7 +1617,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let ref_root = database.reference("/messages").unwrap();
         ref_root.set(json!({ "greeting": "hello" })).expect("set");
@@ -1580,7 +1631,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let queue = database.reference("queue").unwrap();
 
@@ -1599,7 +1650,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let messages = database.reference("messages").unwrap();
 
@@ -1622,7 +1673,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let root = database.reference("items").unwrap();
         root.set(json!({ "a": { "count": 1 } })).unwrap();
@@ -1637,7 +1688,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let item = database.reference("items/main").unwrap();
 
@@ -1660,7 +1711,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let item = database.reference("items/main").unwrap();
 
@@ -1683,7 +1734,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let created_at = database.reference("meta/created_at").unwrap();
 
@@ -1705,7 +1756,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let counter = database.reference("counters/main").unwrap();
 
@@ -1722,7 +1773,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let scores = database.reference("scores").unwrap();
 
@@ -1741,7 +1792,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -1780,7 +1831,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("/messages").unwrap();
 
@@ -1800,7 +1851,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
 
         let nested = database.reference("users/alice/profile").unwrap();
@@ -1819,7 +1870,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let profiles = database.reference("profiles").unwrap();
 
@@ -1867,7 +1918,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let items = database.reference("items").unwrap();
 
@@ -1933,7 +1984,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -1963,7 +2014,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let messages = database.reference("messages").unwrap();
 
@@ -1994,7 +2045,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -2022,7 +2073,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -2048,7 +2099,7 @@ mod tests {
             database_url: Some(format!("{}?ns=demo-ns", server.url("/"))),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("messages").unwrap();
 
@@ -2077,7 +2128,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("items").unwrap();
         let filtered = compose_query(
@@ -2112,7 +2163,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let filtered = compose_query(
             database.reference("items").unwrap(),
@@ -2131,7 +2182,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
 
         let err = database
@@ -2150,7 +2201,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
 
         let err = database
@@ -2168,7 +2219,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -2184,7 +2235,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("counters/main").unwrap();
 
@@ -2221,7 +2272,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let scores = database.reference("scores").unwrap();
 

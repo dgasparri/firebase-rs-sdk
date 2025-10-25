@@ -140,7 +140,7 @@ mod tests {
             "test-key",
             "test-refresh",
         ))
-            .expect("refresh should succeed");
+        .expect("refresh should succeed");
 
         mock.assert();
         assert_eq!(response.access_token, "access");
