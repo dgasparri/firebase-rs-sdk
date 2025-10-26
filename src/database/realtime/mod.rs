@@ -34,6 +34,18 @@ impl ListenSpec {
         });
         Self { path, params }
     }
+
+    fn path_string(&self) -> String {
+        if self.path.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", self.path.join("/"))
+        }
+    }
+
+    fn params(&self) -> &[(String, String)] {
+        &self.params
+    }
 }
 
 #[async_trait(?Send)]
@@ -187,8 +199,15 @@ impl RealtimeTransport for NoopTransport {
 mod native {
     use super::*;
     use crate::platform::runtime::spawn_detached;
+    use crate::{
+        app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME},
+        auth::Auth,
+    };
     use futures::channel::oneshot;
     use futures_util::{SinkExt, StreamExt};
+    use serde_json::{json, Map as JsonMap, Value as JsonValue};
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use tokio::sync::Mutex as AsyncMutex;
     use tokio::task::JoinHandle;
     use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
@@ -198,7 +217,7 @@ mod native {
         let url = app.options().database_url?;
         let parsed = Url::parse(&url).ok()?;
         let info = RepoInfo::from_url(parsed)?;
-        Some(Arc::new(NativeWebSocketTransport::new(info)))
+        Some(Arc::new(NativeWebSocketTransport::new(info, app.clone())))
     }
 
     type TcpWebSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
@@ -245,13 +264,15 @@ mod native {
     struct NativeWebSocketTransport {
         repo_info: RepoInfo,
         state: Arc<NativeState>,
+        app: FirebaseApp,
     }
 
     impl NativeWebSocketTransport {
-        fn new(repo_info: RepoInfo) -> Self {
+        fn new(repo_info: RepoInfo, app: FirebaseApp) -> Self {
             Self {
                 repo_info,
                 state: Arc::new(NativeState::default()),
+                app,
             }
         }
 
@@ -266,9 +287,10 @@ mod native {
             let (result_tx, result_rx) = oneshot::channel();
             let state = self.state.clone();
             let info = self.repo_info.clone();
+            let app = self.app.clone();
 
             spawn_detached(async move {
-                let result = connect_and_listen(state, info).await;
+                let result = connect_and_listen(state, info, app).await;
                 let _ = result_tx.send(result);
             });
 
@@ -276,15 +298,25 @@ mod native {
                 .await
                 .unwrap_or_else(|_| Err(internal_error("websocket connection task cancelled")))
         }
+
+        async fn flush_pending(&self) -> DatabaseResult<()> {
+            flush_pending_state(self.state.clone()).await
+        }
     }
 
     #[derive(Debug, Default)]
     struct NativeState {
         sink: AsyncMutex<Option<WebSocketSink>>,
         reader: AsyncMutex<Option<JoinHandle<()>>>,
+        pending: AsyncMutex<VecDeque<TransportCommand>>,
+        next_request_id: AtomicU32,
     }
 
-    async fn connect_and_listen(state: Arc<NativeState>, info: RepoInfo) -> DatabaseResult<()> {
+    async fn connect_and_listen(
+        state: Arc<NativeState>,
+        info: RepoInfo,
+        app: FirebaseApp,
+    ) -> DatabaseResult<()> {
         let url = info
             .websocket_url()
             .map_err(|err| internal_error(format!("invalid database_url for websocket: {err}")))?;
@@ -337,6 +369,48 @@ mod native {
             }
         }
 
+        send_initial_tokens(state.clone(), app).await?;
+        let _ = flush_pending_state(state.clone()).await;
+
+        Ok(())
+    }
+
+    #[derive(Clone, Debug)]
+    enum TransportCommand {
+        Listen(ListenSpec),
+        Unlisten(ListenSpec),
+    }
+
+    async fn flush_pending_state(state: Arc<NativeState>) -> DatabaseResult<()> {
+        loop {
+            let next_command = {
+                let mut pending = state.pending.lock().await;
+                pending.pop_front()
+            };
+
+            let Some(command) = next_command else {
+                break;
+            };
+
+            let mut sink_guard = state.sink.lock().await;
+            let Some(sink) = sink_guard.as_mut() else {
+                // Connection dropped; re-queue and exit so the next
+                // connection attempt can flush the backlog.
+                let mut pending = state.pending.lock().await;
+                pending.push_front(command);
+                break;
+            };
+
+            let payload = serialize_command(state.as_ref(), &command)?;
+            if let Err(err) = sink.send(Message::Text(payload)).await {
+                let mut pending = state.pending.lock().await;
+                pending.push_front(command);
+                return Err(internal_error(format!(
+                    "failed to send realtime command: {err}"
+                )));
+            }
+        }
+
         Ok(())
     }
 
@@ -368,15 +442,162 @@ mod native {
             Ok(())
         }
 
-        async fn listen(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
-            // For now we just ensure the connection is live; command dispatch
-            // will be implemented alongside the persistent connection port.
+        async fn listen(&self, spec: &ListenSpec) -> DatabaseResult<()> {
+            {
+                let mut pending = self.state.pending.lock().await;
+                pending.push_back(TransportCommand::Listen(spec.clone()));
+            }
             self.ensure_connection().await?;
+            self.flush_pending().await?;
             Ok(())
         }
 
-        async fn unlisten(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
+        async fn unlisten(&self, spec: &ListenSpec) -> DatabaseResult<()> {
+            {
+                let mut pending = self.state.pending.lock().await;
+                pending.push_back(TransportCommand::Unlisten(spec.clone()));
+            }
+            self.flush_pending().await?;
             Ok(())
+        }
+    }
+
+    fn serialize_command(
+        state: &NativeState,
+        command: &TransportCommand,
+    ) -> DatabaseResult<String> {
+        let (action, spec) = match command {
+            TransportCommand::Listen(spec) => ("listen", spec),
+            TransportCommand::Unlisten(spec) => ("unlisten", spec),
+        };
+
+        let mut params = JsonMap::new();
+        for (key, value) in spec.params() {
+            params.insert(key.clone(), JsonValue::String(value.clone()));
+        }
+
+        let body = json!({
+            "p": spec.path_string(),
+            "q": JsonValue::Object(params.clone()),
+            "h": "",
+        });
+
+        let request_id = next_request_id(state);
+        let envelope = json!({
+            "t": "d",
+            "d": {
+                "r": request_id,
+                "a": action,
+                "b": body,
+            }
+        });
+
+        serde_json::to_string(&envelope)
+            .map_err(|err| internal_error(format!("failed to encode realtime message: {err}")))
+    }
+
+    fn next_request_id(state: &NativeState) -> u32 {
+        state.next_request_id.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    async fn send_initial_tokens(state: Arc<NativeState>, app: FirebaseApp) -> DatabaseResult<()> {
+        if let Some(token) = fetch_auth_token(&app).await? {
+            let body = json!({ "cred": token });
+            send_request_message(&state, "auth", body).await?;
+        }
+
+        if let Some(token) = fetch_app_check_token(&app).await? {
+            let body = json!({ "token": token });
+            send_request_message(&state, "appcheck", body).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn send_request_message(
+        state: &Arc<NativeState>,
+        action: &str,
+        body: JsonValue,
+    ) -> DatabaseResult<()> {
+        let message = serialize_request(state.as_ref(), action, body)?;
+        let mut guard = state.sink.lock().await;
+        let Some(sink) = guard.as_mut() else {
+            return Err(internal_error("websocket sink unavailable"));
+        };
+        sink.send(Message::Text(message))
+            .await
+            .map_err(|err| internal_error(format!("failed to send realtime request: {err}")))
+    }
+
+    fn serialize_request(
+        state: &NativeState,
+        action: &str,
+        body: JsonValue,
+    ) -> DatabaseResult<String> {
+        let request_id = next_request_id(state);
+        let envelope = json!({
+            "t": "d",
+            "d": {
+                "r": request_id,
+                "a": action,
+                "b": body,
+            }
+        });
+
+        serde_json::to_string(&envelope)
+            .map_err(|err| internal_error(format!("failed to encode realtime request: {err}")))
+    }
+
+    async fn fetch_auth_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
+        let container = app.container();
+        let auth_or_none = container
+            .get_provider("auth-internal")
+            .get_immediate_with_options::<Auth>(None, true)
+            .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?;
+        let auth = match auth_or_none {
+            Some(auth) => Some(auth),
+            None => container
+                .get_provider("auth")
+                .get_immediate_with_options::<Auth>(None, true)
+                .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?,
+        };
+        let Some(auth) = auth else {
+            return Ok(None);
+        };
+
+        match auth.get_token(false).await {
+            Ok(Some(token)) if token.is_empty() => Ok(None),
+            Ok(Some(token)) => Ok(Some(token)),
+            Ok(None) => Ok(None),
+            Err(err) => Err(internal_error(format!(
+                "failed to obtain auth token: {err}"
+            ))),
+        }
+    }
+
+    async fn fetch_app_check_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
+        let container = app.container();
+        let app_check = container
+            .get_provider(APP_CHECK_INTERNAL_COMPONENT_NAME)
+            .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
+            .map_err(|err| {
+                internal_error(format!("failed to resolve app check provider: {err}"))
+            })?;
+        let Some(app_check) = app_check else {
+            return Ok(None);
+        };
+
+        let result = app_check
+            .get_token(false)
+            .await
+            .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
+        if let Some(error) = result.error.or(result.internal_error) {
+            return Err(internal_error(format!("App Check token error: {error}")));
+        }
+        if result.token.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(result.token))
         }
     }
 }

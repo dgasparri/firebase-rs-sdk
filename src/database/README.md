@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `on_value` listeners for references and queries that deliver an initial snapshot and replay callbacks after local writes, returning `ListenerRegistration` handles for manual detach.
 - Backend selection that defaults to an in-memory store and upgrades to a REST backend (`reqwest` PUT/PATCH/DELETE/GET) including base query propagation plus optional Auth/App Check token injection.
 - Unit tests covering in-memory semantics, validation edge cases, and REST request wiring through `httpmock`.
-- Preliminary realtime hooks (`Database::go_online`/`go_offline`) backed by a platform-aware transport selector. The Rust port now normalises listen specs, reference-counts active listeners, and—on native targets—establishes an async WebSocket session using `tokio-tungstenite` so future work can stream listen/unlisten commands. Full websocket/long-poll messaging is still pending while the persistent connection protocol is ported.
+- Preliminary realtime hooks (`Database::go_online`/`go_offline`) backed by a platform-aware transport selector. The Rust port now normalises listen specs, reference-counts active listeners, and—on native targets—establishes an async WebSocket session using `tokio-tungstenite`, forwarding auth/App Check tokens and queuing listen/unlisten envelopes until the full persistent connection protocol is ported. Streaming payload handling is still pending.
 
 ### WASM Notes
 
