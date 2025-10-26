@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
 use crate::app::FirebaseApp;
-#[allow(unused_imports)]
+use crate::app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME};
+use crate::auth::Auth;
 use crate::database::error::{internal_error, DatabaseResult};
 
 /// Describes a unique listener registration against the realtime backend.
@@ -64,6 +65,13 @@ enum RepoState {
     #[default]
     Offline,
     Online,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+enum TransportCommand {
+    Listen(ListenSpec),
+    Unlisten(ListenSpec),
 }
 
 /// Minimal `Repo` port that tracks unique realtime listeners and dispatches
@@ -219,15 +227,62 @@ impl RealtimeTransport for NoopTransport {
     }
 }
 
+async fn fetch_auth_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
+    let container = app.container();
+    let auth_or_none = container
+        .get_provider("auth-internal")
+        .get_immediate_with_options::<Auth>(None, true)
+        .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?;
+    let auth = match auth_or_none {
+        Some(auth) => Some(auth),
+        None => container
+            .get_provider("auth")
+            .get_immediate_with_options::<Auth>(None, true)
+            .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?,
+    };
+    let Some(auth) = auth else {
+        return Ok(None);
+    };
+
+    match auth.get_token(false).await {
+        Ok(Some(token)) if token.is_empty() => Ok(None),
+        Ok(Some(token)) => Ok(Some(token)),
+        Ok(None) => Ok(None),
+        Err(err) => Err(internal_error(format!(
+            "failed to obtain auth token: {err}"
+        ))),
+    }
+}
+
+async fn fetch_app_check_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
+    let container = app.container();
+    let app_check = container
+        .get_provider(APP_CHECK_INTERNAL_COMPONENT_NAME)
+        .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
+        .map_err(|err| internal_error(format!("failed to resolve app check provider: {err}")))?;
+    let Some(app_check) = app_check else {
+        return Ok(None);
+    };
+
+    let result = app_check
+        .get_token(false)
+        .await
+        .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
+    if let Some(error) = result.error.or(result.internal_error) {
+        return Err(internal_error(format!("App Check token error: {error}")));
+    }
+    if result.token.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(result.token))
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use super::*;
+    use crate::database::error::DatabaseError;
     use crate::platform::runtime::spawn_detached;
-    use crate::{
-        app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME},
-        auth::Auth,
-        database::error::DatabaseError,
-    };
     use futures::channel::oneshot;
     use futures_util::{SinkExt, StreamExt};
     use serde_json::{json, Map as JsonMap, Value as JsonValue};
@@ -683,66 +738,24 @@ mod native {
         serde_json::to_string(&envelope)
             .map_err(|err| internal_error(format!("failed to encode realtime request: {err}")))
     }
-
-    async fn fetch_auth_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
-        let container = app.container();
-        let auth_or_none = container
-            .get_provider("auth-internal")
-            .get_immediate_with_options::<Auth>(None, true)
-            .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?;
-        let auth = match auth_or_none {
-            Some(auth) => Some(auth),
-            None => container
-                .get_provider("auth")
-                .get_immediate_with_options::<Auth>(None, true)
-                .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?,
-        };
-        let Some(auth) = auth else {
-            return Ok(None);
-        };
-
-        match auth.get_token(false).await {
-            Ok(Some(token)) if token.is_empty() => Ok(None),
-            Ok(Some(token)) => Ok(Some(token)),
-            Ok(None) => Ok(None),
-            Err(err) => Err(internal_error(format!(
-                "failed to obtain auth token: {err}"
-            ))),
-        }
-    }
-
-    async fn fetch_app_check_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
-        let container = app.container();
-        let app_check = container
-            .get_provider(APP_CHECK_INTERNAL_COMPONENT_NAME)
-            .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
-            .map_err(|err| {
-                internal_error(format!("failed to resolve app check provider: {err}"))
-            })?;
-        let Some(app_check) = app_check else {
-            return Ok(None);
-        };
-
-        let result = app_check
-            .get_token(false)
-            .await
-            .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
-        if let Some(error) = result.error.or(result.internal_error) {
-            return Err(internal_error(format!("App Check token error: {error}")));
-        }
-        if result.token.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(result.token))
-        }
-    }
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 mod wasm {
     use super::*;
-    use std::sync::{Mutex as StdMutex, Weak};
+    use crate::database::error::DatabaseError;
+    use crate::logger::Logger;
+    use async_lock::Mutex as AsyncMutex;
+    use js_sys::{ArrayBuffer, Uint8Array};
+    use serde_json::{json, Map as JsonMap, Value as JsonValue};
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{LazyLock, Mutex as StdMutex, Weak};
     use url::Url;
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::spawn_local;
+    use web_sys::{BinaryType, CloseEvent, Event, MessageEvent, WebSocket};
 
     pub(super) fn websocket_transport(
         app: &FirebaseApp,
@@ -751,8 +764,15 @@ mod wasm {
         let url = app.options().database_url?;
         let parsed = Url::parse(&url).ok()?;
         let info = RepoInfo::from_url(parsed)?;
-        Some(Arc::new(WasmWebSocketTransport::new(info, repo)))
+        Some(Arc::new(WasmWebSocketTransport::new(
+            info,
+            app.clone(),
+            repo,
+        )))
     }
+
+    static WASM_LOGGER: LazyLock<Logger> =
+        LazyLock::new(|| Logger::new("@firebase/database/wasm_websocket"));
 
     #[derive(Clone, Debug)]
     struct RepoInfo {
@@ -786,36 +806,362 @@ mod wasm {
     #[derive(Debug)]
     struct WasmWebSocketTransport {
         repo_info: RepoInfo,
-        repo: StdMutex<Weak<Repo>>,
+        app: FirebaseApp,
+        state: Arc<WasmState>,
     }
 
     impl WasmWebSocketTransport {
-        fn new(repo_info: RepoInfo, repo: Weak<Repo>) -> Self {
+        fn new(repo_info: RepoInfo, app: FirebaseApp, repo: Weak<Repo>) -> Self {
             Self {
                 repo_info,
-                repo: StdMutex::new(repo),
+                app,
+                state: Arc::new(WasmState::new(repo)),
             }
+        }
+
+        async fn ensure_connection(&self) -> DatabaseResult<()> {
+            {
+                let socket = self.state.socket.lock().await;
+                if let Some(socket) = socket.as_ref() {
+                    if socket.ready_state() == WebSocket::OPEN {
+                        let _ = socket;
+                        return self.flush_pending().await;
+                    }
+                }
+            }
+            self.connect_inner().await
+        }
+
+        async fn connect_inner(&self) -> DatabaseResult<()> {
+            let url = self.repo_info.websocket_url();
+            let socket = WebSocket::new(&url)
+                .map_err(|err| internal_error(format!("failed to open websocket: {err:?}")))?;
+            socket.set_binary_type(BinaryType::Arraybuffer);
+
+            let state = self.state.clone();
+            let app = self.app.clone();
+
+            let on_open_state = state.clone();
+            let on_open_app = app.clone();
+            let on_open = Closure::wrap(Box::new(move |_event: Event| {
+                let state = on_open_state.clone();
+                let app = on_open_app.clone();
+                spawn_local(async move {
+                    if let Err(err) = send_initial_tokens(state.clone(), app).await {
+                        *state.pending_error.lock().unwrap() = Some(err);
+                    }
+                    if let Err(err) = flush_pending_state(state.clone()).await {
+                        *state.pending_error.lock().unwrap() = Some(err);
+                    }
+                });
+            }) as Box<dyn FnMut(_)>);
+
+            let on_message_state = state.clone();
+            let on_message = Closure::wrap(Box::new(move |event: MessageEvent| {
+                if let Some(text) = event.data().as_string() {
+                    if let Err(err) = handle_incoming_message(&on_message_state, &text) {
+                        *on_message_state.pending_error.lock().unwrap() = Some(err);
+                    }
+                } else if let Ok(buffer) = event.data().dyn_into::<ArrayBuffer>() {
+                    let array = Uint8Array::new(&buffer);
+                    if let Ok(text) = std::str::from_utf8(&array.to_vec()) {
+                        if let Err(err) = handle_incoming_message(&on_message_state, text) {
+                            *on_message_state.pending_error.lock().unwrap() = Some(err);
+                        }
+                    }
+                }
+            }) as Box<dyn FnMut(_)>);
+
+            let on_error_state = state.clone();
+            let on_error = Closure::wrap(Box::new(move |_event: Event| {
+                *on_error_state.pending_error.lock().unwrap() =
+                    Some(internal_error("websocket error"));
+            }) as Box<dyn FnMut(_)>);
+
+            let on_close_state = state.clone();
+            let on_close = Closure::wrap(Box::new(move |_event: CloseEvent| {
+                let state = on_close_state.clone();
+                spawn_local(async move {
+                    state.socket.lock().await.take();
+                    state.handles.lock().await.take();
+                    if let Some(err) = state.pending_error.lock().unwrap().take() {
+                        if let Some(repo) = state.repo() {
+                            let _ = repo.handle_action(
+                                "error",
+                                &json!({
+                                    "message": err.to_string()
+                                }),
+                            );
+                        }
+                    }
+                });
+            }) as Box<dyn FnMut(_)>);
+
+            socket.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+            socket.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+            socket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+            socket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+
+            *self.state.socket.lock().await = Some(socket);
+            *self.state.handles.lock().await = Some(WebSocketHandles {
+                _on_open: on_open,
+                _on_message: on_message,
+                _on_error: on_error,
+                _on_close: on_close,
+            });
+
+            Ok(())
+        }
+
+        async fn flush_pending(&self) -> DatabaseResult<()> {
+            flush_pending_state(self.state.clone()).await
         }
     }
 
     #[async_trait(?Send)]
     impl RealtimeTransport for WasmWebSocketTransport {
         async fn connect(&self) -> DatabaseResult<()> {
-            let _ = self.repo_info.websocket_url();
-            Ok(())
+            self.ensure_connection().await
         }
 
         async fn disconnect(&self) -> DatabaseResult<()> {
+            if let Some(socket) = self.state.socket.lock().await.take() {
+                let _ = socket.close();
+            }
+            self.state.handles.lock().await.take();
             Ok(())
         }
 
-        async fn listen(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
-            // TODO(async-wasm): Forward to the JS bridge once implemented.
-            Ok(())
+        async fn listen(&self, spec: &ListenSpec) -> DatabaseResult<()> {
+            {
+                let mut pending = self.state.pending.lock().await;
+                pending.push_back(TransportCommand::Listen(spec.clone()));
+            }
+            self.ensure_connection().await?;
+            self.flush_pending().await
         }
 
-        async fn unlisten(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
-            Ok(())
+        async fn unlisten(&self, spec: &ListenSpec) -> DatabaseResult<()> {
+            {
+                let mut pending = self.state.pending.lock().await;
+                pending.push_back(TransportCommand::Unlisten(spec.clone()));
+            }
+            self.flush_pending().await
         }
+    }
+
+    #[derive(Debug)]
+    struct WebSocketHandles {
+        _on_open: Closure<dyn FnMut(Event)>,
+        _on_message: Closure<dyn FnMut(MessageEvent)>,
+        _on_error: Closure<dyn FnMut(Event)>,
+        _on_close: Closure<dyn FnMut(CloseEvent)>,
+    }
+
+    #[derive(Debug)]
+    struct WasmState {
+        socket: AsyncMutex<Option<WebSocket>>,
+        pending: AsyncMutex<VecDeque<TransportCommand>>,
+        next_request_id: AtomicU32,
+        repo: StdMutex<Weak<Repo>>,
+        handles: AsyncMutex<Option<WebSocketHandles>>,
+        pending_error: StdMutex<Option<DatabaseError>>,
+    }
+
+    impl WasmState {
+        fn new(repo: Weak<Repo>) -> Self {
+            Self {
+                socket: AsyncMutex::new(None),
+                pending: AsyncMutex::new(VecDeque::new()),
+                next_request_id: AtomicU32::new(0),
+                repo: StdMutex::new(repo),
+                handles: AsyncMutex::new(None),
+                pending_error: StdMutex::new(None),
+            }
+        }
+
+        fn repo(&self) -> Option<Arc<Repo>> {
+            self.repo.lock().unwrap().upgrade()
+        }
+    }
+
+    unsafe impl Send for WasmState {}
+    unsafe impl Sync for WasmState {}
+    unsafe impl Send for WasmWebSocketTransport {}
+    unsafe impl Sync for WasmWebSocketTransport {}
+
+    fn handle_incoming_message(state: &WasmState, payload: &str) -> DatabaseResult<()> {
+        let value: JsonValue = serde_json::from_str(payload)
+            .map_err(|err| internal_error(format!("failed to decode realtime message: {err}")))?;
+
+        let Some(object) = value.as_object() else {
+            return Ok(());
+        };
+
+        let Some(JsonValue::String(message_type)) = object.get("t") else {
+            return Ok(());
+        };
+
+        match message_type.as_str() {
+            "d" => handle_data_message(state, object.get("d"))?,
+            "c" => {
+                WASM_LOGGER.debug(
+                    "control message received; ignoring until protocol port completed".to_string(),
+                );
+            }
+            _ => {
+                WASM_LOGGER.debug(format!("unhandled realtime frame type '{message_type}'"));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_data_message(state: &WasmState, data: Option<&JsonValue>) -> DatabaseResult<()> {
+        let Some(JsonValue::Object(data)) = data else {
+            return Ok(());
+        };
+
+        if data.contains_key("r") {
+            WASM_LOGGER.debug("realtime response received".to_string());
+            return Ok(());
+        }
+
+        if let Some(action) = data.get("a").and_then(|value| value.as_str()) {
+            if let Some(repo) = state.repo() {
+                let body = data.get("b").cloned().unwrap_or(JsonValue::Null);
+                if let Err(err) = repo.handle_action(action, &body) {
+                    WASM_LOGGER.warn(format!(
+                        "failed to handle realtime action '{action}': {err}"
+                    ));
+                    *state.pending_error.lock().unwrap() = Some(err);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn flush_pending_state(state: Arc<WasmState>) -> DatabaseResult<()> {
+        loop {
+            let command = {
+                let mut pending = state.pending.lock().await;
+                pending.pop_front()
+            };
+
+            let Some(command) = command else {
+                break;
+            };
+
+            let payload = serialize_command(state.as_ref(), &command)?;
+
+            let socket_guard = state.socket.lock().await;
+            let Some(socket) = socket_guard.as_ref() else {
+                let mut pending = state.pending.lock().await;
+                pending.push_front(command);
+                break;
+            };
+
+            if socket.ready_state() != WebSocket::OPEN {
+                let mut pending = state.pending.lock().await;
+                pending.push_front(command);
+                break;
+            }
+
+            if let Err(err) = socket.send_with_str(&payload) {
+                let mut pending = state.pending.lock().await;
+                pending.push_front(command);
+                return Err(internal_error(format!(
+                    "failed to send realtime command: {err:?}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn serialize_command(state: &WasmState, command: &TransportCommand) -> DatabaseResult<String> {
+        let (action, spec) = match command {
+            TransportCommand::Listen(spec) => ("listen", spec),
+            TransportCommand::Unlisten(spec) => ("unlisten", spec),
+        };
+
+        let mut params = JsonMap::new();
+        for (key, value) in spec.params() {
+            params.insert(key.clone(), JsonValue::String(value.clone()));
+        }
+
+        let body = json!({
+            "p": spec.path_string(),
+            "q": JsonValue::Object(params.clone()),
+            "h": "",
+        });
+
+        let request_id = next_request_id(state);
+        let envelope = json!({
+            "t": "d",
+            "d": {
+                "r": request_id,
+                "a": action,
+                "b": body,
+            }
+        });
+
+        serde_json::to_string(&envelope)
+            .map_err(|err| internal_error(format!("failed to encode realtime message: {err}")))
+    }
+
+    fn next_request_id(state: &WasmState) -> u32 {
+        state.next_request_id.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    async fn send_initial_tokens(state: Arc<WasmState>, app: FirebaseApp) -> DatabaseResult<()> {
+        if let Some(token) = fetch_auth_token(&app).await? {
+            let body = json!({ "cred": token });
+            send_request_message(&state, "auth", body).await?;
+        }
+
+        if let Some(token) = fetch_app_check_token(&app).await? {
+            let body = json!({ "token": token });
+            send_request_message(&state, "appcheck", body).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn send_request_message(
+        state: &Arc<WasmState>,
+        action: &str,
+        body: JsonValue,
+    ) -> DatabaseResult<()> {
+        let message = serialize_request(state.as_ref(), action, body)?;
+        let guard = state.socket.lock().await;
+        let Some(socket) = guard.as_ref() else {
+            return Err(internal_error("websocket sink unavailable"));
+        };
+        if socket.ready_state() != WebSocket::OPEN {
+            return Ok(());
+        }
+        socket
+            .send_with_str(&message)
+            .map_err(|err| internal_error(format!("failed to send realtime request: {err:?}")))
+    }
+
+    fn serialize_request(
+        state: &WasmState,
+        action: &str,
+        body: JsonValue,
+    ) -> DatabaseResult<String> {
+        let request_id = next_request_id(state);
+        let envelope = json!({
+            "t": "d",
+            "d": {
+                "r": request_id,
+                "a": action,
+                "b": body,
+            }
+        });
+
+        serde_json::to_string(&envelope)
+            .map_err(|err| internal_error(format!("failed to encode realtime request: {err}")))
     }
 }

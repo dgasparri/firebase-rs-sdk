@@ -109,9 +109,9 @@ removed, providing hooks for future WebSocket/long-poll transports.
     - Handle authentication, message framing, and reconnect logic (basic stubs to start).
     - ✅ Feed incoming events into `repo.handle_action` so remote updates mutate the cached tree, update listeners, and surface errors to callbacks.
 2. Provide wasm transport
-    - ✅ wasm builds now receive the same listener spec machinery plus a `web_sys::WebSocket` URL builder; wire up the actual browser transport and fallbacks next.
+    - ✅ wasm builds now spin up a `web_sys::WebSocket` bridge that mirrors the native transport: commands queue until the socket opens, auth/App Check tokens are sent on connect, and incoming frames feed through `repo.handle_action`.
     - Use web_sys::WebSocket (or gloo-net) to connect from wasm builds, with a long-polling fallback if necessary.
-    - Ensure the transport interface (RealtimeTransport) works cross-platform.
+    - Add integration coverage once the JS harness is ready.
 3. Hook Repo into Database operations
     - ✅ Database listener registration now routes through `Repo::listen`/`unlisten`, reference-counting targets and toggling the transport automatically during `go_online` / `go_offline`.
     - Extend OnDisconnect and run_transaction to use the new transport (currently return errors).

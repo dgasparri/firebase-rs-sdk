@@ -3516,3 +3516,36 @@ Thinking
   (ChildEventType::Changed/Removed) consistently across query listeners.
   2. Implement the wasm bridge (web_sys WebSocket or equivalent) to forward actions through repo.handle_action, then add
   integration tests for both native and wasm transports.
+
+
+  Thinking
+  I’m gathering what got updated: a new top-level on_value function with a result-based signature was added alongside a
+  ChildEvent struct and wasm bridging features. I’m double-checking imports and test coverage, noting some tests might
+  fail due to missing network access. I’ll wrap all this into a clear final summary with suggested next steps.
+
+> - Value/child listeners now accept Result callbacks; we added a ChildEvent struct (with ChildEventType) so on_value
+  and on_child_* deliver either Ok(...) payloads or a DatabaseError when the transport revokes access. Revoked listeners
+  are detached and receive a terminal error, and realtime d/m payloads update the cached root snapshot before listeners
+  fire (src/database/api.rs, src/database/mod.rs).
+  - Native transport still handles websocket IO; we introduced a full wasm bridge built on web_sys::WebSocket. It queues
+  commands, sends Auth/App Check tokens on open, parses incoming frames into repo.handle_action, and mirrors the native
+  error path. Shared helpers (TransportCommand, fetch_*_token) were hoisted so both transports reuse them (src/database/
+  realtime/mod.rs, Cargo.toml).
+  - Updated the WASM plan to note that both native and wasm transports now drive repo events over live websockets
+  (WASM_PLAN.md).
+
+  Checks:
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+
+  (Existing cargo test --lib suite still fails in this sandbox: many tests rely on httpmock binding to 127.0.0.1, which
+  is blocked, so integration verification is pending external execution.)
+
+  Next steps:
+
+  1. Add integration tests for realtime behaviour once a test harness with loopback/network support is available.
+  2. Document the new error-aware listener callbacks in user-facing docs/examples so consumers adjust to the Result
+  signatures.
+
+  
