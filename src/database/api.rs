@@ -16,11 +16,15 @@ use crate::component::types::{
 use crate::component::{Component, ComponentType};
 use crate::database::backend::{select_backend, DatabaseBackend};
 use crate::database::constants::DATABASE_COMPONENT_NAME;
-use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
+use crate::database::error::{internal_error, invalid_argument, DatabaseError, DatabaseResult};
 use crate::database::on_disconnect::OnDisconnect;
 use crate::database::push_id::next_push_id;
 use crate::database::query::{QueryBound, QueryIndex, QueryLimit, QueryParams};
 use crate::database::realtime::{ListenSpec, Repo};
+use crate::logger::Logger;
+
+static REALTIME_LOGGER: LazyLock<Logger> =
+    LazyLock::new(|| Logger::new("@firebase/database/realtime"));
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -33,6 +37,7 @@ struct DatabaseInner {
     repo: Arc<Repo>,
     listeners: Mutex<HashMap<u64, Listener>>,
     next_listener_id: AtomicU64,
+    root_cache: Mutex<Option<Value>>,
 }
 
 impl fmt::Debug for DatabaseInner {
@@ -534,14 +539,144 @@ where
 
 impl Database {
     fn new(app: FirebaseApp) -> Self {
-        Self {
-            inner: Arc::new(DatabaseInner {
-                backend: select_backend(&app),
-                repo: Repo::new_for_app(&app),
-                app,
-                listeners: Mutex::new(HashMap::new()),
-                next_listener_id: AtomicU64::new(1),
-            }),
+        let repo = Repo::new_for_app(&app);
+        let inner = Arc::new(DatabaseInner {
+            backend: select_backend(&app),
+            repo: repo.clone(),
+            app,
+            listeners: Mutex::new(HashMap::new()),
+            next_listener_id: AtomicU64::new(1),
+            root_cache: Mutex::new(None),
+        });
+        let database = Self { inner };
+        let handler_db = database.clone();
+        repo.set_event_handler(Arc::new(move |action, body| {
+            handler_db.handle_realtime_action(action, body)
+        }));
+        database
+    }
+
+    fn cache_root(&self, value: Value) {
+        *self.inner.root_cache.lock().unwrap() = Some(value);
+    }
+
+    fn handle_realtime_action(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
+        match action {
+            "d" | "m" => self.handle_realtime_data(action, body),
+            "c" => {
+                REALTIME_LOGGER.warn("listener revoked by server".to_string());
+                self.revoke_listener(body);
+                Ok(())
+            }
+            "ac" | "apc" => {
+                REALTIME_LOGGER.warn(format!("credential revoked by server ({action})"));
+                self.fail_listeners(internal_error(format!(
+                    "realtime credential revoked: {action}"
+                )));
+                Ok(())
+            }
+            "error" => {
+                let message = body.as_str().unwrap_or("realtime connection error");
+                self.fail_listeners(internal_error(message.to_string()));
+                Ok(())
+            }
+            "sd" => Ok(()),
+            other => Err(internal_error(format!(
+                "unhandled realtime action '{other}'"
+            ))),
+        }
+    }
+
+    fn handle_realtime_data(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
+        let Some(path) = body.get("p").and_then(|value| value.as_str()) else {
+            return Ok(());
+        };
+        let data = body.get("d").cloned().unwrap_or(serde_json::Value::Null);
+
+        let segments = normalize_path(path)?;
+        let old_root = self.root_snapshot()?;
+        let mut new_root = old_root.clone();
+
+        match action {
+            "d" => apply_realtime_value(&mut new_root, &segments, data.clone()),
+            "m" => {
+                let Value::Object(map) = &data else {
+                    return Err(invalid_argument(
+                        "Realtime merge payload must be a JSON object",
+                    ));
+                };
+                for (key, value) in map.iter() {
+                    let mut child_path = segments.clone();
+                    child_path.extend(normalize_path(key)?);
+                    apply_realtime_value(&mut new_root, &child_path, value.clone());
+                }
+            }
+            _ => {}
+        }
+
+        REALTIME_LOGGER.debug(format!(
+            "realtime payload action={action} path={path} data={data:?}"
+        ));
+
+        let new_root_for_cache = new_root.clone();
+        self.dispatch_listeners(&segments, &old_root, &new_root)?;
+        self.cache_root(new_root_for_cache);
+        Ok(())
+    }
+
+    fn revoke_listener(&self, body: &serde_json::Value) {
+        let Some(path) = body.get("p").and_then(|value| value.as_str()) else {
+            return;
+        };
+        let segments = match normalize_path(path) {
+            Ok(segments) => segments,
+            Err(err) => {
+                REALTIME_LOGGER.warn(format!("failed to normalise revoked path: {err}"));
+                return;
+            }
+        };
+
+        let mut listeners = self.inner.listeners.lock().unwrap();
+        let cancelled: Vec<u64> = listeners
+            .iter()
+            .filter(|(_, listener)| match &listener.target {
+                ListenerTarget::Reference(path) => path == &segments,
+                ListenerTarget::Query { path, .. } => path == &segments,
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in cancelled {
+            if let Some(listener) = listeners.remove(&id) {
+                REALTIME_LOGGER.warn("listener revoked by server".to_string());
+                if let ListenerKind::Value(callback) = listener.kind {
+                    callback(DataSnapshot {
+                        reference: self.reference_from_segments(segments.clone()),
+                        value: Value::Null,
+                    });
+                }
+            }
+        }
+    }
+
+    fn fail_listeners(&self, err: DatabaseError) {
+        let mut guard = self.inner.listeners.lock().unwrap();
+        let listeners = guard.values().cloned().collect::<Vec<_>>();
+        guard.clear();
+        drop(guard);
+        for listener in listeners {
+            REALTIME_LOGGER.warn(format!("listener cancelled due to error: {err}"));
+            if let ListenerKind::Value(callback) = listener.kind {
+                let reference = match listener.target {
+                    ListenerTarget::Reference(path) => self.reference_from_segments(path.clone()),
+                    ListenerTarget::Query { path, .. } => {
+                        self.reference_from_segments(path.clone())
+                    }
+                };
+                callback(DataSnapshot {
+                    reference,
+                    value: Value::Null,
+                });
+            }
         }
     }
 
@@ -716,7 +851,12 @@ impl Database {
     }
 
     async fn root_snapshot_async(&self) -> DatabaseResult<Value> {
-        self.inner.backend.get(&[], &[]).await
+        if let Some(value) = self.inner.root_cache.lock().unwrap().clone() {
+            return Ok(value);
+        }
+        let value = self.inner.backend.get(&[], &[]).await?;
+        *self.inner.root_cache.lock().unwrap() = Some(value.clone());
+        Ok(value)
     }
 
     fn root_snapshot(&self) -> DatabaseResult<Value> {
@@ -891,8 +1031,10 @@ impl DatabaseReference {
         let old_root = self.database.root_snapshot_async().await?;
         self.database.inner.backend.set(&self.path, value).await?;
         let new_root = self.database.root_snapshot_async().await?;
+        let new_root_for_cache = new_root.clone();
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
+        self.database.cache_root(new_root_for_cache);
         Ok(())
     }
 
@@ -1037,8 +1179,10 @@ impl DatabaseReference {
             .update(&self.path, operations)
             .await?;
         let new_root = self.database.root_snapshot_async().await?;
+        let new_root_for_cache = new_root.clone();
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
+        self.database.cache_root(new_root_for_cache);
         Ok(())
     }
 
@@ -1059,8 +1203,10 @@ impl DatabaseReference {
         let old_root = self.database.root_snapshot_async().await?;
         self.database.inner.backend.delete(&self.path).await?;
         let new_root = self.database.root_snapshot_async().await?;
+        let new_root_for_cache = new_root.clone();
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
+        self.database.cache_root(new_root_for_cache);
         Ok(())
     }
 
@@ -1432,6 +1578,38 @@ fn is_prefix(prefix: &[String], path: &[String]) -> bool {
         .all(|(left, right)| left == right)
 }
 
+fn apply_realtime_value(root: &mut Value, path: &[String], value: Value) {
+    if path.is_empty() {
+        *root = value;
+        return;
+    }
+
+    let mut current = root;
+    for segment in &path[..path.len() - 1] {
+        if !current.is_object() {
+            *current = Value::Object(Map::new());
+        }
+        let obj = current.as_object_mut().expect("object ensured");
+        current = obj
+            .entry(segment.clone())
+            .or_insert(Value::Object(Map::new()));
+    }
+
+    if value.is_null() {
+        if let Some(obj) = current.as_object_mut() {
+            obj.remove(path.last().expect("path non-empty"));
+        }
+    } else {
+        if !current.is_object() {
+            *current = Value::Object(Map::new());
+        }
+        current
+            .as_object_mut()
+            .expect("object ensured")
+            .insert(path.last().expect("path non-empty").clone(), value);
+    }
+}
+
 fn validate_priority_value(priority: &Value) -> DatabaseResult<()> {
     match priority {
         Value::Null | Value::Number(_) | Value::String(_) => Ok(()),
@@ -1687,11 +1865,22 @@ mod tests {
         equal_to_with_key, increment, limit_to_first, limit_to_last, order_by_child, order_by_key,
         query as compose_query, server_timestamp, start_at,
     };
-    use futures::executor::block_on;
     use httpmock::prelude::*;
     use httpmock::Method::{DELETE, GET, PATCH, PUT};
     use serde_json::{json, Value};
     use std::sync::{Arc, Mutex};
+    use tokio::runtime::Builder as RuntimeBuilder;
+
+    fn block_on<F>(future: F) -> F::Output
+    where
+        F: std::future::Future,
+    {
+        RuntimeBuilder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+            .block_on(future)
+    }
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1956,6 +2145,88 @@ mod tests {
         let root = nested.root();
         assert_eq!(root.path(), "/");
         assert!(root.parent().is_none());
+    }
+
+    #[test]
+    fn realtime_set_updates_cache_and_listeners() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
+        let database = get_database(Some(app)).unwrap();
+
+        let reference = database.reference("items/foo").unwrap();
+        let events: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        let _registration = reference
+            .on_value(move |snapshot| {
+                events_clone.lock().unwrap().push(snapshot.value().clone());
+            })
+            .unwrap();
+
+        database
+            .handle_realtime_action(
+                "d",
+                &json!({
+                    "p": "items/foo",
+                    "d": { "count": 5 }
+                }),
+            )
+            .unwrap();
+
+        let values = events.lock().unwrap();
+        assert_eq!(values.last().unwrap(), &json!({ "count": 5 }));
+        drop(values);
+
+        assert_eq!(reference.get().unwrap(), json!({ "count": 5 }));
+    }
+
+    #[test]
+    fn realtime_merge_updates_cache() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
+        let database = get_database(Some(app)).unwrap();
+
+        database
+            .handle_realtime_action(
+                "d",
+                &json!({
+                    "p": "items",
+                    "d": {"foo": {"count": 1}}
+                }),
+            )
+            .unwrap();
+
+        database
+            .handle_realtime_action(
+                "m",
+                &json!({
+                    "p": "items",
+                    "d": {
+                        "foo/count": 2,
+                        "bar": {"value": true}
+                    }
+                }),
+            )
+            .unwrap();
+
+        let foo = database
+            .reference("items/foo")
+            .unwrap()
+            .get()
+            .unwrap();
+        assert_eq!(foo, json!({"count": 2}));
+
+        let bar = database
+            .reference("items/bar")
+            .unwrap()
+            .get()
+            .unwrap();
+        assert_eq!(bar, json!({"value": true}));
     }
 
     #[test]

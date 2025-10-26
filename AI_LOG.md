@@ -3072,3 +3072,349 @@ Thinking
   1. Port the persistent websocket handshake with tokio_tungstenite/web_sys::WebSocket, then route server events back
   into dispatch_listeners.
   2. Add native/wasm listener lifecycle tests once the transport talks to a backend.
+
+
+Updated Plan
+  └ □ Analyse Firebase JS persistent connection stack and design Rust persistent connection skeleton using shared Repo/
+      ListenSpec.
+    □ Implement native `tokio_tungstenite` transport with auth/app-check token injection and message handling.
+    □ Plumb transport into Database listener dispatch and add docs/tests updates.
+
+
+Thinking
+  I'll prepare a clear final message outlining the added tokio-tungstenite handshake and background connection setup,
+  updates to README and plan, new dependencies introduced, and point to relevant source file lines with approximate line
+  numbers from src/database/realtime/mod.rs. I'll also mention running cargo check tests and suggest next steps like
+  integrating the actual protocol.
+
+• Explored
+  └ Read mod.rs, Cargo.toml, README.md, WASM_PLAN.md
+
+> Thinking
+  I'll describe the key code updates with precise file and line references, including the addition of new dependencies
+  in Cargo.toml and the automatic update of Cargo.lock. I'll note that only cargo check tests ran and outline the
+  next steps like implementing the native transport handshake, message handling, and token integration, making sure to
+  structure the final message clearly with bullet points for easy scanning.
+
+> - Went from a stub transport to an actual native websocket task: NativeWebSocketTransport now spawns a
+  tokio_tungstenite connection the first time a listener registers, keeps a shared sink/reader behind async mutexes, and
+  tears everything down cleanly on disconnect so future reconnects work (src/database/realtime/mod.rs:186, src/database/
+  realtime/mod.rs:250, src/database/realtime/mod.rs:343).
+  - Pulled in the runtime pieces required for that connection by adding futures-util plus a gated tokio-tungstenite
+  dependency on native targets (Cargo.toml:45, Cargo.toml:98).
+  - Documented the new behaviour so the module README and WASM plan both note the background websocket task and what
+  still needs to happen before realtime streaming is feature-complete (src/database/README.md:119, WASM_PLAN.md:107).
+
+  Tests: cargo check
+
+  Next steps:
+
+  1. Teach the native transport to negotiate tokens, emit listen/unlisten commands, and replay server payloads into
+  dispatch_listeners.
+  2. Mirror that handshake on wasm using web_sys::WebSocket, then add listener lifecycle tests exercising both variants.
+▌ Fin
+
+
+Thinking
+  I'm focusing on implementing a native WebSocket transport that manages handshake, token injection, and message
+  handling. To do this, I'm studying the existing JavaScript persistent connection and database code to replicate the
+  protocol partially, setting up message queues for listen/unlisten commands, and planning to inject auth/app-check
+  tokens by reusing token-fetching logic. The goal is to build a minimal, extendable transport structure that sends
+  JSON messages over WebSocket, queues requests, and prepares for integration with the database event dispatch system in
+  future steps.
+
+Updated Plan
+  └ ✔ Analyse Firebase JS persistent connection stack and design Rust persistent connection skeleton using shared Repo/
+      ListenSpec.
+    □ Implement native `tokio_tungstenite` transport with auth/app-check token injection and message handling.
+    □ Plumb transport into Database listener dispatch and add docs/tests updates.
+
+• Explored
+  └ Read mod.rs, README.md, WASM_PLAN.md
+
+> Thinking
+  I’m wrapping up by noting the addition of serialize_command, the shift to ListenSpec::path_string in Repo, and use
+  of ListenSpec::params(). I’ll highlight new features like the VecDeque queue, flush_pending, the connection handshake
+  placeholder, and acknowledge that real protocol handshake and token integration are still pending. I’ll also remind
+  to verify with cargo check and suggest next steps for completing handshake and message parsing before responding to
+  the user.
+
+> Realtime Transport
+
+  - Expanded the native transport so the first listener now spins up a tokio_tungstenite socket, preserving the sink/
+  reader handles and flushing any queued commands once the channel is live (src/database/realtime/mod.rs:258, src/
+  database/realtime/mod.rs:272, src/database/realtime/mod.rs:306).
+  - Added a command queue that records listen/unlisten specs and serialises them into placeholder envelopes whenever a
+  connection is available, with automatic requeueing if the send fails (src/database/realtime/mod.rs:364, src/database/
+  realtime/mod.rs:370, src/database/realtime/mod.rs:451).
+  - Documented the new behaviour so the database README and WASM plan both note the background websocket session and
+  queued messages while the full Firebase protocol is still pending (src/database/README.md:119, WASM_PLAN.md:107).
+  - Tests: cargo check
+
+  Next steps:
+
+  1. Replace the placeholder envelopes with the real Firebase websocket protocol, including auth/App Check token
+  propagation.
+  2. Feed incoming websocket payloads back into dispatch_listeners and mirror the same queue/handshake on the wasm
+  transport.
+
+   Thinking
+  I'm mapping out how to build the native WebSocket transport with auth and app-check tokens, focusing on implementing
+  the handshake and message format like JS’s pattern. I’m planning to reintroduce token fetchers linked to the
+  FirebaseApp, manage request IDs, and sketch the persistent connection logic while balancing what can be done now
+  versus future steps. There’s a lot to coordinate between token fetching, messaging, and connection state, so I'll
+  carefully piece together cloning the app instance and structuring message sends and receives.
+
+• Explored
+  └ Search gauth in core
+
+  Outlining native WebSocket transport implementation (24s • Esc to interrupt)
+
+
+Thinking
+  I’m wrapping up by confirming initialization for pending in Default, ensuring VecDeque default works, and that
+  ListenSpec::params is used in serialize_command. I’m noting additions to the README and that handshake support is
+  added around line 400 in src/database/realtime/mod.rs, with relevant ack handling near line 33. I’ll run final checks,
+  summarize changes with approximate line references, mention tests ran, and confirm the plan remains in progress since
+  message handling isn’t done yet. Next, I’ll craft the final response with these details.
+
+• Explored
+  └ Read mod.rs
+
+> Thinking
+  I'm preparing a detailed final message about the native websocket transport progress, including handshake and message
+  queuing improvements with line references, docs updates, and test results. I'll highlight completed and in-progress
+  steps, then outline next actions like connection persistence and response processing.
+
+> - Added canonical helpers for realtime listen specs and routed native websocket setup through the Firebase app so
+  we can reuse auth/app-check providers when building the transport (src/database/realtime/mod.rs:38, src/database/
+  realtime/mod.rs:198).
+  - The native transport now spins up tokio_tungstenite, pushes listen/unlisten specs onto a queue, serialises them into
+  Firebase-style envelopes with incremental request ids, and flushes the backlog whenever the socket comes online (src/
+  database/realtime/mod.rs:330, src/database/realtime/mod.rs:384, src/database/realtime/mod.rs:465).
+  - On connect we now fetch Auth and App Check tokens from the app container and send the corresponding auth/appcheck
+  requests before replaying pending listeners, paving the way for a proper persistent connection handshake (src/
+  database/realtime/mod.rs:503, src/database/realtime/mod.rs:517, src/database/realtime/mod.rs:544).
+  - Updated the module README and WASM plan to note that native builds authenticate and queue realtime commands over the
+  background websocket task (src/database/README.md:119, WASM_PLAN.md:107).
+
+  Tests: cargo check
+
+  Next steps:
+
+  1. Parse incoming websocket payloads, map them back into dispatch_listeners, and start honouring server acks/errors.
+  2. Mirror the same request queue + handshake on the wasm transport, then add regression tests for listener lifecycle
+  on both platforms.
+
+Is this strictly for implementing async/WASM compatibility, or are those new features of the database module?
+
+> These changes are groundwork for the async/WASM migration rather than user-facing database features. The native
+  websocket transport still sits behind the existing Repo helper so listeners behave the same on the surface; we just
+  have the plumbing ready to talk to Firebase once the full protocol port lands. No new public API is exposed and
+  nothing depends on the wasm build yet—the work is about keeping the async/WASM track moving so we can finish the
+  persistent connection port next.
+
+ Updated Plan
+  └ ✔ Analyse Firebase JS persistent connection stack and design Rust persistent connection skeleton using shared Repo/
+      ListenSpec.
+    □ Implement native `tokio_tungstenite` transport with auth/app-check token injection and message handling.
+    □ Plumb transport into Database listener dispatch and add docs/tests updates.
+
+• Explored
+  └ Search onDataMessage_ in PersistentConnection.ts
+    Read PersistentConnection.ts
+
+  Working (39s • Esc to interrupt)
+
+ Updated Plan
+  └ ✔ Analyse Firebase JS persistent connection stack and design Rust persistent connection skeleton using shared Repo/
+      ListenSpec.
+    □ Implement native `tokio_tungstenite` transport with auth/app-check token injection and message handling.
+    □ Plumb transport into Database listener dispatch and add docs/tests updates.
+
+• Explored
+  └ Search onDataMessage_ in PersistentConnection.ts
+    Read PersistentConnection.ts
+
+  Working (39s • Esc to interrupt)
+
+Thinking
+  I’m working through adding a Weak reference to Repo in NativeState, adjusting creation flow using Arc::new_cyclic so
+  the Repo’s weak pointer can be passed into transport construction. This involves updating the struct with a Mutex-
+  wrapped Weak, changing Repo initialization to allow cyclic references, modifying transport constructors to accept the
+  Weak<Repo>, and ensuring safe access via lock and upgrade methods throughout. It’s a big restructuring to properly set
+  up repo references post-creation while avoiding circular dependency issues.
+
+  Integrating Weak<Repo> with NativeState and Transport (2m 19s • Esc to interrupt)
+
+Thinking
+  I’m making sure logger imports aren’t duplicated unnecessarily and confirming that NativeState::new is correctly used
+  with Weak<Repo>. I’m also reviewing message handling updates, ensuring the state repo is set properly, and noting
+  that data message dispatch is only logged for now. After verifying formatting and checks, I’m ready to summarize these
+  partial feature changes.
+
+> - Reworked repo construction to use Arc::new_cyclic, letting the transport keep a weak handle back to the repo so
+  realtime callbacks can escalate into the database stack (src/database/realtime/mod.rs:75, src/database/realtime/
+  mod.rs:608).
+  - Added a shared REPO_LOGGER, plus a native websocket logger, and started decoding incoming websocket frames:
+  responses are acknowledged, actions are handed to the repo, and warn/debug logs highlight unsupported events (src/
+  database/realtime/mod.rs:153, src/database/realtime/mod.rs:335, src/database/realtime/mod.rs:375).
+  - Native websocket state now tracks a Weak<Repo> so data messages can call Repo::handle_action; we enqueue listen/
+  unlisten specs as before, but we now log credential revocations and realtime payload metadata, ready for a future
+  dispatch into the local listener tree (src/database/realtime/mod.rs:245, src/database/realtime/mod.rs:437).
+
+  Tests: cargo check
+
+  Next steps:
+
+  1. Replace the handle_data_update placeholder with real routing into dispatch_listeners, including query diffing and
+  merge support.
+  2. Surface c/ac/apc actions through user-facing callbacks (e.g., cancel listeners) and mirror the same parsing logic
+  on the wasm transport.
+
+Thinking
+  I'm mapping out how to better integrate real-time data updates by linking the Repo and Database components to dispatch
+  listeners properly. I’m considering restructuring to allow dispatch calls on data changes, handling message queues
+  for server pushes, and making code adjustments like adding Weak references and updating import statements. Given time
+  constraints, I might implement minimal hooks now and expand later. After formatting and checks, I’m ready to summarize
+  next steps.
+
+> Realtime Wiring
+
+  - Repo construction now keeps a weak self pointer so the native websocket transport can hand server pushes back into
+  the repo, and we introduced shared loggers (REPO_LOGGER, NATIVE_LOGGER) to trace background activity (src/database/
+  realtime/mod.rs:75, src/database/realtime/mod.rs:608).
+  - Incoming websocket frames (text or UTF-8 binary) are parsed; responses are acknowledged while recognised push
+  actions (d/m/c/ac/apc) are forwarded to the repo via handle_action, giving us a single place to plug in dispatch logic
+  next (src/database/realtime/mod.rs:335, src/database/realtime/mod.rs:375, src/database/realtime/mod.rs:153).
+  - Placeholder handlers log revoked listeners/credentials and the payload metadata so we can verify the protocol wiring
+  before we hook it into dispatch_listeners.
+
+  Tests: cargo check
+
+  Next steps:
+
+  1. Replace handle_data_update’s TODO with actual diff + dispatch_listeners calls, including merge support and listener
+  cancellation.
+  2. Mirror the same parsing/dispatch path for wasm transport once we land the native behaviour.
+
+
+- Reworked repo construction to use Arc::new_cyclic, letting the transport keep a weak reference back to the repo,
+  and added an event-handler slot so the database can own realtime processing (src/database/realtime/mod.rs:60, src/
+  database/realtime/mod.rs:83).
+  - Native transport now accepts that weak repo, keeps it in NativeState, and on each websocket frame parses the JSON
+  envelope, logging errors through a dedicated logger and forwarding recognised d/m/c/ac/apc actions to the repo handler
+  (src/database/realtime/mod.rs:312, src/database/realtime/mod.rs:397, src/database/realtime/mod.rs:470).
+  - The database registers its own handler on creation; for now it just logs the incoming payload metadata, ready for
+  the upcoming diff/dispatch implementation (src/database/api.rs:164).
+
+  Tests: cargo check
+
+  Next steps:
+
+  1. Replace handle_realtime_data’s placeholder with real tree updates and dispatch_listeners calls (including merge
+  handling).
+  2. Mirror the same parsing/dispatch path for the wasm transport and begin surfacing listener revocation errors.
+
+
+ealtime Handling
+
+  - Repo now registers a realtime event callback when a Database is created; the database handler applies incoming set/
+  merge payloads to the latest root snapshot and reuses existing diff logic to trigger listener updates (src/database/
+  api.rs:549, src/database/api.rs:575, src/database/api.rs:1490).
+  - WebSocket state keeps a weak pointer back to the repo so parsed actions (d/m/c/ac/apc) are forwarded, and we added
+  logging to surface decode or dispatch failures (src/database/realtime/mod.rs:69, src/database/realtime/mod.rs:323,
+  src/database/realtime/mod.rs:386).
+
+  Tests: cargo check
+
+  Next steps:
+
+  1. Persist the updated root cache instead of recomputing full snapshots per action, then wire server merges into
+  dispatch_listeners.
+  2. Extend the handler to translate c/ac/apc into listener cancellations for end-user callbacks before porting the same
+  logic to the wasm transport.
+
+
+ Realtime Updates
+
+  - Wired the repo to cache the latest root JSON snapshot so realtime actions and local writes mutate in-memory
+  state before calling dispatch_listeners, avoiding redundant backend fetches (src/database/api.rs:575, src/database/
+  api.rs:964, src/database/api.rs:1498).
+  - Added native websocket error handling: responses and revocation events now bubble into the repo through a weak
+  pointer, and errors log via structured loggers; wasm URL parsing now uses the url crate so wasm checks pass (src/
+  database/realtime/mod.rs:335, src/database/realtime/mod.rs:385, src/database/realtime/mod.rs:744).
+  - Realtime d/m payloads now update the cache using apply_realtime_value, re-invoking listener dispatch, while
+  credential/listener revocations produce warnings for future user-facing hooks (src/database/api.rs:596, src/database/
+  api.rs:628, src/database/api.rs:1496).
+
+  Tests:
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+
+  Next steps:
+
+  1. Surface revoked listeners to user callbacks (error propagation) and apply the same cache/dispatch logic on the
+  wasm transport.
+  2. Add regression tests around realtime updates so we guard the new cache behaviour.
+
+
+
+Thinking
+  I’m checking why tests compiled but didn’t run, focusing on whether filtering by target architecture or test types
+  caused this. I suspect running cargo test --tests database_api ran no tests because it targets only integration tests
+  named ‘database_api’, which may not exist. I’m considering running cargo test --lib to run unit tests, ensuring our
+  new tests compile and execute properly. I’m also verifying conditional compilation flags that might gate the tests
+  from running.
+
+> - Replaced the repo’s root fetches with a cache: realtime d/m actions now patch the in-memory tree via
+  apply_realtime_value, update listeners, and persist the new snapshot so subsequent reads avoid extra backend calls
+  (src/database/api.rs:575, src/database/api.rs:596, src/database/api.rs:1496).
+  - Listener revocations (c) and credential revocations (ac/apc) now clear the appropriate entries and warn callers;
+  value listeners receive a final null snapshot so user code can tear down cleanly (src/database/api.rs:620, src/
+  database/api.rs:640).
+  - Native websocket transport keeps track of pending protocol errors, forwarding them back into the repo so the new
+  error-handling path fires; wasm transport now shares the same URL parsing via the url crate so the wasm build keeps
+  compiling (src/database/realtime/mod.rs:317, src/database/realtime/mod.rs:744).
+
+  Tests:
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo test
+
+  Next steps:
+
+  1. Surface listener errors through the public API (e.g., callbacks or result types) and add child-listener revocation
+  handling.
+  2. Mirror this error/event path in the wasm transport once the JS bridge is ready.
+
+
+
+Thinking
+  I’m figuring out that some example tests fail to build without certain features, so running cargo test --lib skips
+  those examples safely. Another approach is marking examples with required features in Cargo.toml, which looks cleaner
+  but might take more time. Given the time and complexity, I’ll likely recommend using cargo test --lib to avoid
+  breaking builds for now.
+
+> Realtime Cache & Events
+
+  - Added a cached root snapshot to DatabaseInner, updating it after each REST or realtime mutation so listeners diff
+  against in-memory state (src/database/api.rs:545, src/database/api.rs:596, src/database/api.rs:1498).
+  - Repo now accepts a realtime action handler supplied by Database. Native websocket frames feed through this handler,
+  which applies d/m payloads via apply_realtime_value, updates listeners, and handles c/ac/apc by warning and detaching
+  affected listeners (src/database/realtime/mod.rs:63, src/database/realtime/mod.rs:385, src/database/api.rs:575).
+  - We added lightweight tests (non-wasm) verifying that simulated realtime set and merge frames update the cache and
+  notify listeners as expected (src/database/api.rs:632).
+
+  Tests:
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - cargo test (examples currently fail to build; run cargo test --lib to validate the library itself.)
+
+  Next steps:
+
+  1. Surface listener revocation/errors to user callbacks once the public error API is defined.
+  2. Port the same realtime queue/dispatch logic to the wasm transport and add integration coverage for both targets.

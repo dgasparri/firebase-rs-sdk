@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
 use crate::app::FirebaseApp;
+#[allow(unused_imports)]
 use crate::database::error::{internal_error, DatabaseResult};
 
 /// Describes a unique listener registration against the realtime backend.
@@ -35,6 +36,7 @@ impl ListenSpec {
         Self { path, params }
     }
 
+    #[allow(dead_code)]
     fn path_string(&self) -> String {
         if self.path.is_empty() {
             "/".to_string()
@@ -43,6 +45,7 @@ impl ListenSpec {
         }
     }
 
+    #[allow(dead_code)]
     fn params(&self) -> &[(String, String)] {
         &self.params
     }
@@ -70,15 +73,26 @@ pub(crate) struct Repo {
     transport: Arc<dyn RealtimeTransport>,
     state: Arc<Mutex<RepoState>>,
     active_listens: Arc<Mutex<HashMap<ListenSpec, usize>>>,
+    event_handler: Arc<
+        std::sync::Mutex<Arc<dyn Fn(&str, &serde_json::Value) -> DatabaseResult<()> + Send + Sync>>,
+    >,
 }
 
 impl Repo {
     pub fn new_for_app(app: &FirebaseApp) -> Arc<Self> {
-        Arc::new(Self {
-            transport: select_transport(app),
+        Arc::new_cyclic(|weak| Self {
+            transport: select_transport(app, weak.clone()),
             state: Arc::new(Mutex::new(RepoState::Offline)),
             active_listens: Arc::new(Mutex::new(HashMap::new())),
+            event_handler: Arc::new(std::sync::Mutex::new(Arc::new(|_, _| Ok(())))),
         })
+    }
+
+    pub fn set_event_handler(
+        &self,
+        handler: Arc<dyn Fn(&str, &serde_json::Value) -> DatabaseResult<()> + Send + Sync>,
+    ) {
+        *self.event_handler.lock().unwrap() = handler;
     }
 
     pub async fn go_online(&self) -> DatabaseResult<()> {
@@ -153,19 +167,29 @@ impl Repo {
         }
         Ok(())
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn handle_action(
+        &self,
+        action: &str,
+        body: &serde_json::Value,
+    ) -> DatabaseResult<()> {
+        let handler = self.event_handler.lock().unwrap().clone();
+        handler(action, body)
+    }
 }
 
-fn select_transport(app: &FirebaseApp) -> Arc<dyn RealtimeTransport> {
+fn select_transport(app: &FirebaseApp, repo: std::sync::Weak<Repo>) -> Arc<dyn RealtimeTransport> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if let Some(transport) = native::websocket_transport(app) {
+        if let Some(transport) = native::websocket_transport(app, repo.clone()) {
             return transport;
         }
     }
 
     #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
     {
-        if let Some(transport) = wasm::websocket_transport(app) {
+        if let Some(transport) = wasm::websocket_transport(app, repo.clone()) {
             return transport;
         }
     }
@@ -202,22 +226,38 @@ mod native {
     use crate::{
         app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME},
         auth::Auth,
+        database::error::DatabaseError,
     };
     use futures::channel::oneshot;
     use futures_util::{SinkExt, StreamExt};
     use serde_json::{json, Map as JsonMap, Value as JsonValue};
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::LazyLock;
     use tokio::sync::Mutex as AsyncMutex;
     use tokio::task::JoinHandle;
     use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
     use url::Url;
 
-    pub(super) fn websocket_transport(app: &FirebaseApp) -> Option<Arc<dyn RealtimeTransport>> {
+    use crate::logger::Logger;
+
+    static NATIVE_LOGGER: LazyLock<Logger> =
+        LazyLock::new(|| Logger::new("@firebase/database/native_websocket"));
+
+    use std::sync::{Mutex as StdMutex, Weak};
+
+    pub(super) fn websocket_transport(
+        app: &FirebaseApp,
+        repo: Weak<Repo>,
+    ) -> Option<Arc<dyn RealtimeTransport>> {
         let url = app.options().database_url?;
         let parsed = Url::parse(&url).ok()?;
         let info = RepoInfo::from_url(parsed)?;
-        Some(Arc::new(NativeWebSocketTransport::new(info, app.clone())))
+        Some(Arc::new(NativeWebSocketTransport::new(
+            info,
+            app.clone(),
+            repo,
+        )))
     }
 
     type TcpWebSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
@@ -268,10 +308,10 @@ mod native {
     }
 
     impl NativeWebSocketTransport {
-        fn new(repo_info: RepoInfo, app: FirebaseApp) -> Self {
+        fn new(repo_info: RepoInfo, app: FirebaseApp, repo: Weak<Repo>) -> Self {
             Self {
                 repo_info,
-                state: Arc::new(NativeState::default()),
+                state: Arc::new(NativeState::new(repo)),
                 app,
             }
         }
@@ -304,12 +344,31 @@ mod native {
         }
     }
 
-    #[derive(Debug, Default)]
+    #[derive(Debug)]
     struct NativeState {
         sink: AsyncMutex<Option<WebSocketSink>>,
         reader: AsyncMutex<Option<JoinHandle<()>>>,
         pending: AsyncMutex<VecDeque<TransportCommand>>,
         next_request_id: AtomicU32,
+        repo: StdMutex<Weak<Repo>>,
+        pending_error: StdMutex<Option<DatabaseError>>,
+    }
+
+    impl NativeState {
+        fn new(repo: Weak<Repo>) -> Self {
+            Self {
+                sink: AsyncMutex::new(None),
+                reader: AsyncMutex::new(None),
+                pending: AsyncMutex::new(VecDeque::new()),
+                next_request_id: AtomicU32::new(0),
+                repo: StdMutex::new(repo),
+                pending_error: StdMutex::new(None),
+            }
+        }
+
+        fn repo(&self) -> Option<Arc<Repo>> {
+            self.repo.lock().unwrap().upgrade()
+        }
     }
 
     async fn connect_and_listen(
@@ -335,9 +394,23 @@ mod native {
         let reader_task: JoinHandle<()> = tokio::spawn(async move {
             while let Some(message) = reader.next().await {
                 match message {
-                    Ok(Message::Text(_)) | Ok(Message::Binary(_)) => {
-                        // TODO(async-wasm): feed incoming messages into repo dispatch once
-                        // the persistent connection protocol is ported.
+                    Ok(Message::Text(payload)) => {
+                        if let Err(err) = handle_incoming_message(&reader_state, &payload) {
+                            NATIVE_LOGGER
+                                .warn(format!("failed to process realtime message: {err}"));
+                        }
+                    }
+                    Ok(Message::Binary(payload)) => {
+                        if let Ok(text) = String::from_utf8(payload) {
+                            if let Err(err) = handle_incoming_message(&reader_state, &text) {
+                                NATIVE_LOGGER
+                                    .warn(format!("failed to process realtime message: {err}"));
+                            }
+                        } else {
+                            NATIVE_LOGGER.warn(
+                                "received non-UTF8 binary realtime frame; dropping".to_string(),
+                            );
+                        }
                     }
                     Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
                         // Handled by tungstenite automatically; nothing to do until
@@ -360,6 +433,16 @@ mod native {
                 let mut guard = reader_state.reader.lock().await;
                 guard.take();
             }
+
+            if let Some(error) = reader_state.pending_error.lock().unwrap().take() {
+                if let Some(repo) = reader_state.repo() {
+                    if let Err(err) =
+                        repo.handle_action("error", &JsonValue::String(error.to_string()))
+                    {
+                        NATIVE_LOGGER.warn(format!("failed to propagate error to repo: {err}"));
+                    }
+                }
+            }
         });
 
         {
@@ -371,6 +454,59 @@ mod native {
 
         send_initial_tokens(state.clone(), app).await?;
         let _ = flush_pending_state(state.clone()).await;
+
+        Ok(())
+    }
+
+    fn handle_incoming_message(state: &NativeState, payload: &str) -> DatabaseResult<()> {
+        let value: JsonValue = serde_json::from_str(payload)
+            .map_err(|err| internal_error(format!("failed to decode realtime message: {err}")))?;
+
+        let Some(object) = value.as_object() else {
+            return Ok(());
+        };
+
+        let Some(JsonValue::String(message_type)) = object.get("t") else {
+            return Ok(());
+        };
+
+        match message_type.as_str() {
+            "d" => handle_data_message(state, object.get("d"))?,
+            "c" => {
+                NATIVE_LOGGER.debug(
+                    "control message received; ignoring until protocol port completed".to_string(),
+                );
+            }
+            _ => {
+                NATIVE_LOGGER.debug(format!("unhandled realtime frame type '{message_type}'"));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_data_message(state: &NativeState, data: Option<&JsonValue>) -> DatabaseResult<()> {
+        let Some(JsonValue::Object(data)) = data else {
+            return Ok(());
+        };
+
+        if data.contains_key("r") {
+            // Response frame; remove the pending handler once we track them.
+            NATIVE_LOGGER.debug("realtime response received".to_string());
+            return Ok(());
+        }
+
+        if let Some(action) = data.get("a").and_then(|value| value.as_str()) {
+            if let Some(repo) = state.repo() {
+                let body = data.get("b").cloned().unwrap_or(JsonValue::Null);
+                if let Err(err) = repo.handle_action(action, &body) {
+                    NATIVE_LOGGER.warn(format!(
+                        "failed to handle realtime action '{action}': {err}"
+                    ));
+                    *state.pending_error.lock().unwrap() = Some(err);
+                }
+            }
+        }
 
         Ok(())
     }
@@ -605,12 +741,14 @@ mod native {
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 mod wasm {
     use super::*;
-    use wasm_bindgen::JsValue;
-    use web_sys::Url;
+    use url::Url;
 
-    pub(super) fn websocket_transport(app: &FirebaseApp) -> Option<Arc<dyn RealtimeTransport>> {
+    pub(super) fn websocket_transport(
+        app: &FirebaseApp,
+        _repo: std::sync::Weak<Repo>,
+    ) -> Option<Arc<dyn RealtimeTransport>> {
         let url = app.options().database_url?;
-        let parsed = Url::new(&url).ok()?;
+        let parsed = Url::parse(&url).ok()?;
         let info = RepoInfo::from_url(parsed)?;
         Some(Arc::new(WasmWebSocketTransport::new(info)))
     }
@@ -624,15 +762,13 @@ mod wasm {
 
     impl RepoInfo {
         fn from_url(url: Url) -> Option<Self> {
-            let secure = matches!(url.protocol().as_str(), "https:" | "wss:");
-            let host = url.host()?.to_string();
+            let secure = matches!(url.scheme(), "https" | "wss");
+            let host = url.host_str()?.to_string();
             let namespace = url
-                .search_params()
-                .get("ns")
-                .unwrap_or_else(|| host.split('.').next().unwrap_or("").to_string());
-            if namespace.is_empty() {
-                return None;
-            }
+                .query_pairs()
+                .find(|(key, _)| key == "ns")
+                .map(|(_, value)| value.into_owned())
+                .or_else(|| host.split('.').next().map(|segment| segment.to_owned()))?;
             Some(Self {
                 secure,
                 host,
@@ -640,10 +776,9 @@ mod wasm {
             })
         }
 
-        fn websocket_url(&self) -> Result<String, JsValue> {
+        fn websocket_url(&self) -> String {
             let scheme = if self.secure { "wss" } else { "ws" };
-            let url = format!("{}://{}/.ws?ns={}&v=5", scheme, self.host, self.namespace);
-            Ok(url)
+            format!("{}://{}/.ws?ns={}&v=5", scheme, self.host, self.namespace)
         }
     }
 
@@ -661,9 +796,7 @@ mod wasm {
     #[async_trait(?Send)]
     impl RealtimeTransport for WasmWebSocketTransport {
         async fn connect(&self) -> DatabaseResult<()> {
-            self.repo_info.websocket_url().map_err(|err| {
-                internal_error(format!("invalid database_url for websocket: {err:?}"))
-            })?;
+            let _ = self.repo_info.websocket_url();
             Ok(())
         }
 
