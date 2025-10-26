@@ -180,7 +180,9 @@ fn schedule_token_refresh(app_check: &AppCheck, token: &AppCheckToken) {
     if delay > REFRESH_DRIFT {
         delay -= REFRESH_DRIFT;
     } else {
-        delay = Duration::from_secs(0);
+        LOGGER.debug("App Check token TTL too short for auto-refresh; skipping scheduling");
+        cancel_scheduled_refresh(app_check);
+        return;
     }
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -207,5 +209,44 @@ fn schedule_token_refresh(app_check: &AppCheck, token: &AppCheckToken) {
 fn cancel_scheduled_refresh(app_check: &AppCheck) {
     if let Some(flag) = state::replace_refresh_cancel(app_check, None) {
         flag.store(true, Ordering::SeqCst);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use crate::app::api::delete_app;
+    use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
+    use crate::component::ComponentContainer;
+
+    fn test_app(name: &str, automatic_data_collection_enabled: bool) -> FirebaseApp {
+        FirebaseApp::new(
+            FirebaseOptions::default(),
+            FirebaseAppConfig::new(name.to_string(), automatic_data_collection_enabled),
+            ComponentContainer::new(name.to_string()),
+        )
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn short_ttl_tokens_do_not_schedule_refresh() {
+        let app = test_app("short-ttl", true);
+        let provider = custom_provider(|| token_with_ttl("token", Duration::from_secs(30)));
+        let options = AppCheckOptions::new(provider);
+        let app_check = initialize_app_check(Some(app.clone()), options)
+            .await
+            .expect("initialize app check");
+
+        let result = get_token(&app_check, false).await.expect("get token");
+        assert_eq!(result.token, "token");
+
+        let scheduled = state::replace_refresh_cancel(&app_check, None);
+        assert!(
+            scheduled.is_none(),
+            "expected no refresh task to be scheduled"
+        );
+
+        // Restore original state to avoid side effects for subsequent tests.
+        state::set_auto_refresh(&app_check, false);
+        delete_app(&app).await.expect("delete app");
     }
 }
