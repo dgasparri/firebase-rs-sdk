@@ -917,10 +917,6 @@ impl Database {
         Ok(value)
     }
 
-    //fn root_snapshot(&self) -> DatabaseResult<Value> {
-    //    self.root_snapshot_async())
-    //}
-
     async fn snapshot_from_root(
         &self,
         target: &ListenerTarget,
