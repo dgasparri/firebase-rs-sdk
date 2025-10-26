@@ -18,6 +18,50 @@ tokei src
 
 Mostra file, linguaggio, code/commenti/blank e rispetta in genere i pattern ignorati comuni.
 
+
+
+## Blocking
+
+Reqwest blocking:
+
+blocking::request::ReqestBuilder
+
+    /// Constructs the Request and sends it the target URL, returning a Response.
+    pub fn send(self) -> crate::Result<super::Response> {
+        self.client.execute(self.request?)
+    }
+
+blocking::client::Client
+
+    /// Executes a `Request`.
+    pub fn execute(&self, request: Request) -> crate::Result<Response> {
+        self.inner.execute_request(request)
+    }
+
+
+pub struct Client {
+    inner: ClientHandle,
+}
+
+Fa una async closure e le passa a blocking::wait::timeout(f, timeout)
+blocking::client::Client::ClientHandle
+    // https://docs.rs/reqwest/latest/src/reqwest/blocking/client.rs.html::1434
+    fn execute_request(&self, req: Request) -> crate::Result<Response> {
+        let result: Result<crate::Result<async_impl::Response>, wait::Waited<crate::Error>> =
+            if let Some(body) = body {
+              ...
+            } else {
+                let f = async move { rx.await.map_err(|_canceled| event_loop_panicked()) };
+                wait::timeout(f, timeout)
+            };
+
+
+Da studiare blocking::wait::timeout(f, timeout)
+
+
+
+
+
 ## Create a RUSTDOC.md with extracts from README.md
 
 

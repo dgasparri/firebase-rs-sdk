@@ -1221,6 +1221,9 @@ impl DatabaseReference {
     }
 
     pub async fn get_async(&self) -> DatabaseResult<Value> {
+        if let Some(root) = self.database.inner.root_cache.lock().unwrap().clone() {
+            return Ok(value_at_path(&root, &self.path));
+        }
         self.database.inner.backend.get(&self.path, &[]).await
     }
 
@@ -1905,7 +1908,7 @@ mod tests {
     where
         F: std::future::Future,
     {
-        RuntimeBuilder::new_current_thread()
+        RuntimeBuilder::new_multi_thread()
             .enable_all()
             .build()
             .expect("tokio runtime")

@@ -3548,4 +3548,40 @@ Thinking
   2. Document the new error-aware listener callbacks in user-facing docs/examples so consumers adjust to the Result
   signatures.
 
-  
+
+
+  Thinking
+  I'm digging into why the test fails when asserting the last event value, as it seems only an initial Null event
+  is recorded and the updated {count: 5} event never appears. I suspect the backend's get method still returns Null
+  because the in-memory cache update isn't reflected there, and the listener callbacks may not be dispatched properly
+  after real-time actions due to path handling or listener registration nuances. This mismatch causes the test's final
+  assertion to fail since the expected event isn't pushed. I'll consider if the test expectations need adjustment or
+  deeper fixes in the event dispatch flow.
+
+> We now have a live wasm transport: WasmWebSocketTransport mirrors the native path by opening a web_sys::WebSocket,
+  queuing listen/unlisten commands until it’s ready, sending auth/App Check tokens on connect, parsing incoming frames
+  into repo.handle_action, and logging errors. Shared helpers (TransportCommand, fetch_auth_token, etc.) moved to
+  the cross-platform section so native/wasm use the same code. Listener callbacks were switched to Result payloads
+  (ChildEvent for child handlers), letting revocations surface errors cleanly. All builds succeed on native and wasm
+  (cargo check, cargo check --target wasm32-unknown-unknown --features wasm-web). Integration tests still need a real
+  loopback environment; the current sandbox blocks httpmock/tokio listeners, so cargo test can’t be completed here.
+
+
+
+> - Replaced the test helper runtime with a multi-threaded Tokio executor so async tests that rely on networking
+  primitives have a reactor available.
+  - Updated realtime callbacks to accept Result payloads (ChildEvent for child listeners) and adjusted unit tests
+  accordingly.
+  - DatabaseReference::get_async now returns data from the cached root snapshot when available so simulated realtime
+  updates appear immediately.
+  - Implemented a web_sys::WebSocket transport on wasm: listens/unlistens queue until the socket opens, sends Auth/App
+  Check tokens, feeds incoming frames into repo.handle_action, and mirrors the native error path.
+
+  Checks:
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - Auth/database/messaging/remote-config tests still can’t run in this sandbox because httpmock must bind to 127.0.0.1,
+  but targeted cargo test realtime_set_updates_cache_and_listeners passes.
+
+  WASM_PLAN.md now notes that the wasm transport is implemented.
