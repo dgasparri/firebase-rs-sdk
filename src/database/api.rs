@@ -462,67 +462,67 @@ where
 ///
 /// Mirrors the modular `push()` helper from the JS SDK
 /// (`packages/database/src/api/Reference_impl.ts`).
-pub fn push(reference: &DatabaseReference) -> DatabaseResult<DatabaseReference> {
-    reference.push()
+pub async fn push(reference: &DatabaseReference) -> DatabaseResult<DatabaseReference> {
+    reference.push().await
 }
 
 /// Generates a child location with an auto-generated push ID and writes the provided value.
 ///
 /// Mirrors the modular `push(ref, value)` overload from the JS SDK
 /// (`packages/database/src/api/Reference_impl.ts`).
-pub fn push_with_value<V>(
+pub async fn push_with_value<V>(
     reference: &DatabaseReference,
     value: V,
 ) -> DatabaseResult<DatabaseReference>
 where
     V: Into<Value>,
 {
-    reference.push_with_value(value)
+    reference.push_with_value(value).await
 }
 
 /// Registers a `value` listener for the provided reference.
 #[allow(dead_code)]
-pub fn on_value<F>(
+pub async fn on_value<F>(
     reference: &DatabaseReference,
     callback: F,
 ) -> DatabaseResult<ListenerRegistration>
 where
     F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
 {
-    reference.on_value(callback)
+    reference.on_value(callback).await
 }
 
 /// Registers a `child_added` listener for the provided reference.
-pub fn on_child_added<F>(
+pub async fn on_child_added<F>(
     reference: &DatabaseReference,
     callback: F,
 ) -> DatabaseResult<ListenerRegistration>
 where
     F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
-    reference.on_child_added(callback)
+    reference.on_child_added(callback).await
 }
 
 /// Registers a `child_changed` listener for the provided reference.
-pub fn on_child_changed<F>(
+pub async fn on_child_changed<F>(
     reference: &DatabaseReference,
     callback: F,
 ) -> DatabaseResult<ListenerRegistration>
 where
     F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
-    reference.on_child_changed(callback)
+    reference.on_child_changed(callback).await
 }
 
 /// Registers a `child_removed` listener for the provided reference.
-pub fn on_child_removed<F>(
+pub async fn on_child_removed<F>(
     reference: &DatabaseReference,
     callback: F,
 ) -> DatabaseResult<ListenerRegistration>
 where
     F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
-    reference.on_child_removed(callback)
+    reference.on_child_removed(callback).await
 }
 
 /// Runs a transaction at the provided reference (currently unimplemented).
@@ -535,7 +535,7 @@ where
 
 /// Writes a value together with a priority, mirroring the modular `setWithPriority()` helper
 /// (`packages/database/src/api/Reference_impl.ts`).
-pub fn set_with_priority<V, P>(
+pub async fn set_with_priority<V, P>(
     reference: &DatabaseReference,
     value: V,
     priority: P,
@@ -544,20 +544,20 @@ where
     V: Into<Value>,
     P: Into<Value>,
 {
-    reference.set_with_priority(value, priority)
+    reference.set_with_priority(value, priority).await
 }
 
 /// Updates the priority for the current location, mirroring the modular `setPriority()` helper
 /// (`packages/database/src/api/Reference_impl.ts`).
-pub fn set_priority<P>(reference: &DatabaseReference, priority: P) -> DatabaseResult<()>
+pub async fn set_priority<P>(reference: &DatabaseReference, priority: P) -> DatabaseResult<()>
 where
     P: Into<Value>,
 {
-    reference.set_priority(priority)
+    reference.set_priority(priority).await
 }
 
 impl Database {
-    fn new(app: FirebaseApp) -> Self {
+    async fn new(app: FirebaseApp) -> Self {
         let repo = Repo::new_for_app(&app);
         let inner = Arc::new(DatabaseInner {
             backend: select_backend(&app),
@@ -569,8 +569,9 @@ impl Database {
         });
         let database = Self { inner };
         let handler_db = database.clone();
+        // TODO: is Arc the right choice for the async closure?
         repo.set_event_handler(Arc::new(move |action, body| {
-            handler_db.handle_realtime_action(action, body)
+            handler_db.handle_realtime_action(action, body).await
         }));
         database
     }
@@ -579,9 +580,9 @@ impl Database {
         *self.inner.root_cache.lock().unwrap() = Some(value);
     }
 
-    fn handle_realtime_action(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
+    async fn handle_realtime_action(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
         match action {
-            "d" | "m" => self.handle_realtime_data(action, body),
+            "d" | "m" => self.handle_realtime_data(action, body).await,
             "c" => {
                 REALTIME_LOGGER.warn("listener revoked by server".to_string());
                 self.revoke_listener(body);
@@ -606,14 +607,14 @@ impl Database {
         }
     }
 
-    fn handle_realtime_data(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
+    async fn handle_realtime_data(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
         let Some(path) = body.get("p").and_then(|value| value.as_str()) else {
             return Ok(());
         };
         let data = body.get("d").cloned().unwrap_or(serde_json::Value::Null);
 
         let segments = normalize_path(path)?;
-        let old_root = self.root_snapshot()?;
+        let old_root = self.root_snapshot().await?;
         let mut new_root = old_root.clone();
 
         match action {
@@ -698,20 +699,12 @@ impl Database {
         }
     }
 
-    pub async fn go_online_async(&self) -> DatabaseResult<()> {
+    pub async fn go_online(&self) -> DatabaseResult<()> {
         self.inner.repo.go_online().await
     }
 
-    pub fn go_online(&self) -> DatabaseResult<()> {
-        block_on(self.go_online_async())
-    }
-
-    pub async fn go_offline_async(&self) -> DatabaseResult<()> {
+    pub async fn go_offline(&self) -> DatabaseResult<()> {
         self.inner.repo.go_offline().await
-    }
-
-    pub fn go_offline(&self) -> DatabaseResult<()> {
-        block_on(self.go_offline_async())
     }
 
     pub fn app(&self) -> &FirebaseApp {
@@ -751,7 +744,7 @@ impl Database {
         }
     }
 
-    fn register_listener(
+    async fn register_listener(
         &self,
         target: ListenerTarget,
         kind: ListenerKind,
@@ -774,7 +767,7 @@ impl Database {
         };
 
         if first_listener {
-            if let Err(err) = self.go_online() {
+            if let Err(err) = self.go_online().await {
                 let mut listeners = self.inner.listeners.lock().unwrap();
                 listeners.remove(&id);
                 return Err(err);
@@ -790,7 +783,7 @@ impl Database {
             return Err(err);
         }
 
-        let current_root = match self.root_snapshot() {
+        let current_root = match self.root_snapshot().await {
             Ok(root) => root,
             Err(err) => {
                 self.remove_listener(id);
@@ -868,7 +861,7 @@ impl Database {
         Ok(())
     }
 
-    async fn root_snapshot_async(&self) -> DatabaseResult<Value> {
+    async fn root_snapshot(&self) -> DatabaseResult<Value> {
         if let Some(value) = self.inner.root_cache.lock().unwrap().clone() {
             return Ok(value);
         }
@@ -877,9 +870,9 @@ impl Database {
         Ok(value)
     }
 
-    fn root_snapshot(&self) -> DatabaseResult<Value> {
-        block_on(self.root_snapshot_async())
-    }
+    //fn root_snapshot(&self) -> DatabaseResult<Value> {
+    //    block_on(self.root_snapshot_async())
+    //}
 
     fn snapshot_from_root(
         &self,
@@ -1056,20 +1049,16 @@ impl DatabaseReference {
         }
     }
 
-    pub async fn set_async(&self, value: Value) -> DatabaseResult<()> {
-        let value = self.resolve_value_for_path_async(&self.path, value).await?;
-        let old_root = self.database.root_snapshot_async().await?;
+    pub async fn set(&self, value: Value) -> DatabaseResult<()> {
+        let value = self.resolve_value_for_path(&self.path, value).await?;
+        let old_root = self.database.root_snapshot().await?;
         self.database.inner.backend.set(&self.path, value).await?;
-        let new_root = self.database.root_snapshot_async().await?;
+        let new_root = self.database.root_snapshot().await?;
         let new_root_for_cache = new_root.clone();
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         self.database.cache_root(new_root_for_cache);
         Ok(())
-    }
-
-    pub fn set(&self, value: Value) -> DatabaseResult<()> {
-        block_on(self.set_async(value))
     }
 
     /// Creates a query anchored at this reference, mirroring the JS `query()` helper.
@@ -1101,7 +1090,7 @@ impl DatabaseReference {
     }
 
     /// Registers a value listener for this reference, mirroring `onValue()`.
-    pub fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    pub async fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
         F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
     {
@@ -1109,11 +1098,11 @@ impl DatabaseReference {
         self.database.register_listener(
             ListenerTarget::Reference(self.path.clone()),
             ListenerKind::Value(user_fn),
-        )
+        ).await
     }
 
     /// Registers an `onChildAdded` listener, mirroring the JS SDK.
-    pub fn on_child_added<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    pub async fn on_child_added<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
         F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
@@ -1124,11 +1113,11 @@ impl DatabaseReference {
                 event: ChildEventType::Added,
                 callback: cb,
             },
-        )
+        ).await
     }
 
     /// Registers an `onChildChanged` listener, mirroring the JS SDK.
-    pub fn on_child_changed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    pub async fn on_child_changed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
         F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
@@ -1139,11 +1128,11 @@ impl DatabaseReference {
                 event: ChildEventType::Changed,
                 callback: cb,
             },
-        )
+        ).await
     }
 
     /// Registers an `onChildRemoved` listener, mirroring the JS SDK.
-    pub fn on_child_removed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    pub async fn on_child_removed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
         F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
@@ -1154,7 +1143,7 @@ impl DatabaseReference {
                 event: ChildEventType::Removed,
                 callback: cb,
             },
-        )
+        ).await
     }
 
     /// Returns a handle for configuring operations to run when the client disconnects.
@@ -1177,7 +1166,7 @@ impl DatabaseReference {
     ///
     /// Each key represents a relative child path (e.g. `"profile/name"`).
     /// The method rejects empty keys to mirror the JS SDK behaviour.
-    pub async fn update_async(
+    pub async fn update(
         &self,
         updates: serde_json::Map<String, Value>,
     ) -> DatabaseResult<()> {
@@ -1198,17 +1187,17 @@ impl DatabaseReference {
                 ));
             }
             segments.extend(relative);
-            let resolved = self.resolve_value_for_path_async(&segments, value).await?;
+            let resolved = self.resolve_value_for_path(&segments, value).await?;
             operations.push((segments, resolved));
         }
 
-        let old_root = self.database.root_snapshot_async().await?;
+        let old_root = self.database.root_snapshot().await?;
         self.database
             .inner
             .backend
             .update(&self.path, operations)
             .await?;
-        let new_root = self.database.root_snapshot_async().await?;
+        let new_root = self.database.root_snapshot().await?;
         let new_root_for_cache = new_root.clone();
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
@@ -1216,26 +1205,19 @@ impl DatabaseReference {
         Ok(())
     }
 
-    pub fn update(&self, updates: serde_json::Map<String, Value>) -> DatabaseResult<()> {
-        block_on(self.update_async(updates))
-    }
 
-    pub async fn get_async(&self) -> DatabaseResult<Value> {
+    pub async fn get(&self) -> DatabaseResult<Value> {
         if let Some(root) = self.database.inner.root_cache.lock().unwrap().clone() {
             return Ok(value_at_path(&root, &self.path));
         }
         self.database.inner.backend.get(&self.path, &[]).await
     }
 
-    pub fn get(&self) -> DatabaseResult<Value> {
-        block_on(self.get_async())
-    }
-
     /// Deletes the value at this location using the backend's `DELETE` support.
-    pub async fn remove_async(&self) -> DatabaseResult<()> {
-        let old_root = self.database.root_snapshot_async().await?;
+    pub async fn remove(&self) -> DatabaseResult<()> {
+        let old_root = self.database.root_snapshot().await?;
         self.database.inner.backend.delete(&self.path).await?;
-        let new_root = self.database.root_snapshot_async().await?;
+        let new_root = self.database.root_snapshot().await?;
         let new_root_for_cache = new_root.clone();
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
@@ -1243,13 +1225,9 @@ impl DatabaseReference {
         Ok(())
     }
 
-    pub fn remove(&self) -> DatabaseResult<()> {
-        block_on(self.remove_async())
-    }
-
     /// Writes the provided value together with its priority, mirroring
     /// `setWithPriority()` in `packages/database/src/api/Reference_impl.ts`.
-    pub async fn set_with_priority_async<V, P>(&self, value: V, priority: P) -> DatabaseResult<()>
+    pub async fn set_with_priority<V, P>(&self, value: V, priority: P) -> DatabaseResult<()>
     where
         V: Into<Value>,
         P: Into<Value>,
@@ -1263,27 +1241,20 @@ impl DatabaseReference {
         }
 
         let value = self
-            .resolve_value_for_path_async(&self.path, value.into())
+            .resolve_value_for_path(&self.path, value.into())
             .await?;
         let payload = pack_with_priority(value, priority);
-        let old_root = self.database.root_snapshot_async().await?;
+        let old_root = self.database.root_snapshot().await?;
         self.database.inner.backend.set(&self.path, payload).await?;
-        let new_root = self.database.root_snapshot_async().await?;
+        let new_root = self.database.root_snapshot().await?;
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
     }
 
-    pub fn set_with_priority<V, P>(&self, value: V, priority: P) -> DatabaseResult<()>
-    where
-        V: Into<Value>,
-        P: Into<Value>,
-    {
-        block_on(self.set_with_priority_async(value, priority))
-    }
 
     /// Updates the priority for this location, mirroring `setPriority()` in the JS SDK.
-    pub async fn set_priority_async<P>(&self, priority: P) -> DatabaseResult<()>
+    pub async fn set_priority<P>(&self, priority: P) -> DatabaseResult<()>
     where
         P: Into<Value>,
     {
@@ -1293,20 +1264,14 @@ impl DatabaseReference {
         let current = self.database.inner.backend.get(&self.path, &[]).await?;
         let value = extract_data_owned(&current);
         let payload = pack_with_priority(value, priority);
-        let old_root = self.database.root_snapshot_async().await?;
+        let old_root = self.database.root_snapshot().await?;
         self.database.inner.backend.set(&self.path, payload).await?;
-        let new_root = self.database.root_snapshot_async().await?;
+        let new_root = self.database.root_snapshot().await?;
         self.database
             .dispatch_listeners(&self.path, &old_root, &new_root)?;
         Ok(())
     }
 
-    pub fn set_priority<P>(&self, priority: P) -> DatabaseResult<()>
-    where
-        P: Into<Value>,
-    {
-        block_on(self.set_priority_async(priority))
-    }
 
     /// Creates a child location with an auto-generated key, mirroring `push()` from the JS SDK.
     ///
@@ -1322,32 +1287,23 @@ impl DatabaseReference {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn push_async(&self) -> DatabaseResult<DatabaseReference> {
-        self.push_internal_async(None).await
+    pub async fn push(&self) -> DatabaseResult<DatabaseReference> {
+        self.push_internal(None).await
     }
 
-    pub fn push(&self) -> DatabaseResult<DatabaseReference> {
-        block_on(self.push_async())
-    }
 
     /// Creates a child location with an auto-generated key and writes the provided value.
     ///
     /// Mirrors the `push(ref, value)` overload from `packages/database/src/api/Reference_impl.ts`.
-    pub async fn push_with_value_async<V>(&self, value: V) -> DatabaseResult<DatabaseReference>
+    pub async fn push_with_value<V>(&self, value: V) -> DatabaseResult<DatabaseReference>
     where
         V: Into<Value>,
     {
-        self.push_internal_async(Some(value.into())).await
+        self.push_internal(Some(value.into())).await
     }
 
-    pub fn push_with_value<V>(&self, value: V) -> DatabaseResult<DatabaseReference>
-    where
-        V: Into<Value>,
-    {
-        block_on(self.push_with_value_async(value))
-    }
 
-    async fn resolve_value_for_path_async(
+    async fn resolve_value_for_path(
         &self,
         path: &[String],
         value: Value,
@@ -1361,12 +1317,12 @@ impl DatabaseReference {
         }
     }
 
-    async fn push_internal_async(&self, value: Option<Value>) -> DatabaseResult<DatabaseReference> {
+    async fn push_internal(&self, value: Option<Value>) -> DatabaseResult<DatabaseReference> {
         let timestamp = current_time_millis()?;
         let key = next_push_id(timestamp);
         let child = self.child(&key)?;
         if let Some(value) = value {
-            child.set_async(value).await?;
+            child.set(value).await?;
         }
         Ok(child)
     }
@@ -1535,7 +1491,7 @@ impl DatabaseQuery {
     }
 
     /// Executes the query and returns the JSON payload, mirroring JS `get()`.
-    pub async fn get_async(&self) -> DatabaseResult<Value> {
+    pub async fn get(&self) -> DatabaseResult<Value> {
         let params = self.params.to_rest_params()?;
         self.reference
             .database
@@ -1545,12 +1501,9 @@ impl DatabaseQuery {
             .await
     }
 
-    pub fn get(&self) -> DatabaseResult<Value> {
-        block_on(self.get_async())
-    }
 
     /// Registers a value listener for this query, mirroring `onValue(query, cb)`.
-    pub fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
+    pub async fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
         F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
     {
@@ -1561,7 +1514,7 @@ impl DatabaseQuery {
                 params: self.params.clone(),
             },
             ListenerKind::Value(user_fn),
-        )
+        ).await
     }
 }
 
@@ -1928,7 +1881,7 @@ mod tests {
     }
 
     #[test]
-    fn set_and_get_value() {
+    async fn set_and_get_value() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -1936,13 +1889,13 @@ mod tests {
         let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let ref_root = database.reference("/messages").unwrap();
-        ref_root.set(json!({ "greeting": "hello" })).expect("set");
-        let value = ref_root.get().unwrap();
+        ref_root.set(json!({ "greeting": "hello" })).await.expect("set");
+        let value = ref_root.get().await.unwrap();
         assert_eq!(value, json!({ "greeting": "hello" }));
     }
 
     #[test]
-    fn push_generates_monotonic_keys() {
+    async fn push_generates_monotonic_keys() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -1952,7 +1905,7 @@ mod tests {
         let queue = database.reference("queue").unwrap();
 
         let keys: Vec<String> = (0..5)
-            .map(|_| queue.push().unwrap().key().unwrap().to_string())
+            .map(|_| queue.push().await.unwrap().key().unwrap().to_string())
             .collect();
 
         let mut sorted = keys.clone();
@@ -1961,7 +1914,7 @@ mod tests {
     }
 
     #[test]
-    fn push_with_value_persists_data() {
+    async fn push_with_value_persists_data() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -1973,18 +1926,18 @@ mod tests {
         let payload = json!({ "text": "hello" });
         let child = messages
             .push_with_value(payload.clone())
-            .expect("push with value");
+            .await.expect("push with value");
 
         let stored = child.get().unwrap();
         assert_eq!(stored, payload);
 
-        let parent = messages.get().unwrap();
+        let parent = messages.get().await.unwrap();
         let key = child.key().unwrap();
         assert_eq!(parent.get(key), Some(&payload));
     }
 
     #[test]
-    fn child_updates_merge() {
+    async fn child_updates_merge() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -1992,14 +1945,14 @@ mod tests {
         let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
         let database = get_database(Some(app)).unwrap();
         let root = database.reference("items").unwrap();
-        root.set(json!({ "a": { "count": 1 } })).unwrap();
-        root.child("a/count").unwrap().set(json!(2)).unwrap();
-        let value = root.get().unwrap();
+        root.set(json!({ "a": { "count": 1 } })).await.unwrap();
+        root.child("a/count").unwrap().set(json!(2)).await.unwrap();
+        let value = root.get().await.unwrap();
         assert_eq!(value, json!({ "a": { "count": 2 } }));
     }
 
     #[test]
-    fn set_with_priority_wraps_value() {
+    async fn set_with_priority_wraps_value() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2009,9 +1962,9 @@ mod tests {
         let item = database.reference("items/main").unwrap();
 
         item.set_with_priority(json!({ "count": 1 }), json!(5))
-            .unwrap();
+            .await.unwrap();
 
-        let stored = item.get().unwrap();
+        let stored = item.get().await.unwrap();
         assert_eq!(
             stored,
             json!({
@@ -2022,7 +1975,7 @@ mod tests {
     }
 
     #[test]
-    fn set_priority_updates_existing_value() {
+    async fn set_priority_updates_existing_value() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2031,10 +1984,10 @@ mod tests {
         let database = get_database(Some(app)).unwrap();
         let item = database.reference("items/main").unwrap();
 
-        item.set(json!({ "count": 4 })).unwrap();
-        item.set_priority(json!(10)).unwrap();
+        item.set(json!({ "count": 4 })).await.unwrap();
+        item.set_priority(json!(10)).await.unwrap();
 
-        let stored = item.get().unwrap();
+        let stored = item.get().await.unwrap();
         assert_eq!(
             stored,
             json!({
@@ -2045,7 +1998,7 @@ mod tests {
     }
 
     #[test]
-    fn server_timestamp_is_resolved_on_set() {
+    async fn server_timestamp_is_resolved_on_set() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2054,9 +2007,9 @@ mod tests {
         let database = get_database(Some(app)).unwrap();
         let created_at = database.reference("meta/created_at").unwrap();
 
-        created_at.set(server_timestamp()).unwrap();
+        created_at.set(server_timestamp()).await.unwrap();
 
-        let value = created_at.get().unwrap();
+        let value = created_at.get().await.unwrap();
         let ts = value.as_u64().expect("timestamp as u64");
         let now = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2067,7 +2020,7 @@ mod tests {
     }
 
     #[test]
-    fn server_increment_updates_value() {
+    async fn server_increment_updates_value() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2076,15 +2029,15 @@ mod tests {
         let database = get_database(Some(app)).unwrap();
         let counter = database.reference("counters/main").unwrap();
 
-        counter.set(json!(1)).unwrap();
-        counter.set(increment(2.0)).unwrap();
+        counter.set(json!(1)).await.unwrap();
+        counter.set(increment(2.0)).await.unwrap();
 
-        let value = counter.get().unwrap();
+        let value = counter.get().await.unwrap();
         assert_eq!(value.as_f64().unwrap(), 3.0);
     }
 
     #[test]
-    fn update_supports_server_increment() {
+    async fn update_supports_server_increment() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2093,17 +2046,17 @@ mod tests {
         let database = get_database(Some(app)).unwrap();
         let scores = database.reference("scores").unwrap();
 
-        scores.set(json!({ "alice": 4 })).unwrap();
+        scores.set(json!({ "alice": 4 })).await.unwrap();
         let mut delta = serde_json::Map::new();
         delta.insert("alice".to_string(), increment(3.0));
-        scores.update(delta).unwrap();
+        scores.update(delta).await.unwrap();
 
-        let stored = scores.get().unwrap();
+        let stored = scores.get().await.unwrap();
         assert_eq!(stored.get("alice").unwrap().as_f64().unwrap(), 7.0);
     }
 
     #[test]
-    fn update_rejects_empty_key() {
+    async fn update_rejects_empty_key() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2115,12 +2068,12 @@ mod tests {
         let mut updates = serde_json::Map::new();
         updates.insert("".to_string(), json!(1));
 
-        let err = reference.update(updates).unwrap_err();
+        let err = reference.update(updates).await.unwrap_err();
         assert_eq!(err.code_str(), "database/invalid-argument");
     }
 
     #[test]
-    fn rest_backend_performs_http_requests() {
+    async fn rest_backend_performs_http_requests() {
         let server = MockServer::start();
 
         let set_mock = server.mock(|when, then| {
@@ -2153,8 +2106,8 @@ mod tests {
 
         reference
             .set(json!({ "greeting": "hello" }))
-            .expect("set over REST");
-        let value = reference.get().expect("get over REST");
+            .await.expect("set over REST");
+        let value = reference.get().await.expect("get over REST");
 
         assert_eq!(value, json!({ "greeting": "hello" }));
         set_mock.assert();
@@ -2181,7 +2134,7 @@ mod tests {
     }
 
     #[test]
-    fn realtime_set_updates_cache_and_listeners() {
+    async fn realtime_set_updates_cache_and_listeners() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2198,7 +2151,7 @@ mod tests {
                     events_clone.lock().unwrap().push(snapshot.value().clone());
                 }
             })
-            .unwrap();
+            .await.unwrap();
 
         database
             .handle_realtime_action(
@@ -2208,17 +2161,17 @@ mod tests {
                     "d": { "count": 5 }
                 }),
             )
-            .unwrap();
+            .await.unwrap();
 
         let values = events.lock().unwrap();
         assert_eq!(values.last().unwrap(), &json!({ "count": 5 }));
         drop(values);
 
-        assert_eq!(reference.get().unwrap(), json!({ "count": 5 }));
+        assert_eq!(reference.get().await.unwrap(), json!({ "count": 5 }));
     }
 
     #[test]
-    fn realtime_merge_updates_cache() {
+    async fn realtime_merge_updates_cache() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2234,7 +2187,7 @@ mod tests {
                     "d": {"foo": {"count": 1}}
                 }),
             )
-            .unwrap();
+            .await.unwrap();
 
         database
             .handle_realtime_action(
@@ -2247,17 +2200,17 @@ mod tests {
                     }
                 }),
             )
-            .unwrap();
+            .await.unwrap();
 
-        let foo = database.reference("items/foo").unwrap().get().unwrap();
+        let foo = database.reference("items/foo").unwrap().get().await.unwrap();
         assert_eq!(foo, json!({"count": 2}));
 
-        let bar = database.reference("items/bar").unwrap().get().unwrap();
+        let bar = database.reference("items/bar").unwrap().get().await.unwrap();
         assert_eq!(bar, json!({"value": true}));
     }
 
     #[test]
-    fn datasnapshot_child_and_metadata_helpers() {
+    async fn datasnapshot_child_and_metadata_helpers() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2271,7 +2224,7 @@ mod tests {
                 "alice": { "age": 31, "city": "Rome" },
                 "bob": { "age": 29 }
             }))
-            .unwrap();
+            .await.unwrap();
 
         let captured = Arc::new(Mutex::new(None));
         let holder = captured.clone();
@@ -2281,7 +2234,7 @@ mod tests {
                     *holder.lock().unwrap() = Some(snapshot);
                 }
             })
-            .unwrap();
+            .await.unwrap();
 
         let snapshot = captured.lock().unwrap().clone().expect("initial snapshot");
         assert!(snapshot.exists());
@@ -2321,7 +2274,7 @@ mod tests {
                 "a": { "count": 1 },
                 "b": { "count": 2 }
             }))
-            .unwrap();
+            .await.unwrap();
 
         let added_events = Arc::new(Mutex::new(Vec::<(String, Option<String>)>::new()));
         let capture = added_events.clone();
@@ -2334,7 +2287,7 @@ mod tests {
                     ));
                 }
             })
-            .unwrap();
+            .await.unwrap();
 
         {
             let events = added_events.lock().unwrap();
@@ -2347,7 +2300,7 @@ mod tests {
             .child("c")
             .unwrap()
             .set(json!({ "count": 3 }))
-            .unwrap();
+            .await.unwrap();
 
         {
             let events = added_events.lock().unwrap();
@@ -2359,7 +2312,7 @@ mod tests {
     }
 
     #[test]
-    fn rest_backend_set_with_priority_includes_metadata() {
+    async fn rest_backend_set_with_priority_includes_metadata() {
         let server = MockServer::start();
 
         let put_mock = server.mock(|when, then| {
@@ -2386,13 +2339,13 @@ mod tests {
 
         reference
             .set_with_priority(json!({ "count": 1 }), json!(3))
-            .unwrap();
+            .await.unwrap();
 
         put_mock.assert();
     }
 
     #[test]
-    fn push_with_value_rest_backend_performs_put() {
+    async fn push_with_value_rest_backend_performs_put() {
         let server = MockServer::start();
 
         let push_mock = server.mock(|when, then| {
@@ -2416,6 +2369,7 @@ mod tests {
 
         let child = messages
             .push_with_value(json!({ "text": "hello" }))
+            .await
             .expect("push with value rest");
 
         assert_eq!(child.key().unwrap().len(), 20);
@@ -2423,7 +2377,7 @@ mod tests {
     }
 
     #[test]
-    fn rest_backend_uses_patch_for_updates() {
+    async fn rest_backend_uses_patch_for_updates() {
         let server = MockServer::start();
 
         let patch_mock = server.mock(|when, then| {
@@ -2448,13 +2402,13 @@ mod tests {
         let mut updates = serde_json::Map::new();
         updates.insert("a/count".to_string(), json!(2));
         updates.insert("b".to_string(), json!({ "flag": true }));
-        reference.update(updates).expect("patch update");
+        reference.update(updates).await.expect("patch update");
 
         patch_mock.assert();
     }
 
     #[test]
-    fn rest_backend_delete_supports_remove() {
+    async fn rest_backend_delete_supports_remove() {
         let server = MockServer::start();
 
         let delete_mock = server.mock(|when, then| {
@@ -2473,12 +2427,12 @@ mod tests {
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("items").unwrap();
 
-        reference.remove().expect("delete request");
+        reference.remove().await.expect("delete request");
         delete_mock.assert();
     }
 
     #[test]
-    fn rest_backend_preserves_namespace_query_parameter() {
+    async fn rest_backend_preserves_namespace_query_parameter() {
         let server = MockServer::start();
 
         let set_mock = server.mock(|when, then| {
@@ -2499,12 +2453,12 @@ mod tests {
         let database = get_database(Some(app)).unwrap();
         let reference = database.reference("messages").unwrap();
 
-        reference.set(json!({ "value": 1 })).unwrap();
+        reference.set(json!({ "value": 1 })).await.unwrap();
         set_mock.assert();
     }
 
     #[test]
-    fn rest_query_order_by_child_and_limit() {
+    async fn rest_query_order_by_child_and_limit() {
         let server = MockServer::start();
 
         let get_mock = server.mock(|when, then| {
@@ -2533,13 +2487,13 @@ mod tests {
         )
         .expect("compose query with constraints");
 
-        let value = filtered.get().unwrap();
+        let value = filtered.get().await.unwrap();
         assert_eq!(value, json!({ "a": { "score": 120 } }));
         get_mock.assert();
     }
 
     #[test]
-    fn rest_query_equal_to_with_key() {
+    async fn rest_query_equal_to_with_key() {
         let server = MockServer::start();
 
         let get_mock = server.mock(|when, then| {
@@ -2567,7 +2521,7 @@ mod tests {
         )
         .expect("compose equal_to query");
 
-        let value = filtered.get().unwrap();
+        let value = filtered.get().await.unwrap();
         assert_eq!(value, json!({ "item-1": { "value": true } }));
         get_mock.assert();
     }
@@ -2626,7 +2580,7 @@ mod tests {
     }
 
     #[test]
-    fn on_value_listener_receives_updates() {
+    async fn on_value_listener_receives_updates() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2644,10 +2598,11 @@ mod tests {
                     captured.lock().unwrap().push(snapshot.value().clone());
                 }
             })
+            .await
             .expect("on_value registration");
 
-        reference.set(json!(1)).unwrap();
-        reference.set(json!(2)).unwrap();
+        reference.set(json!(1)).await.unwrap();
+        reference.set(json!(2)).await.unwrap();
 
         {
             let events = events.lock().unwrap();
@@ -2665,7 +2620,7 @@ mod tests {
     }
 
     #[test]
-    fn query_on_value_reacts_to_changes() {
+    async fn query_on_value_reacts_to_changes() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -2680,6 +2635,7 @@ mod tests {
                 "b": { "score": 20 },
                 "c": { "score": 30 }
             }))
+            .await
             .unwrap();
 
         let events = Arc::new(Mutex::new(Vec::<Value>::new()));
@@ -2695,7 +2651,7 @@ mod tests {
                 captured.lock().unwrap().push(snapshot.value().clone());
             }
         })
-        .unwrap();
+        .await.unwrap();
 
         {
             let events = events.lock().unwrap();
@@ -2714,7 +2670,7 @@ mod tests {
             .child("d")
             .unwrap()
             .set(json!({ "score": 50 }))
-            .unwrap();
+            .await.unwrap();
 
         let events = events.lock().unwrap();
         assert_eq!(events.len(), 2);
