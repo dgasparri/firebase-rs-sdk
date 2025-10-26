@@ -580,6 +580,7 @@ impl Database {
         *self.inner.root_cache.lock().unwrap() = Some(value);
     }
 
+    #[allow(dead_code)]
     #[cfg(test)]
     fn clear_root_cache_for_test(&self) {
         *self.inner.root_cache.lock().unwrap() = None;

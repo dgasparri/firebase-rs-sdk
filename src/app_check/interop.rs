@@ -74,7 +74,6 @@ mod tests {
     use crate::app_check::api::{initialize_app_check, token_with_ttl};
     use crate::app_check::types::{AppCheckOptions, AppCheckProvider, AppCheckToken};
     use crate::component::ComponentContainer;
-    use futures::executor::block_on;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -100,24 +99,26 @@ mod tests {
         )
     }
 
-    fn setup_internal(name: &str) -> FirebaseAppCheckInternal {
+    async fn setup_internal(name: &str) -> FirebaseAppCheckInternal {
         let app = test_app(name);
         let provider = Arc::new(TestProvider);
         let options = AppCheckOptions::new(provider);
-        let app_check = block_on(initialize_app_check(Some(app), options)).unwrap();
+        let app_check = initialize_app_check(Some(app), options)
+            .await
+            .expect("initialize app check");
         FirebaseAppCheckInternal::new(app_check)
     }
 
-    #[test]
-    fn get_token_returns_value() {
-        let internal = setup_internal("app-check-internal-test");
-        let result = block_on(internal.get_token(false)).unwrap();
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_token_returns_value() {
+        let internal = setup_internal("app-check-internal-test").await;
+        let result = internal.get_token(false).await.unwrap();
         assert_eq!(result.token, "token");
     }
 
-    #[test]
-    fn listener_receives_updates_and_can_be_removed() {
-        let internal = setup_internal("app-check-listener-test");
+    #[tokio::test(flavor = "current_thread")]
+    async fn listener_receives_updates_and_can_be_removed() {
+        let internal = setup_internal("app-check-listener-test").await;
         let counter = Arc::new(AtomicUsize::new(0));
         let listener: AppCheckInternalListener = {
             let counter = counter.clone();
@@ -128,15 +129,15 @@ mod tests {
         };
 
         // populate token cache
-        block_on(internal.get_token(false)).unwrap();
+        internal.get_token(false).await.unwrap();
         internal.add_token_listener(listener.clone()).unwrap();
         assert_eq!(counter.load(Ordering::SeqCst), 1);
 
-        block_on(internal.get_token(true)).unwrap();
+        internal.get_token(true).await.unwrap();
         assert_eq!(counter.load(Ordering::SeqCst), 2);
 
         internal.remove_token_listener(&listener);
-        block_on(internal.get_token(true)).unwrap();
+        internal.get_token(true).await.unwrap();
         assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 }

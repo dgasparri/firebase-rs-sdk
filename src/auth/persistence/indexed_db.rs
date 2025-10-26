@@ -4,8 +4,10 @@ use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::persistence::{
     AuthPersistence, PersistedAuthState, PersistenceListener, PersistenceSubscription,
 };
+#[allow(unused_imports)]
+use crate::platform::browser::indexed_db::get_string;
 use crate::platform::browser::indexed_db::{
-    delete_key, get_string, open_database_with_store, put_string, IndexedDbError,
+    delete_key, open_database_with_store, put_string, IndexedDbError,
 };
 use serde_json::{from_str as deserialize_state, to_string as serialize_state};
 use wasm_bindgen_futures::spawn_local;

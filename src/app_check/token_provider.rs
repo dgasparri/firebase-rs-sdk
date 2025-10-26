@@ -131,47 +131,33 @@ mod tests {
         )
     }
 
-    #[test]
-    fn returns_token_string() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn returns_token_string() {
         let provider = Arc::new(StaticTokenProvider {
             token: "app-check-123".into(),
         });
         let options = AppCheckOptions::new(provider);
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let app_check = runtime
-            .block_on(initialize_app_check(
-                Some(test_app("app-check-ok")),
-                options,
-            ))
-            .unwrap();
+        let app_check = initialize_app_check(Some(test_app("app-check-ok")), options)
+            .await
+            .expect("initialize app check");
         let internal = FirebaseAppCheckInternal::new(app_check);
         let provider = AppCheckTokenProvider::new(internal);
 
-        let token = provider.get_token().unwrap();
+        let token = provider.get_token().await.unwrap();
         assert_eq!(token.as_deref(), Some("app-check-123"));
     }
 
-    #[test]
-    fn propagates_errors() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn propagates_errors() {
         let provider = Arc::new(ErrorProvider);
         let options = AppCheckOptions::new(provider);
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let app_check = runtime
-            .block_on(initialize_app_check(
-                Some(test_app("app-check-err")),
-                options,
-            ))
-            .unwrap();
+        let app_check = initialize_app_check(Some(test_app("app-check-err")), options)
+            .await
+            .expect("initialize app check");
         let internal = FirebaseAppCheckInternal::new(app_check);
         let provider = AppCheckTokenProvider::new(internal);
 
-        let error = provider.get_token().unwrap_err();
+        let error = provider.get_token().await.unwrap_err();
         assert_eq!(
             error.code,
             crate::firestore::error::FirestoreErrorCode::Unavailable
