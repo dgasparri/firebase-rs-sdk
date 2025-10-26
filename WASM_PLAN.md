@@ -50,13 +50,18 @@ This plan captures the work required to ship the next major version of the fireb
 - [x] Remote Config: adopt the async client/runtime once Installations is ready.
   - 2025-02-14: Converted `get_remote_config`/`fetch` to async and re-enabled the module for wasm. Async HTTP clients now exist for both native (`HttpRemoteConfigFetchClient`) and wasm (`WasmRemoteConfigFetchClient`).
   - 2025-02-14: Added focused transport tests that exercise the native client against mock HTTP responses and verified wasm request shaping under `wasm-bindgen-test`; remaining parity work recorded in `src/remote_config/README.md`.
-- [ ] Rework Realtime Database client to use shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
-  - 2025-02-14: Converted the REST backend to async reqwest and kept wasm builds on the in-memory fallback.
-  - 2025-02-14: Wired Database listener lifecycle to pause/resume the (placeholder) realtime repo; go_online/go_offline now exist for future transport work.
-  - TODO: Implement native WebSocket transport (e.g. tokio-tungstenite), proxy remote events into dispatch_listeners, port OnDisconnect/transactions, and add wasm WebSocket/long-poll support.
-  - 2025-02-14: Re-enabled the module for wasm builds using the in-memory backend; REST transport and realtime features remain native-only until the async port lands.
-  - 2025-02-14: Converted the REST backend to async `reqwest` and added async `DatabaseReference` helpers; wasm still falls back to in-memory until token handling and HTTP support land.
+- [x] Rework Realtime Database client to use shared async transport, including streaming listeners, exponential backoff, and wasm-compatible long polling/fetch fallbacks.
+  - 2025-02-14: Converted the REST backend to async `reqwest`, added async `DatabaseReference` helpers, and re-enabled the module for wasm builds (falling back to in-memory when transports were incomplete).
+  - 2025-02-14: Wired Database listener lifecycle to pause/resume the realtime repo; `go_online` / `go_offline` now drive transport activation.
+  - 2025-10-27: Finished the realtime transport port: native builds use `tokio_tungstenite` with auth/App Check handshakes and queued reconnects, wasm builds switch between `web_sys::WebSocket` and long-poll fetch fallbacks, `on_disconnect` commands proxy through both transports, and listener integration tests (`tests/database_listeners.rs`, `tests/wasm_database_listeners.rs`) cover the streaming path.
 - [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.
+  -  [ ] Update Ai
+  -  [ ] Update Analytics
+  -  [ ] Update Functions
+  -  [ ] Update Installations
+  -  [ ] Update Performance
+  -  [ ] Update Remote Config
+  -  [ ] Update Data Connect
 - [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.
 - [ ] Ensure token acquisition hooks (`auth_token`, `app_check_token`) are fully async across the board and document any intentionally unsupported scenarios.
 
@@ -104,21 +109,12 @@ removed, providing hooks for future WebSocket/long-poll transports.
 
 
 ### 🚧 What’s Next (Database & Realtime)
-1. Implement native WebSocket transport
-    - ✅ Native builds now spin up a `tokio_tungstenite` connection in the background when the first listener registers, authenticate with Auth/App Check tokens, enqueue realtime listen/unlisten envelopes, and clear the sink when the socket closes so reconnects can occur.
-    - Handle authentication, message framing, and reconnect logic (basic stubs to start).
-    - ✅ Feed incoming events into `repo.handle_action` so remote updates mutate the cached tree, update listeners, and surface errors to callbacks.
-2. Provide wasm transport
-    - ✅ wasm builds now spin up a `web_sys::WebSocket` bridge that mirrors the native transport: commands queue until the socket opens, auth/App Check tokens are sent on connect, and incoming frames feed through `repo.handle_action`.
-    - ✅ Use `web_sys::WebSocket` on wasm builds and transparently fall back to an HTTP long-poll loop when sockets fail to open, matching `BrowserPollConnection.ts` semantics.
-    - Add integration coverage once the JS harness is ready.
-3. Hook Repo into Database operations
-    - ✅ Database listener registration now routes through `Repo::listen`/`unlisten`, reference-counting targets and toggling the transport automatically during `go_online` / `go_offline`.
-    - ✅ OnDisconnect scheduling now works on WebSockets with a queued long-poll fallback; follow up by adding server-side queuing parity and wiring `run_transaction` into the same retry machinery.
-4. Docs & tests
-    - Update README once streaming is live. Current docs mention the new transport scaffolding and listener bookkeeping.
-    - ✅ Add integration tests (native/wasm) for listener behaviour once a real transport is wired in (`tests/database_listeners.rs`, `tests/wasm_database_listeners.rs`).
-    - ✅ Ensure wasm docs clearly state any feature flags (e.g., WebSocket dependencies) and fallback behaviour (see `docs/async_wasm_checklist.md` and `src/database/README.md`).
+1. Child listener parity & SyncTree port
+    - [ ] Port remaining child event variants (`on_child_moved`, query-level child callbacks, cancellation hooks) from `SyncTree.ts`, reusing the new realtime transport plumbing.
+2. Transactions and disconnect semantics
+    - [ ] Harden `run_transaction` with retry/ETag support and ensure `OnDisconnect` queues reconcile correctly when transports fall back to long polling, mirroring `PersistentConnection.ts` behaviour.
+3. Emulator & tooling integration
+    - [ ] Add coverage for `connect_database_emulator`, logging toggles, and ensure long-running listeners behave under CI/browser harnesses.
 
 The WASM plan now tracks these remaining steps under Stage 3 so we can pick up exactly where we left off next session.
 Let me know when you’re ready to dive back in!
