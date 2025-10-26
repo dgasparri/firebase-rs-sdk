@@ -9,6 +9,7 @@ echo running cargo test --lib:
 cargo test --lib
 if errorlevel 1 (
     echo error: cargo test --lib failed
+    echo try: cargo test --lib -- --test-threads=1
     exit /b 1
 )
 

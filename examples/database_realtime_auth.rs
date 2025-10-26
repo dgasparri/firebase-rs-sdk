@@ -38,24 +38,32 @@ async fn ensure_logged_in(
     }
 }
 
-fn attach_listener(reference: &DatabaseReference) -> DatabaseResult<ListenerRegistration> {
-    reference.on_value(|snapshot: DataSnapshot| {
-        if snapshot.exists() {
-            println!(
-                "Current data at {}: {}",
-                snapshot.reference().path(),
-                snapshot.value()
-            );
-        } else {
-            println!("{} is empty", snapshot.reference().path());
-        }
-    })
+async fn attach_listener(reference: &DatabaseReference) -> DatabaseResult<ListenerRegistration> {
+    reference
+        .on_value(|result| {
+            if let Ok(snapshot) = result {
+                if snapshot.exists() {
+                    println!(
+                        "Current data at {}: {}",
+                        snapshot.reference().path(),
+                        snapshot.value()
+                    );
+                } else {
+                    println!("{} is empty", snapshot.reference().path());
+                }
+            }
+        })
+        .await
 }
 
-fn attach_query_listener(query: &DatabaseQuery) -> DatabaseResult<ListenerRegistration> {
-    query.on_value(|snapshot| {
-        println!("Latest scores snapshot: {}", snapshot.value());
-    })
+async fn attach_query_listener(query: &DatabaseQuery) -> DatabaseResult<ListenerRegistration> {
+    query
+        .on_value(|result| {
+            if let Ok(snapshot) = result {
+                println!("Latest scores snapshot: {}", snapshot.value());
+            }
+        })
+        .await
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -84,25 +92,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let auth = auth_for_app(app.clone())?;
     ensure_logged_in(&auth, &email, &password).await?;
 
-    let database = get_database(Some(app.clone()))?;
+    let database = get_database(Some(app.clone())).await?;
     let bucket_reference = database.reference(&bucket)?;
 
-    let _bucket_listener = attach_listener(&bucket_reference)?;
+    let _bucket_listener = attach_listener(&bucket_reference).await?;
 
     let highscores_query = query(
         bucket_reference.child("scores")?,
         vec![order_by_child("score"), limit_to_last(5)],
     )?;
-    let _scores_listener = attach_query_listener(&highscores_query)?;
+    let _scores_listener = attach_query_listener(&highscores_query).await?;
 
     println!("\nWriting sample data...");
     bucket_reference
         .child("messages")?
         .child("welcome")?
-        .set(json!({ "from": email, "text": "Hello from Rust!" }))?;
+        .set(json!({ "from": email, "text": "Hello from Rust!" }))
+        .await?;
 
     let score_ref = push_child(&bucket_reference.child("scores")?);
-    score_ref.set(json!({ "user": email, "score": 42 }))?;
+    score_ref.set(json!({ "user": email, "score": 42 })).await?;
 
     println!("Data written. Press Enter to exit.");
     let mut line = String::new();
@@ -110,7 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Cleaning up... deleting sample score entry");
     std::thread::sleep(Duration::from_millis(200));
-    score_ref.remove()?;
+    score_ref.remove().await?;
 
     Ok(())
 }

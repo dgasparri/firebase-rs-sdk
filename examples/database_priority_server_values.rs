@@ -12,7 +12,8 @@ use firebase_rs_sdk::database::{
 use serde_json::json;
 use std::io::{self, Write};
 
-fn main() -> DatabaseResult<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> DatabaseResult<()> {
     // Prompt the operator for runtime configuration so the example can target
     // either a local emulator or a hosted database instance.
     let project_id = prompt_with_default("Firebase project ID", "priority-demo");
@@ -47,8 +48,9 @@ fn main() -> DatabaseResult<()> {
     };
 
     let app = initialize_app(options, Some(FirebaseAppSettings::default()))
+        .await
         .expect("initialize app with database settings");
-    let database = get_database(Some(app))?;
+    let database = get_database(Some(app)).await?;
 
     // Create a collection of tasks and push one with explicit priority.
     let tasks = database.reference("tasks")?;
@@ -58,16 +60,17 @@ fn main() -> DatabaseResult<()> {
             "title": task_title,
             "created_at": server_timestamp(),
         }),
-    )?;
-    set_with_priority(&task, json!({ "done": false }), priority_value)?;
+    )
+    .await?;
+    set_with_priority(&task, json!({ "done": false }), priority_value).await?;
 
     // Later, adjust the priority and bump a counter atomically.
-    set_priority(&task, priority_lower)?;
+    set_priority(&task, priority_lower).await?;
     let stats = database
         .reference("stats/processed")
         .expect("stats reference");
-    stats.set(json!(0))?;
-    stats.set(increment(increment_delta))?;
+    stats.set(json!(0)).await?;
+    stats.set(increment(increment_delta)).await?;
 
     println!(
         "Created task {} under project '{}' using database '{}'",

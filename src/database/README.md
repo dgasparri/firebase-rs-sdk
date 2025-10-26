@@ -74,29 +74,29 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 ```rust
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::database::{*, query as compose_query};
-
 use serde_json::json;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Point to the Realtime Database emulator or a database URL.
     let options = FirebaseOptions {
         project_id: Some("demo-project".into()),
         database_url: Some("http://127.0.0.1:9000/?ns=demo".into()),
         ..Default::default()
     };
-    let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
-    let database = get_database(Some(app))?;
+    let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
+    let database = get_database(Some(app)).await?;
 
     let messages = database.reference("/messages")?;
-    messages.set(json!({ "greeting": "hello" }))?;
-    let value = messages.get()?;
+    messages.set(json!({ "greeting": "hello" })).await?;
+    let value = messages.get().await?;
     assert_eq!(value, json!({ "greeting": "hello" }));
 
     let recent = compose_query(
         messages,
         vec![order_by_child("timestamp"), limit_to_last(10)],
     )?;
-    let latest = recent.get()?;
+    let latest = recent.get().await?;
     println!("latest snapshot: {latest}");
 
     Ok(())
@@ -106,6 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Current State
 
 - Database component registration via `register_database_component` so `get_database` resolves out of the shared `FirebaseApp` registry.
+- Async-first surfaces for `get_database`, `DatabaseReference` CRUD helpers, query listeners, and modular helpers so consumers `await` instead of relying on `block_on` shims.
 - Core reference operations (`reference`, `child`, `set`, `update`, `remove`, `get`) that work against any backend and emit `database/invalid-argument` errors for unsupported paths.
 - Auto-ID child creation via `DatabaseReference::push()` / `push_with_value()` and the modular `push()` helper, mirroring the JS SDK's append semantics.
 - Priority-aware writes through `DatabaseReference::set_with_priority()` / `set_priority()` (and modular helpers), persisting `.value`/`.priority` metadata compatible with REST `format=export`.

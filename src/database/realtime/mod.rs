@@ -1,12 +1,25 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
+use futures::future::BoxFuture;
+#[cfg(target_arch = "wasm32")]
+use futures::future::LocalBoxFuture;
 
 use crate::app::FirebaseApp;
 use crate::app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME};
 use crate::auth::Auth;
 use crate::database::error::{internal_error, DatabaseResult};
+
+#[cfg(not(target_arch = "wasm32"))]
+type EventFuture = BoxFuture<'static, DatabaseResult<()>>;
+#[cfg(target_arch = "wasm32")]
+type EventFuture = LocalBoxFuture<'static, DatabaseResult<()>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+type EventHandler = Arc<dyn Fn(String, serde_json::Value) -> EventFuture + Send + Sync>;
+#[cfg(target_arch = "wasm32")]
+type EventHandler = Arc<dyn Fn(String, serde_json::Value) -> EventFuture + Send + Sync>;
 
 /// Describes a unique listener registration against the realtime backend.
 ///
@@ -52,7 +65,8 @@ impl ListenSpec {
     }
 }
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub(crate) trait RealtimeTransport: Send + Sync {
     async fn connect(&self) -> DatabaseResult<()>;
     async fn disconnect(&self) -> DatabaseResult<()>;
@@ -81,9 +95,7 @@ pub(crate) struct Repo {
     transport: Arc<dyn RealtimeTransport>,
     state: Arc<Mutex<RepoState>>,
     active_listens: Arc<Mutex<HashMap<ListenSpec, usize>>>,
-    event_handler: Arc<
-        std::sync::Mutex<Arc<dyn Fn(&str, &serde_json::Value) -> DatabaseResult<()> + Send + Sync>>,
-    >,
+    event_handler: Arc<std::sync::Mutex<EventHandler>>,
 }
 
 impl Repo {
@@ -92,38 +104,45 @@ impl Repo {
             transport: select_transport(app, weak.clone()),
             state: Arc::new(Mutex::new(RepoState::Offline)),
             active_listens: Arc::new(Mutex::new(HashMap::new())),
-            event_handler: Arc::new(std::sync::Mutex::new(Arc::new(|_, _| Ok(())))),
+            event_handler: Arc::new(std::sync::Mutex::new(default_event_handler())),
         })
     }
 
-    pub fn set_event_handler(
-        &self,
-        handler: Arc<dyn Fn(&str, &serde_json::Value) -> DatabaseResult<()> + Send + Sync>,
-    ) {
+    pub fn set_event_handler(&self, handler: EventHandler) {
         *self.event_handler.lock().unwrap() = handler;
     }
 
     pub async fn go_online(&self) -> DatabaseResult<()> {
-        {
-            let mut state = self.state.lock().unwrap();
-            if matches!(*state, RepoState::Online) {
-                return Ok(());
-            }
-            self.transport.connect().await?;
-            *state = RepoState::Online;
+        let should_connect = {
+            let state = self.state.lock().unwrap();
+            matches!(*state, RepoState::Offline)
+        };
+
+        if !should_connect {
+            return Ok(());
         }
+
+        self.transport.connect().await?;
+
+        let mut state = self.state.lock().unwrap();
+        *state = RepoState::Online;
         Ok(())
     }
 
     pub async fn go_offline(&self) -> DatabaseResult<()> {
-        {
-            let mut state = self.state.lock().unwrap();
-            if matches!(*state, RepoState::Offline) {
-                return Ok(());
-            }
-            self.transport.disconnect().await?;
-            *state = RepoState::Offline;
+        let should_disconnect = {
+            let state = self.state.lock().unwrap();
+            matches!(*state, RepoState::Online)
+        };
+
+        if !should_disconnect {
+            return Ok(());
         }
+
+        self.transport.disconnect().await?;
+
+        let mut state = self.state.lock().unwrap();
+        *state = RepoState::Offline;
         Ok(())
     }
 
@@ -177,14 +196,18 @@ impl Repo {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn handle_action(
+    pub(crate) async fn handle_action(
         &self,
         action: &str,
         body: &serde_json::Value,
     ) -> DatabaseResult<()> {
         let handler = self.event_handler.lock().unwrap().clone();
-        handler(action, body)
+        handler(action.to_owned(), body.clone()).await
     }
+}
+
+fn default_event_handler() -> EventHandler {
+    Arc::new(|_, _| -> EventFuture { Box::pin(async { Ok(()) }) })
 }
 
 fn select_transport(app: &FirebaseApp, repo: std::sync::Weak<Repo>) -> Arc<dyn RealtimeTransport> {
@@ -208,7 +231,8 @@ fn select_transport(app: &FirebaseApp, repo: std::sync::Weak<Repo>) -> Arc<dyn R
 #[derive(Debug, Default)]
 struct NoopTransport;
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl RealtimeTransport for NoopTransport {
     async fn connect(&self) -> DatabaseResult<()> {
         Ok(())
@@ -450,14 +474,14 @@ mod native {
             while let Some(message) = reader.next().await {
                 match message {
                     Ok(Message::Text(payload)) => {
-                        if let Err(err) = handle_incoming_message(&reader_state, &payload) {
+                        if let Err(err) = handle_incoming_message(&reader_state, payload).await {
                             NATIVE_LOGGER
                                 .warn(format!("failed to process realtime message: {err}"));
                         }
                     }
                     Ok(Message::Binary(payload)) => {
                         if let Ok(text) = String::from_utf8(payload) {
-                            if let Err(err) = handle_incoming_message(&reader_state, &text) {
+                            if let Err(err) = handle_incoming_message(&reader_state, text).await {
                                 NATIVE_LOGGER
                                     .warn(format!("failed to process realtime message: {err}"));
                             }
@@ -489,10 +513,16 @@ mod native {
                 guard.take();
             }
 
-            if let Some(error) = reader_state.pending_error.lock().unwrap().take() {
+            let pending_error = {
+                let mut guard = reader_state.pending_error.lock().unwrap();
+                guard.take()
+            };
+
+            if let Some(error) = pending_error {
                 if let Some(repo) = reader_state.repo() {
-                    if let Err(err) =
-                        repo.handle_action("error", &JsonValue::String(error.to_string()))
+                    if let Err(err) = repo
+                        .handle_action("error", &JsonValue::String(error.to_string()))
+                        .await
                     {
                         NATIVE_LOGGER.warn(format!("failed to propagate error to repo: {err}"));
                     }
@@ -513,8 +543,8 @@ mod native {
         Ok(())
     }
 
-    fn handle_incoming_message(state: &NativeState, payload: &str) -> DatabaseResult<()> {
-        let value: JsonValue = serde_json::from_str(payload)
+    async fn handle_incoming_message(state: &NativeState, payload: String) -> DatabaseResult<()> {
+        let value: JsonValue = serde_json::from_str(&payload)
             .map_err(|err| internal_error(format!("failed to decode realtime message: {err}")))?;
 
         let Some(object) = value.as_object() else {
@@ -526,7 +556,7 @@ mod native {
         };
 
         match message_type.as_str() {
-            "d" => handle_data_message(state, object.get("d"))?,
+            "d" => handle_data_message(state, object.get("d")).await?,
             "c" => {
                 NATIVE_LOGGER.debug(
                     "control message received; ignoring until protocol port completed".to_string(),
@@ -540,7 +570,10 @@ mod native {
         Ok(())
     }
 
-    fn handle_data_message(state: &NativeState, data: Option<&JsonValue>) -> DatabaseResult<()> {
+    async fn handle_data_message(
+        state: &NativeState,
+        data: Option<&JsonValue>,
+    ) -> DatabaseResult<()> {
         let Some(JsonValue::Object(data)) = data else {
             return Ok(());
         };
@@ -554,7 +587,7 @@ mod native {
         if let Some(action) = data.get("a").and_then(|value| value.as_str()) {
             if let Some(repo) = state.repo() {
                 let body = data.get("b").cloned().unwrap_or(JsonValue::Null);
-                if let Err(err) = repo.handle_action(action, &body) {
+                if let Err(err) = repo.handle_action(action, &body).await {
                     NATIVE_LOGGER.warn(format!(
                         "failed to handle realtime action '{action}': {err}"
                     ));
@@ -605,7 +638,7 @@ mod native {
         Ok(())
     }
 
-    #[async_trait(?Send)]
+    #[async_trait::async_trait]
     impl RealtimeTransport for NativeWebSocketTransport {
         async fn connect(&self) -> DatabaseResult<()> {
             self.ensure_connection().await
@@ -859,15 +892,24 @@ mod wasm {
             let on_message_state = state.clone();
             let on_message = Closure::wrap(Box::new(move |event: MessageEvent| {
                 if let Some(text) = event.data().as_string() {
-                    if let Err(err) = handle_incoming_message(&on_message_state, &text) {
-                        *on_message_state.pending_error.lock().unwrap() = Some(err);
-                    }
+                    let state_for_task = on_message_state.clone();
+                    spawn_local(async move {
+                        if let Err(err) = handle_incoming_message(&state_for_task, text).await {
+                            *state_for_task.pending_error.lock().unwrap() = Some(err);
+                        }
+                    });
                 } else if let Ok(buffer) = event.data().dyn_into::<ArrayBuffer>() {
                     let array = Uint8Array::new(&buffer);
                     if let Ok(text) = std::str::from_utf8(&array.to_vec()) {
-                        if let Err(err) = handle_incoming_message(&on_message_state, text) {
-                            *on_message_state.pending_error.lock().unwrap() = Some(err);
-                        }
+                        let state_for_task = on_message_state.clone();
+                        let text_owned = text.to_string();
+                        spawn_local(async move {
+                            if let Err(err) =
+                                handle_incoming_message(&state_for_task, text_owned).await
+                            {
+                                *state_for_task.pending_error.lock().unwrap() = Some(err);
+                            }
+                        });
                     }
                 }
             }) as Box<dyn FnMut(_)>);
@@ -884,14 +926,24 @@ mod wasm {
                 spawn_local(async move {
                     state.socket.lock().await.take();
                     state.handles.lock().await.take();
-                    if let Some(err) = state.pending_error.lock().unwrap().take() {
+                    let pending_error = {
+                        let mut guard = state.pending_error.lock().unwrap();
+                        guard.take()
+                    };
+
+                    if let Some(err) = pending_error {
                         if let Some(repo) = state.repo() {
-                            let _ = repo.handle_action(
-                                "error",
-                                &json!({
-                                    "message": err.to_string()
-                                }),
-                            );
+                            if let Err(err) = repo
+                                .handle_action(
+                                    "error",
+                                    &json!({
+                                        "message": err.to_string()
+                                    }),
+                                )
+                                .await
+                            {
+                                *state.pending_error.lock().unwrap() = Some(err);
+                            }
                         }
                     }
                 });
@@ -918,7 +970,7 @@ mod wasm {
         }
     }
 
-    #[async_trait(?Send)]
+    #[async_trait::async_trait(?Send)]
     impl RealtimeTransport for WasmWebSocketTransport {
         async fn connect(&self) -> DatabaseResult<()> {
             self.ensure_connection().await
@@ -990,8 +1042,8 @@ mod wasm {
     unsafe impl Send for WasmWebSocketTransport {}
     unsafe impl Sync for WasmWebSocketTransport {}
 
-    fn handle_incoming_message(state: &WasmState, payload: &str) -> DatabaseResult<()> {
-        let value: JsonValue = serde_json::from_str(payload)
+    async fn handle_incoming_message(state: &WasmState, payload: String) -> DatabaseResult<()> {
+        let value: JsonValue = serde_json::from_str(&payload)
             .map_err(|err| internal_error(format!("failed to decode realtime message: {err}")))?;
 
         let Some(object) = value.as_object() else {
@@ -1003,7 +1055,7 @@ mod wasm {
         };
 
         match message_type.as_str() {
-            "d" => handle_data_message(state, object.get("d"))?,
+            "d" => handle_data_message(state, object.get("d")).await?,
             "c" => {
                 WASM_LOGGER.debug(
                     "control message received; ignoring until protocol port completed".to_string(),
@@ -1017,7 +1069,10 @@ mod wasm {
         Ok(())
     }
 
-    fn handle_data_message(state: &WasmState, data: Option<&JsonValue>) -> DatabaseResult<()> {
+    async fn handle_data_message(
+        state: &WasmState,
+        data: Option<&JsonValue>,
+    ) -> DatabaseResult<()> {
         let Some(JsonValue::Object(data)) = data else {
             return Ok(());
         };
@@ -1030,7 +1085,7 @@ mod wasm {
         if let Some(action) = data.get("a").and_then(|value| value.as_str()) {
             if let Some(repo) = state.repo() {
                 let body = data.get("b").cloned().unwrap_or(JsonValue::Null);
-                if let Err(err) = repo.handle_action(action, &body) {
+                if let Err(err) = repo.handle_action(action, &body).await {
                     WASM_LOGGER.warn(format!(
                         "failed to handle realtime action '{action}': {err}"
                     ));

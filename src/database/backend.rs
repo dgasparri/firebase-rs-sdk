@@ -516,7 +516,7 @@ static LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/databa
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use futures::executor::block_on;
+    use futures::FutureExt;
     use httpmock::prelude::*;
     use serde_json::json;
 
@@ -528,8 +528,8 @@ mod tests {
         Arc::new(|| async { Ok(None) }.boxed())
     }
 
-    #[test]
-    fn rest_backend_attaches_tokens_to_requests() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rest_backend_attaches_tokens_to_requests() {
         let server = MockServer::start();
 
         let get_mock = server.mock(|when, then| {
@@ -548,13 +548,13 @@ mod tests {
         )
         .expect("rest backend");
 
-        block_on(backend.get(&["items".to_string()], &[])).unwrap();
+        backend.get(&["items".to_string()], &[]).await.unwrap();
 
         get_mock.assert();
     }
 
-    #[test]
-    fn rest_backend_skips_missing_tokens() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rest_backend_skips_missing_tokens() {
         let server = MockServer::start();
 
         let put_mock = server.mock(|when, then| {
@@ -567,7 +567,10 @@ mod tests {
 
         let backend = RestBackend::new(server.url("/"), empty_token(), empty_token()).unwrap();
 
-        block_on(backend.set(&["data".to_string()], json!({"value": true}))).unwrap();
+        backend
+            .set(&["data".to_string()], json!({"value": true}))
+            .await
+            .unwrap();
 
         put_mock.assert();
     }

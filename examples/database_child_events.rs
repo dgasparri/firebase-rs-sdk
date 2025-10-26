@@ -12,7 +12,8 @@ use serde_json::json;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project_id = prompt("Firebase project ID", "child-events-demo");
     let db_url = prompt(
         "Realtime Database URL",
@@ -25,8 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    let app = initialize_app(options, Some(FirebaseAppSettings::default()))?;
-    let database = get_database(Some(app))?;
+    let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
+    let database = get_database(Some(app)).await?;
 
     let tasks = database.reference("tasks")?;
 
@@ -35,38 +36,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let removed = Arc::new(Mutex::new(Vec::new()));
 
     let added_capture = added.clone();
-    let added_registration = on_child_added(&tasks, move |snapshot, prev| {
-        added_capture
-            .lock()
-            .unwrap()
-            .push((snapshot.key().unwrap_or("<root>").to_string(), prev.clone()));
-    })?;
+    let added_registration = on_child_added(&tasks, move |result| {
+        if let Ok(event) = result {
+            added_capture.lock().unwrap().push((
+                event.snapshot.key().unwrap_or("<root>").to_string(),
+                event.previous_name.clone(),
+            ));
+        }
+    })
+    .await?;
 
     let changed_capture = changed.clone();
-    let changed_registration = on_child_changed(&tasks, move |snapshot, _prev| {
-        changed_capture.lock().unwrap().push((
-            snapshot.key().unwrap_or("<root>").to_string(),
-            snapshot.to_json(),
-        ));
-    })?;
+    let changed_registration = on_child_changed(&tasks, move |result| {
+        if let Ok(event) = result {
+            changed_capture.lock().unwrap().push((
+                event.snapshot.key().unwrap_or("<root>").to_string(),
+                event.snapshot.to_json(),
+            ));
+        }
+    })
+    .await?;
 
     let removed_capture = removed.clone();
-    let removed_registration = on_child_removed(&tasks, move |snapshot, _prev| {
-        removed_capture
-            .lock()
-            .unwrap()
-            .push(snapshot.key().unwrap_or("<root>").to_string());
-    })?;
+    let removed_registration = on_child_removed(&tasks, move |result| {
+        if let Ok(event) = result {
+            removed_capture
+                .lock()
+                .unwrap()
+                .push(event.snapshot.key().unwrap_or("<root>").to_string());
+        }
+    })
+    .await?;
 
     // Drive some changes.
     let alpha = tasks.child("alpha")?;
-    alpha.set(json!({ "title": "Create project", "created_at": server_timestamp() }))?;
+    alpha
+        .set(json!({ "title": "Create project", "created_at": server_timestamp() }))
+        .await?;
 
     let beta = tasks.child("beta")?;
-    beta.set(json!({ "title": "Review PR", "created_at": server_timestamp() }))?;
-    beta.child("title")?.set(json!("Review PR comments"))?;
+    beta.set(json!({ "title": "Review PR", "created_at": server_timestamp() }))
+        .await?;
+    beta.child("title")?
+        .set(json!("Review PR comments"))
+        .await?;
 
-    alpha.remove()?;
+    alpha.remove().await?;
 
     println!("child_added events: {:?}", added.lock().unwrap());
     println!("child_changed events: {:?}", changed.lock().unwrap());

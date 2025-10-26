@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use futures::executor::block_on;
 use serde_json::{Map, Number, Value};
 
 use crate::app;
@@ -22,6 +21,7 @@ use crate::database::push_id::next_push_id;
 use crate::database::query::{QueryBound, QueryIndex, QueryLimit, QueryParams};
 use crate::database::realtime::{ListenSpec, Repo};
 use crate::logger::Logger;
+use crate::platform::runtime;
 
 static REALTIME_LOGGER: LazyLock<Logger> =
     LazyLock::new(|| Logger::new("@firebase/database/realtime"));
@@ -557,7 +557,7 @@ where
 }
 
 impl Database {
-    async fn new(app: FirebaseApp) -> Self {
+    fn new(app: FirebaseApp) -> Self {
         let repo = Repo::new_for_app(&app);
         let inner = Arc::new(DatabaseInner {
             backend: select_backend(&app),
@@ -569,9 +569,9 @@ impl Database {
         });
         let database = Self { inner };
         let handler_db = database.clone();
-        // TODO: is Arc the right choice for the async closure?
         repo.set_event_handler(Arc::new(move |action, body| {
-            handler_db.handle_realtime_action(action, body).await
+            let database = handler_db.clone();
+            Box::pin(async move { database.handle_realtime_action(&action, &body).await })
         }));
         database
     }
@@ -580,12 +580,21 @@ impl Database {
         *self.inner.root_cache.lock().unwrap() = Some(value);
     }
 
-    async fn handle_realtime_action(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
+    #[cfg(test)]
+    fn clear_root_cache_for_test(&self) {
+        *self.inner.root_cache.lock().unwrap() = None;
+    }
+
+    async fn handle_realtime_action(
+        &self,
+        action: &str,
+        body: &serde_json::Value,
+    ) -> DatabaseResult<()> {
         match action {
             "d" | "m" => self.handle_realtime_data(action, body).await,
             "c" => {
                 REALTIME_LOGGER.warn("listener revoked by server".to_string());
-                self.revoke_listener(body);
+                self.revoke_listener(body).await;
                 Ok(())
             }
             "ac" | "apc" => {
@@ -607,7 +616,11 @@ impl Database {
         }
     }
 
-    async fn handle_realtime_data(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
+    async fn handle_realtime_data(
+        &self,
+        action: &str,
+        body: &serde_json::Value,
+    ) -> DatabaseResult<()> {
         let Some(path) = body.get("p").and_then(|value| value.as_str()) else {
             return Ok(());
         };
@@ -639,12 +652,13 @@ impl Database {
         ));
 
         let new_root_for_cache = new_root.clone();
-        self.dispatch_listeners(&segments, &old_root, &new_root)?;
+        self.dispatch_listeners(&segments, &old_root, &new_root)
+            .await?;
         self.cache_root(new_root_for_cache);
         Ok(())
     }
 
-    fn revoke_listener(&self, body: &serde_json::Value) {
+    async fn revoke_listener(&self, body: &serde_json::Value) {
         let Some(path) = body.get("p").and_then(|value| value.as_str()) else {
             return;
         };
@@ -656,27 +670,52 @@ impl Database {
             }
         };
 
-        let mut listeners = self.inner.listeners.lock().unwrap();
-        let cancelled: Vec<u64> = listeners
-            .iter()
-            .filter(|(_, listener)| match &listener.target {
-                ListenerTarget::Reference(path) => path == &segments,
-                ListenerTarget::Query { path, .. } => path == &segments,
-            })
-            .map(|(id, _)| *id)
-            .collect();
+        let (removed, should_disconnect) = {
+            let mut listeners = self.inner.listeners.lock().unwrap();
+            let cancelled: Vec<u64> = listeners
+                .iter()
+                .filter(|(_, listener)| match &listener.target {
+                    ListenerTarget::Reference(path) => path == &segments,
+                    ListenerTarget::Query { path, .. } => path == &segments,
+                })
+                .map(|(id, _)| *id)
+                .collect();
+
+            let removed = cancelled
+                .into_iter()
+                .filter_map(|id| listeners.remove(&id))
+                .collect::<Vec<_>>();
+            let should_disconnect = listeners.is_empty();
+            (removed, should_disconnect)
+        };
+
+        if removed.is_empty() {
+            return;
+        }
+
+        for listener in &removed {
+            if let Err(err) = self.inner.repo.unlisten(listener.spec.clone()).await {
+                REALTIME_LOGGER.warn(format!("failed to detach revoked realtime listener: {err}"));
+            }
+        }
+
         let error = internal_error("listener revoked by server".to_string());
-        for id in cancelled {
-            if let Some(listener) = listeners.remove(&id) {
-                let _ = block_on(self.inner.repo.unlisten(listener.spec.clone()));
-                match listener.kind {
-                    ListenerKind::Value(callback) => {
-                        callback(Err(error.clone()));
-                    }
-                    ListenerKind::Child { callback, .. } => {
-                        callback(Err(error.clone()));
-                    }
+        for listener in removed {
+            match listener.kind {
+                ListenerKind::Value(callback) => {
+                    callback(Err(error.clone()));
                 }
+                ListenerKind::Child { callback, .. } => {
+                    callback(Err(error.clone()));
+                }
+            }
+        }
+
+        if should_disconnect {
+            if let Err(err) = self.go_offline().await {
+                REALTIME_LOGGER.warn(format!(
+                    "failed to go offline after listener revocation: {err}"
+                ));
             }
         }
     }
@@ -774,11 +813,11 @@ impl Database {
             }
         }
 
-        if let Err(err) = block_on(self.inner.repo.listen(spec.clone())) {
+        if let Err(err) = self.inner.repo.listen(spec.clone()).await {
             let mut listeners = self.inner.listeners.lock().unwrap();
             listeners.remove(&id);
             if first_listener {
-                let _ = self.go_offline();
+                let _ = self.go_offline().await;
             }
             return Err(err);
         }
@@ -792,7 +831,7 @@ impl Database {
         };
         match kind {
             ListenerKind::Value(callback) => {
-                let snapshot = self.snapshot_from_root(&target, &current_root)?;
+                let snapshot = self.snapshot_from_root(&target, &current_root).await?;
                 callback(Ok(snapshot));
             }
             ListenerKind::Child { event, callback } => {
@@ -817,22 +856,30 @@ impl Database {
         };
 
         if let Some(listener) = listener {
-            if let Err(err) = block_on(self.inner.repo.unlisten(listener.spec.clone())) {
-                // Surface transport teardown failures as internal errors so
-                // callers can inspect the pressure via logs while we flesh out
-                // the realtime stack.
-                // TODO(async-wasm): integrate with the logger once the
-                // persistent connection port emits structured diagnostics.
-                let _ = err;
-            }
+            let repo = self.inner.repo.clone();
+            let spec = listener.spec.clone();
+            runtime::spawn_detached(async move {
+                if let Err(err) = repo.unlisten(spec).await {
+                    REALTIME_LOGGER.warn(format!(
+                        "failed to detach realtime listener during cleanup: {err}"
+                    ));
+                }
+            });
         }
 
         if should_disconnect {
-            let _ = self.go_offline();
+            let database = self.clone();
+            runtime::spawn_detached(async move {
+                if let Err(err) = database.go_offline().await {
+                    REALTIME_LOGGER.warn(format!(
+                        "failed to go offline after removing last listener: {err}"
+                    ));
+                }
+            });
         }
     }
 
-    fn dispatch_listeners(
+    async fn dispatch_listeners(
         &self,
         changed_path: &[String],
         old_root: &Value,
@@ -850,7 +897,7 @@ impl Database {
         for listener in listeners {
             match &listener.kind {
                 ListenerKind::Value(callback) => {
-                    let snapshot = self.snapshot_from_root(&listener.target, new_root)?;
+                    let snapshot = self.snapshot_from_root(&listener.target, new_root).await?;
                     callback(Ok(snapshot));
                 }
                 ListenerKind::Child { event, callback } => {
@@ -871,10 +918,10 @@ impl Database {
     }
 
     //fn root_snapshot(&self) -> DatabaseResult<Value> {
-    //    block_on(self.root_snapshot_async())
+    //    self.root_snapshot_async())
     //}
 
-    fn snapshot_from_root(
+    async fn snapshot_from_root(
         &self,
         target: &ListenerTarget,
         root: &Value,
@@ -885,7 +932,7 @@ impl Database {
                 let reference = self.reference_from_segments(path.clone());
                 Ok(DataSnapshot { reference, value })
             }
-            ListenerTarget::Query { .. } => self.snapshot_for_target(target),
+            ListenerTarget::Query { .. } => self.snapshot_for_target(target).await,
         }
     }
 
@@ -1000,16 +1047,16 @@ impl Database {
         DataSnapshot { reference, value }
     }
 
-    fn snapshot_for_target(&self, target: &ListenerTarget) -> DatabaseResult<DataSnapshot> {
+    async fn snapshot_for_target(&self, target: &ListenerTarget) -> DatabaseResult<DataSnapshot> {
         match target {
             ListenerTarget::Reference(path) => {
-                let value = block_on(self.inner.backend.get(path, &[]))?;
+                let value = self.inner.backend.get(path, &[]).await?;
                 let reference = self.reference_from_segments(path.clone());
                 Ok(DataSnapshot { reference, value })
             }
             ListenerTarget::Query { path, params } => {
                 let rest_params = params.to_rest_params()?;
-                let value = block_on(self.inner.backend.get(path, rest_params.as_slice()))?;
+                let value = self.inner.backend.get(path, rest_params.as_slice()).await?;
                 let reference = self.reference_from_segments(path.clone());
                 Ok(DataSnapshot { reference, value })
             }
@@ -1052,12 +1099,16 @@ impl DatabaseReference {
     pub async fn set(&self, value: Value) -> DatabaseResult<()> {
         let value = self.resolve_value_for_path(&self.path, value).await?;
         let old_root = self.database.root_snapshot().await?;
+        let value_for_local = value.clone();
         self.database.inner.backend.set(&self.path, value).await?;
-        let new_root = self.database.root_snapshot().await?;
-        let new_root_for_cache = new_root.clone();
+
+        let mut new_root = old_root.clone();
+        apply_realtime_value(&mut new_root, &self.path, value_for_local);
+
         self.database
-            .dispatch_listeners(&self.path, &old_root, &new_root)?;
-        self.database.cache_root(new_root_for_cache);
+            .dispatch_listeners(&self.path, &old_root, &new_root)
+            .await?;
+        self.database.cache_root(new_root);
         Ok(())
     }
 
@@ -1095,10 +1146,12 @@ impl DatabaseReference {
         F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
     {
         let user_fn: ValueListenerCallback = Arc::new(callback);
-        self.database.register_listener(
-            ListenerTarget::Reference(self.path.clone()),
-            ListenerKind::Value(user_fn),
-        ).await
+        self.database
+            .register_listener(
+                ListenerTarget::Reference(self.path.clone()),
+                ListenerKind::Value(user_fn),
+            )
+            .await
     }
 
     /// Registers an `onChildAdded` listener, mirroring the JS SDK.
@@ -1107,13 +1160,15 @@ impl DatabaseReference {
         F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
         let cb: ChildListenerCallback = Arc::new(callback);
-        self.database.register_listener(
-            ListenerTarget::Reference(self.path.clone()),
-            ListenerKind::Child {
-                event: ChildEventType::Added,
-                callback: cb,
-            },
-        ).await
+        self.database
+            .register_listener(
+                ListenerTarget::Reference(self.path.clone()),
+                ListenerKind::Child {
+                    event: ChildEventType::Added,
+                    callback: cb,
+                },
+            )
+            .await
     }
 
     /// Registers an `onChildChanged` listener, mirroring the JS SDK.
@@ -1122,13 +1177,15 @@ impl DatabaseReference {
         F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
         let cb: ChildListenerCallback = Arc::new(callback);
-        self.database.register_listener(
-            ListenerTarget::Reference(self.path.clone()),
-            ListenerKind::Child {
-                event: ChildEventType::Changed,
-                callback: cb,
-            },
-        ).await
+        self.database
+            .register_listener(
+                ListenerTarget::Reference(self.path.clone()),
+                ListenerKind::Child {
+                    event: ChildEventType::Changed,
+                    callback: cb,
+                },
+            )
+            .await
     }
 
     /// Registers an `onChildRemoved` listener, mirroring the JS SDK.
@@ -1137,13 +1194,15 @@ impl DatabaseReference {
         F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
         let cb: ChildListenerCallback = Arc::new(callback);
-        self.database.register_listener(
-            ListenerTarget::Reference(self.path.clone()),
-            ListenerKind::Child {
-                event: ChildEventType::Removed,
-                callback: cb,
-            },
-        ).await
+        self.database
+            .register_listener(
+                ListenerTarget::Reference(self.path.clone()),
+                ListenerKind::Child {
+                    event: ChildEventType::Removed,
+                    callback: cb,
+                },
+            )
+            .await
     }
 
     /// Returns a handle for configuring operations to run when the client disconnects.
@@ -1166,10 +1225,7 @@ impl DatabaseReference {
     ///
     /// Each key represents a relative child path (e.g. `"profile/name"`).
     /// The method rejects empty keys to mirror the JS SDK behaviour.
-    pub async fn update(
-        &self,
-        updates: serde_json::Map<String, Value>,
-    ) -> DatabaseResult<()> {
+    pub async fn update(&self, updates: serde_json::Map<String, Value>) -> DatabaseResult<()> {
         if updates.is_empty() {
             return Ok(());
         }
@@ -1192,19 +1248,24 @@ impl DatabaseReference {
         }
 
         let old_root = self.database.root_snapshot().await?;
+        let ops_for_local = operations.clone();
         self.database
             .inner
             .backend
             .update(&self.path, operations)
             .await?;
-        let new_root = self.database.root_snapshot().await?;
-        let new_root_for_cache = new_root.clone();
+
+        let mut new_root = old_root.clone();
+        for (absolute, value) in ops_for_local {
+            apply_realtime_value(&mut new_root, &absolute, value);
+        }
+
         self.database
-            .dispatch_listeners(&self.path, &old_root, &new_root)?;
-        self.database.cache_root(new_root_for_cache);
+            .dispatch_listeners(&self.path, &old_root, &new_root)
+            .await?;
+        self.database.cache_root(new_root);
         Ok(())
     }
-
 
     pub async fn get(&self) -> DatabaseResult<Value> {
         if let Some(root) = self.database.inner.root_cache.lock().unwrap().clone() {
@@ -1217,11 +1278,12 @@ impl DatabaseReference {
     pub async fn remove(&self) -> DatabaseResult<()> {
         let old_root = self.database.root_snapshot().await?;
         self.database.inner.backend.delete(&self.path).await?;
-        let new_root = self.database.root_snapshot().await?;
-        let new_root_for_cache = new_root.clone();
+        let mut new_root = old_root.clone();
+        apply_realtime_value(&mut new_root, &self.path, Value::Null);
         self.database
-            .dispatch_listeners(&self.path, &old_root, &new_root)?;
-        self.database.cache_root(new_root_for_cache);
+            .dispatch_listeners(&self.path, &old_root, &new_root)
+            .await?;
+        self.database.cache_root(new_root);
         Ok(())
     }
 
@@ -1244,14 +1306,19 @@ impl DatabaseReference {
             .resolve_value_for_path(&self.path, value.into())
             .await?;
         let payload = pack_with_priority(value, priority);
+        let payload_for_local = payload.clone();
         let old_root = self.database.root_snapshot().await?;
         self.database.inner.backend.set(&self.path, payload).await?;
-        let new_root = self.database.root_snapshot().await?;
+
+        let mut new_root = old_root.clone();
+        apply_realtime_value(&mut new_root, &self.path, payload_for_local);
+
         self.database
-            .dispatch_listeners(&self.path, &old_root, &new_root)?;
+            .dispatch_listeners(&self.path, &old_root, &new_root)
+            .await?;
+        self.database.cache_root(new_root);
         Ok(())
     }
-
 
     /// Updates the priority for this location, mirroring `setPriority()` in the JS SDK.
     pub async fn set_priority<P>(&self, priority: P) -> DatabaseResult<()>
@@ -1264,14 +1331,19 @@ impl DatabaseReference {
         let current = self.database.inner.backend.get(&self.path, &[]).await?;
         let value = extract_data_owned(&current);
         let payload = pack_with_priority(value, priority);
+        let payload_for_local = payload.clone();
         let old_root = self.database.root_snapshot().await?;
         self.database.inner.backend.set(&self.path, payload).await?;
-        let new_root = self.database.root_snapshot().await?;
+
+        let mut new_root = old_root.clone();
+        apply_realtime_value(&mut new_root, &self.path, payload_for_local);
+
         self.database
-            .dispatch_listeners(&self.path, &old_root, &new_root)?;
+            .dispatch_listeners(&self.path, &old_root, &new_root)
+            .await?;
+        self.database.cache_root(new_root);
         Ok(())
     }
-
 
     /// Creates a child location with an auto-generated key, mirroring `push()` from the JS SDK.
     ///
@@ -1291,7 +1363,6 @@ impl DatabaseReference {
         self.push_internal(None).await
     }
 
-
     /// Creates a child location with an auto-generated key and writes the provided value.
     ///
     /// Mirrors the `push(ref, value)` overload from `packages/database/src/api/Reference_impl.ts`.
@@ -1302,12 +1373,7 @@ impl DatabaseReference {
         self.push_internal(Some(value.into())).await
     }
 
-
-    async fn resolve_value_for_path(
-        &self,
-        path: &[String],
-        value: Value,
-    ) -> DatabaseResult<Value> {
+    async fn resolve_value_for_path(&self, path: &[String], value: Value) -> DatabaseResult<Value> {
         if contains_server_value(&value) {
             let current = self.database.inner.backend.get(path, &[]).await?;
             let current_ref = extract_data_ref(&current);
@@ -1501,20 +1567,22 @@ impl DatabaseQuery {
             .await
     }
 
-
     /// Registers a value listener for this query, mirroring `onValue(query, cb)`.
     pub async fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
         F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
     {
         let user_fn: ValueListenerCallback = Arc::new(callback);
-        self.reference.database.register_listener(
-            ListenerTarget::Query {
-                path: self.reference.path.clone(),
-                params: self.params.clone(),
-            },
-            ListenerKind::Value(user_fn),
-        ).await
+        self.reference
+            .database
+            .register_listener(
+                ListenerTarget::Query {
+                    path: self.reference.path.clone(),
+                    params: self.params.clone(),
+                },
+                ListenerKind::Value(user_fn),
+            )
+            .await
     }
 }
 
@@ -1744,25 +1812,38 @@ fn get_value_at_path(root: &Value, segments: &[String]) -> Option<Value> {
         return Some(extract_data_ref(root).clone());
     }
 
-    fn traverse<'a>(current: &'a Value, segments: &[String]) -> Option<&'a Value> {
-        if segments.is_empty() {
-            return Some(current);
-        }
+    let mut current = root;
+    for segment in segments {
+        match current {
+            Value::Object(map) => {
+                if let Some(child) = map.get(segment) {
+                    current = child;
+                    continue;
+                }
 
-        let data = extract_data_ref(current);
-        let (first, rest) = segments.split_first().unwrap();
+                if let Some(value_field) = map.get(".value") {
+                    current = match value_field {
+                        Value::Object(obj) => obj.get(segment)?,
+                        Value::Array(items) => {
+                            let index = segment.parse::<usize>().ok()?;
+                            items.get(index)?
+                        }
+                        _ => return None,
+                    };
+                    continue;
+                }
 
-        match data {
-            Value::Object(map) => map.get(first).and_then(|child| traverse(child, rest)),
-            Value::Array(array) => {
-                let index = first.parse::<usize>().ok()?;
-                array.get(index).and_then(|child| traverse(child, rest))
+                return None;
             }
-            _ => None,
+            Value::Array(array) => {
+                let index = segment.parse::<usize>().ok()?;
+                current = array.get(index)?;
+            }
+            _ => return None,
         }
     }
 
-    traverse(root, segments).map(|value| extract_data_ref(value).clone())
+    Some(current.clone())
 }
 
 fn current_time_millis() -> DatabaseResult<u64> {
@@ -1808,7 +1889,7 @@ pub fn register_database_component() {
     ensure_registered();
 }
 
-pub fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Database>> {
+pub async fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Database>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
@@ -1821,8 +1902,8 @@ pub fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Database>> {
             }
             #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
             {
-                use futures::executor::block_on;
-                block_on(crate::app::api::get_app(None))
+                crate::app::api::get_app(None)
+                    .await
                     .map_err(|err| internal_error(err.to_string()))?
             }
         }
@@ -1855,19 +1936,6 @@ mod tests {
     use httpmock::Method::{DELETE, GET, PATCH, PUT};
     use serde_json::{json, Value};
     use std::sync::{Arc, Mutex};
-    use tokio::runtime::Builder as RuntimeBuilder;
-
-    fn block_on<F>(future: F) -> F::Output
-    where
-        F: std::future::Future,
-    {
-        RuntimeBuilder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("tokio runtime")
-            .block_on(future)
-    }
-
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -1880,55 +1948,67 @@ mod tests {
         }
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn set_and_get_value() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let ref_root = database.reference("/messages").unwrap();
-        ref_root.set(json!({ "greeting": "hello" })).await.expect("set");
+        ref_root
+            .set(json!({ "greeting": "hello" }))
+            .await
+            .expect("set");
         let value = ref_root.get().await.unwrap();
         assert_eq!(value, json!({ "greeting": "hello" }));
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn push_generates_monotonic_keys() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let queue = database.reference("queue").unwrap();
 
-        let keys: Vec<String> = (0..5)
-            .map(|_| queue.push().await.unwrap().key().unwrap().to_string())
-            .collect();
+        let mut keys = Vec::new();
+        for _ in 0..5 {
+            let key = queue.push().await.unwrap().key().unwrap().to_string();
+            keys.push(key);
+        }
 
         let mut sorted = keys.clone();
         sorted.sort();
         assert_eq!(keys, sorted);
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn push_with_value_persists_data() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let messages = database.reference("messages").unwrap();
 
         let payload = json!({ "text": "hello" });
         let child = messages
             .push_with_value(payload.clone())
-            .await.expect("push with value");
+            .await
+            .expect("push with value");
 
-        let stored = child.get().unwrap();
+        let stored = child.get().await.unwrap();
         assert_eq!(stored, payload);
 
         let parent = messages.get().await.unwrap();
@@ -1936,14 +2016,16 @@ mod tests {
         assert_eq!(parent.get(key), Some(&payload));
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn child_updates_merge() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let root = database.reference("items").unwrap();
         root.set(json!({ "a": { "count": 1 } })).await.unwrap();
         root.child("a/count").unwrap().set(json!(2)).await.unwrap();
@@ -1951,18 +2033,21 @@ mod tests {
         assert_eq!(value, json!({ "a": { "count": 2 } }));
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn set_with_priority_wraps_value() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let item = database.reference("items/main").unwrap();
 
         item.set_with_priority(json!({ "count": 1 }), json!(5))
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let stored = item.get().await.unwrap();
         assert_eq!(
@@ -1974,14 +2059,16 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn set_priority_updates_existing_value() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let item = database.reference("items/main").unwrap();
 
         item.set(json!({ "count": 4 })).await.unwrap();
@@ -1997,14 +2084,16 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn server_timestamp_is_resolved_on_set() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let created_at = database.reference("meta/created_at").unwrap();
 
         created_at.set(server_timestamp()).await.unwrap();
@@ -2019,14 +2108,16 @@ mod tests {
         assert!(now - ts < 5_000);
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn server_increment_updates_value() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let counter = database.reference("counters/main").unwrap();
 
         counter.set(json!(1)).await.unwrap();
@@ -2036,14 +2127,16 @@ mod tests {
         assert_eq!(value.as_f64().unwrap(), 3.0);
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_supports_server_increment() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let scores = database.reference("scores").unwrap();
 
         scores.set(json!({ "alice": 4 })).await.unwrap();
@@ -2055,14 +2148,16 @@ mod tests {
         assert_eq!(stored.get("alice").unwrap().as_f64().unwrap(), 7.0);
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_rejects_empty_key() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
         let mut updates = serde_json::Map::new();
@@ -2072,7 +2167,7 @@ mod tests {
         assert_eq!(err.code_str(), "database/invalid-argument");
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rest_backend_performs_http_requests() {
         let server = MockServer::start();
 
@@ -2100,13 +2195,17 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("/messages").unwrap();
 
         reference
             .set(json!({ "greeting": "hello" }))
-            .await.expect("set over REST");
+            .await
+            .expect("set over REST");
+        database.clear_root_cache_for_test();
         let value = reference.get().await.expect("get over REST");
 
         assert_eq!(value, json!({ "greeting": "hello" }));
@@ -2114,14 +2213,16 @@ mod tests {
         get_mock.assert();
     }
 
-    #[test]
-    fn reference_parent_and_root() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reference_parent_and_root() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
 
         let nested = database.reference("users/alice/profile").unwrap();
         let parent = nested.parent().expect("parent reference");
@@ -2133,14 +2234,16 @@ mod tests {
         assert!(root.parent().is_none());
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn realtime_set_updates_cache_and_listeners() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
 
         let reference = database.reference("items/foo").unwrap();
         let events: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
@@ -2151,7 +2254,8 @@ mod tests {
                     events_clone.lock().unwrap().push(snapshot.value().clone());
                 }
             })
-            .await.unwrap();
+            .await
+            .unwrap();
 
         database
             .handle_realtime_action(
@@ -2161,7 +2265,8 @@ mod tests {
                     "d": { "count": 5 }
                 }),
             )
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let values = events.lock().unwrap();
         assert_eq!(values.last().unwrap(), &json!({ "count": 5 }));
@@ -2170,14 +2275,16 @@ mod tests {
         assert_eq!(reference.get().await.unwrap(), json!({ "count": 5 }));
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn realtime_merge_updates_cache() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
 
         database
             .handle_realtime_action(
@@ -2187,7 +2294,8 @@ mod tests {
                     "d": {"foo": {"count": 1}}
                 }),
             )
-            .await.unwrap();
+            .await
+            .unwrap();
 
         database
             .handle_realtime_action(
@@ -2200,23 +2308,36 @@ mod tests {
                     }
                 }),
             )
-            .await.unwrap();
+            .await
+            .unwrap();
 
-        let foo = database.reference("items/foo").unwrap().get().await.unwrap();
+        let foo = database
+            .reference("items/foo")
+            .unwrap()
+            .get()
+            .await
+            .unwrap();
         assert_eq!(foo, json!({"count": 2}));
 
-        let bar = database.reference("items/bar").unwrap().get().await.unwrap();
+        let bar = database
+            .reference("items/bar")
+            .unwrap()
+            .get()
+            .await
+            .unwrap();
         assert_eq!(bar, json!({"value": true}));
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn datasnapshot_child_and_metadata_helpers() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let profiles = database.reference("profiles").unwrap();
 
         profiles
@@ -2224,7 +2345,8 @@ mod tests {
                 "alice": { "age": 31, "city": "Rome" },
                 "bob": { "age": 29 }
             }))
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let captured = Arc::new(Mutex::new(None));
         let holder = captured.clone();
@@ -2234,7 +2356,8 @@ mod tests {
                     *holder.lock().unwrap() = Some(snapshot);
                 }
             })
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let snapshot = captured.lock().unwrap().clone().expect("initial snapshot");
         assert!(snapshot.exists());
@@ -2259,14 +2382,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn child_event_listeners_receive_updates() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn child_event_listeners_receive_updates() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let items = database.reference("items").unwrap();
 
         items
@@ -2274,7 +2399,8 @@ mod tests {
                 "a": { "count": 1 },
                 "b": { "count": 2 }
             }))
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let added_events = Arc::new(Mutex::new(Vec::<(String, Option<String>)>::new()));
         let capture = added_events.clone();
@@ -2287,7 +2413,8 @@ mod tests {
                     ));
                 }
             })
-            .await.unwrap();
+            .await
+            .unwrap();
 
         {
             let events = added_events.lock().unwrap();
@@ -2300,7 +2427,8 @@ mod tests {
             .child("c")
             .unwrap()
             .set(json!({ "count": 3 }))
-            .await.unwrap();
+            .await
+            .unwrap();
 
         {
             let events = added_events.lock().unwrap();
@@ -2311,7 +2439,7 @@ mod tests {
         registration.detach();
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rest_backend_set_with_priority_includes_metadata() {
         let server = MockServer::start();
 
@@ -2333,18 +2461,21 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
         reference
             .set_with_priority(json!({ "count": 1 }), json!(3))
-            .await.unwrap();
+            .await
+            .unwrap();
 
         put_mock.assert();
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn push_with_value_rest_backend_performs_put() {
         let server = MockServer::start();
 
@@ -2363,8 +2494,10 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let messages = database.reference("messages").unwrap();
 
         let child = messages
@@ -2376,7 +2509,7 @@ mod tests {
         push_mock.assert();
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rest_backend_uses_patch_for_updates() {
         let server = MockServer::start();
 
@@ -2395,8 +2528,10 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
         let mut updates = serde_json::Map::new();
@@ -2407,7 +2542,7 @@ mod tests {
         patch_mock.assert();
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rest_backend_delete_supports_remove() {
         let server = MockServer::start();
 
@@ -2423,15 +2558,17 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
         reference.remove().await.expect("delete request");
         delete_mock.assert();
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rest_backend_preserves_namespace_query_parameter() {
         let server = MockServer::start();
 
@@ -2449,15 +2586,17 @@ mod tests {
             database_url: Some(format!("{}?ns=demo-ns", server.url("/"))),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("messages").unwrap();
 
         reference.set(json!({ "value": 1 })).await.unwrap();
         set_mock.assert();
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rest_query_order_by_child_and_limit() {
         let server = MockServer::start();
 
@@ -2478,8 +2617,10 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
         let filtered = compose_query(
             reference,
@@ -2492,7 +2633,7 @@ mod tests {
         get_mock.assert();
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rest_query_equal_to_with_key() {
         let server = MockServer::start();
 
@@ -2513,8 +2654,10 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let filtered = compose_query(
             database.reference("items").unwrap(),
             vec![order_by_key(), equal_to_with_key("item-1", "item-1")],
@@ -2526,14 +2669,16 @@ mod tests {
         get_mock.assert();
     }
 
-    #[test]
-    fn limit_to_first_rejects_zero() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn limit_to_first_rejects_zero() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
 
         let err = database
             .reference("items")
@@ -2545,14 +2690,16 @@ mod tests {
         assert_eq!(err.code_str(), "database/invalid-argument");
     }
 
-    #[test]
-    fn order_by_child_rejects_empty_path() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn order_by_child_rejects_empty_path() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
 
         let err = database
             .reference("items")
@@ -2563,14 +2710,16 @@ mod tests {
         assert_eq!(err.code_str(), "database/invalid-argument");
     }
 
-    #[test]
-    fn query_rejects_multiple_order_by_constraints() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn query_rejects_multiple_order_by_constraints() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
         let err =
@@ -2579,14 +2728,16 @@ mod tests {
         assert_eq!(err.code_str(), "database/invalid-argument");
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn on_value_listener_receives_updates() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("counters/main").unwrap();
 
         let events = Arc::new(Mutex::new(Vec::<Value>::new()));
@@ -2613,20 +2764,22 @@ mod tests {
         }
 
         registration.detach();
-        reference.set(json!(3)).unwrap();
+        reference.set(json!(3)).await.unwrap();
 
         let events = events.lock().unwrap();
         assert_eq!(events.len(), 3);
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn query_on_value_reacts_to_changes() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on(initialize_app(options, Some(unique_settings()))).unwrap();
-        let database = get_database(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
         let scores = database.reference("scores").unwrap();
 
         scores
@@ -2651,7 +2804,8 @@ mod tests {
                 captured.lock().unwrap().push(snapshot.value().clone());
             }
         })
-        .await.unwrap();
+        .await
+        .unwrap();
 
         {
             let events = events.lock().unwrap();
@@ -2670,7 +2824,8 @@ mod tests {
             .child("d")
             .unwrap()
             .set(json!({ "score": 50 }))
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let events = events.lock().unwrap();
         assert_eq!(events.len(), 2);
