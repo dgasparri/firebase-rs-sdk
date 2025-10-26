@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::persistence::{
@@ -7,7 +7,6 @@ use crate::auth::persistence::{
 use crate::platform::browser::indexed_db::{
     delete_key, get_string, open_database_with_store, put_string, IndexedDbError,
 };
-use crate::util::runtime::block_on;
 use serde_json::{from_str as deserialize_state, to_string as serialize_state};
 use wasm_bindgen_futures::spawn_local;
 
@@ -20,6 +19,7 @@ const AUTH_STATE_KEY: &str = "firebase-auth-state";
 pub struct IndexedDbPersistence {
     db_name: Arc<String>,
     store_name: Arc<String>,
+    cache: Arc<Mutex<Option<PersistedAuthState>>>,
 }
 
 impl IndexedDbPersistence {
@@ -28,9 +28,13 @@ impl IndexedDbPersistence {
     }
 
     pub fn with_names(db: impl Into<String>, store: impl Into<String>) -> Self {
+        let db_name = Arc::new(db.into());
+        let store_name = Arc::new(store.into());
+        let cache = Arc::new(Mutex::new(load_from_local_storage(&db_name)));
         Self {
-            db_name: Arc::new(db.into()),
-            store_name: Arc::new(store.into()),
+            db_name,
+            store_name,
+            cache,
         }
     }
 
@@ -44,6 +48,12 @@ impl IndexedDbPersistence {
 
 impl AuthPersistence for IndexedDbPersistence {
     fn set(&self, state: Option<PersistedAuthState>) -> AuthResult<()> {
+        {
+            let mut cache = self.cache.lock().unwrap();
+            *cache = state.clone();
+        }
+        write_to_local_storage(&self.db_name, &state);
+
         let db_name = self.db_name.clone();
         let store_name = self.store_name.clone();
         spawn_local(async move {
@@ -71,28 +81,12 @@ impl AuthPersistence for IndexedDbPersistence {
     }
 
     fn get(&self) -> AuthResult<Option<PersistedAuthState>> {
-        let db_name = self.db_name.clone();
-        let store_name = self.store_name.clone();
-        let future = async move {
-            let db = open_database_with_store(&db_name, DB_VERSION, &store_name)
-                .await
-                .map_err(map_error)?;
-            let value = get_string(&db, &store_name, AUTH_STATE_KEY)
-                .await
-                .map_err(map_error)?;
-            let state = match value {
-                Some(payload) if !payload.is_empty() => {
-                    deserialize_state(&payload).map(Some).map_err(|err| {
-                        AuthError::InvalidCredential(format!(
-                            "Failed to parse persisted auth payload: {err}"
-                        ))
-                    })?
-                }
-                _ => None,
-            };
-            Ok(state)
-        };
-        block_on(future)
+        // Refresh cache from local storage on each read in case another tab updated it.
+        {
+            let mut cache = self.cache.lock().unwrap();
+            *cache = load_from_local_storage(&self.db_name);
+            Ok(cache.clone())
+        }
     }
 
     fn subscribe(&self, _listener: PersistenceListener) -> AuthResult<PersistenceSubscription> {
@@ -104,4 +98,34 @@ impl AuthPersistence for IndexedDbPersistence {
 
 fn map_error(error: IndexedDbError) -> AuthError {
     AuthError::InvalidCredential(format!("IndexedDB auth persistence error: {error}"))
+}
+
+fn storage_key(db_name: &str) -> String {
+    format!("{db_name}::{AUTH_STATE_KEY}")
+}
+
+fn write_to_local_storage(db_name: &str, state: &Option<PersistedAuthState>) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let key = storage_key(db_name);
+            let _ = match state {
+                Some(state) => serialize_state(state)
+                    .map(|json| storage.set_item(&key, &json))
+                    .unwrap_or_else(|_| Ok(())),
+                None => storage.remove_item(&key),
+            };
+        }
+    }
+}
+
+fn load_from_local_storage(db_name: &str) -> Option<PersistedAuthState> {
+    let window = web_sys::window()?;
+    let storage = window.local_storage().ok().flatten()?;
+    let key = storage_key(db_name);
+    let value = storage.get_item(&key).ok().flatten()?;
+    if value.is_empty() {
+        return None;
+    }
+    let parsed = deserialize_state(&value).ok()?;
+    Some(parsed)
 }

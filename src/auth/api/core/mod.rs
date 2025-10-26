@@ -1647,7 +1647,9 @@ mod tests {
             then.status(200);
         });
 
-        auth.delete_user().await.expect("delete user should succeed");
+        auth.delete_user()
+            .await
+            .expect("delete user should succeed");
 
         mock.assert();
         assert!(auth.current_user().is_none());
