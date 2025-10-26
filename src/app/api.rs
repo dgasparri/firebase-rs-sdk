@@ -385,12 +385,13 @@ mod tests {
     use crate::app::registry;
     use crate::component::types::{ComponentType, DynService, InstanceFactory, InstantiationMode};
     use crate::component::Component;
-    use futures::executor::block_on;
+    use futures::lock::Mutex as AsyncMutex;
+    use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, LazyLock, Mutex};
+    use std::sync::{Arc, LazyLock};
 
     static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
-    static TEST_SERIAL: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+    static TEST_SERIAL: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
     fn next_name(prefix: &str) -> String {
         let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -423,10 +424,14 @@ mod tests {
         clear_heartbeat_store_for_tests();
     }
 
-    fn with_serialized_test<F: FnOnce()>(f: F) {
-        let _guard = TEST_SERIAL.lock().unwrap();
+    async fn with_serialized_test<F, Fut>(f: F) -> Fut::Output
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future,
+    {
+        let _guard = TEST_SERIAL.lock().await;
         reset();
-        f();
+        f().await
     }
 
     fn make_test_component(name: &str) -> Component {
@@ -435,156 +440,186 @@ mod tests {
             .with_instantiation_mode(InstantiationMode::Lazy)
     }
 
-    #[test]
-    fn initialize_app_creates_default_app() {
-        with_serialized_test(|| {
-            let app = block_on(super::initialize_app(test_options(), None)).expect("init app");
+    #[tokio::test(flavor = "current_thread")]
+    async fn initialize_app_creates_default_app() {
+        with_serialized_test(|| async {
+            let app = super::initialize_app(test_options(), None)
+                .await
+                .expect("init app");
             assert_eq!(app.name(), DEFAULT_ENTRY_NAME);
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn initialize_app_creates_named_app() {
-        with_serialized_test(|| {
-            let app = block_on(super::initialize_app(
+    #[tokio::test(flavor = "current_thread")]
+    async fn initialize_app_creates_named_app() {
+        with_serialized_test(|| async {
+            let app = super::initialize_app(
                 test_options(),
                 Some(FirebaseAppSettings {
                     name: Some("MyApp".to_string()),
                     automatic_data_collection_enabled: None,
                 }),
-            ))
+            )
+            .await
             .expect("init named app");
             assert_eq!(app.name(), "MyApp");
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn initialize_app_with_same_options_returns_same_instance() {
-        with_serialized_test(|| {
+    #[tokio::test(flavor = "current_thread")]
+    async fn initialize_app_with_same_options_returns_same_instance() {
+        with_serialized_test(|| async {
             let opts = test_options();
-            let app1 = block_on(super::initialize_app(opts.clone(), None)).expect("first init");
-            let app2 = block_on(super::initialize_app(opts, None)).expect("second init");
+            let app1 = super::initialize_app(opts.clone(), None)
+                .await
+                .expect("first init");
+            let app2 = super::initialize_app(opts, None)
+                .await
+                .expect("second init");
             let container1 = app1.container().inner.clone();
             let container2 = app2.container().inner.clone();
             assert!(Arc::ptr_eq(&container1, &container2));
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn initialize_app_duplicate_options_fails() {
-        with_serialized_test(|| {
+    #[tokio::test(flavor = "current_thread")]
+    async fn initialize_app_duplicate_options_fails() {
+        with_serialized_test(|| async {
             let app_name = next_name("dup-app");
             let opts1 = test_options();
             let settings = FirebaseAppSettings {
                 name: Some(app_name.clone()),
                 automatic_data_collection_enabled: None,
             };
-            let _ = block_on(super::initialize_app(opts1.clone(), Some(settings.clone())))
+            let _ = super::initialize_app(opts1.clone(), Some(settings.clone()))
+                .await
                 .expect("first init");
             let mut opts2 = opts1.clone();
             opts2.api_key = Some("other-key".to_string());
-            let result = block_on(super::initialize_app(opts2, Some(settings)));
+            let result = super::initialize_app(opts2, Some(settings)).await;
             assert!(matches!(result, Err(AppError::DuplicateApp { .. })));
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn initialize_app_duplicate_config_fails() {
-        with_serialized_test(|| {
+    #[tokio::test(flavor = "current_thread")]
+    async fn initialize_app_duplicate_config_fails() {
+        with_serialized_test(|| async {
             let opts = test_options();
             let settings = FirebaseAppSettings {
                 name: Some("dup".to_string()),
                 automatic_data_collection_enabled: Some(true),
             };
-            let _ = block_on(super::initialize_app(opts.clone(), Some(settings.clone())))
+            let _ = super::initialize_app(opts.clone(), Some(settings.clone()))
+                .await
                 .expect("first init");
             let mut other = settings.clone();
             other.automatic_data_collection_enabled = Some(false);
-            let result = block_on(super::initialize_app(opts, Some(other)));
+            let result = super::initialize_app(opts, Some(other)).await;
             assert!(matches!(result, Err(AppError::DuplicateApp { .. })));
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn automatic_data_collection_defaults_true() {
-        with_serialized_test(|| {
-            let app = block_on(super::initialize_app(test_options(), None)).expect("init app");
+    #[tokio::test(flavor = "current_thread")]
+    async fn automatic_data_collection_defaults_true() {
+        with_serialized_test(|| async {
+            let app = super::initialize_app(test_options(), None)
+                .await
+                .expect("init app");
             assert!(app.automatic_data_collection_enabled());
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn automatic_data_collection_respects_setting() {
-        with_serialized_test(|| {
-            let app = block_on(super::initialize_app(
+    #[tokio::test(flavor = "current_thread")]
+    async fn automatic_data_collection_respects_setting() {
+        with_serialized_test(|| async {
+            let app = super::initialize_app(
                 test_options(),
                 Some(FirebaseAppSettings {
                     name: None,
                     automatic_data_collection_enabled: Some(false),
                 }),
-            ))
+            )
+            .await
             .expect("init app");
             assert!(!app.automatic_data_collection_enabled());
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn registered_components_attach_to_new_app() {
-        with_serialized_test(|| {
+    #[tokio::test(flavor = "current_thread")]
+    async fn registered_components_attach_to_new_app() {
+        with_serialized_test(|| async {
             let name1 = next_name("test-component");
             let name2 = next_name("test-component");
             let _ = registry::register_component(make_test_component(&name1));
             let _ = registry::register_component(make_test_component(&name2));
 
-            let app = block_on(super::initialize_app(test_options(), None)).expect("init app");
+            let app = super::initialize_app(test_options(), None)
+                .await
+                .expect("init app");
             assert!(app.container().get_provider(&name1).is_component_set());
             assert!(app.container().get_provider(&name2).is_component_set());
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn delete_app_marks_app_deleted_and_clears_registry() {
-        with_serialized_test(|| {
-            let app = block_on(super::initialize_app(test_options(), None)).expect("init app");
+    #[tokio::test(flavor = "current_thread")]
+    async fn delete_app_marks_app_deleted_and_clears_registry() {
+        with_serialized_test(|| async {
+            let app = super::initialize_app(test_options(), None)
+                .await
+                .expect("init app");
             let name = app.name().to_string();
             {
                 let apps = registry::apps_guard();
                 assert!(apps.contains_key(&name));
             }
-            assert!(block_on(super::delete_app(&app)).is_ok());
+            assert!(super::delete_app(&app).await.is_ok());
             assert!(app.is_deleted());
             {
                 let apps = registry::apps_guard();
                 assert!(!apps.contains_key(&name));
             }
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn register_version_registers_component() {
-        with_serialized_test(|| {
+    #[tokio::test(flavor = "current_thread")]
+    async fn register_version_registers_component() {
+        with_serialized_test(|| async {
             let library = next_name("lib");
-            block_on(super::register_version(&library, "1.0.0", None));
+            super::register_version(&library, "1.0.0", None).await;
             let components = registry::registered_components_guard();
             let expected = format!("{}-version", library);
             assert!(components.keys().any(|key| key.as_ref() == expected));
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn get_app_returns_existing_app() {
-        with_serialized_test(|| {
-            let created = block_on(super::initialize_app(test_options(), None)).expect("init app");
-            let fetched = block_on(super::get_app(None)).expect("get app");
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_app_returns_existing_app() {
+        with_serialized_test(|| async {
+            let created = super::initialize_app(test_options(), None)
+                .await
+                .expect("init app");
+            let fetched = super::get_app(None).await.expect("get app");
             assert_eq!(created.name(), fetched.name());
-        });
+        })
+        .await;
     }
 
-    #[test]
-    fn get_app_nonexistent_fails() {
-        with_serialized_test(|| {
-            let result = block_on(super::get_app(Some("missing")));
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_app_nonexistent_fails() {
+        with_serialized_test(|| async {
+            let result = super::get_app(Some("missing")).await;
             assert!(matches!(result, Err(AppError::NoApp { .. })));
-        });
+        })
+        .await;
     }
 }
