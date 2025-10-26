@@ -84,3 +84,40 @@ This plan captures the work required to ship the next major version of the fireb
 - **Stage 4**: Updated READMEs, wasm examples, upgrade guide, and CI coverage for wasm builds/tests alongside native suites.
 
 Progress should be tracked in this document; check boxes as work completes and append notes/links to PRs for traceability.
+
+
+## End of day wrap up
+
+Wrapping up for today. Here’s what we accomplished and what’s next on the async/WASM front for Realtime Database:
+
+### ✅ Today’s Progress
+- Database unified to async: DatabaseReference and DatabaseQuery now expose async methods (e.g., set, get, update,
+remove, set_with_priority, push) that await the async REST backend. Synchronous wrappers have been removed; direct
+callers now await the asynchronous operations.
+- Async REST backend: The REST backend (src/database/backend.rs) uses the async reqwest client, boxed token fetchers,
+and guardable behaviour so wasm still falls back to the in-memory backend while native builds hit the network.
+- Realtime scaffolding: Introduced a Repo abstraction with a pluggable RealtimeTransport trait and no‑op transport.
+Database automatically calls go_online when the first listener is registered and go_offline when the last one is
+removed, providing hooks for future WebSocket/long-poll transports.
+- Documentation & plan updates: README and WASM plan now reflect the async/wasm status, noting the missing features
+(realtime streaming, WebSockets, OnDisconnect, transactions).
+
+
+### 🚧 What’s Next (Database & Realtime)
+1. Implement native WebSocket transport
+    - Add a transport implementation using tokio_tungstenite (or similar) on native builds.
+    - Handle authentication, message framing, and reconnect logic (basic stubs to start).
+    - Feed incoming events into dispatch_listeners so remote updates reach value/child callbacks.
+2. Provide wasm transport
+    - Use web_sys::WebSocket (or gloo-net) to connect from wasm builds, with a long-polling fallback if necessary.
+    - Ensure the transport interface (RealtimeTransport) works cross-platform.
+3. Hook Repo into Database operations
+    - Replace the no-op transport when listeners are present.
+    - Extend OnDisconnect and run_transaction to use the new transport (currently return errors).
+4. Docs & tests
+    - Update README once streaming is live.
+    - Add integration tests (native/wasm) for listener behaviour.
+    - Ensure wasm docs clearly state any feature flags (e.g., WebSocket dependencies) and fallback behaviour.
+
+The WASM plan now tracks these remaining steps under Stage 3 so we can pick up exactly where we left off next session.
+Let me know when you’re ready to dive back in!

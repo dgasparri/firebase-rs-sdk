@@ -8,6 +8,8 @@ For each submodule, ignore all the `.eslintrc.js`, `api-extractor.json`, `karma.
 
 If common services are needed, they should NOT be in the folder of the single module but rather at the root of the Rust code ./src or in a separate directory.
 
+The library must build for the `wasm32-unknown-unknown` (aka `wasm-unknown-unknown`) target when compiled with the `wasm-web` and `experimental-indexed-db` features enabled. Prefer shared abstractions over copy-pasting logic so the native and wasm code paths only diverge where platform differences truly require it.
+
 ### Shared platform utilities
 
 Cross-module helpers that abstract browser/native differences are collected under `./src/platform`. For example, the IndexedDB bindings used by messaging live there so other modules (installations, app-check, etc.) can reuse them instead of re-implementing storage glue. Before building a new WASM-specific helper, scan `./src/platform` to avoid duplicating existing work and extend it in place when the functionality is broadly useful.

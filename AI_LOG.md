@@ -2738,3 +2738,16 @@ Realtime Hooks
 
   The WASM plan now tracks these remaining steps under Stage 3 so we can pick up exactly where we left off next session.
   Let me know when you’re ready to dive back in!
+
+
+
+inking
+  I added a note about supporting the wasm32-unknown-unknown target and features wasm-web and experimental-indexed-db in
+  AGENTS.md around line 11. I also emphasized minimizing code duplication between native and WASM to ease maintenance.
+  No tests were run for this simple documentation update.
+
+> Added explicit WASM support and anti-duplication guidance in AGENTS.md:11 so contributors target wasm32-unknown-
+  unknown with the wasm-web and experimental-indexed-db features while keeping native/wasm logic shared. No tests were
+  necessary for this documentation update.
+
+
