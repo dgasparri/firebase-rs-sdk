@@ -28,3 +28,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
+
+echo running cargo test --test database_listeners:
+cargo test --test wasm_database_listeners
+if errorlevel 1 (
+    echo error: cargo test --test wasm_database_listeners failed
+    exit /b 1
+)
+
+
+echo running cargo test --test wasm_database_listeners --target wasm32-unknown-unknown --features wasm-web:
+cargo test --test wasm_database_listeners --target wasm32-unknown-unknown --features wasm-web
+if errorlevel 1 (
+    echo error: cargo test --test wasm_database_listeners --target wasm32-unknown-unknown --features wasm-web failed
+    exit /b 1
+)
+

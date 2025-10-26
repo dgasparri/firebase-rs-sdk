@@ -117,7 +117,7 @@ removed, providing hooks for future WebSocket/long-poll transports.
     - ✅ OnDisconnect scheduling now works on WebSockets with a queued long-poll fallback; follow up by adding server-side queuing parity and wiring `run_transaction` into the same retry machinery.
 4. Docs & tests
     - Update README once streaming is live. Current docs mention the new transport scaffolding and listener bookkeeping.
-    - Add integration tests (native/wasm) for listener behaviour once a real transport is wired in.
+    - ✅ Add integration tests (native/wasm) for listener behaviour once a real transport is wired in (`tests/database_listeners.rs`, `tests/wasm_database_listeners.rs`).
     - ✅ Ensure wasm docs clearly state any feature flags (e.g., WebSocket dependencies) and fallback behaviour (see `docs/async_wasm_checklist.md` and `src/database/README.md`).
 
 The WASM plan now tracks these remaining steps under Stage 3 so we can pick up exactly where we left off next session.
