@@ -416,26 +416,24 @@ mod tests {
         }
     }
 
-    fn register_app_check(app: &FirebaseApp) {
-        let app_clone = app.clone();
-        let factory =
+    async fn register_app_check(app: &FirebaseApp) {
+        let provider = Arc::new(StaticAppCheckProvider);
+        let options = AppCheckOptions::new(provider);
+        let app_check = initialize_app_check(Some(app.clone()), options)
+            .await
+            .expect("initialize app check");
+        let internal = Arc::new(FirebaseAppCheckInternal::new(app_check));
+
+        let factory = {
+            let internal = internal.clone();
             Arc::new(
                 move |_: &crate::component::ComponentContainer,
                       _: InstanceFactoryOptions|
                       -> Result<DynService, ComponentError> {
-                    let provider = Arc::new(StaticAppCheckProvider);
-                    let options = AppCheckOptions::new(provider);
-                    let init_result = tokio::runtime::Runtime::new()
-                        .unwrap()
-                        .block_on(initialize_app_check(Some(app_clone.clone()), options));
-
-                    let app_check = init_result.map_err(|err| ComponentError::InitializationFailed {
-                        name: "app-check-internal".to_string(),
-                        reason: err.to_string(),
-                    })?;
-                    Ok(Arc::new(FirebaseAppCheckInternal::new(app_check)) as DynService)
+                    Ok(internal.clone() as DynService)
                 },
-            );
+            )
+        };
 
         let component = Component::new("app-check-internal", factory, ComponentType::Private);
         app.container().add_or_overwrite_component(component);
@@ -443,7 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn prepare_request_includes_app_check_header_when_available() {
-        let storage = build_storage_with(|app| async move { register_app_check(app) }).await;
+        let storage = build_storage_with(|app| async move { register_app_check(app).await }).await;
         let prepared = storage.prepare_request(test_request()).await.unwrap();
 
         assert_eq!(

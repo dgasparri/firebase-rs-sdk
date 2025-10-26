@@ -80,6 +80,8 @@ Tests should be imported in the way Rust requires them, at the end of the single
 
 Author unit tests alongside the source and mirror existing fixtures and tests. 
 
+When testing asynchronous APIs, use async-aware harnesses (e.g. `#[tokio::test]` or an equivalent executor) and `await` the futures directly. Avoid spinning up ad-hoc runtimes or calling `block_on` in tests, as that can cause runtime conflicts or deadlocks when suites run concurrently.
+
 ## Commit & Pull Request Guidelines
 
 History is minimal (`.gitignore`), so establish clarity: write imperative subjects under 72 characters and group related changes per commit. Prefer Conventional Commit prefixes (`{module}:`, `feat:`, `fix:`, `chore:`) when work spans multiple packages. Pull requests should describe the affected services, note any build/test commands executed, link tracking issues, and attach test output snippets. Flag breaking changes prominently and call out follow-up work or TODO markers.
