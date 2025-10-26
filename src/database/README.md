@@ -118,10 +118,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Backend selection that defaults to an in-memory store and upgrades to a REST backend (`reqwest` PUT/PATCH/DELETE/GET) including base query propagation plus optional Auth/App Check token injection.
 - Unit tests covering in-memory semantics, validation edge cases, and REST request wiring through `httpmock`.
 - Preliminary realtime hooks (`Database::go_online`/`go_offline`) backed by a platform-aware transport selector. The Rust port now normalises listen specs, reference-counts active listeners, and—on native targets—establishes an async WebSocket session using `tokio-tungstenite`, forwarding auth/App Check tokens and queuing listen/unlisten envelopes until the full persistent connection protocol is ported. Streaming payload handling is still pending.
+- WASM builds mirror the native realtime selector: the runtime first attempts a `web_sys::WebSocket` connection and automatically falls back to an HTTP long-poll loop when sockets are unavailable, keeping `on_value` listeners alive across restrictive environments.
 
 ### WASM Notes
 
-- The module compiles on wasm targets when the `wasm-web` feature is enabled. At the moment only the in-memory backend is available on wasm; the REST transport remains native-only until the async client is ported.
+- The module compiles on wasm targets when the `wasm-web` feature is enabled. Web builds attempt to establish a realtime WebSocket and transparently degrade to a long-poll fetch loop when sockets cannot open, reusing the same listener bookkeeping as native builds.
 - Calling `get_database(None)` is not supported on wasm because the default app lookup is asynchronous. Pass an explicit `FirebaseApp` instance instead.
 - `go_online`/`go_offline` are currently stubs on wasm (and native) but provide the async surface needed for upcoming realtime work.
 

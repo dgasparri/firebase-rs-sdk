@@ -220,7 +220,7 @@ fn select_transport(app: &FirebaseApp, repo: std::sync::Weak<Repo>) -> Arc<dyn R
 
     #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
     {
-        if let Some(transport) = wasm::websocket_transport(app, repo.clone()) {
+        if let Some(transport) = wasm::transport(app, repo.clone()) {
             return transport;
         }
     }
@@ -779,25 +779,30 @@ mod wasm {
     use crate::database::error::DatabaseError;
     use crate::logger::Logger;
     use async_lock::Mutex as AsyncMutex;
+    use gloo_timers::future::TimeoutFuture;
     use js_sys::{ArrayBuffer, Uint8Array};
+    use reqwest::{Client, StatusCode};
     use serde_json::{json, Map as JsonMap, Value as JsonValue};
-    use std::collections::VecDeque;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::{LazyLock, Mutex as StdMutex, Weak};
+    use std::collections::{HashMap, VecDeque};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::{Arc, LazyLock, Mutex as StdMutex, Weak};
     use url::Url;
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::spawn_local;
     use web_sys::{BinaryType, CloseEvent, Event, MessageEvent, WebSocket};
 
-    pub(super) fn websocket_transport(
+    const LONG_POLL_INTERVAL_MS: u32 = 1_500;
+    const LONG_POLL_ERROR_BACKOFF_MS: u32 = 5_000;
+
+    pub(super) fn transport(
         app: &FirebaseApp,
         repo: Weak<Repo>,
     ) -> Option<Arc<dyn RealtimeTransport>> {
         let url = app.options().database_url?;
         let parsed = Url::parse(&url).ok()?;
         let info = RepoInfo::from_url(parsed)?;
-        Some(Arc::new(WasmWebSocketTransport::new(
+        Some(Arc::new(WasmRealtimeTransport::new(
             info,
             app.clone(),
             repo,
@@ -806,6 +811,8 @@ mod wasm {
 
     static WASM_LOGGER: LazyLock<Logger> =
         LazyLock::new(|| Logger::new("@firebase/database/wasm_websocket"));
+    static WASM_LONG_POLL_LOGGER: LazyLock<Logger> =
+        LazyLock::new(|| Logger::new("@firebase/database/wasm_long_poll"));
 
     #[derive(Clone, Debug)]
     struct RepoInfo {
@@ -833,6 +840,123 @@ mod wasm {
         fn websocket_url(&self) -> String {
             let scheme = if self.secure { "wss" } else { "ws" };
             format!("{}://{}/.ws?ns={}&v=5", scheme, self.host, self.namespace)
+        }
+
+        fn rest_url(&self, spec: &ListenSpec) -> DatabaseResult<Url> {
+            let scheme = if self.secure { "https" } else { "http" };
+            let base = format!("{}://{}", scheme, self.host);
+            let mut url = Url::parse(&base)
+                .map_err(|err| internal_error(format!("failed to parse database host: {err}")))?;
+            let path = spec.path_string();
+            if path == "/" {
+                url.set_path(".json");
+            } else {
+                let trimmed = path.trim_start_matches('/');
+                url.set_path(&format!("{}.json", trimmed));
+            }
+            {
+                let mut pairs = url.query_pairs_mut();
+                pairs.append_pair("ns", &self.namespace);
+                for (key, value) in spec.params() {
+                    pairs.append_pair(key, value);
+                }
+            }
+            Ok(url)
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ActiveTransport {
+        WebSocket,
+        LongPoll,
+    }
+
+    // Mirrors the JS `PersistentConnection` fallback logic, switching between
+    // WebSocket and long-poll transports (`packages/database/src/core/PersistentConnection.ts`).
+    #[derive(Debug)]
+    struct WasmRealtimeTransport {
+        websocket: Arc<WasmWebSocketTransport>,
+        long_poll: Arc<WasmLongPollTransport>,
+        active: AsyncMutex<ActiveTransport>,
+    }
+
+    impl WasmRealtimeTransport {
+        fn new(repo_info: RepoInfo, app: FirebaseApp, repo: Weak<Repo>) -> Self {
+            let websocket = Arc::new(WasmWebSocketTransport::new(
+                repo_info.clone(),
+                app.clone(),
+                repo.clone(),
+            ));
+            let long_poll = Arc::new(WasmLongPollTransport::new(repo_info, app, repo));
+            Self {
+                websocket,
+                long_poll,
+                active: AsyncMutex::new(ActiveTransport::WebSocket),
+            }
+        }
+
+        async fn set_active(&self, transport: ActiveTransport) {
+            let mut guard = self.active.lock().await;
+            *guard = transport;
+        }
+
+        async fn active(&self) -> ActiveTransport {
+            *self.active.lock().await
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl RealtimeTransport for WasmRealtimeTransport {
+        async fn connect(&self) -> DatabaseResult<()> {
+            match self.websocket.connect().await {
+                Ok(()) => {
+                    self.set_active(ActiveTransport::WebSocket).await;
+                    Ok(())
+                }
+                Err(err) => {
+                    WASM_LOGGER.warn(format!(
+                        "websocket connect failed; falling back to long-poll: {err}"
+                    ));
+                    self.long_poll.connect().await?;
+                    self.set_active(ActiveTransport::LongPoll).await;
+                    Ok(())
+                }
+            }
+        }
+
+        async fn disconnect(&self) -> DatabaseResult<()> {
+            let result = match self.active().await {
+                ActiveTransport::WebSocket => self.websocket.disconnect().await,
+                ActiveTransport::LongPoll => self.long_poll.disconnect().await,
+            };
+            self.set_active(ActiveTransport::WebSocket).await;
+            result
+        }
+
+        async fn listen(&self, spec: &ListenSpec) -> DatabaseResult<()> {
+            match self.active().await {
+                ActiveTransport::WebSocket => match self.websocket.listen(spec).await {
+                    Ok(()) => Ok(()),
+                    Err(err) => {
+                        WASM_LOGGER.warn(format!(
+                            "websocket listen failed; switching to long-poll: {err}"
+                        ));
+                        let _ = self.websocket.disconnect().await;
+                        self.long_poll.connect().await?;
+                        self.long_poll.listen(spec).await?;
+                        self.set_active(ActiveTransport::LongPoll).await;
+                        Ok(())
+                    }
+                },
+                ActiveTransport::LongPoll => self.long_poll.listen(spec).await,
+            }
+        }
+
+        async fn unlisten(&self, spec: &ListenSpec) -> DatabaseResult<()> {
+            match self.active().await {
+                ActiveTransport::WebSocket => self.websocket.unlisten(spec).await,
+                ActiveTransport::LongPoll => self.long_poll.unlisten(spec).await,
+            }
         }
     }
 
@@ -998,7 +1122,273 @@ mod wasm {
                 let mut pending = self.state.pending.lock().await;
                 pending.push_back(TransportCommand::Unlisten(spec.clone()));
             }
+            self.ensure_connection().await?;
             self.flush_pending().await
+        }
+    }
+
+    // Port of the browser long-poll transport from
+    // `packages/database/src/realtime/BrowserPollConnection.ts` tailored for WASM.
+    #[derive(Debug)]
+    struct WasmLongPollTransport {
+        repo_info: RepoInfo,
+        app: FirebaseApp,
+        client: Client,
+        state: Arc<WasmLongPollState>,
+    }
+
+    impl WasmLongPollTransport {
+        fn new(repo_info: RepoInfo, app: FirebaseApp, repo: Weak<Repo>) -> Self {
+            Self {
+                repo_info,
+                app,
+                client: Client::new(),
+                state: Arc::new(WasmLongPollState::new(repo)),
+            }
+        }
+
+        fn spawn_listener(&self, spec: ListenSpec, control: ListenerControl) {
+            let state = self.state.clone();
+            let info = self.repo_info.clone();
+            let app = self.app.clone();
+            let client = self.client.clone();
+            spawn_local(async move {
+                run_long_poll_loop(state, info, app, client, spec, control).await;
+            });
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl RealtimeTransport for WasmLongPollTransport {
+        async fn connect(&self) -> DatabaseResult<()> {
+            self.state.online.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn disconnect(&self) -> DatabaseResult<()> {
+            self.state.online.store(false, Ordering::SeqCst);
+            let handles = {
+                let mut listeners = self.state.listeners.lock().await;
+                listeners.drain().collect::<Vec<_>>()
+            };
+            for (_, control) in handles {
+                control.cancel();
+            }
+            Ok(())
+        }
+
+        async fn listen(&self, spec: &ListenSpec) -> DatabaseResult<()> {
+            let control = {
+                let mut listeners = self.state.listeners.lock().await;
+                if let Some(existing) = listeners.get(spec) {
+                    existing.resume();
+                    return Ok(());
+                }
+                let control = ListenerControl::new();
+                listeners.insert(spec.clone(), control.clone());
+                control
+            };
+            self.spawn_listener(spec.clone(), control);
+            Ok(())
+        }
+
+        async fn unlisten(&self, spec: &ListenSpec) -> DatabaseResult<()> {
+            let control = {
+                let mut listeners = self.state.listeners.lock().await;
+                listeners.remove(spec)
+            };
+            if let Some(control) = control {
+                control.cancel();
+            }
+            Ok(())
+        }
+    }
+
+    #[derive(Debug)]
+    struct WasmLongPollState {
+        repo: StdMutex<Weak<Repo>>,
+        listeners: AsyncMutex<HashMap<ListenSpec, ListenerControl>>,
+        online: AtomicBool,
+    }
+
+    impl WasmLongPollState {
+        fn new(repo: Weak<Repo>) -> Self {
+            Self {
+                repo: StdMutex::new(repo),
+                listeners: AsyncMutex::new(HashMap::new()),
+                online: AtomicBool::new(false),
+            }
+        }
+
+        fn repo(&self) -> Option<Arc<Repo>> {
+            self.repo.lock().unwrap().upgrade()
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct ListenerControl {
+        cancel_flag: Arc<AtomicBool>,
+        last_value: Arc<AsyncMutex<Option<JsonValue>>>,
+        etag: Arc<AsyncMutex<Option<String>>>,
+    }
+
+    impl ListenerControl {
+        fn new() -> Self {
+            Self {
+                cancel_flag: Arc::new(AtomicBool::new(false)),
+                last_value: Arc::new(AsyncMutex::new(None)),
+                etag: Arc::new(AsyncMutex::new(None)),
+            }
+        }
+
+        fn cancel(&self) {
+            self.cancel_flag.store(true, Ordering::SeqCst);
+        }
+
+        fn resume(&self) {
+            self.cancel_flag.store(false, Ordering::SeqCst);
+        }
+
+        fn is_cancelled(&self) -> bool {
+            self.cancel_flag.load(Ordering::SeqCst)
+        }
+
+        async fn current_etag(&self) -> Option<String> {
+            self.etag.lock().await.clone()
+        }
+
+        async fn set_etag(&self, value: Option<String>) {
+            *self.etag.lock().await = value;
+        }
+
+        async fn mark_published(&self, value: &JsonValue) -> bool {
+            let mut guard = self.last_value.lock().await;
+            if let Some(existing) = guard.as_ref() {
+                if existing == value {
+                    return false;
+                }
+            }
+            *guard = Some(value.clone());
+            true
+        }
+    }
+
+    async fn run_long_poll_loop(
+        state: Arc<WasmLongPollState>,
+        repo_info: RepoInfo,
+        app: FirebaseApp,
+        client: Client,
+        spec: ListenSpec,
+        control: ListenerControl,
+    ) {
+        while !control.is_cancelled() {
+            if !state.online.load(Ordering::SeqCst) {
+                TimeoutFuture::new(LONG_POLL_INTERVAL_MS).await;
+                continue;
+            }
+
+            match poll_once(&repo_info, &app, &client, &control, &spec).await {
+                Ok(Some(value)) => {
+                    if let Err(err) = deliver_snapshot(&state, &spec, &control, value).await {
+                        WASM_LONG_POLL_LOGGER
+                            .warn(format!("failed to deliver long-poll snapshot: {err}"));
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    WASM_LONG_POLL_LOGGER.warn(format!("long-poll request failed: {err}"));
+                    propagate_error(&state, err.to_string()).await;
+                    TimeoutFuture::new(LONG_POLL_ERROR_BACKOFF_MS).await;
+                    continue;
+                }
+            }
+
+            TimeoutFuture::new(LONG_POLL_INTERVAL_MS).await;
+        }
+    }
+
+    async fn poll_once(
+        repo_info: &RepoInfo,
+        app: &FirebaseApp,
+        client: &Client,
+        control: &ListenerControl,
+        spec: &ListenSpec,
+    ) -> DatabaseResult<Option<JsonValue>> {
+        let mut url = repo_info.rest_url(spec)?;
+
+        if let Some(token) = fetch_auth_token(app).await? {
+            {
+                let mut pairs = url.query_pairs_mut();
+                pairs.append_pair("auth", &token);
+            }
+        }
+
+        let mut request = client.get(url.as_str());
+        request = request.header("X-Firebase-ETag", "true");
+        if let Some(etag) = control.current_etag().await {
+            request = request.header("If-None-Match", etag);
+        }
+
+        if let Some(token) = fetch_app_check_token(app).await? {
+            request = request.header("X-Firebase-AppCheck", token);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|err| internal_error(format!("long-poll request failed: {err}")))?;
+
+        let status = response.status();
+        if status == StatusCode::NOT_MODIFIED {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            return Err(internal_error(format!(
+                "long-poll request failed with status {status}"
+            )));
+        }
+
+        if let Some(etag) = response
+            .headers()
+            .get("etag")
+            .and_then(|value| value.to_str().ok())
+        {
+            control.set_etag(Some(etag.to_string())).await;
+        }
+
+        let payload = response
+            .json::<JsonValue>()
+            .await
+            .map_err(|err| internal_error(format!("failed to decode long-poll payload: {err}")))?;
+        Ok(Some(payload))
+    }
+
+    async fn deliver_snapshot(
+        state: &Arc<WasmLongPollState>,
+        spec: &ListenSpec,
+        control: &ListenerControl,
+        value: JsonValue,
+    ) -> DatabaseResult<()> {
+        if !control.mark_published(&value).await {
+            return Ok(());
+        }
+
+        if let Some(repo) = state.repo() {
+            let body = json!({ "p": spec.path_string(), "d": value });
+            repo.handle_action("d", &body).await
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn propagate_error(state: &Arc<WasmLongPollState>, message: String) {
+        if let Some(repo) = state.repo() {
+            if let Err(err) = repo
+                .handle_action("error", &JsonValue::String(message.clone()))
+                .await
+            {
+                WASM_LONG_POLL_LOGGER.warn(format!("failed to propagate long-poll error: {err}"));
+            }
         }
     }
 
