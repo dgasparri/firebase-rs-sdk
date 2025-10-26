@@ -41,8 +41,8 @@ async fn auth_reports_not_supported_on_wasm() {
     let app = init_test_app("wasm-auth").await;
 
     let auth = Auth::new(app.clone()).expect("create auth");
-    let token = auth.get_token(true).await;
-    assert!(token.is_err(), "expected auth token fetch to error on wasm");
+    let token = auth.get_token(true).await.unwrap();
+    assert!(token.is_none(), "expected auth token to be none on wasm");
 
     let sign_in = auth
         .sign_in_with_email_and_password("user@example.com", "password")
