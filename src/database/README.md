@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `on_value` listeners for references and queries that deliver an initial snapshot and replay callbacks after local writes, returning `ListenerRegistration` handles for manual detach.
 - Backend selection that defaults to an in-memory store and upgrades to a REST backend (`reqwest` PUT/PATCH/DELETE/GET) including base query propagation plus optional Auth/App Check token injection.
 - Unit tests covering in-memory semantics, validation edge cases, and REST request wiring through `httpmock`.
-- Preliminary realtime hooks (`Database::go_online`/`go_offline`) backed by a no-op transport; full websocket/long-poll support is still pending.
+- Preliminary realtime hooks (`Database::go_online`/`go_offline`) backed by a platform-aware transport selector. The Rust port now normalises listen specs, reference-counts active listeners, and prepares per-target WebSocket transports (native + wasm stubs) ready for the upcoming persistent connection implementation. Full websocket/long-poll support is still pending.
 
 ### WASM Notes
 
@@ -134,5 +134,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Immediate Porting Focus
 
 1. **Child listener parity** – Port the remaining event registrations (`onChildMoved`, query listeners, cancellation hooks) from `Reference_impl.ts` and `SyncTree.ts`, reusing the new diffing infrastructure.
-2. **Realtime transport scaffolding** – Flesh out the new `realtime::Repo` and `PersistentConnection` stubs with channel management, auth handshake, and WebSocket/long-poll adapters inspired by the JS SDK.
+2. **Realtime transport handshake** – Extend the new `realtime::Repo` listener map with a real `PersistentConnection` port that speaks the Firebase websocket protocol, wiring through auth/app-check tokens on both native (`tokio_tungstenite`) and wasm (`web_sys::WebSocket`) builds.
 3. **Transactions and OnDisconnect** – Replace the temporary stubs with full implementations that queue writes locally, honour abort semantics, and execute deferred mutations when the transport reconnects.

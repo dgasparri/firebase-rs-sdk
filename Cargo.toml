@@ -80,6 +80,7 @@ features = [
     "DomException",
     "DomStringList",
     "Event",
+    "Url",
     "Notification",
 ]
 

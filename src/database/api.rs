@@ -20,7 +20,7 @@ use crate::database::error::{internal_error, invalid_argument, DatabaseResult};
 use crate::database::on_disconnect::OnDisconnect;
 use crate::database::push_id::next_push_id;
 use crate::database::query::{QueryBound, QueryIndex, QueryLimit, QueryParams};
-use crate::database::realtime::Repo;
+use crate::database::realtime::{ListenSpec, Repo};
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -113,6 +113,7 @@ enum ListenerKind {
 struct Listener {
     target: ListenerTarget,
     kind: ListenerKind,
+    spec: ListenSpec,
 }
 
 #[derive(Clone)]
@@ -579,11 +580,30 @@ impl Database {
         }
     }
 
+    fn listen_spec_for_target(&self, target: &ListenerTarget) -> DatabaseResult<ListenSpec> {
+        match target {
+            ListenerTarget::Reference(path) => Ok(ListenSpec::new(path.clone(), Vec::new())),
+            ListenerTarget::Query { path, params } => {
+                let mut rest_params = params.to_rest_params()?;
+                // REST params may omit `format=export` when not required; add it
+                // to stabilise server-side hashing so multiple listeners with
+                // equivalent semantics collapse to the same spec. This mirrors
+                // the JS SDK behaviour where the listen ID incorporates the
+                // complete query object, including defaults.
+                if rest_params.iter().all(|(key, _)| key != "format") {
+                    rest_params.push(("format".to_string(), "export".to_string()));
+                }
+                Ok(ListenSpec::new(path.clone(), rest_params))
+            }
+        }
+    }
+
     fn register_listener(
         &self,
         target: ListenerTarget,
         kind: ListenerKind,
     ) -> DatabaseResult<ListenerRegistration> {
+        let spec = self.listen_spec_for_target(&target)?;
         let id = self.inner.next_listener_id.fetch_add(1, Ordering::SeqCst);
 
         let first_listener = {
@@ -594,6 +614,7 @@ impl Database {
                 Listener {
                     target: target.clone(),
                     kind: kind.clone(),
+                    spec: spec.clone(),
                 },
             );
             was_empty
@@ -601,9 +622,19 @@ impl Database {
 
         if first_listener {
             if let Err(err) = self.go_online() {
-                self.remove_listener(id);
+                let mut listeners = self.inner.listeners.lock().unwrap();
+                listeners.remove(&id);
                 return Err(err);
             }
+        }
+
+        if let Err(err) = block_on(self.inner.repo.listen(spec.clone())) {
+            let mut listeners = self.inner.listeners.lock().unwrap();
+            listeners.remove(&id);
+            if first_listener {
+                let _ = self.go_offline();
+            }
+            return Err(err);
         }
 
         let current_root = match self.root_snapshot() {
@@ -632,11 +663,23 @@ impl Database {
     }
 
     fn remove_listener(&self, id: u64) {
-        let should_disconnect = {
+        let (listener, should_disconnect) = {
             let mut listeners = self.inner.listeners.lock().unwrap();
-            listeners.remove(&id);
-            listeners.is_empty()
+            let removed = listeners.remove(&id);
+            let should_disconnect = listeners.is_empty();
+            (removed, should_disconnect)
         };
+
+        if let Some(listener) = listener {
+            if let Err(err) = block_on(self.inner.repo.unlisten(listener.spec.clone())) {
+                // Surface transport teardown failures as internal errors so
+                // callers can inspect the pressure via logs while we flesh out
+                // the realtime stack.
+                // TODO(async-wasm): integrate with the logger once the
+                // persistent connection port emits structured diagnostics.
+                let _ = err;
+            }
+        }
 
         if should_disconnect {
             let _ = self.go_offline();

@@ -2751,3 +2751,324 @@ inking
   necessary for this documentation update.
 
 
+ I'm mapping out how to implement a tokio_tungstenite-based WebSocket transport for native builds that hooks into the
+  existing Repo and Database structure. Since Database owns Repo but Repo must dispatch remote events back to Database,
+  I'm considering using callbacks or a settable event handler in Repo to avoid borrow cycle issues. I want to keep the
+  RealtimeTransport trait async and allow it to accept event handlers, then implement both a noop transport and a basic
+  WebSocket transport conditionally for non-WASM targets. I’m also thinking through how to extract the database URL
+  from FirebaseApp options to compose the WebSocket URL, and how to restructure Repo::new_for_app and Database::new to
+  pass the necessary handlers without breaking existing code. Overall, the plan is to create a minimal stubbed WebSocket
+  transport that feeds remote updates into dispatch_listeners via callbacks, aligning with the instructions. Let's
+  explore RepoInfo.ts to replicate URL construction next.
+
+• Explored
+  └ Read RepoInfo.ts
+
+> Thinking
+  This is a complex task, so I’m planning to implement a basic stub that constructs a WebSocket URL from app options
+  and connects, but without a full Firebase handshake. I’m considering structuring transport and event handler traits
+  asynchronously, with careful gating for wasm targets and adding dependencies conditionally. To process incoming
+  updates, I’ll outline storing root state and dispatching listener updates, balancing between full protocol fidelity
+  and a simpler prototype with TODOs and README notes. This will involve careful interaction between Repo, Database, and
+  handler layers to apply remote patches and keep watchers synced. I'll look into Firebase’s actual message format in
+  TypeScript to better inform the minimal parsing needed.
+I'm thinking through implementing a minimal websocket transport that stubs out the Firebase handshake to meet the
+  user's timeline and porting goals. I'll investigate the TypeScript PersistentConnection for message formats like
+  SERVER_DATA_UPDATE so I can try handling partial messages such as put and patch from an emulator, focusing on laying
+  infrastructure without full event support yet.
+
+• Explored
+  └ Search SERVER_DATA in database
+
+> Thinking
+  I'm considering a minimal WebSocket handshake to support streaming events by feeding them into dispatch_listeners,
+  inspired by Firebase protocol frames. I want to research existing code for handshake message structure, especially
+  looking for SDK-related handshake data in TypeScript files, before deciding to implement a stub or a fuller
+  connection.
+Thinking
+  I'm mapping out how to build a WebSocket transport for Firebase realtime updates by parsing the database URL to create
+  the WebSocket URL, managing token fetchers, and structuring background tasks for connection and event handling using
+  tokio runtimes. I need to carefully coordinate async handshakes, background event loops, shutdown signaling, and
+  token-based handshake messages while maintaining compatibility with existing runtime and spawn helpers. This approach
+  mirrors existing logic but adapts to native async Rust constraints.
+
+I’m focusing on the "What's next" tasks from WASM_PLAN, which include adding native WebSocket support with
+  tokio_tungstenite, providing a wasm transport via web_sys::WebSocket, hooking up the repo to database operations, and
+  writing docs and tests. Since it’s a complex set of tasks, I’m preparing to use the planning tool for clear stepwise
+  progress.
+
+• Updated Plan
+  └ □ Review current database realtime scaffolding and determine new transport interfaces needed for native and wasm
+      targets.
+    □ Implement platform-specific WebSocket transports and integrate with Repo for listener lifecycle.
+    □ Add wasm/native feature gating, docs/tests updates per README and plan.
+
+  Creating detailed implementation plan (9s • Esc to interrupt)
+
+•
+
+ Thinking
+  I'm figuring out dependencies and creating a new module for native WebSocket support using tokio-tungstenite. I also
+  need to understand the existing listener system to properly dispatch incoming events and might have to enhance the
+  RealtimeTransport trait to handle event registration. I'll dive into the relevant listener code next.
+
+• Explored
+  └ Read api.rs
+    Search struct RestBackend in backend.rs
+
+> Thinking
+  I’m examining how to implement a lightweight WebSocket transport for remote updates by checking the TypeScript
+  implementation in the database package and considering a stub that connects to an emulator or logs events. The goal
+  is to enable basic real-time event dispatching while keeping complexity low, so I’ll look into handshake details and
+  possible SSE or restful fallbacks.
+
+• Explored
+  └ List core
+  existing Repo and Database structure. Since Database owns Repo but Repo must dispatch remote events back to Database,
+  I'm considering using callbacks or a settable event handler in Repo to avoid borrow cycle issues. I want to keep the
+  RealtimeTransport trait async and allow it to accept event handlers, then implement both a noop transport and a basic
+  WebSocket transport conditionally for non-WASM targets. I’m also thinking through how to extract the database URL
+  from FirebaseApp options to compose the WebSocket URL, and how to restructure Repo::new_for_app and Database::new to
+  pass the necessary handlers without breaking existing code. Overall, the plan is to create a minimal stubbed WebSocket
+• Explored
+  └ Read RepoInfo.ts
+
+> Thinking
+  This is a complex task, so I’m planning to implement a basic stub that constructs a WebSocket URL from app options
+  and connects, but without a full Firebase handshake. I’m considering structuring transport and event handler traits
+  TypeScript to better inform the minimal parsing needed.
+
+• Explored
+  └ Read WebSocketConnection.ts
+
+> Thinking
+
+• Explored
+  └ Search SERVER_DATA in database
+
+> Thinking
+  I'm considering a minimal WebSocket handshake to support streaming events by feeding them into dispatch_listeners,
+  inspired by Firebase protocol frames. I want to research existing code for handshake message structure, especially
+
+> Thinking
+  I'm thinking about how to build a minimal WebSocket transport that can handle Firebase’s realtime handshake and
+  streaming protocol by reusing token fetching and setting up the connection using tokio_tungstenite, starting with a
+  basic implementation supporting root path subscription and authentication. I'll check FirebaseOptions in the code to
+  integrate app_id properly.
+
+• Explored
+  └ Search struct FirebaseOptions in app
+    Read types.rs
+
+> Thinking
+  I'm mapping out how to build a WebSocket transport for Firebase realtime updates by parsing the database URL to create
+  the WebSocket URL, managing token fetchers, and structuring background tasks for connection and event handling using
+  tokio runtimes. I need to carefully coordinate async handshakes, background event loops, shutdown signaling, and
+  token-based handshake messages while maintaining compatibility with existing runtime and spawn helpers. This approach
+  mirrors existing logic but adapts to native async Rust constraints.
+
+• Explored
+  └ Search sendConnect in core
+    Read PersistentConnection.ts, Connection.ts
+
+■ Conversation interrupted - tell the model what to do differently
+
+
+> Thinking
+  I’m focusing on the "What's next" tasks from WASM_PLAN, which include adding native WebSocket support with
+  tokio_tungstenite, providing a wasm transport via web_sys::WebSocket, hooking up the repo to database operations, and
+  writing docs and tests. Since it’s a complex set of tasks, I’m preparing to use the planning tool for clear stepwise
+  progress.
+
+• Updated Plan
+  └ □ Review current database realtime scaffolding and determine new transport interfaces needed for native and wasm
+      targets.
+    □ Implement platform-specific WebSocket transports and integrate with Repo for listener lifecycle.
+    □ Add wasm/native feature gating, docs/tests updates per README and plan.
+
+> Thinking
+  some functionality might be stubbed or deferred. I’m thinking about ways to allow incremental progress, like using
+  polling or fallback transports, and how to architect the Repo to manage listeners and async operations cleanly.
+  Overall, the goal is to lay groundwork for real-time updates while working within time and complexity constraints.
+
+• Explored
+  └ Read README.md
+
+• Updated Plan
+  └ ✔ Review current database realtime scaffolding and determine new transport interfaces needed for native and wasm
+      targets.
+    □ Implement platform-specific WebSocket transports and integrate with Repo for listener lifecycle.
+    □ Add wasm/native feature gating, docs/tests updates per README and plan.
+
+> Thinking
+  I’m mapping out how to extend the existing realtime transport architecture to support native WebSocket and wasm
+  transports. I’m considering creating a new RealtimeTransport trait with listen/unlisten methods, adding modular
+  subfolders, and porting crucial TypeScript pieces like RepoInfo to Rust for connection URL generation. Given protocol
+  complexity, I might start with a minimal NativeWebSocketTransport scaffold that opens connections but defers full
+  message handling, and use feature flags to select platform-specific transports while preserving existing resting
+  logic. It’s a balance between implementing correct handshakes and manageable scope for now.
+
+• Explored
+  └ Read Constants.ts
+
+> Thinking
+  transports, while handling connection state and listener counts safely without blocking. This feels like a solid
+  foundation to start plugging in real functionality later.
+
+  Implementing transport scaffolding and listener integration
+
+  I'm outlining a careful approach to build native and wasm transport modules with stubbed or noop implementations
+  to restructure modules for clarity and define ListenSpec handling to ensure proper listener deduplication and safe
+  cleanup during errors.
+  I'm refining listener registration and removal to carefully manage when to call go_online and go_offline and ensure
+  repo.listen and repo.unlisten calls match listener state. This includes adding listener specs for consistent tracking,
+  safely rolling back on errors during registration by removing listeners without notifying repo, and making sure
+  remove_listener triggers unlisten and offline only when appropriate. This careful orchestration keeps connection state
+  consistent and avoids leaks or premature disconnects.
+
+• Explored
+  └ Search ListenerRegistration in api.rs
+    Read api.rs
+
+> Thinking
+  I’m planning to add a listen_spec field to the Listener struct and update related methods to properly handle listener
+  registration and removal. I’ll ensure the remove_listener function calls the repo’s unlisten method safely using
+  block_on, adjust Repo::unlisten to handle missing specs gracefully, and update debug output to include listener info.
+  After these code changes, I’ll format the code and look to run tests if possible.
+
+ I'm making ListenSpec and Repo internal to the crate by changing them to pub(crate) to reduce exposure while ensuring
+  accessibility within the crate. I’m also verifying imports like block_on and adding needed features (like Url in web-
+  sys) to support WASM builds properly.
+
+Thinking
+  I'm making sure that error handling changes compile properly and that block_on is correctly imported for listener
+  registration. I’m also considering logging options but keeping the error suppression simple for now and preparing to
+  run formatting before further updates.
+
+Thinking
+  I'm making sure that error handling changes compile properly and that block_on is correctly imported for listener
+  registration. I’m also considering logging options but keeping the error suppression simple for now and preparing to
+  run formatting before further updates.
+
+Refining listener lifecycle and error handling
+
+  I'm refining listener registration and removal to carefully manage when to call go_online and go_offline and ensure
+  repo.listen and repo.unlisten calls match listener state. This includes adding listener specs for consistent tracking,
+  safely rolling back on errors during registration by removing listeners without notifying repo, and making sure
+  remove_listener triggers unlisten and offline only when appropriate. This careful orchestration keeps connection state
+  consistent and avoids leaks or premature disconnects.
+
+• Explored
+  └ Search ListenerRegistration in api.rs
+    Read api.rs
+
+> Thinking
+  I’m planning to add a listen_spec field to the Listener struct and update related methods to properly handle listener
+  registration and removal. I’ll ensure the remove_listener function calls the repo’s unlisten method safely using
+  block_on, adjust Repo::unlisten to handle missing specs gracefully, and update debug output to include listener info.
+  After these code changes, I’ll format the code and look to run tests if possible.
+
+Thinking
+  I’m rewriting the register_listener to compute a listen_spec upfront and handle errors by removing listeners and
+  toggling online/offline states appropriately. Then I’ll update remove_listener to ensure it calls unlisten on the repo
+  and goes offline if needed. I plan to add a helper method listen_spec_for_target to generate ListenSpec based on the
+  target, keeping everything consistent and error-resilient. It feels important to manage synchronous calls carefully
+  here with block_on and decide how to handle logging errors without extra dependencies. Now I’ll proceed to implement
+  this patch following the outlined steps.
+
+
+Updated Plan
+  └ ✔ Review current database realtime scaffolding and determine new transport interfaces needed for native and wasm
+      targets.
+    ✔ Implement platform-specific WebSocket transports and integrate with Repo for listener lifecycle.
+    □ Add wasm/native feature gating, docs/tests updates per README and plan.
+
+> Thinking
+  I’m focusing on updating README and WASM_PLAN.md to reflect the new scaffolding and progress so far, including
+  listener tracking in Repo and upcoming WebSocket support. I’ll also consider touching existing tests and clearly
+  marking which tasks are done versus in progress.
+
+
+ Thinking
+  I'll update the "What's Next" section in WASM_PLAN.md to record recent progress on repo hooking and transports,
+  marking steps partly or partially done and adding sub-bullets to clarify ongoing tasks. This will help keep the plan
+  clear about what's been accomplished and what still needs attention.
+
+• Edited WASM_PLAN.md (+6 -5)
+    107    1. Implement native WebSocket transport
+    108   -    - Add a transport implementation using tokio_tungstenite (or similar) on native builds.
+    108   +    - ✅ Repo now canonicalises listen specs and selects a native WebSocket transport scaffold; next step
+is t
+           o swap the placeholder connect/listen calls with a `tokio_tungstenite` persistent connection that pumps messa
+           ges back into the database listeners.
+    109        - Handle authentication, message framing, and reconnect logic (basic stubs to start).
+    ⋮
+    111    2. Provide wasm transport
+    112   +    - ✅ wasm builds now receive the same listener spec machinery plus a `web_sys::WebSocket` URL builder;
+wir
+           e up the actual browser transport and fallbacks next.
+    113        - Use web_sys::WebSocket (or gloo-net) to connect from wasm builds, with a long-polling fallback if neces
+           sary.
+    ⋮
+    116   +    - ✅ Database listener registration now routes through `Repo::listen`/`unlisten`, reference-counting
+targe
+           ts and toggling the transport automatically during `go_online` / `go_offline`.
+    117        - Extend OnDisconnect and run_transaction to use the new transport (currently return errors).
+    118    4. Docs & tests
+    118   -    - Update README once streaming is live.
+    121        - Ensure wasm docs clearly state any feature flags (e.g., WebSocket dependencies) and fallback behaviour.
+    ⋮
+    123    The WASM plan now tracks these remaining steps under Stage 3 so we can pick up exactly where we left off next
+            session.
+    123   -Let me know when you’re ready to dive back in!
+    82         "Event",
+    83    +    "Url",
+    84         "Notification",
+
+• Ran cargo check
+
+• Updated Plan
+  └ ✔ Review current database realtime scaffolding and determine new transport interfaces needed for native and wasm
+      targets.
+    ✔ Implement platform-specific WebSocket transports and integrate with Repo for listener lifecycle.
+    ✔ Add wasm/native feature gating, docs/tests updates per README and plan.
+
+
+
+
+Thinking
+  I'm making ListenSpec and Repo internal to the crate by changing them to pub(crate) to reduce exposure while ensuring
+  accessibility within the crate. I’m also verifying imports like block_on and adding needed features (like Url in web-
+  sys) to support WASM builds properly.
+
+Thinking
+  I’m rewriting the register_listener to compute a listen_spec upfront and handle errors by removing listeners and
+  toggling online/offline states appropriately. Then I’ll update remove_listener to ensure it calls unlisten on the repo
+  and goes offline if needed. I plan to add a helper method listen_spec_for_target to generate ListenSpec based on the
+  target, keeping everything consistent and error-resilient. It feels important to manage synchronous calls carefully
+  here with block_on and decide how to handle logging errors without extra dependencies. Now I’ll proceed to implement
+  this patch following the outlined steps.
+
+
+Thinking
+  I'll make sure the final summary highlights key code modifications with precise file references, notes the directory
+  restructuring and old file removal, mentions the addition of format=export in listen_spec, and clearly includes
+  instructions for running tests and next steps using a numeric list style.
+
+> Database Realtime
+
+  - Normalised realtime listener specs and added transport selection scaffolding so Repo can ref-count targets across
+  native/wasm websocket placeholders (src/database/realtime/mod.rs:16, src/database/realtime/mod.rs:63, src/database/
+  realtime/mod.rs:96).
+  - Hooked listener registration/removal into the repo pipeline, including canonical spec building with a stable
+  format=export default and balanced listen/unlisten calls around go_online/go_offline (src/database/api.rs:583, src/
+  database/api.rs:606, src/database/api.rs:665).
+  - Enabled wasm Url bindings and refreshed the module/plan docs to record the new transport scaffold and remaining
+  handshake work (Cargo.toml:83, src/database/README.md:119, WASM_PLAN.md:108).
+  - Tests: cargo check
+
+  Next steps:
+
+  1. Port the persistent websocket handshake with tokio_tungstenite/web_sys::WebSocket, then route server events back
+  into dispatch_listeners.
+  2. Add native/wasm listener lifecycle tests once the transport talks to a backend.

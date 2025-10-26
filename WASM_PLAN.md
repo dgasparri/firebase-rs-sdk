@@ -105,18 +105,19 @@ removed, providing hooks for future WebSocket/long-poll transports.
 
 ### 🚧 What’s Next (Database & Realtime)
 1. Implement native WebSocket transport
-    - Add a transport implementation using tokio_tungstenite (or similar) on native builds.
+    - ✅ Repo now canonicalises listen specs and selects a native WebSocket transport scaffold; next step is to swap the placeholder connect/listen calls with a `tokio_tungstenite` persistent connection that pumps messages back into the database listeners.
     - Handle authentication, message framing, and reconnect logic (basic stubs to start).
     - Feed incoming events into dispatch_listeners so remote updates reach value/child callbacks.
 2. Provide wasm transport
+    - ✅ wasm builds now receive the same listener spec machinery plus a `web_sys::WebSocket` URL builder; wire up the actual browser transport and fallbacks next.
     - Use web_sys::WebSocket (or gloo-net) to connect from wasm builds, with a long-polling fallback if necessary.
     - Ensure the transport interface (RealtimeTransport) works cross-platform.
 3. Hook Repo into Database operations
-    - Replace the no-op transport when listeners are present.
+    - ✅ Database listener registration now routes through `Repo::listen`/`unlisten`, reference-counting targets and toggling the transport automatically during `go_online` / `go_offline`.
     - Extend OnDisconnect and run_transaction to use the new transport (currently return errors).
 4. Docs & tests
-    - Update README once streaming is live.
-    - Add integration tests (native/wasm) for listener behaviour.
+    - Update README once streaming is live. Current docs mention the new transport scaffolding and listener bookkeeping.
+    - Add integration tests (native/wasm) for listener behaviour once a real transport is wired in.
     - Ensure wasm docs clearly state any feature flags (e.g., WebSocket dependencies) and fallback behaviour.
 
 The WASM plan now tracks these remaining steps under Stage 3 so we can pick up exactly where we left off next session.
