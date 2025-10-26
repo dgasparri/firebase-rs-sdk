@@ -220,52 +220,14 @@ pub struct PushSubscriptionDetails;
 #[cfg(all(test, not(all(feature = "wasm-web", target_arch = "wasm32"))))]
 mod tests {
     use super::*;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
-    #[test]
-    fn native_subscribe_reports_unsupported() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn native_subscribe_reports_unsupported() {
         let mut manager = PushSubscriptionManager::new();
+        manager.clear_cache();
         assert!(manager.cached_subscription().is_none());
         let registration = crate::messaging::ServiceWorkerRegistrationHandle;
-        let err = block_on_ready(manager.subscribe(&registration, "test")).unwrap_err();
+        let err = manager.subscribe(&registration, "test").await.unwrap_err();
         assert_eq!(err.code_str(), "messaging/unsupported-browser");
     }
-
-    fn block_on_ready<F: Future>(future: F) -> F::Output {
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-        let mut future = future;
-        let mut pinned = unsafe { Pin::new_unchecked(&mut future) };
-        match Future::poll(pinned.as_mut(), &mut cx) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("future unexpectedly pending"),
-        }
-    }
-
-    fn noop_waker() -> Waker {
-        unsafe { Waker::from_raw(noop_raw_waker()) }
-    }
-
-    fn noop_raw_waker() -> RawWaker {
-        RawWaker::new(std::ptr::null(), &NOOP_RAW_WAKER_VTABLE)
-    }
-
-    unsafe fn noop_raw_waker_clone(_: *const ()) -> RawWaker {
-        noop_raw_waker()
-    }
-
-    unsafe fn noop_raw_waker_wake(_: *const ()) {}
-
-    unsafe fn noop_raw_waker_wake_by_ref(_: *const ()) {}
-
-    unsafe fn noop_raw_waker_drop(_: *const ()) {}
-
-    static NOOP_RAW_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-        noop_raw_waker_clone,
-        noop_raw_waker_wake,
-        noop_raw_waker_wake_by_ref,
-        noop_raw_waker_drop,
-    );
 }

@@ -138,3 +138,13 @@ cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-ind
 
 Fai un search for dead_code per capire se serve ancora, è stato messo per tenere pulito il porting
 
+#[allow(unused_imports)]
+
+### Conditional, some of them are not ok
+
+
+./src/functions/context.rs:98
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+
+Non so perché quel pezzo di codice non viene letto, contiene errori ma non viene segnalato da nessun cargo check
+

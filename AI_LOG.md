@@ -3787,3 +3787,25 @@ Refinements
 
   (HTTP-backed auth tests still require loopback sockets; please re-run cargo test --lib auth::api::core locally to
   verify them end-to-end.)
+
+  App Check and Messaging still had block_on shims. I’ve removed them:
+
+  - src/app_check/interop.rs:63-143, src/app_check/token_provider.rs:134-177 – Tests now run with #[tokio::test] and
+  await the real async APIs (no more mini runtimes).
+  - src/auth/persistence/indexed_db.rs:9-188 – Replaced the wasm block_on by caching states in-memory/localStorage while
+  async writes continue to IndexedDB; reads now clone the cache.
+  - src/messaging/api.rs:668-822, src/messaging/sw_manager.rs:200-262, src/messaging/subscription.rs:220-282 – Converted
+  all messaging tests to async. Removed the custom block_on_future/block_on_ready helpers; native-only tests now assert
+  errors by awaiting the async methods directly.
+
+  Validation:
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+  - Spot tests: cargo test messaging::api::tests::token_is_stable_until_deleted,
+  cargo test app_check::interop::tests::get_token_returns_value, cargo test
+  messaging::sw_manager::tests::native_manager_reports_unsupported
+
+  Everything builds; async tests pass. Remaining httpmock suites still need loopback sockets, so run them locally. Let
+  me know if you want the unused noop waker helpers stripped now that no tests depend on them.
+

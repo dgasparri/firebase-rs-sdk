@@ -214,51 +214,12 @@ pub struct ServiceWorkerRegistrationHandle;
 #[cfg(all(test, not(all(feature = "wasm-web", target_arch = "wasm32"))))]
 mod tests {
     use super::*;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
-    #[test]
-    fn native_manager_reports_unsupported() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn native_manager_reports_unsupported() {
         let mut manager = ServiceWorkerManager::new();
         assert!(manager.registration().is_none());
-        let err = block_on_ready(manager.register_default()).unwrap_err();
+        let err = manager.register_default().await.unwrap_err();
         assert_eq!(err.code_str(), "messaging/unsupported-browser");
     }
-
-    fn block_on_ready<F: Future>(future: F) -> F::Output {
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-        let mut future = future;
-        let mut pinned = unsafe { Pin::new_unchecked(&mut future) };
-        match Future::poll(pinned.as_mut(), &mut cx) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("future unexpectedly pending"),
-        }
-    }
-
-    fn noop_waker() -> Waker {
-        unsafe { Waker::from_raw(noop_raw_waker()) }
-    }
-
-    fn noop_raw_waker() -> RawWaker {
-        RawWaker::new(std::ptr::null(), &NOOP_RAW_WAKER_VTABLE)
-    }
-
-    unsafe fn noop_raw_waker_clone(_: *const ()) -> RawWaker {
-        noop_raw_waker()
-    }
-
-    unsafe fn noop_raw_waker_wake(_: *const ()) {}
-
-    unsafe fn noop_raw_waker_wake_by_ref(_: *const ()) {}
-
-    unsafe fn noop_raw_waker_drop(_: *const ()) {}
-
-    static NOOP_RAW_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-        noop_raw_waker_clone,
-        noop_raw_waker_wake,
-        noop_raw_waker_wake_by_ref,
-        noop_raw_waker_drop,
-    );
 }

@@ -667,10 +667,9 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-    use tokio::runtime::Builder;
+    #[allow(unused_imports)]
+    use std::task::Waker;
+    use std::task::{RawWaker, RawWakerVTable};
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -684,75 +683,85 @@ mod tests {
         }
     }
 
-    #[test]
-    fn token_is_stable_until_deleted() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn token_is_stable_until_deleted() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
-        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
-        let permission = block_on_ready(messaging.request_permission()).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .expect("init app");
+        let messaging = get_messaging(Some(app)).await.unwrap();
+        let permission = messaging.request_permission().await.unwrap();
         assert_eq!(permission, PermissionState::Granted);
-        let token1 = block_on_ready(messaging.get_token(None)).unwrap();
-        let token2 = block_on_ready(messaging.get_token(None)).unwrap();
+        let token1 = messaging.get_token(None).await.unwrap();
+        let token2 = messaging.get_token(None).await.unwrap();
         assert_eq!(token1, token2);
-        block_on_ready(messaging.delete_token()).unwrap();
-        let token3 = block_on_ready(messaging.get_token(None)).unwrap();
+        messaging.delete_token().await.unwrap();
+        let token3 = messaging.get_token(None).await.unwrap();
         assert_ne!(token1, token3);
     }
 
-    #[test]
-    fn get_token_with_empty_vapid_key_returns_error() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_token_with_empty_vapid_key_returns_error() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
-        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
-        let err = block_on_ready(messaging.get_token(Some(" "))).unwrap_err();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .expect("init app");
+        let messaging = get_messaging(Some(app)).await.unwrap();
+        let err = messaging.get_token(Some(" ")).await.unwrap_err();
         assert_eq!(err.code_str(), "messaging/invalid-argument");
     }
 
-    #[test]
-    fn delete_token_without_existing_token_returns_error() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn delete_token_without_existing_token_returns_error() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
-        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
-        let err = block_on_ready(messaging.delete_token()).unwrap_err();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .expect("init app");
+        let messaging = get_messaging(Some(app)).await.unwrap();
+        let err = messaging.delete_token().await.unwrap_err();
         assert_eq!(err.code_str(), "messaging/token-deletion-failed");
     }
 
-    #[test]
-    fn token_persists_across_messaging_instances() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn token_persists_across_messaging_instances() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
-        let messaging = block_on_future(get_messaging(Some(app.clone()))).unwrap();
-        let token1 = block_on_ready(messaging.get_token(None)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .expect("init app");
+        let messaging = get_messaging(Some(app.clone())).await.unwrap();
+        let token1 = messaging.get_token(None).await.unwrap();
 
         // Re-fetch messaging for the same app and validate the stored token is reused.
-        let messaging_again = block_on_future(get_messaging(Some(app))).unwrap();
-        let token2 = block_on_ready(messaging_again.get_token(None)).unwrap();
+        let messaging_again = get_messaging(Some(app)).await.unwrap();
+        let token2 = messaging_again.get_token(None).await.unwrap();
         assert_eq!(token1, token2);
 
-        block_on_ready(messaging_again.delete_token()).unwrap();
+        messaging_again.delete_token().await.unwrap();
     }
 
     #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-    #[test]
-    fn on_message_returns_window_error_on_non_wasm() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn on_message_returns_window_error_on_non_wasm() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
-        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .expect("init app");
+        let messaging = get_messaging(Some(app)).await.unwrap();
 
         let handler: MessageHandler = Arc::new(|_| {});
         let err = match super::on_message(&messaging, handler) {
@@ -766,14 +775,16 @@ mod tests {
     }
 
     #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-    #[test]
-    fn on_background_message_returns_sw_error_on_non_wasm() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn on_background_message_returns_sw_error_on_non_wasm() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
-        let messaging = block_on_future(get_messaging(Some(app))).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .expect("init app");
+        let messaging = get_messaging(Some(app)).await.unwrap();
 
         let handler: MessageHandler = Arc::new(|_| {});
         let err = match super::on_background_message(&messaging, handler) {
@@ -786,48 +797,26 @@ mod tests {
         assert_eq!(err.code_str(), "messaging/available-in-sw");
     }
 
-    fn block_on_ready<F: Future>(future: F) -> F::Output {
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-        let mut future = future;
-        // SAFETY: the future is dropped before this function returns and never moved while pinned.
-        let mut pinned = unsafe { Pin::new_unchecked(&mut future) };
-        match Future::poll(pinned.as_mut(), &mut cx) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("future unexpectedly pending"),
-        }
-    }
-
-    fn block_on_future<F: Future>(future: F) -> F::Output
-    where
-        F: Future + 'static,
-        F::Output: 'static,
-    {
-        Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(future)
-    }
-
-    fn noop_waker() -> Waker {
-        unsafe { Waker::from_raw(noop_raw_waker()) }
-    }
-
+    #[allow(dead_code)]
     fn noop_raw_waker() -> RawWaker {
         RawWaker::new(std::ptr::null(), &NOOP_RAW_WAKER_VTABLE)
     }
 
+    #[allow(dead_code)]
     unsafe fn noop_raw_waker_clone(_: *const ()) -> RawWaker {
         noop_raw_waker()
     }
 
+    #[allow(dead_code)]
     unsafe fn noop_raw_waker_wake(_: *const ()) {}
 
+    #[allow(dead_code)]
     unsafe fn noop_raw_waker_wake_by_ref(_: *const ()) {}
 
+    #[allow(dead_code)]
     unsafe fn noop_raw_waker_drop(_: *const ()) {}
 
+    #[allow(dead_code)]
     static NOOP_RAW_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
         noop_raw_waker_clone,
         noop_raw_waker_wake,
