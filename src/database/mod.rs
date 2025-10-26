@@ -84,8 +84,8 @@ pub use api::{
     get_database, limit_to_first, limit_to_last, on_child_added, on_child_changed,
     on_child_removed, order_by_child, order_by_key, order_by_priority, order_by_value, push,
     push_with_value, query, register_database_component, run_transaction, set_priority,
-    set_with_priority, start_after, start_after_with_key, start_at, start_at_with_key,
-    DataSnapshot, Database, DatabaseQuery, DatabaseReference, ListenerRegistration,
+    set_with_priority, start_after, start_after_with_key, start_at, start_at_with_key, ChildEvent,
+    ChildEventType, DataSnapshot, Database, DatabaseQuery, DatabaseReference, ListenerRegistration,
     QueryConstraint,
 };
 

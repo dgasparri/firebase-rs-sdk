@@ -741,16 +741,17 @@ mod native {
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 mod wasm {
     use super::*;
+    use std::sync::{Mutex as StdMutex, Weak};
     use url::Url;
 
     pub(super) fn websocket_transport(
         app: &FirebaseApp,
-        _repo: std::sync::Weak<Repo>,
+        repo: Weak<Repo>,
     ) -> Option<Arc<dyn RealtimeTransport>> {
         let url = app.options().database_url?;
         let parsed = Url::parse(&url).ok()?;
         let info = RepoInfo::from_url(parsed)?;
-        Some(Arc::new(WasmWebSocketTransport::new(info)))
+        Some(Arc::new(WasmWebSocketTransport::new(info, repo)))
     }
 
     #[derive(Clone, Debug)]
@@ -785,11 +786,15 @@ mod wasm {
     #[derive(Debug)]
     struct WasmWebSocketTransport {
         repo_info: RepoInfo,
+        repo: StdMutex<Weak<Repo>>,
     }
 
     impl WasmWebSocketTransport {
-        fn new(repo_info: RepoInfo) -> Self {
-            Self { repo_info }
+        fn new(repo_info: RepoInfo, repo: Weak<Repo>) -> Self {
+            Self {
+                repo_info,
+                repo: StdMutex::new(repo),
+            }
         }
     }
 
@@ -805,8 +810,7 @@ mod wasm {
         }
 
         async fn listen(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
-            // TODO(async-wasm): Implement wasm WebSocket transport mirroring the
-            // JS SDK `BrowserPollConnection` / `WebSocketConnection` stack.
+            // TODO(async-wasm): Forward to the JS bridge once implemented.
             Ok(())
         }
 

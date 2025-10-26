@@ -95,14 +95,21 @@ enum QueryConstraintKind {
     },
 }
 
-type ValueListenerCallback = Arc<dyn Fn(DataSnapshot) + Send + Sync>;
-type ChildListenerCallback = Arc<dyn Fn(DataSnapshot, Option<String>) + Send + Sync>;
+type ValueListenerCallback = Arc<dyn Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync>;
+type ChildListenerCallback = Arc<dyn Fn(Result<ChildEvent, DatabaseError>) + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ChildEventType {
+pub enum ChildEventType {
     Added,
     Changed,
     Removed,
+}
+
+#[derive(Clone)]
+pub struct ChildEvent {
+    pub event: ChildEventType,
+    pub snapshot: DataSnapshot,
+    pub previous_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -473,13 +480,25 @@ where
     reference.push_with_value(value)
 }
 
+/// Registers a `value` listener for the provided reference.
+#[allow(dead_code)]
+pub fn on_value<F>(
+    reference: &DatabaseReference,
+    callback: F,
+) -> DatabaseResult<ListenerRegistration>
+where
+    F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
+{
+    reference.on_value(callback)
+}
+
 /// Registers a `child_added` listener for the provided reference.
 pub fn on_child_added<F>(
     reference: &DatabaseReference,
     callback: F,
 ) -> DatabaseResult<ListenerRegistration>
 where
-    F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+    F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
     reference.on_child_added(callback)
 }
@@ -490,7 +509,7 @@ pub fn on_child_changed<F>(
     callback: F,
 ) -> DatabaseResult<ListenerRegistration>
 where
-    F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+    F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
     reference.on_child_changed(callback)
 }
@@ -501,7 +520,7 @@ pub fn on_child_removed<F>(
     callback: F,
 ) -> DatabaseResult<ListenerRegistration>
 where
-    F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+    F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
     reference.on_child_removed(callback)
 }
@@ -645,14 +664,17 @@ impl Database {
             })
             .map(|(id, _)| *id)
             .collect();
+        let error = internal_error("listener revoked by server".to_string());
         for id in cancelled {
             if let Some(listener) = listeners.remove(&id) {
-                REALTIME_LOGGER.warn("listener revoked by server".to_string());
-                if let ListenerKind::Value(callback) = listener.kind {
-                    callback(DataSnapshot {
-                        reference: self.reference_from_segments(segments.clone()),
-                        value: Value::Null,
-                    });
+                let _ = block_on(self.inner.repo.unlisten(listener.spec.clone()));
+                match listener.kind {
+                    ListenerKind::Value(callback) => {
+                        callback(Err(error.clone()));
+                    }
+                    ListenerKind::Child { callback, .. } => {
+                        callback(Err(error.clone()));
+                    }
                 }
             }
         }
@@ -665,17 +687,13 @@ impl Database {
         drop(guard);
         for listener in listeners {
             REALTIME_LOGGER.warn(format!("listener cancelled due to error: {err}"));
-            if let ListenerKind::Value(callback) = listener.kind {
-                let reference = match listener.target {
-                    ListenerTarget::Reference(path) => self.reference_from_segments(path.clone()),
-                    ListenerTarget::Query { path, .. } => {
-                        self.reference_from_segments(path.clone())
-                    }
-                };
-                callback(DataSnapshot {
-                    reference,
-                    value: Value::Null,
-                });
+            match listener.kind {
+                ListenerKind::Value(callback) => {
+                    callback(Err(err.clone()));
+                }
+                ListenerKind::Child { callback, .. } => {
+                    callback(Err(err.clone()));
+                }
             }
         }
     }
@@ -782,7 +800,7 @@ impl Database {
         match kind {
             ListenerKind::Value(callback) => {
                 let snapshot = self.snapshot_from_root(&target, &current_root)?;
-                callback(snapshot);
+                callback(Ok(snapshot));
             }
             ListenerKind::Child { event, callback } => {
                 if let Err(err) =
@@ -840,7 +858,7 @@ impl Database {
             match &listener.kind {
                 ListenerKind::Value(callback) => {
                     let snapshot = self.snapshot_from_root(&listener.target, new_root)?;
-                    callback(snapshot);
+                    callback(Ok(snapshot));
                 }
                 ListenerKind::Child { event, callback } => {
                     self.invoke_child_listener(&listener, *event, callback, old_root, new_root)?;
@@ -932,7 +950,11 @@ impl Database {
                         let value = new_children.get(key).cloned().unwrap_or(Value::Null);
                         let prev_name = previous_key(&new_keys, key);
                         let snapshot = self.child_snapshot(parent_path, key, value.clone());
-                        callback(snapshot, prev_name);
+                        callback(Ok(ChildEvent {
+                            event,
+                            snapshot,
+                            previous_name: prev_name,
+                        }));
                     }
                 }
             }
@@ -945,7 +967,11 @@ impl Database {
                             let value = new_child.clone();
                             let prev_name = previous_key(&new_keys, key);
                             let snapshot = self.child_snapshot(parent_path, key, value);
-                            callback(snapshot, prev_name);
+                            callback(Ok(ChildEvent {
+                                event,
+                                snapshot,
+                                previous_name: prev_name,
+                            }));
                         }
                     }
                 }
@@ -957,7 +983,11 @@ impl Database {
                         let value = old_children.get(key).cloned().unwrap_or(Value::Null);
                         let prev_name = previous_key(&old_keys, key);
                         let snapshot = self.child_snapshot(parent_path, key, value);
-                        callback(snapshot, prev_name);
+                        callback(Ok(ChildEvent {
+                            event,
+                            snapshot,
+                            previous_name: prev_name,
+                        }));
                     }
                 }
             }
@@ -1073,7 +1103,7 @@ impl DatabaseReference {
     /// Registers a value listener for this reference, mirroring `onValue()`.
     pub fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
-        F: Fn(DataSnapshot) + Send + Sync + 'static,
+        F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
     {
         let user_fn: ValueListenerCallback = Arc::new(callback);
         self.database.register_listener(
@@ -1085,7 +1115,7 @@ impl DatabaseReference {
     /// Registers an `onChildAdded` listener, mirroring the JS SDK.
     pub fn on_child_added<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
-        F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+        F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
         let cb: ChildListenerCallback = Arc::new(callback);
         self.database.register_listener(
@@ -1100,7 +1130,7 @@ impl DatabaseReference {
     /// Registers an `onChildChanged` listener, mirroring the JS SDK.
     pub fn on_child_changed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
-        F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+        F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
         let cb: ChildListenerCallback = Arc::new(callback);
         self.database.register_listener(
@@ -1115,7 +1145,7 @@ impl DatabaseReference {
     /// Registers an `onChildRemoved` listener, mirroring the JS SDK.
     pub fn on_child_removed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
-        F: Fn(DataSnapshot, Option<String>) + Send + Sync + 'static,
+        F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
     {
         let cb: ChildListenerCallback = Arc::new(callback);
         self.database.register_listener(
@@ -1519,7 +1549,7 @@ impl DatabaseQuery {
     /// Registers a value listener for this query, mirroring `onValue(query, cb)`.
     pub fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration>
     where
-        F: Fn(DataSnapshot) + Send + Sync + 'static,
+        F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
     {
         let user_fn: ValueListenerCallback = Arc::new(callback);
         self.reference.database.register_listener(
@@ -2160,8 +2190,10 @@ mod tests {
         let events: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let events_clone = events.clone();
         let _registration = reference
-            .on_value(move |snapshot| {
-                events_clone.lock().unwrap().push(snapshot.value().clone());
+            .on_value(move |result| {
+                if let Ok(snapshot) = result {
+                    events_clone.lock().unwrap().push(snapshot.value().clone());
+                }
             })
             .unwrap();
 
@@ -2214,18 +2246,10 @@ mod tests {
             )
             .unwrap();
 
-        let foo = database
-            .reference("items/foo")
-            .unwrap()
-            .get()
-            .unwrap();
+        let foo = database.reference("items/foo").unwrap().get().unwrap();
         assert_eq!(foo, json!({"count": 2}));
 
-        let bar = database
-            .reference("items/bar")
-            .unwrap()
-            .get()
-            .unwrap();
+        let bar = database.reference("items/bar").unwrap().get().unwrap();
         assert_eq!(bar, json!({"value": true}));
     }
 
@@ -2249,8 +2273,10 @@ mod tests {
         let captured = Arc::new(Mutex::new(None));
         let holder = captured.clone();
         profiles
-            .on_value(move |snapshot| {
-                *holder.lock().unwrap() = Some(snapshot);
+            .on_value(move |result| {
+                if let Ok(snapshot) = result {
+                    *holder.lock().unwrap() = Some(snapshot);
+                }
             })
             .unwrap();
 
@@ -2297,11 +2323,13 @@ mod tests {
         let added_events = Arc::new(Mutex::new(Vec::<(String, Option<String>)>::new()));
         let capture = added_events.clone();
         let registration = items
-            .on_child_added(move |snapshot, prev| {
-                capture
-                    .lock()
-                    .unwrap()
-                    .push((snapshot.key().unwrap().to_string(), prev.clone()));
+            .on_child_added(move |result| {
+                if let Ok(event) = result {
+                    capture.lock().unwrap().push((
+                        event.snapshot.key().unwrap().to_string(),
+                        event.previous_name.clone(),
+                    ));
+                }
             })
             .unwrap();
 
@@ -2608,8 +2636,10 @@ mod tests {
         let captured = events.clone();
 
         let registration = reference
-            .on_value(move |snapshot| {
-                captured.lock().unwrap().push(snapshot.value().clone());
+            .on_value(move |result| {
+                if let Ok(snapshot) = result {
+                    captured.lock().unwrap().push(snapshot.value().clone());
+                }
             })
             .expect("on_value registration");
 
@@ -2657,8 +2687,10 @@ mod tests {
             vec![order_by_child("score"), limit_to_last(1)],
         )
         .unwrap()
-        .on_value(move |snapshot| {
-            captured.lock().unwrap().push(snapshot.value().clone());
+        .on_value(move |result| {
+            if let Ok(snapshot) = result {
+                captured.lock().unwrap().push(snapshot.value().clone());
+            }
         })
         .unwrap();
 

@@ -107,7 +107,7 @@ removed, providing hooks for future WebSocket/long-poll transports.
 1. Implement native WebSocket transport
     - ✅ Native builds now spin up a `tokio_tungstenite` connection in the background when the first listener registers, authenticate with Auth/App Check tokens, enqueue realtime listen/unlisten envelopes, and clear the sink when the socket closes so reconnects can occur.
     - Handle authentication, message framing, and reconnect logic (basic stubs to start).
-    - Feed incoming events into dispatch_listeners so remote updates reach value/child callbacks.
+    - ✅ Feed incoming events into `repo.handle_action` so remote updates mutate the cached tree, update listeners, and surface errors to callbacks.
 2. Provide wasm transport
     - ✅ wasm builds now receive the same listener spec machinery plus a `web_sys::WebSocket` URL builder; wire up the actual browser transport and fallbacks next.
     - Use web_sys::WebSocket (or gloo-net) to connect from wasm builds, with a long-polling fallback if necessary.

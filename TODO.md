@@ -1,5 +1,23 @@
 # Miscellaneous TODO
 
+come posso contare le linee di codice in un progetto Rust? Ci sono tool o script (anche python)?
+
+Ecco i metodi più usati (da super veloce a più “su misura”) per contare le linee in un progetto Rust.
+
+Strumenti pronti (consigliati)
+
+1) tokei (Rust, velocissimo)
+
+# installazione
+cargo install tokei
+# uso nella root del repo
+tokei
+# per una singola cartella
+tokei src
+
+
+Mostra file, linguaggio, code/commenti/blank e rispetta in genere i pattern ignorati comuni.
+
 ## Create a RUSTDOC.md with extracts from README.md
 
 
