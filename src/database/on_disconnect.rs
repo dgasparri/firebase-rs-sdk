@@ -8,9 +8,10 @@ use crate::database::DatabaseReference;
 ///
 /// Mirrors the surface of the JS SDK (`packages/database/src/api/OnDisconnect.ts`).
 /// Operations resolve server value placeholders before being sent to the realtime
-/// backend and require an active WebSocket transport. When the runtime falls
-/// back to the HTTP long-poll transport the methods return
-/// `database/internal-error` until long-poll request support lands.
+/// backend and require an active WebSocket transport for full server-side
+/// semantics. When the runtime falls back to the HTTP long-poll transport the
+/// commands are queued locally and flushed when `Database::go_offline()` runs,
+/// which preserves graceful shutdowns but cannot detect abrupt connection loss.
 #[derive(Clone, Debug)]
 pub struct OnDisconnect {
     reference: DatabaseReference,

@@ -10,6 +10,7 @@ use crate::app::FirebaseApp;
 use crate::app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME};
 use crate::auth::Auth;
 use crate::database::error::{internal_error, DatabaseResult};
+use reqwest::StatusCode;
 use serde_json::Value as JsonValue;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -143,6 +144,16 @@ impl Repo {
     pub fn new_for_app(app: &FirebaseApp) -> Arc<Self> {
         Arc::new_cyclic(|weak| Self {
             transport: select_transport(app, weak.clone()),
+            state: Arc::new(Mutex::new(RepoState::Offline)),
+            active_listens: Arc::new(Mutex::new(HashMap::new())),
+            event_handler: Arc::new(std::sync::Mutex::new(default_event_handler())),
+        })
+    }
+
+    #[cfg(test)]
+    fn new_for_test(transport: Arc<dyn RealtimeTransport>) -> Arc<Self> {
+        Arc::new(Self {
+            transport,
             state: Arc::new(Mutex::new(RepoState::Offline)),
             active_listens: Arc::new(Mutex::new(HashMap::new())),
             event_handler: Arc::new(std::sync::Mutex::new(default_event_handler())),
@@ -902,6 +913,17 @@ mod native {
     }
 }
 
+#[allow(dead_code)]
+fn ensure_success(status: StatusCode, verb: &str) -> DatabaseResult<()> {
+    if status.is_success() {
+        Ok(())
+    } else {
+        Err(internal_error(format!(
+            "onDisconnect {verb} request failed with status {status}"
+        )))
+    }
+}
+
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 mod wasm {
     use super::*;
@@ -990,6 +1012,20 @@ mod wasm {
                     pairs.append_pair(key, value);
                 }
             }
+            Ok(url)
+        }
+
+        fn rest_path(&self, path: &[String]) -> DatabaseResult<Url> {
+            let scheme = if self.secure { "https" } else { "http" };
+            let base = format!("{}://{}", scheme, self.host);
+            let mut url = Url::parse(&base)
+                .map_err(|err| internal_error(format!("failed to parse database host: {err}")))?;
+            if path.is_empty() {
+                url.set_path(".json");
+            } else {
+                url.set_path(&format!("{}.json", path.join("/")));
+            }
+            url.query_pairs_mut().append_pair("ns", &self.namespace);
             Ok(url)
         }
     }
@@ -1308,6 +1344,88 @@ mod wasm {
                 run_long_poll_loop(state, info, app, client, spec, control).await;
             });
         }
+
+        async fn flush_on_disconnect(&self) -> DatabaseResult<()> {
+            let commands = {
+                let mut guard = self.state.pending_disconnect.lock().await;
+                std::mem::take(&mut *guard)
+            };
+
+            for command in commands {
+                match command.action {
+                    OnDisconnectAction::Put => {
+                        self.apply_put(&command.path, &command.payload).await?;
+                        self.dispatch_local("d", &command.path, command.payload)
+                            .await?;
+                    }
+                    OnDisconnectAction::Merge => {
+                        self.apply_merge(&command.path, &command.payload).await?;
+                        self.dispatch_local("m", &command.path, command.payload)
+                            .await?;
+                    }
+                    OnDisconnectAction::Cancel => {}
+                }
+            }
+
+            Ok(())
+        }
+
+        async fn apply_put(&self, path: &[String], payload: &JsonValue) -> DatabaseResult<()> {
+            let mut url = self.repo_info.rest_path(path)?;
+            if let Some(token) = fetch_auth_token(&self.app).await? {
+                url.query_pairs_mut().append_pair("auth", &token);
+            }
+
+            let mut request = self.client.put(url);
+            if let Some(token) = fetch_app_check_token(&self.app).await? {
+                request = request.header("X-Firebase-AppCheck", token);
+            }
+
+            let response = request.json(payload).send().await.map_err(|err| {
+                internal_error(format!("failed to apply onDisconnect PUT: {err}"))
+            })?;
+
+            ensure_success(response.status(), "PUT")
+        }
+
+        async fn apply_merge(&self, path: &[String], payload: &JsonValue) -> DatabaseResult<()> {
+            let map = payload.as_object().ok_or_else(|| {
+                internal_error("onDisconnect.update payload must be a JSON object".to_string())
+            })?;
+
+            let mut url = self.repo_info.rest_path(path)?;
+            if let Some(token) = fetch_auth_token(&self.app).await? {
+                url.query_pairs_mut().append_pair("auth", &token);
+            }
+
+            let mut request = self.client.patch(url);
+            if let Some(token) = fetch_app_check_token(&self.app).await? {
+                request = request.header("X-Firebase-AppCheck", token);
+            }
+
+            let response = request.json(map).send().await.map_err(|err| {
+                internal_error(format!("failed to apply onDisconnect PATCH: {err}"))
+            })?;
+
+            ensure_success(response.status(), "PATCH")
+        }
+
+        async fn dispatch_local(
+            &self,
+            action: &str,
+            path: &[String],
+            payload: JsonValue,
+        ) -> DatabaseResult<()> {
+            if let Some(repo) = self.state.repo() {
+                let body = json!({
+                    "p": path_to_string(path),
+                    "d": payload,
+                });
+                repo.handle_action(action, &body).await
+            } else {
+                Ok(())
+            }
+        }
     }
 
     #[async_trait::async_trait(?Send)]
@@ -1326,6 +1444,7 @@ mod wasm {
             for (_, control) in handles {
                 control.cancel();
             }
+            self.flush_on_disconnect().await?;
             Ok(())
         }
 
@@ -1355,10 +1474,27 @@ mod wasm {
             Ok(())
         }
 
-        async fn on_disconnect(&self, _request: OnDisconnectRequest) -> DatabaseResult<()> {
-            Err(internal_error(
-                "onDisconnect operations require an active WebSocket transport",
-            ))
+        async fn on_disconnect(&self, request: OnDisconnectRequest) -> DatabaseResult<()> {
+            let OnDisconnectRequest {
+                action,
+                path,
+                payload,
+            } = request;
+            let mut pending = self.state.pending_disconnect.lock().await;
+            match action {
+                OnDisconnectAction::Cancel => {
+                    pending.retain(|existing| existing.path != path);
+                }
+                OnDisconnectAction::Put | OnDisconnectAction::Merge => {
+                    pending.retain(|existing| existing.path != path);
+                    pending.push(OnDisconnectCommand {
+                        action,
+                        path,
+                        payload,
+                    });
+                }
+            }
+            Ok(())
         }
     }
 
@@ -1367,6 +1503,7 @@ mod wasm {
         repo: StdMutex<Weak<Repo>>,
         listeners: AsyncMutex<HashMap<ListenSpec, ListenerControl>>,
         online: AtomicBool,
+        pending_disconnect: AsyncMutex<Vec<OnDisconnectCommand>>,
     }
 
     impl WasmLongPollState {
@@ -1375,6 +1512,7 @@ mod wasm {
                 repo: StdMutex::new(repo),
                 listeners: AsyncMutex::new(HashMap::new()),
                 online: AtomicBool::new(false),
+                pending_disconnect: AsyncMutex::new(Vec::new()),
             }
         }
 
@@ -1799,5 +1937,64 @@ mod wasm {
 
         serde_json::to_string(&envelope)
             .map_err(|err| internal_error(format!("failed to encode realtime request: {err}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_lock::Mutex as AsyncMutex;
+
+    #[derive(Clone, Default)]
+    struct MockTransport {
+        events: Arc<AsyncMutex<Vec<String>>>,
+    }
+
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    impl RealtimeTransport for MockTransport {
+        async fn connect(&self) -> DatabaseResult<()> {
+            self.events.lock().await.push("connect".to_string());
+            Ok(())
+        }
+
+        async fn disconnect(&self) -> DatabaseResult<()> {
+            self.events.lock().await.push("disconnect".to_string());
+            Ok(())
+        }
+
+        async fn listen(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
+            Ok(())
+        }
+
+        async fn unlisten(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
+            Ok(())
+        }
+
+        async fn on_disconnect(&self, request: OnDisconnectRequest) -> DatabaseResult<()> {
+            let (action, path, payload) = request.into_inner();
+            self.events.lock().await.push(format!(
+                "on_disconnect:{}:{}:{}",
+                action.code(),
+                path_to_string(&path),
+                payload
+            ));
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn repo_forwards_on_disconnect_command() {
+        let transport = Arc::new(MockTransport::default());
+        let repo = Repo::new_for_test(transport.clone());
+
+        repo.on_disconnect_put(vec!["messages".into()], JsonValue::Null)
+            .await
+            .unwrap();
+
+        let events = transport.events.lock().await.clone();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0], "connect");
+        assert!(events[1].starts_with("on_disconnect:o:/messages"));
     }
 }

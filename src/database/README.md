@@ -119,11 +119,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Unit tests covering in-memory semantics, validation edge cases, and REST request wiring through `httpmock`.
 - Preliminary realtime hooks (`Database::go_online`/`go_offline`) backed by a platform-aware transport selector. The Rust port now normalises listen specs, reference-counts active listeners, and—on native targets—establishes an async WebSocket session using `tokio-tungstenite`, forwarding auth/App Check tokens and queuing listen/unlisten envelopes until the full persistent connection protocol is ported. Streaming payload handling is still pending.
 - WASM builds mirror the native realtime selector: the runtime first attempts a `web_sys::WebSocket` connection and automatically falls back to an HTTP long-poll loop when sockets are unavailable, keeping `on_value` listeners alive across restrictive environments.
-- `OnDisconnect` scheduling (`set`, `set_with_priority`, `update`, `remove`, `cancel`) forwards to the realtime transport when a WebSocket is available, resolving server timestamp/increment placeholders before dispatch. The long-poll fallback currently returns an error for these operations.
+- `OnDisconnect` scheduling (`set`, `set_with_priority`, `update`, `remove`, `cancel`) forwards to the realtime transport when a WebSocket is available, resolving server timestamp/increment placeholders before dispatch. Under the long-poll fallback, the operations are queued and executed when the client calls `go_offline()`, providing a graceful degradation when WebSockets are unavailable.
+- `run_transaction` is available and mirrors the JS API, returning a `TransactionResult` with `committed`/`snapshot` fields. The current implementation uses an optimistic REST write when running against HTTP backends, so simultaneous writers should still implement retry loops.
 
 ### WASM Notes
 
-- The module compiles on wasm targets when the `wasm-web` feature is enabled. Web builds attempt to establish a realtime WebSocket and transparently degrade to a long-poll fetch loop when sockets cannot open, reusing the same listener bookkeeping as native builds. `OnDisconnect` operations currently require an active WebSocket and will return `database/internal-error` when only the long-poll fallback is available.
+- The module compiles on wasm targets when the `wasm-web` feature is enabled. Web builds attempt to establish a realtime WebSocket and transparently degrade to a long-poll fetch loop when sockets cannot open, reusing the same listener bookkeeping as native builds. `OnDisconnect` operations require an active WebSocket; on the long-poll fallback they are queued locally and executed when `go_offline()` runs, which does not fully replicate server-side disconnect handling.
 - Calling `get_database(None)` is not supported on wasm because the default app lookup is asynchronous. Pass an explicit `FirebaseApp` instance instead.
 - `go_online`/`go_offline` are currently stubs on wasm (and native) but provide the async surface needed for upcoming realtime work.
 
@@ -131,11 +132,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - Real-time transports (`Repo`, `PersistentConnection`, `WebSocketConnection`, `BrowserPollConnection`) so `onValue`/child events react to remote changes.
 - Child event parity: `on_child_moved`, query-level child listeners, and server-ordered `prev_name` semantics from `core/SyncTree.ts`.
-- Transactions (`runTransaction`) and long-poll `OnDisconnect` execution, including offline queue handling and server timestamp resolution (`Transaction.ts`, `OnDisconnect.ts`).
+- Transactions (`runTransaction`) with true concurrency control and long-poll `OnDisconnect` execution, including offline queue handling and server timestamp resolution (`Transaction.ts`, `OnDisconnect.ts`).
 - Operational controls such as `connectDatabaseEmulator`, `goOnline/goOffline`, and logging toggles from `Database.ts`, plus emulator-focused integration tests.
 
 ### Immediate Porting Focus
 
 1. **Child listener parity** – Port the remaining event registrations (`onChildMoved`, query listeners, cancellation hooks) from `Reference_impl.ts` and `SyncTree.ts`, reusing the new diffing infrastructure.
 2. **Realtime transport handshake** – Wire the `realtime::Repo` listener map into a full `PersistentConnection` port that sends listen/unlisten commands over the new native websocket task, surfaces errors, and forwards payloads into `dispatch_listeners` (mirrored on wasm via `web_sys::WebSocket`).
-3. **Transactions and OnDisconnect** – Implement `run_transaction` and extend the new OnDisconnect plumbing so operations continue to work when the transport falls back to long-polling, mirroring the queuing in `PersistentConnection.ts`.
+3. **Transactions and OnDisconnect** – Harden `run_transaction` with retries/ETag handling and extend the new OnDisconnect plumbing so operations continue to work when the transport falls back to long-polling, mirroring the queuing in `PersistentConnection.ts`.

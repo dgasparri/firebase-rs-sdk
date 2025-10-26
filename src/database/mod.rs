@@ -86,7 +86,7 @@ pub use api::{
     push_with_value, query, register_database_component, run_transaction, set_priority,
     set_with_priority, start_after, start_after_with_key, start_at, start_at_with_key, ChildEvent,
     ChildEventType, DataSnapshot, Database, DatabaseQuery, DatabaseReference, ListenerRegistration,
-    QueryConstraint,
+    QueryConstraint, TransactionResult,
 };
 
 #[doc(inline)]

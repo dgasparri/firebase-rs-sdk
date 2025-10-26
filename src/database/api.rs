@@ -243,6 +243,16 @@ impl ListenerRegistration {
     }
 }
 
+/// Result returned by `run_transaction`, mirroring the JS SDK contract.
+#[derive(Clone, Debug)]
+pub struct TransactionResult {
+    /// Indicates whether the transaction committed (i.e. the update function
+    /// returned `Some` and the write succeeded).
+    pub committed: bool,
+    /// Snapshot reflecting the data at the location after the transaction.
+    pub snapshot: DataSnapshot,
+}
+
 impl Drop for ListenerRegistration {
     fn drop(&mut self) {
         if let Some(id) = self.id.take() {
@@ -525,12 +535,20 @@ where
     reference.on_child_removed(callback).await
 }
 
-/// Runs a transaction at the provided reference (currently unimplemented).
-pub fn run_transaction<F>(reference: &DatabaseReference, update: F) -> DatabaseResult<()>
+/// Runs a transaction at the provided reference, mirroring the JS SDK.
+///
+/// The update closure receives the current value and can return `Some(new_value)`
+/// to commit the write or `None` to abort. The operation currently uses a
+/// best-effort optimistic strategy when hitting the REST backend; concurrent
+/// writers may lead to retries from user-space code.
+pub async fn run_transaction<F>(
+    reference: &DatabaseReference,
+    mut update: F,
+) -> DatabaseResult<TransactionResult>
 where
-    F: Fn(Value) -> Value + Send + Sync + 'static,
+    F: FnMut(Value) -> Option<Value>,
 {
-    reference.run_transaction(update)
+    reference.run_transaction(|value| update(value)).await
 }
 
 /// Writes a value together with a priority, mirroring the modular `setWithPriority()` helper
@@ -1231,14 +1249,35 @@ impl DatabaseReference {
         self.resolve_value_for_path(path, value).await
     }
 
-    /// Placeholder for the transaction API; returns an error until realtime transport exists.
-    pub fn run_transaction<F>(&self, _update: F) -> DatabaseResult<()>
+    /// Runs a transaction on this reference. The closure receives the current value and may
+    /// return `Some(next)` to commit or `None` to abort, mirroring the JS SDK contract.
+    pub async fn run_transaction<F>(&self, mut update: F) -> DatabaseResult<TransactionResult>
     where
-        F: Fn(Value) -> Value + Send + Sync + 'static,
+        F: FnMut(Value) -> Option<Value>,
     {
-        Err(internal_error(
-            "Transactions require realtime transport and are not yet implemented",
-        ))
+        let current_value = self.get().await?;
+        let maybe_new = update(current_value.clone());
+
+        match maybe_new {
+            Some(new_value) => {
+                self.set(new_value.clone()).await?;
+                let snapshot = DataSnapshot {
+                    reference: self.clone(),
+                    value: new_value,
+                };
+                Ok(TransactionResult {
+                    committed: true,
+                    snapshot,
+                })
+            }
+            None => Ok(TransactionResult {
+                committed: false,
+                snapshot: DataSnapshot {
+                    reference: self.clone(),
+                    value: current_value,
+                },
+            }),
+        }
     }
 
     /// Applies the provided partial updates to the current location using a single
@@ -2186,6 +2225,63 @@ mod tests {
 
         let err = reference.update(updates).await.unwrap_err();
         assert_eq!(err.code_str(), "database/invalid-argument");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_transaction_commits_update() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
+        let counter = database.reference("counters/main").unwrap();
+        counter.set(json!(1)).await.unwrap();
+
+        let result = counter
+            .run_transaction(|current| {
+                let next = current.as_i64().unwrap_or(0) + 1;
+                Some(json!(next))
+            })
+            .await
+            .unwrap();
+
+        assert!(result.committed);
+        assert_eq!(result.snapshot.into_value(), json!(2));
+        let stored = counter.get().await.unwrap();
+        assert_eq!(stored, json!(2));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_transaction_abort_preserves_value() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let database = get_database(Some(app)).await.unwrap();
+        let flag = database.reference("flags/feature").unwrap();
+        flag.set(json!(true)).await.unwrap();
+
+        let result = flag
+            .run_transaction(|current| {
+                if current == Value::Bool(true) {
+                    None
+                } else {
+                    Some(Value::Bool(true))
+                }
+            })
+            .await
+            .unwrap();
+
+        assert!(!result.committed);
+        assert_eq!(result.snapshot.into_value(), json!(true));
+        let stored = flag.get().await.unwrap();
+        assert_eq!(stored, json!(true));
     }
 
     #[tokio::test(flavor = "multi_thread")]
