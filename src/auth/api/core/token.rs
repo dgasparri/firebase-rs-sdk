@@ -99,22 +99,13 @@ mod tests {
     use crate::test_support::start_mock_server;
     use httpmock::prelude::*;
     use serde_json::json;
-    use tokio::runtime::Builder as TokioRuntimeBuilder;
 
     fn make_client() -> Client {
         Client::new()
     }
 
-    fn block_on<F: std::future::Future>(future: F) -> F::Output {
-        TokioRuntimeBuilder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("failed to build tokio runtime")
-            .block_on(future)
-    }
-
-    #[test]
-    fn refresh_id_token_succeeds_with_custom_endpoint() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn refresh_id_token_succeeds_with_custom_endpoint() {
         let server = start_mock_server();
         let client = make_client();
 
@@ -134,12 +125,13 @@ mod tests {
             }));
         });
 
-        let response = block_on(refresh_id_token_with_endpoint(
+        let response = refresh_id_token_with_endpoint(
             &client,
             &server.url("/token"),
             "test-key",
             "test-refresh",
-        ))
+        )
+        .await
         .expect("refresh should succeed");
 
         mock.assert();
@@ -148,8 +140,8 @@ mod tests {
         assert_eq!(response.id_token, "id");
     }
 
-    #[test]
-    fn refresh_id_token_maps_error_message() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn refresh_id_token_maps_error_message() {
         let server = start_mock_server();
         let client = make_client();
 
@@ -161,12 +153,13 @@ mod tests {
                 .body("{\"error\":{\"message\":\"TOKEN_EXPIRED\"}}");
         });
 
-        let result = block_on(refresh_id_token_with_endpoint(
+        let result = refresh_id_token_with_endpoint(
             &client,
             &server.url("/token"),
             "test-key",
             "test-refresh",
-        ));
+        )
+        .await;
 
         mock.assert();
         assert!(matches!(

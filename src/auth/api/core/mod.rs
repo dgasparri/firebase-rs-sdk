@@ -1194,7 +1194,6 @@ mod tests {
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
     use httpmock::prelude::*;
     use serde_json::json;
-    use tokio::runtime::Builder as TokioRuntimeBuilder;
 
     const TEST_API_KEY: &str = "test-api-key";
     const TEST_EMAIL: &str = "user@example.com";
@@ -1210,14 +1209,6 @@ mod tests {
     const UPDATED_ID_TOKEN: &str = "updated-id-token";
     const UPDATED_REFRESH_TOKEN: &str = "updated-refresh-token";
 
-    fn block_on<F: std::future::Future>(future: F) -> F::Output {
-        TokioRuntimeBuilder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("failed to build tokio runtime")
-            .block_on(future)
-    }
-
     fn build_auth(server: &MockServer) -> Arc<Auth> {
         Auth::builder(test_firebase_app_with_api_key(TEST_API_KEY))
             .with_identity_toolkit_endpoint(server.url("/v1"))
@@ -1227,7 +1218,7 @@ mod tests {
             .expect("failed to build auth")
     }
 
-    fn sign_in_user(auth: &Arc<Auth>, server: &MockServer) {
+    async fn sign_in_user(auth: &Arc<Auth>, server: &MockServer) {
         let mock = server.mock(|when, then| {
             when.method(POST)
                 .path("/v1/accounts:signInWithPassword")
@@ -1246,13 +1237,14 @@ mod tests {
             }));
         });
 
-        block_on(auth.sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD))
+        auth.sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD)
+            .await
             .expect("sign-in should succeed");
         mock.assert();
     }
 
-    #[test]
-    fn sign_in_with_email_and_password_success() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn sign_in_with_email_and_password_success() {
         let server = start_mock_server();
         let auth = build_auth(&server);
 
@@ -1274,9 +1266,10 @@ mod tests {
             }));
         });
 
-        let credential =
-            block_on(auth.sign_in_with_email_and_password("user@example.com", "secret"))
-                .expect("sign-in should succeed");
+        let credential = auth
+            .sign_in_with_email_and_password("user@example.com", "secret")
+            .await
+            .expect("sign-in should succeed");
 
         mock.assert();
         assert_eq!(
@@ -1295,8 +1288,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn create_user_with_email_and_password_success() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn create_user_with_email_and_password_success() {
         let server = start_mock_server();
         let auth = build_auth(&server);
 
@@ -1318,9 +1311,10 @@ mod tests {
             }));
         });
 
-        let credential =
-            block_on(auth.create_user_with_email_and_password("user@example.com", "secret"))
-                .expect("sign-up should succeed");
+        let credential = auth
+            .create_user_with_email_and_password("user@example.com", "secret")
+            .await
+            .expect("sign-up should succeed");
 
         mock.assert();
         assert_eq!(
@@ -1339,8 +1333,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn sign_in_with_invalid_expires_in_returns_error() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn sign_in_with_invalid_expires_in_returns_error() {
         let server = start_mock_server();
         let auth = build_auth(&server);
 
@@ -1362,7 +1356,9 @@ mod tests {
             }));
         });
 
-        let result = block_on(auth.sign_in_with_email_and_password("user@example.com", "secret"));
+        let result = auth
+            .sign_in_with_email_and_password("user@example.com", "secret")
+            .await;
 
         mock.assert();
         assert!(matches!(
@@ -1371,8 +1367,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn sign_in_propagates_http_errors() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn sign_in_propagates_http_errors() {
         let server = start_mock_server();
         let auth = build_auth(&server);
 
@@ -1384,8 +1380,9 @@ mod tests {
                 .body("{\"error\":{\"message\":\"INVALID_PASSWORD\"}}");
         });
 
-        let result =
-            block_on(auth.sign_in_with_email_and_password("user@example.com", "wrong-password"));
+        let result = auth
+            .sign_in_with_email_and_password("user@example.com", "wrong-password")
+            .await;
 
         mock.assert();
         assert!(matches!(
@@ -1394,8 +1391,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn send_password_reset_email_sends_request_body() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_password_reset_email_sends_request_body() {
         let server = start_mock_server();
         let auth = build_auth(&server);
 
@@ -1410,17 +1407,18 @@ mod tests {
             then.status(200);
         });
 
-        block_on(auth.send_password_reset_email(TEST_EMAIL))
+        auth.send_password_reset_email(TEST_EMAIL)
+            .await
             .expect("password reset should succeed");
 
         mock.assert();
     }
 
-    #[test]
-    fn send_email_verification_uses_current_user_token() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_email_verification_uses_current_user_token() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1433,13 +1431,15 @@ mod tests {
             then.status(200);
         });
 
-        block_on(auth.send_email_verification()).expect("email verification should succeed");
+        auth.send_email_verification()
+            .await
+            .expect("email verification should succeed");
 
         mock.assert();
     }
 
-    #[test]
-    fn confirm_password_reset_posts_new_password() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn confirm_password_reset_posts_new_password() {
         let server = start_mock_server();
         let auth = build_auth(&server);
 
@@ -1454,17 +1454,18 @@ mod tests {
             then.status(200);
         });
 
-        block_on(auth.confirm_password_reset("reset-code", "new-secret"))
+        auth.confirm_password_reset("reset-code", "new-secret")
+            .await
             .expect("confirm reset should succeed");
 
         mock.assert();
     }
 
-    #[test]
-    fn update_profile_sets_display_name() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn update_profile_sets_display_name() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1485,7 +1486,9 @@ mod tests {
             }));
         });
 
-        let user = block_on(auth.update_profile(Some("New Name"), None))
+        let user = auth
+            .update_profile(Some("New Name"), None)
+            .await
             .expect("update profile should succeed");
 
         mock.assert();
@@ -1496,11 +1499,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn update_profile_clears_display_name_when_empty_string() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn update_profile_clears_display_name_when_empty_string() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let set_mock = server.mock(|when, then| {
             when.method(POST)
@@ -1521,7 +1524,8 @@ mod tests {
             }));
         });
 
-        block_on(auth.update_profile(Some("Existing"), None))
+        auth.update_profile(Some("Existing"), None)
+            .await
             .expect("initial update should succeed");
         set_mock.assert();
 
@@ -1544,18 +1548,20 @@ mod tests {
             }));
         });
 
-        let user =
-            block_on(auth.update_profile(Some(""), None)).expect("clear update should succeed");
+        let user = auth
+            .update_profile(Some(""), None)
+            .await
+            .expect("clear update should succeed");
 
         clear_mock.assert();
         assert!(user.info().display_name.is_none());
     }
 
-    #[test]
-    fn update_email_sets_new_email() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn update_email_sets_new_email() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1575,8 +1581,10 @@ mod tests {
             }));
         });
 
-        let user =
-            block_on(auth.update_email("new@example.com")).expect("update email should succeed");
+        let user = auth
+            .update_email("new@example.com")
+            .await
+            .expect("update email should succeed");
 
         mock.assert();
         assert_eq!(user.info().email.as_deref(), Some("new@example.com"));
@@ -1586,11 +1594,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn update_password_refreshes_tokens() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn update_password_refreshes_tokens() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1610,8 +1618,10 @@ mod tests {
             }));
         });
 
-        let user =
-            block_on(auth.update_password("new-secret")).expect("update password should succeed");
+        let user = auth
+            .update_password("new-secret")
+            .await
+            .expect("update password should succeed");
 
         mock.assert();
         assert_eq!(user.uid(), TEST_UID);
@@ -1621,11 +1631,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn delete_user_clears_current_user_state() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn delete_user_clears_current_user_state() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1637,17 +1647,17 @@ mod tests {
             then.status(200);
         });
 
-        block_on(auth.delete_user()).expect("delete user should succeed");
+        auth.delete_user().await.expect("delete user should succeed");
 
         mock.assert();
         assert!(auth.current_user().is_none());
     }
 
-    #[test]
-    fn reauthenticate_with_password_updates_current_user() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn reauthenticate_with_password_updates_current_user() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1667,7 +1677,9 @@ mod tests {
             }));
         });
 
-        let user = block_on(auth.reauthenticate_with_password(REAUTH_EMAIL, TEST_PASSWORD))
+        let user = auth
+            .reauthenticate_with_password(REAUTH_EMAIL, TEST_PASSWORD)
+            .await
             .expect("reauth should succeed");
 
         mock.assert();
@@ -1683,11 +1695,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn unlink_providers_sends_delete_provider() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn unlink_providers_sends_delete_provider() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1708,19 +1720,21 @@ mod tests {
             }));
         });
 
-        let user =
-            block_on(auth.unlink_providers(&[GOOGLE_PROVIDER_ID])).expect("unlink should succeed");
+        let user = auth
+            .unlink_providers(&[GOOGLE_PROVIDER_ID])
+            .await
+            .expect("unlink should succeed");
 
         mock.assert();
         assert_eq!(user.uid(), TEST_UID);
         assert_eq!(user.info().provider_id, EmailAuthProvider::PROVIDER_ID);
     }
 
-    #[test]
-    fn unlink_providers_propagates_errors() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn unlink_providers_propagates_errors() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1730,7 +1744,7 @@ mod tests {
                 .body("{\"error\":{\"message\":\"INVALID_PROVIDER_ID\"}}");
         });
 
-        let result = block_on(auth.unlink_providers(&[GOOGLE_PROVIDER_ID]));
+        let result = auth.unlink_providers(&[GOOGLE_PROVIDER_ID]).await;
 
         mock.assert();
         assert!(matches!(
@@ -1739,11 +1753,11 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn get_account_info_returns_users() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_account_info_returns_users() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1769,7 +1783,10 @@ mod tests {
             }));
         });
 
-        let response = block_on(auth.get_account_info()).expect("get account info should succeed");
+        let response = auth
+            .get_account_info()
+            .await
+            .expect("get account info should succeed");
 
         mock.assert();
         assert_eq!(response.users.len(), 1);
@@ -1786,11 +1803,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn get_account_info_propagates_errors() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_account_info_propagates_errors() {
         let server = start_mock_server();
         let auth = build_auth(&server);
-        sign_in_user(&auth, &server);
+        sign_in_user(&auth, &server).await;
 
         let mock = server.mock(|when, then| {
             when.method(POST)
@@ -1800,7 +1817,7 @@ mod tests {
                 .body("{\"error\":{\"message\":\"INVALID_ID_TOKEN\"}}");
         });
 
-        let result = block_on(auth.get_account_info());
+        let result = auth.get_account_info().await;
 
         mock.assert();
         assert!(matches!(
