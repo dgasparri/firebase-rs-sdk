@@ -114,7 +114,7 @@ removed, providing hooks for future WebSocket/long-poll transports.
     - Add integration coverage once the JS harness is ready.
 3. Hook Repo into Database operations
     - ✅ Database listener registration now routes through `Repo::listen`/`unlisten`, reference-counting targets and toggling the transport automatically during `go_online` / `go_offline`.
-    - Extend OnDisconnect and run_transaction to use the new transport (currently return errors).
+    - OnDisconnect scheduling now dispatches over WebSockets; add long-poll fallback support and wire `run_transaction` to the new transport hooks.
 4. Docs & tests
     - Update README once streaming is live. Current docs mention the new transport scaffolding and listener bookkeeping.
     - Add integration tests (native/wasm) for listener behaviour once a real transport is wired in.

@@ -580,6 +580,10 @@ impl Database {
         *self.inner.root_cache.lock().unwrap() = Some(value);
     }
 
+    pub(crate) fn repo(&self) -> Arc<Repo> {
+        self.inner.repo.clone()
+    }
+
     #[allow(dead_code)]
     #[cfg(test)]
     fn clear_root_cache_for_test(&self) {
@@ -1207,6 +1211,26 @@ impl DatabaseReference {
         OnDisconnect::new(self.clone())
     }
 
+    pub(crate) fn database(&self) -> &Database {
+        &self.database
+    }
+
+    pub(crate) fn path_segments(&self) -> Vec<String> {
+        self.path.clone()
+    }
+
+    pub(crate) async fn resolve_for_current_path(&self, value: Value) -> DatabaseResult<Value> {
+        self.resolve_value_for_path(&self.path, value).await
+    }
+
+    pub(crate) async fn resolve_for_absolute_path(
+        &self,
+        path: &[String],
+        value: Value,
+    ) -> DatabaseResult<Value> {
+        self.resolve_value_for_path(path, value).await
+    }
+
     /// Placeholder for the transaction API; returns an error until realtime transport exists.
     pub fn run_transaction<F>(&self, _update: F) -> DatabaseResult<()>
     where
@@ -1583,7 +1607,7 @@ impl DatabaseQuery {
     }
 }
 
-fn normalize_path(path: &str) -> DatabaseResult<Vec<String>> {
+pub(crate) fn normalize_path(path: &str) -> DatabaseResult<Vec<String>> {
     let trimmed = path.trim_matches('/');
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -1661,7 +1685,7 @@ fn apply_realtime_value(root: &mut Value, path: &[String], value: Value) {
     }
 }
 
-fn validate_priority_value(priority: &Value) -> DatabaseResult<()> {
+pub(crate) fn validate_priority_value(priority: &Value) -> DatabaseResult<()> {
     match priority {
         Value::Null | Value::Number(_) | Value::String(_) => Ok(()),
         _ => Err(invalid_argument(
@@ -1670,7 +1694,7 @@ fn validate_priority_value(priority: &Value) -> DatabaseResult<()> {
     }
 }
 
-fn pack_with_priority(value: Value, priority: Value) -> Value {
+pub(crate) fn pack_with_priority(value: Value, priority: Value) -> Value {
     let mut map = Map::with_capacity(2);
     map.insert(".value".to_string(), value);
     map.insert(".priority".to_string(), priority);

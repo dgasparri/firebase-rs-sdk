@@ -10,6 +10,7 @@ use crate::app::FirebaseApp;
 use crate::app_check::{FirebaseAppCheckInternal, APP_CHECK_INTERNAL_COMPONENT_NAME};
 use crate::auth::Auth;
 use crate::database::error::{internal_error, DatabaseResult};
+use serde_json::Value as JsonValue;
 
 #[cfg(not(target_arch = "wasm32"))]
 type EventFuture = BoxFuture<'static, DatabaseResult<()>>;
@@ -72,6 +73,53 @@ pub(crate) trait RealtimeTransport: Send + Sync {
     async fn disconnect(&self) -> DatabaseResult<()>;
     async fn listen(&self, spec: &ListenSpec) -> DatabaseResult<()>;
     async fn unlisten(&self, spec: &ListenSpec) -> DatabaseResult<()>;
+    async fn on_disconnect(&self, request: OnDisconnectRequest) -> DatabaseResult<()>;
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct OnDisconnectRequest {
+    action: OnDisconnectAction,
+    path: Vec<String>,
+    payload: JsonValue,
+}
+
+impl OnDisconnectRequest {
+    pub(crate) fn new(action: OnDisconnectAction, path: Vec<String>, payload: JsonValue) -> Self {
+        Self {
+            action,
+            path,
+            payload,
+        }
+    }
+
+    fn into_inner(self) -> (OnDisconnectAction, Vec<String>, JsonValue) {
+        (self.action, self.path, self.payload)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum OnDisconnectAction {
+    Put,
+    Merge,
+    Cancel,
+}
+
+impl OnDisconnectAction {
+    fn code(&self) -> &'static str {
+        match self {
+            OnDisconnectAction::Put => "o",
+            OnDisconnectAction::Merge => "om",
+            OnDisconnectAction::Cancel => "oc",
+        }
+    }
+}
+
+fn path_to_string(path: &[String]) -> String {
+    if path.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}", path.join("/"))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -79,13 +127,6 @@ enum RepoState {
     #[default]
     Offline,
     Online,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-enum TransportCommand {
-    Listen(ListenSpec),
-    Unlisten(ListenSpec),
 }
 
 /// Minimal `Repo` port that tracks unique realtime listeners and dispatches
@@ -195,6 +236,47 @@ impl Repo {
         Ok(())
     }
 
+    pub async fn on_disconnect_put(
+        &self,
+        path: Vec<String>,
+        payload: JsonValue,
+    ) -> DatabaseResult<()> {
+        self.go_online().await?;
+        self.transport
+            .on_disconnect(OnDisconnectRequest::new(
+                OnDisconnectAction::Put,
+                path,
+                payload,
+            ))
+            .await
+    }
+
+    pub async fn on_disconnect_merge(
+        &self,
+        path: Vec<String>,
+        payload: JsonValue,
+    ) -> DatabaseResult<()> {
+        self.go_online().await?;
+        self.transport
+            .on_disconnect(OnDisconnectRequest::new(
+                OnDisconnectAction::Merge,
+                path,
+                payload,
+            ))
+            .await
+    }
+
+    pub async fn on_disconnect_cancel(&self, path: Vec<String>) -> DatabaseResult<()> {
+        self.go_online().await?;
+        self.transport
+            .on_disconnect(OnDisconnectRequest::new(
+                OnDisconnectAction::Cancel,
+                path,
+                JsonValue::Null,
+            ))
+            .await
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn handle_action(
         &self,
@@ -248,6 +330,12 @@ impl RealtimeTransport for NoopTransport {
 
     async fn unlisten(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
         Ok(())
+    }
+
+    async fn on_disconnect(&self, _request: OnDisconnectRequest) -> DatabaseResult<()> {
+        Err(internal_error(
+            "Realtime transport is not available; onDisconnect cannot be scheduled",
+        ))
     }
 }
 
@@ -603,6 +691,14 @@ mod native {
     enum TransportCommand {
         Listen(ListenSpec),
         Unlisten(ListenSpec),
+        OnDisconnect(OnDisconnectCommand),
+    }
+
+    #[derive(Clone, Debug)]
+    struct OnDisconnectCommand {
+        action: OnDisconnectAction,
+        path: Vec<String>,
+        payload: JsonValue,
     }
 
     async fn flush_pending_state(state: Arc<NativeState>) -> DatabaseResult<()> {
@@ -684,17 +780,34 @@ mod native {
             self.flush_pending().await?;
             Ok(())
         }
+
+        async fn on_disconnect(&self, request: OnDisconnectRequest) -> DatabaseResult<()> {
+            let (action, path, payload) = request.into_inner();
+            {
+                let mut pending = self.state.pending.lock().await;
+                pending.push_back(TransportCommand::OnDisconnect(OnDisconnectCommand {
+                    action,
+                    path,
+                    payload,
+                }));
+            }
+            self.ensure_connection().await?;
+            self.flush_pending().await
+        }
     }
 
     fn serialize_command(
         state: &NativeState,
         command: &TransportCommand,
     ) -> DatabaseResult<String> {
-        let (action, spec) = match command {
-            TransportCommand::Listen(spec) => ("listen", spec),
-            TransportCommand::Unlisten(spec) => ("unlisten", spec),
-        };
+        match command {
+            TransportCommand::Listen(spec) => serialize_listen(state, spec),
+            TransportCommand::Unlisten(spec) => serialize_unlisten(state, spec),
+            TransportCommand::OnDisconnect(command) => serialize_on_disconnect(state, command),
+        }
+    }
 
+    fn serialize_listen(state: &NativeState, spec: &ListenSpec) -> DatabaseResult<String> {
         let mut params = JsonMap::new();
         for (key, value) in spec.params() {
             params.insert(key.clone(), JsonValue::String(value.clone()));
@@ -706,18 +819,34 @@ mod native {
             "h": "",
         });
 
-        let request_id = next_request_id(state);
-        let envelope = json!({
-            "t": "d",
-            "d": {
-                "r": request_id,
-                "a": action,
-                "b": body,
-            }
+        serialize_request(state, "listen", body)
+    }
+
+    fn serialize_unlisten(state: &NativeState, spec: &ListenSpec) -> DatabaseResult<String> {
+        let mut params = JsonMap::new();
+        for (key, value) in spec.params() {
+            params.insert(key.clone(), JsonValue::String(value.clone()));
+        }
+
+        let body = json!({
+            "p": spec.path_string(),
+            "q": JsonValue::Object(params.clone()),
+            "h": "",
         });
 
-        serde_json::to_string(&envelope)
-            .map_err(|err| internal_error(format!("failed to encode realtime message: {err}")))
+        serialize_request(state, "unlisten", body)
+    }
+
+    fn serialize_on_disconnect(
+        state: &NativeState,
+        command: &OnDisconnectCommand,
+    ) -> DatabaseResult<String> {
+        let body = json!({
+            "p": path_to_string(&command.path),
+            "d": command.payload.clone(),
+        });
+
+        serialize_request(state, command.action.code(), body)
     }
 
     fn next_request_id(state: &NativeState) -> u32 {
@@ -958,6 +1087,15 @@ mod wasm {
                 ActiveTransport::LongPoll => self.long_poll.unlisten(spec).await,
             }
         }
+
+        async fn on_disconnect(&self, request: OnDisconnectRequest) -> DatabaseResult<()> {
+            match self.active().await {
+                ActiveTransport::WebSocket => self.websocket.on_disconnect(request).await,
+                ActiveTransport::LongPoll => Err(internal_error(
+                    "onDisconnect operations are not supported on the long-poll fallback yet",
+                )),
+            }
+        }
     }
 
     #[derive(Debug)]
@@ -1125,6 +1263,20 @@ mod wasm {
             self.ensure_connection().await?;
             self.flush_pending().await
         }
+
+        async fn on_disconnect(&self, request: OnDisconnectRequest) -> DatabaseResult<()> {
+            let (action, path, payload) = request.into_inner();
+            {
+                let mut pending = self.state.pending.lock().await;
+                pending.push_back(TransportCommand::OnDisconnect(OnDisconnectCommand {
+                    action,
+                    path,
+                    payload,
+                }));
+            }
+            self.ensure_connection().await?;
+            self.flush_pending().await
+        }
     }
 
     // Port of the browser long-poll transport from
@@ -1201,6 +1353,12 @@ mod wasm {
                 control.cancel();
             }
             Ok(())
+        }
+
+        async fn on_disconnect(&self, _request: OnDisconnectRequest) -> DatabaseResult<()> {
+            Err(internal_error(
+                "onDisconnect operations require an active WebSocket transport",
+            ))
         }
     }
 
@@ -1400,6 +1558,20 @@ mod wasm {
         _on_close: Closure<dyn FnMut(CloseEvent)>,
     }
 
+    #[derive(Clone, Debug)]
+    enum TransportCommand {
+        Listen(ListenSpec),
+        Unlisten(ListenSpec),
+        OnDisconnect(OnDisconnectCommand),
+    }
+
+    #[derive(Clone, Debug)]
+    struct OnDisconnectCommand {
+        action: OnDisconnectAction,
+        path: Vec<String>,
+        payload: JsonValue,
+    }
+
     #[derive(Debug)]
     struct WasmState {
         socket: AsyncMutex<Option<WebSocket>>,
@@ -1525,11 +1697,14 @@ mod wasm {
     }
 
     fn serialize_command(state: &WasmState, command: &TransportCommand) -> DatabaseResult<String> {
-        let (action, spec) = match command {
-            TransportCommand::Listen(spec) => ("listen", spec),
-            TransportCommand::Unlisten(spec) => ("unlisten", spec),
-        };
+        match command {
+            TransportCommand::Listen(spec) => serialize_listen(state, spec),
+            TransportCommand::Unlisten(spec) => serialize_unlisten(state, spec),
+            TransportCommand::OnDisconnect(command) => serialize_on_disconnect(state, command),
+        }
+    }
 
+    fn serialize_listen(state: &WasmState, spec: &ListenSpec) -> DatabaseResult<String> {
         let mut params = JsonMap::new();
         for (key, value) in spec.params() {
             params.insert(key.clone(), JsonValue::String(value.clone()));
@@ -1537,22 +1712,38 @@ mod wasm {
 
         let body = json!({
             "p": spec.path_string(),
-            "q": JsonValue::Object(params.clone()),
+            "q": JsonValue::Object(params),
             "h": "",
         });
 
-        let request_id = next_request_id(state);
-        let envelope = json!({
-            "t": "d",
-            "d": {
-                "r": request_id,
-                "a": action,
-                "b": body,
-            }
+        serialize_request(state, "listen", body)
+    }
+
+    fn serialize_unlisten(state: &WasmState, spec: &ListenSpec) -> DatabaseResult<String> {
+        let mut params = JsonMap::new();
+        for (key, value) in spec.params() {
+            params.insert(key.clone(), JsonValue::String(value.clone()));
+        }
+
+        let body = json!({
+            "p": spec.path_string(),
+            "q": JsonValue::Object(params),
+            "h": "",
         });
 
-        serde_json::to_string(&envelope)
-            .map_err(|err| internal_error(format!("failed to encode realtime message: {err}")))
+        serialize_request(state, "unlisten", body)
+    }
+
+    fn serialize_on_disconnect(
+        state: &WasmState,
+        command: &OnDisconnectCommand,
+    ) -> DatabaseResult<String> {
+        let body = json!({
+            "p": path_to_string(&command.path),
+            "d": command.payload.clone(),
+        });
+
+        serialize_request(state, command.action.code(), body)
     }
 
     fn next_request_id(state: &WasmState) -> u32 {
