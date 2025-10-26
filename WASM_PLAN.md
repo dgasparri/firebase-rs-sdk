@@ -118,7 +118,7 @@ removed, providing hooks for future WebSocket/long-poll transports.
 4. Docs & tests
     - Update README once streaming is live. Current docs mention the new transport scaffolding and listener bookkeeping.
     - Add integration tests (native/wasm) for listener behaviour once a real transport is wired in.
-    - Ensure wasm docs clearly state any feature flags (e.g., WebSocket dependencies) and fallback behaviour.
+    - ✅ Ensure wasm docs clearly state any feature flags (e.g., WebSocket dependencies) and fallback behaviour (see `docs/async_wasm_checklist.md` and `src/database/README.md`).
 
 The WASM plan now tracks these remaining steps under Stage 3 so we can pick up exactly where we left off next session.
 Let me know when you’re ready to dive back in!

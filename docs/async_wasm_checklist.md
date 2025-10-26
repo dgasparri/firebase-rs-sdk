@@ -49,6 +49,9 @@ reference before sending a pull request.
   added or a step in `WASM_PLAN.md` is completed.
 - Mention the required features (`wasm-web`, `experimental-indexed-db`, etc.) in
   user-facing docs and examples so consumers know how to enable them.
+- Call out runtime prerequisites and fallbacks: e.g. realtime listeners and
+  `OnDisconnect` require a WebSocket-capable environment, with the long-poll
+  transport only flushing queued operations when `go_offline()` runs.
 
 Keeping these points in mind helps ensure each module stays portable and we can
 remove temporary `TODO(async-wasm)` guards as the port progresses.
