@@ -186,6 +186,12 @@ impl RealtimeTransport for NoopTransport {
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use super::*;
+    use crate::platform::runtime::spawn_detached;
+    use futures::channel::oneshot;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::sync::Mutex as AsyncMutex;
+    use tokio::task::JoinHandle;
+    use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
     use url::Url;
 
     pub(super) fn websocket_transport(app: &FirebaseApp) -> Option<Arc<dyn RealtimeTransport>> {
@@ -194,6 +200,9 @@ mod native {
         let info = RepoInfo::from_url(parsed)?;
         Some(Arc::new(NativeWebSocketTransport::new(info)))
     }
+
+    type TcpWebSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+    type WebSocketSink = futures_util::stream::SplitSink<TcpWebSocket, Message>;
 
     #[derive(Clone, Debug)]
     struct RepoInfo {
@@ -235,34 +244,134 @@ mod native {
     #[derive(Debug)]
     struct NativeWebSocketTransport {
         repo_info: RepoInfo,
+        state: Arc<NativeState>,
     }
 
     impl NativeWebSocketTransport {
         fn new(repo_info: RepoInfo) -> Self {
-            Self { repo_info }
+            Self {
+                repo_info,
+                state: Arc::new(NativeState::default()),
+            }
         }
+
+        async fn ensure_connection(&self) -> DatabaseResult<()> {
+            {
+                let guard = self.state.sink.lock().await;
+                if guard.is_some() {
+                    return Ok(());
+                }
+            }
+
+            let (result_tx, result_rx) = oneshot::channel();
+            let state = self.state.clone();
+            let info = self.repo_info.clone();
+
+            spawn_detached(async move {
+                let result = connect_and_listen(state, info).await;
+                let _ = result_tx.send(result);
+            });
+
+            result_rx
+                .await
+                .unwrap_or_else(|_| Err(internal_error("websocket connection task cancelled")))
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct NativeState {
+        sink: AsyncMutex<Option<WebSocketSink>>,
+        reader: AsyncMutex<Option<JoinHandle<()>>>,
+    }
+
+    async fn connect_and_listen(state: Arc<NativeState>, info: RepoInfo) -> DatabaseResult<()> {
+        let url = info
+            .websocket_url()
+            .map_err(|err| internal_error(format!("invalid database_url for websocket: {err}")))?;
+
+        let (stream, _response) = connect_async(url)
+            .await
+            .map_err(|err| internal_error(format!("failed to connect websocket: {err}")))?;
+        let (sink, mut reader) = stream.split();
+
+        {
+            let mut guard = state.sink.lock().await;
+            *guard = Some(sink);
+        }
+
+        let reader_state = state.clone();
+        let reader_task: JoinHandle<()> = tokio::spawn(async move {
+            while let Some(message) = reader.next().await {
+                match message {
+                    Ok(Message::Text(_)) | Ok(Message::Binary(_)) => {
+                        // TODO(async-wasm): feed incoming messages into repo dispatch once
+                        // the persistent connection protocol is ported.
+                    }
+                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
+                        // Handled by tungstenite automatically; nothing to do until
+                        // we expose connection-level metrics.
+                    }
+                    Ok(Message::Close(_)) | Err(_) => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Connection closed; clear sink so future listens can reconnect.
+            {
+                let mut guard = reader_state.sink.lock().await;
+                guard.take();
+            }
+
+            {
+                let mut guard = reader_state.reader.lock().await;
+                guard.take();
+            }
+        });
+
+        {
+            let mut guard = state.reader.lock().await;
+            if let Some(existing) = guard.replace(reader_task) {
+                existing.abort();
+            }
+        }
+
+        Ok(())
     }
 
     #[async_trait(?Send)]
     impl RealtimeTransport for NativeWebSocketTransport {
         async fn connect(&self) -> DatabaseResult<()> {
-            // Placeholder implementation: the full WebSocket handshake and
-            // message pump will be ported from the JS SDK in subsequent steps.
-            // For now we validate the computed URL so obvious misconfigurations
-            // are surfaced to callers.
-            self.repo_info.websocket_url().map_err(|err| {
-                internal_error(format!("invalid database_url for websocket: {err}"))
-            })?;
-            Ok(())
+            self.ensure_connection().await
         }
 
         async fn disconnect(&self) -> DatabaseResult<()> {
+            let handle = {
+                let mut guard = self.state.reader.lock().await;
+                guard.take()
+            };
+            if let Some(handle) = handle {
+                handle.abort();
+            }
+
+            let sink = {
+                let mut guard = self.state.sink.lock().await;
+                guard.take()
+            };
+            if let Some(mut sink) = sink {
+                if let Err(err) = sink.close().await {
+                    return Err(internal_error(format!("failed to close websocket: {err}")));
+                }
+            }
+
             Ok(())
         }
 
         async fn listen(&self, _spec: &ListenSpec) -> DatabaseResult<()> {
-            // TODO(async-wasm): Port the persistent connection handshake and
-            // send a listen request to the websocket backend.
+            // For now we just ensure the connection is live; command dispatch
+            // will be implemented alongside the persistent connection port.
+            self.ensure_connection().await?;
             Ok(())
         }
 
