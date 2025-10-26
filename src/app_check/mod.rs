@@ -103,6 +103,7 @@ mod logger;
 mod persistence;
 mod providers;
 mod state;
+mod time;
 #[cfg(feature = "firestore")]
 mod token_provider;
 mod types;

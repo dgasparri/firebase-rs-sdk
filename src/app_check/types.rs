@@ -16,6 +16,7 @@ use crate::util::{PartialObserver, Unsubscribe};
 use crate::app_check::persistence::BroadcastSubscription;
 
 use super::errors::{AppCheckError, AppCheckResult};
+use super::time::system_time_now;
 
 pub const APP_CHECK_COMPONENT_NAME: &str = "appCheck";
 pub const APP_CHECK_INTERNAL_COMPONENT_NAME: &str = "app-check-internal";
@@ -28,11 +29,11 @@ pub struct AppCheckToken {
 
 impl AppCheckToken {
     pub fn is_expired(&self) -> bool {
-        SystemTime::now() >= self.expire_time
+        system_time_now() >= self.expire_time
     }
 
     pub fn with_ttl(token: impl Into<String>, ttl: Duration) -> AppCheckResult<Self> {
-        let expire_time = SystemTime::now().checked_add(ttl).ok_or_else(|| {
+        let expire_time = system_time_now().checked_add(ttl).ok_or_else(|| {
             AppCheckError::Internal("failed to compute token expiration".to_string())
         })?;
         Ok(Self {

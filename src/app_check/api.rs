@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use crate::app::{get_app, AppError, FirebaseApp};
 use crate::platform::runtime::{sleep as runtime_sleep, spawn_detached};
@@ -9,6 +9,7 @@ use super::errors::{AppCheckError, AppCheckResult};
 use super::logger::LOGGER;
 use super::providers::{CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider};
 use super::state;
+use super::time::system_time_now;
 use super::types::{
     AppCheck, AppCheckOptions, AppCheckProvider, AppCheckToken, AppCheckTokenListener,
     AppCheckTokenResult, ListenerHandle, ListenerType,
@@ -170,7 +171,7 @@ fn schedule_token_refresh(app_check: &AppCheck, token: &AppCheckToken) {
         return;
     }
 
-    let now = SystemTime::now();
+    let now = system_time_now();
     let mut delay = match token.expire_time.duration_since(now) {
         Ok(duration) => duration,
         Err(_) => Duration::from_secs(0),
