@@ -39,8 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let remote_config = get_remote_config(Some(app.clone())).await?;
 
     remote_config.set_defaults(HashMap::from([(String::from("welcome"), String::from("hello"))]));
-    remote_config.fetch().await?;
-    remote_config.activate()?;
+    if remote_config.fetch_and_activate().await? {
+        println!("Activated freshly downloaded parameters");
+    }
 
     println!("welcome = {}", remote_config.get_string("welcome"));
     Ok(())
@@ -51,19 +52,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - Component registration for `remote-config`, allowing `get_remote_config` to resolve instances through the shared
   component container (src/remote_config/api.rs, packages/remote-config/src/register.ts).
-- In-memory default store with `set_defaults`, `fetch`, and `activate` copying defaults into the active map once.
+- In-memory default store with `set_defaults`, `fetch`, and async `activate` mirroring the JS lifecycle.
 - Value API parity with typed getters (`get_value`, `get_boolean`, `get_number`, `get_all`) backed by
   `RemoteConfigValue`.
 - Config settings surface with validation, including fetch timeout and minimum fetch interval knobs analogous to the JS SDK.
-- In-memory storage cache that records last fetch status, timestamp, and active config ETAG for parity with
-  `StorageCache` in the JS SDK.
+- Async storage cache that records last fetch status, timestamp, active config ETAG, template version, and custom signals,
+  matching the behaviour of the JS SDK `StorageCache` abstraction.
 - Fetch logic honours `minimum_fetch_interval_millis`, records metadata, and exposes a pluggable
   `RemoteConfigFetchClient` with async HTTP implementations for native (`HttpRemoteConfigFetchClient`) and wasm (`WasmRemoteConfigFetchClient`).
 - Template version tracking via `active_template_version` to mirror template metadata exposed in the JS SDK.
 - Basic string retrieval through `get_string`.
 - Simple process-level cache keyed by app name to avoid redundant component creation.
 - Minimal error type covering `invalid-argument` and `internal` cases.
-- Smoke tests for activation behaviour.
+- Async helpers `ensure_initialized`, `fetch_and_activate`, and `set_custom_signals` that align with the modular JS API.
+- Smoke tests for activation behaviour and custom signal forwarding.
 
 ### WASM Notes
 - The module compiles for wasm targets when the `wasm-web` feature is enabled. The default fetch client uses
@@ -79,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Fetch throttling & resilience: persist throttle metadata, add exponential backoff, and expand error mapping to
   mirror `client/remote_config_fetch_client.ts` behaviour.
 - Logging & errors: extend error surface (`ErrorCode` equivalents) and log-level tuning (`setLogLevel`).
-- Custom signals & realtime updates: support `setCustomSignals` and realtime update subscriptions (`client/realtime_handler.ts`).
+- Realtime updates: support realtime update subscriptions (`client/realtime_handler.ts`).
 - Testing parity: port fetch/activation/storage tests from `packages/remote-config/test` once functionality exists.
 
 ## Next Steps - Detailed Completion Plan
@@ -90,6 +92,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 2. **Add platform-specific persistent storage**
    - Provide IndexedDB/wasm implementations and choose defaults per target while keeping the file backend for native.
    - Mirror JS quota/cleanup behaviour and test warm-up flows across restarts.
-3. **Integrate custom signals and logging controls**
-   - Expose setter for custom signals stored alongside metadata; allow toggling between error/debug/silent log levels.
-   - Provide tests ensuring signals persist and log level changes propagate.
+3. **Integrate logging controls and realtime updates**
+   - Surface log-level configuration (`setLogLevel`) and map error codes that the JS SDK exposes.
+   - Add realtime update subscriptions and ensure backoff metadata is persisted alongside fetch metadata.

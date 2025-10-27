@@ -7,4 +7,4 @@ pub mod settings;
 pub mod storage;
 pub mod value;
 
-pub use api::{get_remote_config, register_remote_config_component, RemoteConfig};
+pub use api::{get_remote_config, register_remote_config_component, CustomSignals, RemoteConfig};

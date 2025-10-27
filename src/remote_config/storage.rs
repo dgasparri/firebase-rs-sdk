@@ -6,12 +6,18 @@
 
 use std::collections::HashMap;
 use std::fmt;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use crate::remote_config::error::{internal_error, RemoteConfigResult};
+use crate::remote_config::constants::RC_CUSTOM_SIGNAL_MAX_ALLOWED_SIGNALS;
+use crate::remote_config::error::{internal_error, invalid_argument, RemoteConfigResult};
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
+
+pub type CustomSignals = HashMap<String, JsonValue>;
 
 /// Outcome of the last Remote Config fetch attempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,24 +49,39 @@ impl FetchStatus {
 ///
 /// A synchronous interface keeps usage ergonomic for the in-memory stub while still allowing
 /// different backends to be introduced later on.
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
 pub trait RemoteConfigStorage: Send + Sync {
-    fn get_last_fetch_status(&self) -> RemoteConfigResult<Option<FetchStatus>>;
-    fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()>;
+    async fn get_last_fetch_status(&self) -> RemoteConfigResult<Option<FetchStatus>>;
+    async fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()>;
 
-    fn get_last_successful_fetch_timestamp_millis(&self) -> RemoteConfigResult<Option<u64>>;
-    fn set_last_successful_fetch_timestamp_millis(&self, timestamp: u64) -> RemoteConfigResult<()>;
+    async fn get_last_successful_fetch_timestamp_millis(&self) -> RemoteConfigResult<Option<u64>>;
+    async fn set_last_successful_fetch_timestamp_millis(
+        &self,
+        timestamp: u64,
+    ) -> RemoteConfigResult<()>;
 
-    fn get_active_config(&self) -> RemoteConfigResult<Option<HashMap<String, String>>>;
-    fn set_active_config(&self, config: HashMap<String, String>) -> RemoteConfigResult<()>;
+    async fn get_active_config(&self) -> RemoteConfigResult<Option<HashMap<String, String>>>;
+    async fn set_active_config(&self, config: HashMap<String, String>) -> RemoteConfigResult<()>;
 
-    fn get_active_config_etag(&self) -> RemoteConfigResult<Option<String>>;
-    fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()>;
+    async fn get_active_config_etag(&self) -> RemoteConfigResult<Option<String>>;
+    async fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()>;
 
-    fn get_active_config_template_version(&self) -> RemoteConfigResult<Option<u64>>;
-    fn set_active_config_template_version(
+    async fn get_active_config_template_version(&self) -> RemoteConfigResult<Option<u64>>;
+    async fn set_active_config_template_version(
         &self,
         template_version: Option<u64>,
     ) -> RemoteConfigResult<()>;
+
+    async fn get_custom_signals(&self) -> RemoteConfigResult<Option<CustomSignals>>;
+    async fn set_custom_signals(&self, signals: CustomSignals)
+        -> RemoteConfigResult<CustomSignals>;
 }
 
 /// In-memory storage backend backing the current stub implementation.
@@ -76,19 +97,28 @@ struct StorageRecord {
     active_config: Option<HashMap<String, String>>,
     active_config_etag: Option<String>,
     active_config_template_version: Option<u64>,
+    custom_signals: Option<CustomSignals>,
 }
 
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
 impl RemoteConfigStorage for InMemoryRemoteConfigStorage {
-    fn get_last_fetch_status(&self) -> RemoteConfigResult<Option<FetchStatus>> {
+    async fn get_last_fetch_status(&self) -> RemoteConfigResult<Option<FetchStatus>> {
         Ok(self.inner.lock().unwrap().last_fetch_status)
     }
 
-    fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()> {
+    async fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()> {
         self.inner.lock().unwrap().last_fetch_status = Some(status);
         Ok(())
     }
 
-    fn get_last_successful_fetch_timestamp_millis(&self) -> RemoteConfigResult<Option<u64>> {
+    async fn get_last_successful_fetch_timestamp_millis(&self) -> RemoteConfigResult<Option<u64>> {
         Ok(self
             .inner
             .lock()
@@ -96,7 +126,10 @@ impl RemoteConfigStorage for InMemoryRemoteConfigStorage {
             .last_successful_fetch_timestamp_millis)
     }
 
-    fn set_last_successful_fetch_timestamp_millis(&self, timestamp: u64) -> RemoteConfigResult<()> {
+    async fn set_last_successful_fetch_timestamp_millis(
+        &self,
+        timestamp: u64,
+    ) -> RemoteConfigResult<()> {
         self.inner
             .lock()
             .unwrap()
@@ -104,34 +137,48 @@ impl RemoteConfigStorage for InMemoryRemoteConfigStorage {
         Ok(())
     }
 
-    fn get_active_config(&self) -> RemoteConfigResult<Option<HashMap<String, String>>> {
+    async fn get_active_config(&self) -> RemoteConfigResult<Option<HashMap<String, String>>> {
         Ok(self.inner.lock().unwrap().active_config.clone())
     }
 
-    fn set_active_config(&self, config: HashMap<String, String>) -> RemoteConfigResult<()> {
+    async fn set_active_config(&self, config: HashMap<String, String>) -> RemoteConfigResult<()> {
         self.inner.lock().unwrap().active_config = Some(config);
         Ok(())
     }
 
-    fn get_active_config_etag(&self) -> RemoteConfigResult<Option<String>> {
+    async fn get_active_config_etag(&self) -> RemoteConfigResult<Option<String>> {
         Ok(self.inner.lock().unwrap().active_config_etag.clone())
     }
 
-    fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()> {
+    async fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()> {
         self.inner.lock().unwrap().active_config_etag = etag;
         Ok(())
     }
 
-    fn get_active_config_template_version(&self) -> RemoteConfigResult<Option<u64>> {
+    async fn get_active_config_template_version(&self) -> RemoteConfigResult<Option<u64>> {
         Ok(self.inner.lock().unwrap().active_config_template_version)
     }
 
-    fn set_active_config_template_version(
+    async fn set_active_config_template_version(
         &self,
         template_version: Option<u64>,
     ) -> RemoteConfigResult<()> {
         self.inner.lock().unwrap().active_config_template_version = template_version;
         Ok(())
+    }
+
+    async fn get_custom_signals(&self) -> RemoteConfigResult<Option<CustomSignals>> {
+        Ok(self.inner.lock().unwrap().custom_signals.clone())
+    }
+
+    async fn set_custom_signals(
+        &self,
+        signals: CustomSignals,
+    ) -> RemoteConfigResult<CustomSignals> {
+        let mut guard = self.inner.lock().unwrap();
+        let merged = merge_custom_signals(guard.custom_signals.clone(), &signals)?;
+        guard.custom_signals = Some(merged.clone());
+        Ok(merged)
     }
 }
 
@@ -143,9 +190,11 @@ pub struct RemoteConfigStorageCache {
     active_config: Mutex<HashMap<String, String>>,
     active_config_etag: Mutex<Option<String>>,
     active_config_template_version: Mutex<Option<u64>>,
+    custom_signals: Mutex<Option<CustomSignals>>,
 }
 
 /// File-backed Remote Config storage suitable for desktop environments.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct FileRemoteConfigStorage {
     path: PathBuf,
     inner: Mutex<StorageRecord>,
@@ -161,48 +210,62 @@ impl fmt::Debug for RemoteConfigStorageCache {
             )
             .field("active_config_size", &self.active_config().len())
             .field("active_config_etag", &self.active_config_etag())
+            .field(
+                "custom_signals_count",
+                &self
+                    .custom_signals()
+                    .map(|signals| signals.len())
+                    .unwrap_or(0),
+            )
             .finish()
     }
 }
 
 impl RemoteConfigStorageCache {
     pub fn new(storage: Arc<dyn RemoteConfigStorage>) -> Self {
-        let cache = Self {
+        Self {
             storage,
             last_fetch_status: Mutex::new(FetchStatus::NoFetchYet),
             last_successful_fetch_timestamp_millis: Mutex::new(None),
             active_config: Mutex::new(HashMap::new()),
             active_config_etag: Mutex::new(None),
             active_config_template_version: Mutex::new(None),
-        };
-        cache.load_from_storage();
-        cache
+            custom_signals: Mutex::new(None),
+        }
     }
 
-    fn load_from_storage(&self) {
-        if let Ok(Some(status)) = self.storage.get_last_fetch_status() {
+    pub async fn hydrate_from_storage(&self) -> RemoteConfigResult<()> {
+        if let Some(status) = self.storage.get_last_fetch_status().await? {
             *self.last_fetch_status.lock().unwrap() = status;
         }
-        if let Ok(Some(timestamp)) = self.storage.get_last_successful_fetch_timestamp_millis() {
+        if let Some(timestamp) = self
+            .storage
+            .get_last_successful_fetch_timestamp_millis()
+            .await?
+        {
             *self.last_successful_fetch_timestamp_millis.lock().unwrap() = Some(timestamp);
         }
-        if let Ok(Some(config)) = self.storage.get_active_config() {
+        if let Some(config) = self.storage.get_active_config().await? {
             *self.active_config.lock().unwrap() = config;
         }
-        if let Ok(Some(etag)) = self.storage.get_active_config_etag() {
+        if let Some(etag) = self.storage.get_active_config_etag().await? {
             *self.active_config_etag.lock().unwrap() = Some(etag);
         }
-        if let Ok(Some(template_version)) = self.storage.get_active_config_template_version() {
+        if let Some(template_version) = self.storage.get_active_config_template_version().await? {
             *self.active_config_template_version.lock().unwrap() = Some(template_version);
         }
+        if let Some(signals) = self.storage.get_custom_signals().await? {
+            *self.custom_signals.lock().unwrap() = Some(signals);
+        }
+        Ok(())
     }
 
     pub fn last_fetch_status(&self) -> FetchStatus {
         *self.last_fetch_status.lock().unwrap()
     }
 
-    pub fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()> {
-        self.storage.set_last_fetch_status(status)?;
+    pub async fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()> {
+        self.storage.set_last_fetch_status(status).await?;
         *self.last_fetch_status.lock().unwrap() = status;
         Ok(())
     }
@@ -211,12 +274,13 @@ impl RemoteConfigStorageCache {
         *self.last_successful_fetch_timestamp_millis.lock().unwrap()
     }
 
-    pub fn set_last_successful_fetch_timestamp_millis(
+    pub async fn set_last_successful_fetch_timestamp_millis(
         &self,
         timestamp: u64,
     ) -> RemoteConfigResult<()> {
         self.storage
-            .set_last_successful_fetch_timestamp_millis(timestamp)?;
+            .set_last_successful_fetch_timestamp_millis(timestamp)
+            .await?;
         *self.last_successful_fetch_timestamp_millis.lock().unwrap() = Some(timestamp);
         Ok(())
     }
@@ -225,8 +289,11 @@ impl RemoteConfigStorageCache {
         self.active_config.lock().unwrap().clone()
     }
 
-    pub fn set_active_config(&self, config: HashMap<String, String>) -> RemoteConfigResult<()> {
-        self.storage.set_active_config(config.clone())?;
+    pub async fn set_active_config(
+        &self,
+        config: HashMap<String, String>,
+    ) -> RemoteConfigResult<()> {
+        self.storage.set_active_config(config.clone()).await?;
         *self.active_config.lock().unwrap() = config;
         Ok(())
     }
@@ -235,8 +302,8 @@ impl RemoteConfigStorageCache {
         self.active_config_etag.lock().unwrap().clone()
     }
 
-    pub fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()> {
-        self.storage.set_active_config_etag(etag.clone())?;
+    pub async fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()> {
+        self.storage.set_active_config_etag(etag.clone()).await?;
         *self.active_config_etag.lock().unwrap() = etag;
         Ok(())
     }
@@ -249,17 +316,32 @@ impl RemoteConfigStorageCache {
         *self.active_config_template_version.lock().unwrap()
     }
 
-    pub fn set_active_config_template_version(
+    pub async fn set_active_config_template_version(
         &self,
         template_version: Option<u64>,
     ) -> RemoteConfigResult<()> {
         self.storage
-            .set_active_config_template_version(template_version)?;
+            .set_active_config_template_version(template_version)
+            .await?;
         *self.active_config_template_version.lock().unwrap() = template_version;
         Ok(())
     }
+
+    pub fn custom_signals(&self) -> Option<CustomSignals> {
+        self.custom_signals.lock().unwrap().clone()
+    }
+
+    pub async fn set_custom_signals(
+        &self,
+        signals: CustomSignals,
+    ) -> RemoteConfigResult<CustomSignals> {
+        let merged = self.storage.set_custom_signals(signals).await?;
+        *self.custom_signals.lock().unwrap() = Some(merged.clone());
+        Ok(merged)
+    }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl FileRemoteConfigStorage {
     pub fn new(path: PathBuf) -> RemoteConfigResult<Self> {
         let record = if path.exists() {
@@ -294,18 +376,27 @@ impl FileRemoteConfigStorage {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
 impl RemoteConfigStorage for FileRemoteConfigStorage {
-    fn get_last_fetch_status(&self) -> RemoteConfigResult<Option<FetchStatus>> {
+    async fn get_last_fetch_status(&self) -> RemoteConfigResult<Option<FetchStatus>> {
         Ok(self.inner.lock().unwrap().last_fetch_status)
     }
 
-    fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()> {
+    async fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()> {
         let mut record = self.inner.lock().unwrap();
         record.last_fetch_status = Some(status);
         self.persist(&record)
     }
 
-    fn get_last_successful_fetch_timestamp_millis(&self) -> RemoteConfigResult<Option<u64>> {
+    async fn get_last_successful_fetch_timestamp_millis(&self) -> RemoteConfigResult<Option<u64>> {
         Ok(self
             .inner
             .lock()
@@ -313,37 +404,40 @@ impl RemoteConfigStorage for FileRemoteConfigStorage {
             .last_successful_fetch_timestamp_millis)
     }
 
-    fn set_last_successful_fetch_timestamp_millis(&self, timestamp: u64) -> RemoteConfigResult<()> {
+    async fn set_last_successful_fetch_timestamp_millis(
+        &self,
+        timestamp: u64,
+    ) -> RemoteConfigResult<()> {
         let mut record = self.inner.lock().unwrap();
         record.last_successful_fetch_timestamp_millis = Some(timestamp);
         self.persist(&record)
     }
 
-    fn get_active_config(&self) -> RemoteConfigResult<Option<HashMap<String, String>>> {
+    async fn get_active_config(&self) -> RemoteConfigResult<Option<HashMap<String, String>>> {
         Ok(self.inner.lock().unwrap().active_config.clone())
     }
 
-    fn set_active_config(&self, config: HashMap<String, String>) -> RemoteConfigResult<()> {
+    async fn set_active_config(&self, config: HashMap<String, String>) -> RemoteConfigResult<()> {
         let mut record = self.inner.lock().unwrap();
         record.active_config = Some(config);
         self.persist(&record)
     }
 
-    fn get_active_config_etag(&self) -> RemoteConfigResult<Option<String>> {
+    async fn get_active_config_etag(&self) -> RemoteConfigResult<Option<String>> {
         Ok(self.inner.lock().unwrap().active_config_etag.clone())
     }
 
-    fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()> {
+    async fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()> {
         let mut record = self.inner.lock().unwrap();
         record.active_config_etag = etag;
         self.persist(&record)
     }
 
-    fn get_active_config_template_version(&self) -> RemoteConfigResult<Option<u64>> {
+    async fn get_active_config_template_version(&self) -> RemoteConfigResult<Option<u64>> {
         Ok(self.inner.lock().unwrap().active_config_template_version)
     }
 
-    fn set_active_config_template_version(
+    async fn set_active_config_template_version(
         &self,
         template_version: Option<u64>,
     ) -> RemoteConfigResult<()> {
@@ -351,36 +445,99 @@ impl RemoteConfigStorage for FileRemoteConfigStorage {
         record.active_config_template_version = template_version;
         self.persist(&record)
     }
+
+    async fn get_custom_signals(&self) -> RemoteConfigResult<Option<CustomSignals>> {
+        Ok(self.inner.lock().unwrap().custom_signals.clone())
+    }
+
+    async fn set_custom_signals(
+        &self,
+        signals: CustomSignals,
+    ) -> RemoteConfigResult<CustomSignals> {
+        let mut record = self.inner.lock().unwrap();
+        let merged = merge_custom_signals(record.custom_signals.clone(), &signals)?;
+        record.custom_signals = Some(merged.clone());
+        self.persist(&record)?;
+        Ok(merged)
+    }
+}
+
+fn merge_custom_signals(
+    existing: Option<CustomSignals>,
+    updates: &CustomSignals,
+) -> RemoteConfigResult<CustomSignals> {
+    let mut merged = existing.unwrap_or_default();
+
+    for (key, value) in updates {
+        if value.is_null() {
+            merged.remove(key);
+            continue;
+        }
+
+        let normalized = match value {
+            JsonValue::Number(number) => JsonValue::String(number.to_string()),
+            other => other.clone(),
+        };
+        merged.insert(key.clone(), normalized);
+    }
+
+    if merged.len() > RC_CUSTOM_SIGNAL_MAX_ALLOWED_SIGNALS {
+        return Err(invalid_argument(format!(
+            "custom signals limit of {} exceeded",
+            RC_CUSTOM_SIGNAL_MAX_ALLOWED_SIGNALS
+        )));
+    }
+
+    Ok(merged)
 }
 
 #[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    #[test]
-    fn cache_roundtrips_metadata() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn cache_roundtrips_metadata() {
         let storage: Arc<dyn RemoteConfigStorage> =
             Arc::new(InMemoryRemoteConfigStorage::default());
         let cache = RemoteConfigStorageCache::new(storage.clone());
 
+        cache.hydrate_from_storage().await.unwrap();
+
         assert_eq!(cache.last_fetch_status(), FetchStatus::NoFetchYet);
         assert_eq!(cache.last_successful_fetch_timestamp_millis(), None);
 
-        cache.set_last_fetch_status(FetchStatus::Success).unwrap();
+        cache
+            .set_last_fetch_status(FetchStatus::Success)
+            .await
+            .unwrap();
         cache
             .set_last_successful_fetch_timestamp_millis(1234)
+            .await
             .unwrap();
         cache
             .set_active_config(HashMap::from([(
                 String::from("feature"),
                 String::from("on"),
             )]))
+            .await
             .unwrap();
         cache
             .set_active_config_etag(Some(String::from("etag")))
+            .await
             .unwrap();
-        cache.set_active_config_template_version(Some(42)).unwrap();
+        cache
+            .set_active_config_template_version(Some(42))
+            .await
+            .unwrap();
+        cache
+            .set_custom_signals(HashMap::from([(
+                String::from("flag"),
+                JsonValue::Bool(true),
+            )]))
+            .await
+            .unwrap();
 
         assert_eq!(cache.last_fetch_status(), FetchStatus::Success);
         assert_eq!(cache.last_successful_fetch_timestamp_millis(), Some(1234));
@@ -388,9 +545,16 @@ mod tests {
         assert_eq!(active.get("feature"), Some(&String::from("on")));
         assert_eq!(cache.active_config_etag(), Some(String::from("etag")));
         assert_eq!(cache.active_config_template_version(), Some(42));
+        assert_eq!(
+            cache
+                .custom_signals()
+                .and_then(|signals| signals.get("flag").cloned()),
+            Some(JsonValue::Bool(true))
+        );
 
         // Creating a new cache on top of the same storage should hydrate state.
         let cache2 = RemoteConfigStorageCache::new(storage);
+        cache2.hydrate_from_storage().await.unwrap();
         assert_eq!(cache2.last_fetch_status(), FetchStatus::Success);
         assert_eq!(cache2.last_successful_fetch_timestamp_millis(), Some(1234));
         assert_eq!(
@@ -399,10 +563,16 @@ mod tests {
         );
         assert_eq!(cache2.active_config_etag(), Some(String::from("etag")));
         assert_eq!(cache2.active_config_template_version(), Some(42));
+        assert_eq!(
+            cache2
+                .custom_signals()
+                .and_then(|signals| signals.get("flag").cloned()),
+            Some(JsonValue::Bool(true))
+        );
     }
 
-    #[test]
-    fn file_storage_persists_state() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn file_storage_persists_state() {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let path = std::env::temp_dir().join(format!(
             "firebase-remote-config-storage-{}.json",
@@ -411,26 +581,37 @@ mod tests {
 
         let storage = Arc::new(FileRemoteConfigStorage::new(path.clone()).unwrap());
         let cache = RemoteConfigStorageCache::new(storage.clone());
+        cache.hydrate_from_storage().await.unwrap();
 
-        cache.set_last_fetch_status(FetchStatus::Success).unwrap();
+        cache
+            .set_last_fetch_status(FetchStatus::Success)
+            .await
+            .unwrap();
         cache
             .set_last_successful_fetch_timestamp_millis(4321)
+            .await
             .unwrap();
         cache
             .set_active_config(HashMap::from([(
                 String::from("color"),
                 String::from("blue"),
             )]))
+            .await
             .unwrap();
         cache
             .set_active_config_etag(Some(String::from("persist-etag")))
+            .await
             .unwrap();
-        cache.set_active_config_template_version(Some(99)).unwrap();
+        cache
+            .set_active_config_template_version(Some(99))
+            .await
+            .unwrap();
 
         drop(cache);
 
         let storage2 = Arc::new(FileRemoteConfigStorage::new(path.clone()).unwrap());
         let cache2 = RemoteConfigStorageCache::new(storage2);
+        cache2.hydrate_from_storage().await.unwrap();
         assert_eq!(cache2.last_fetch_status(), FetchStatus::Success);
         assert_eq!(cache2.last_successful_fetch_timestamp_millis(), Some(4321));
         assert_eq!(cache2.active_config().get("color"), Some(&"blue".into()));

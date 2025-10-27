@@ -10,7 +10,10 @@ use crate::component::types::{
 };
 use crate::component::{Component, ComponentType};
 use crate::installations::get_installations;
-use crate::remote_config::constants::{REMOTE_CONFIG_API_URL, REMOTE_CONFIG_COMPONENT_NAME};
+use crate::remote_config::constants::{
+    RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH, RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH, REMOTE_CONFIG_API_URL,
+    REMOTE_CONFIG_COMPONENT_NAME,
+};
 use crate::remote_config::error::{internal_error, invalid_argument, RemoteConfigResult};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::remote_config::fetch::HttpRemoteConfigFetchClient;
@@ -20,14 +23,17 @@ use crate::remote_config::fetch::{
     FetchRequest, InstallationsTokenProvider, NoopFetchClient, RemoteConfigFetchClient,
 };
 use crate::remote_config::settings::{RemoteConfigSettings, RemoteConfigSettingsUpdate};
+pub use crate::remote_config::storage::CustomSignals;
 use crate::remote_config::storage::{
     FetchStatus, InMemoryRemoteConfigStorage, RemoteConfigStorage, RemoteConfigStorageCache,
 };
 use crate::remote_config::value::{RemoteConfigValue, RemoteConfigValueSource};
+use async_lock::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::Client as HttpClient;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 use reqwest::Client as WasmHttpClient;
+use serde_json::Value as JsonValue;
 
 #[derive(Clone)]
 pub struct RemoteConfig {
@@ -44,6 +50,19 @@ struct RemoteConfigInner {
     settings: Mutex<RemoteConfigSettings>,
     fetch_client: Mutex<Arc<dyn RemoteConfigFetchClient>>,
     storage_cache: RemoteConfigStorageCache,
+    initialize_once: OnceCell<()>,
+}
+
+impl RemoteConfigInner {
+    async fn ensure_initialized(&self) -> RemoteConfigResult<()> {
+        self.initialize_once
+            .get_or_try_init(|| async {
+                self.storage_cache.hydrate_from_storage().await?;
+                Ok(())
+            })
+            .await
+            .map(|_| ())
+    }
 }
 static REMOTE_CONFIG_CACHE: LazyLock<Mutex<HashMap<String, Arc<RemoteConfig>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -68,6 +87,7 @@ impl RemoteConfig {
                 settings: Mutex::new(RemoteConfigSettings::default()),
                 fetch_client: Mutex::new(fetch_client),
                 storage_cache,
+                initialize_once: OnceCell::new(),
             }),
         }
     }
@@ -138,7 +158,15 @@ impl RemoteConfig {
         Ok(())
     }
 
+    /// Ensures that cached values and metadata are loaded from the underlying storage backend.
+    ///
+    /// Mirrors the JS SDK's `ensureInitialized()` helper.
+    pub async fn ensure_initialized(&self) -> RemoteConfigResult<()> {
+        self.inner.ensure_initialized().await
+    }
+
     pub async fn fetch(&self) -> RemoteConfigResult<()> {
+        self.inner.ensure_initialized().await?;
         let now = current_timestamp_millis();
         let settings = self.inner.settings.lock().unwrap().clone();
 
@@ -153,7 +181,8 @@ impl RemoteConfig {
             {
                 self.inner
                     .storage_cache
-                    .set_last_fetch_status(FetchStatus::Throttle)?;
+                    .set_last_fetch_status(FetchStatus::Throttle)
+                    .await?;
                 return Err(invalid_argument(
                     "minimum_fetch_interval_millis has not elapsed since the last successful fetch",
                 ));
@@ -164,7 +193,7 @@ impl RemoteConfig {
             cache_max_age_millis: settings.minimum_fetch_interval_millis(),
             timeout_millis: settings.fetch_timeout_millis(),
             e_tag: self.inner.storage_cache.active_config_etag(),
-            custom_signals: None,
+            custom_signals: self.inner.storage_cache.custom_signals(),
         };
 
         let fetch_client = self.inner.fetch_client.lock().unwrap().clone();
@@ -175,7 +204,8 @@ impl RemoteConfig {
             Err(err) => {
                 self.inner
                     .storage_cache
-                    .set_last_fetch_status(FetchStatus::Failure)?;
+                    .set_last_fetch_status(FetchStatus::Failure)
+                    .await?;
                 return Err(err);
             }
         };
@@ -200,25 +230,30 @@ impl RemoteConfig {
                 *self.inner.activated.lock().unwrap() = false;
                 self.inner
                     .storage_cache
-                    .set_last_fetch_status(FetchStatus::Success)?;
+                    .set_last_fetch_status(FetchStatus::Success)
+                    .await?;
                 self.inner
                     .storage_cache
-                    .set_last_successful_fetch_timestamp_millis(now)?;
+                    .set_last_successful_fetch_timestamp_millis(now)
+                    .await?;
                 Ok(())
             }
             304 => {
                 self.inner
                     .storage_cache
-                    .set_last_fetch_status(FetchStatus::Success)?;
+                    .set_last_fetch_status(FetchStatus::Success)
+                    .await?;
                 self.inner
                     .storage_cache
-                    .set_last_successful_fetch_timestamp_millis(now)?;
+                    .set_last_successful_fetch_timestamp_millis(now)
+                    .await?;
                 Ok(())
             }
             status => {
                 self.inner
                     .storage_cache
-                    .set_last_fetch_status(FetchStatus::Failure)?;
+                    .set_last_fetch_status(FetchStatus::Failure)
+                    .await?;
                 Err(internal_error(format!(
                     "fetch returned unexpected status {}",
                     status
@@ -227,7 +262,8 @@ impl RemoteConfig {
         }
     }
 
-    pub fn activate(&self) -> RemoteConfigResult<bool> {
+    pub async fn activate(&self) -> RemoteConfigResult<bool> {
+        self.inner.ensure_initialized().await?;
         let mut activated = self.inner.activated.lock().unwrap();
         let changed = !*activated;
         if changed {
@@ -248,11 +284,15 @@ impl RemoteConfig {
             let template_version = fetched_template_version.take();
             drop(fetched_template_version);
 
-            self.inner.storage_cache.set_active_config(config)?;
-            self.inner.storage_cache.set_active_config_etag(etag)?;
+            self.inner.storage_cache.set_active_config(config).await?;
             self.inner
                 .storage_cache
-                .set_active_config_template_version(template_version)?;
+                .set_active_config_etag(etag)
+                .await?;
+            self.inner
+                .storage_cache
+                .set_active_config_template_version(template_version)
+                .await?;
         }
         *activated = true;
         Ok(changed)
@@ -334,6 +374,71 @@ impl RemoteConfig {
         }
         all
     }
+
+    /// Returns the currently configured custom signals, if any.
+    pub fn custom_signals(&self) -> Option<CustomSignals> {
+        self.inner.storage_cache.custom_signals()
+    }
+
+    /// Merges the provided custom signals into the stored map.
+    ///
+    /// Passing `serde_json::Value::Null` for a key removes the stored value,
+    /// mirroring the JS SDK behaviour. Keys and values are validated to match
+    /// the Remote Config limits.
+    pub async fn set_custom_signals(&self, signals: CustomSignals) -> RemoteConfigResult<()> {
+        if signals.is_empty() {
+            self.inner.ensure_initialized().await?;
+            return Ok(());
+        }
+
+        validate_custom_signals(&signals)?;
+        self.inner.ensure_initialized().await?;
+        let _ = self.inner.storage_cache.set_custom_signals(signals).await?;
+        Ok(())
+    }
+
+    /// Fetches the latest Remote Config template and activates it if changes were returned.
+    pub async fn fetch_and_activate(&self) -> RemoteConfigResult<bool> {
+        self.fetch().await?;
+        self.activate().await
+    }
+}
+
+fn validate_custom_signals(signals: &CustomSignals) -> RemoteConfigResult<()> {
+    for (key, value) in signals {
+        if key.len() > RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH {
+            return Err(invalid_argument(format!(
+                "custom signal key '{key}' exceeds {RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH} characters"
+            )));
+        }
+
+        match value {
+            JsonValue::Null | JsonValue::Bool(_) => {}
+            JsonValue::Number(number) => {
+                if number.to_string().len() > RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH {
+                    return Err(invalid_argument(format!(
+                        "custom signal '{key}' stringified value exceeds {} characters",
+                        RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH
+                    )));
+                }
+            }
+            JsonValue::String(text) => {
+                if text.len() > RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH {
+                    return Err(invalid_argument(format!(
+                        "custom signal '{key}' value exceeds {} characters",
+                        RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH
+                    )));
+                }
+            }
+            _ => {
+                return Err(invalid_argument(format!(
+                    "custom signal '{key}' must be null, bool, number, or string"
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn default_fetch_client(app: &FirebaseApp) -> Arc<dyn RemoteConfigFetchClient> {
@@ -528,15 +633,19 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseApp, FirebaseAppSettings, FirebaseOptions};
-    use crate::remote_config::error::internal_error;
+    use crate::remote_config::constants::{
+        RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH, RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH,
+    };
+    use crate::remote_config::error::{internal_error, RemoteConfigErrorCode};
     use crate::remote_config::fetch::{FetchRequest, FetchResponse, RemoteConfigFetchClient};
     use crate::remote_config::settings::{
         RemoteConfigSettingsUpdate, DEFAULT_FETCH_TIMEOUT_MILLIS,
         DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS,
     };
-    use crate::remote_config::storage::{
-        FetchStatus, FileRemoteConfigStorage, RemoteConfigStorage,
-    };
+    #[cfg(not(target_arch = "wasm32"))]
+    use crate::remote_config::storage::FileRemoteConfigStorage;
+    use crate::remote_config::storage::{CustomSignals, FetchStatus, RemoteConfigStorage};
+    use serde_json::{json, Value as JsonValue};
     use std::fs;
     use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -558,6 +667,21 @@ mod tests {
     fn run_fetch(rc: &RemoteConfig) -> RemoteConfigResult<()> {
         let rc_clone = rc.clone();
         block_on_future(async move { rc_clone.fetch().await })
+    }
+
+    fn run_activate(rc: &RemoteConfig) -> RemoteConfigResult<bool> {
+        let rc_clone = rc.clone();
+        block_on_future(async move { rc_clone.activate().await })
+    }
+
+    fn run_ensure_initialized(rc: &RemoteConfig) -> RemoteConfigResult<()> {
+        let rc_clone = rc.clone();
+        block_on_future(async move { rc_clone.ensure_initialized().await })
+    }
+
+    fn run_set_custom_signals(rc: &RemoteConfig, signals: CustomSignals) -> RemoteConfigResult<()> {
+        let rc_clone = rc.clone();
+        block_on_future(async move { rc_clone.set_custom_signals(signals).await })
     }
 
     fn remote_config(app: FirebaseApp) -> Arc<RemoteConfig> {
@@ -589,7 +713,7 @@ mod tests {
             String::from("hello"),
         )]));
         run_fetch(&rc).unwrap();
-        assert!(rc.activate().unwrap());
+        assert!(run_activate(&rc).unwrap());
         assert_eq!(rc.get_string("welcome"), "hello");
         assert_eq!(rc.last_fetch_status(), FetchStatus::Success);
         assert!(rc.fetch_time_millis() > 0);
@@ -605,8 +729,8 @@ mod tests {
         let rc = remote_config(app);
         rc.set_defaults(HashMap::from([(String::from("flag"), String::from("off"))]));
         run_fetch(&rc).unwrap();
-        rc.activate().unwrap();
-        assert!(!rc.activate().unwrap());
+        run_activate(&rc).unwrap();
+        assert!(!run_activate(&rc).unwrap());
     }
 
     #[test]
@@ -640,7 +764,7 @@ mod tests {
             String::from("true"),
         )]));
         run_fetch(&rc).unwrap();
-        rc.activate().unwrap();
+        run_activate(&rc).unwrap();
 
         let value = rc.get_value("feature");
         assert_eq!(value.source(), RemoteConfigValueSource::Remote);
@@ -677,7 +801,7 @@ mod tests {
             (String::from("secondary"), String::from("value")),
         ]));
         run_fetch(&rc).unwrap();
-        rc.activate().unwrap();
+        run_activate(&rc).unwrap();
         rc.set_defaults(HashMap::from([
             (String::from("feature"), String::from("false")),
             (String::from("secondary"), String::from("value")),
@@ -822,11 +946,112 @@ mod tests {
         run_fetch(&rc).unwrap();
         assert_eq!(rc.last_fetch_status(), FetchStatus::Success);
 
-        assert!(rc.activate().unwrap());
+        assert!(run_activate(&rc).unwrap());
         let value = rc.get_value("feature");
         assert_eq!(value.source(), RemoteConfigValueSource::Remote);
         assert_eq!(value.as_string(), "remote");
         assert_eq!(rc.active_template_version(), Some(7));
+    }
+
+    #[test]
+    fn set_custom_signals_merges_and_removes() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let rc = remote_config(app);
+
+        let mut first: CustomSignals = HashMap::new();
+        first.insert(String::from("flag"), json!(true));
+        run_set_custom_signals(&rc, first).unwrap();
+
+        let mut second: CustomSignals = HashMap::new();
+        second.insert(String::from("score"), json!(42));
+        run_set_custom_signals(&rc, second).unwrap();
+
+        let mut removal: CustomSignals = HashMap::new();
+        removal.insert(String::from("flag"), JsonValue::Null);
+        run_set_custom_signals(&rc, removal).unwrap();
+
+        let signals = rc.custom_signals().expect("signals stored");
+        assert_eq!(
+            signals.get("score"),
+            Some(&JsonValue::String(String::from("42")))
+        );
+        assert!(!signals.contains_key("flag"));
+    }
+
+    #[test]
+    fn set_custom_signals_rejects_too_long_key() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let rc = remote_config(app);
+
+        let mut invalid: CustomSignals = HashMap::new();
+        invalid.insert("x".repeat(RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH + 1), json!(true));
+
+        let err = run_set_custom_signals(&rc, invalid).unwrap_err();
+        assert_eq!(
+            err.code_str(),
+            RemoteConfigErrorCode::InvalidArgument.as_str()
+        );
+    }
+
+    #[test]
+    fn set_custom_signals_rejects_too_long_value() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let rc = remote_config(app);
+
+        let mut invalid: CustomSignals = HashMap::new();
+        invalid.insert(
+            String::from("flag"),
+            JsonValue::String("x".repeat(RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH + 1)),
+        );
+
+        let err = run_set_custom_signals(&rc, invalid).unwrap_err();
+        assert_eq!(
+            err.code_str(),
+            RemoteConfigErrorCode::InvalidArgument.as_str()
+        );
+    }
+
+    #[test]
+    fn fetch_includes_custom_signals_in_request() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
+        let rc = remote_config(app);
+
+        let mut signals: CustomSignals = HashMap::new();
+        signals.insert(String::from("experiment"), json!("A"));
+        signals.insert(String::from("variant"), json!(1));
+        run_set_custom_signals(&rc, signals).unwrap();
+
+        let response = FetchResponse {
+            status: 200,
+            etag: None,
+            config: Some(HashMap::new()),
+            template_version: None,
+        };
+        let recording = Arc::new(RecordingFetchClient::new(response));
+        rc.set_fetch_client(recording.clone());
+
+        run_fetch(&rc).unwrap();
+
+        let request = recording.last_request().expect("fetch request recorded");
+        let sent_signals = request.custom_signals.expect("custom signals included");
+        assert_eq!(sent_signals.get("experiment"), Some(&json!("A")));
+        assert_eq!(sent_signals.get("variant"), Some(&json!("1")));
     }
 
     struct StubFetchClient {
@@ -838,6 +1063,24 @@ mod tests {
             Self {
                 response: StdMutex::new(Some(response)),
             }
+        }
+    }
+
+    struct RecordingFetchClient {
+        response: FetchResponse,
+        request: StdMutex<Option<FetchRequest>>,
+    }
+
+    impl RecordingFetchClient {
+        fn new(response: FetchResponse) -> Self {
+            Self {
+                response,
+                request: StdMutex::new(None),
+            }
+        }
+
+        fn last_request(&self) -> Option<FetchRequest> {
+            self.request.lock().unwrap().clone()
         }
     }
 
@@ -859,6 +1102,22 @@ mod tests {
         }
     }
 
+    #[cfg_attr(
+        all(feature = "wasm-web", target_arch = "wasm32"),
+        async_trait::async_trait(?Send)
+    )]
+    #[cfg_attr(
+        not(all(feature = "wasm-web", target_arch = "wasm32")),
+        async_trait::async_trait
+    )]
+    impl RemoteConfigFetchClient for RecordingFetchClient {
+        async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
+            *self.request.lock().unwrap() = Some(request.clone());
+            Ok(self.response.clone())
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn with_storage_persists_across_instances() {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -888,13 +1147,15 @@ mod tests {
         })));
 
         run_fetch(&rc).unwrap();
-        rc.activate().unwrap();
+        run_activate(&rc).unwrap();
 
         drop(rc);
 
         let storage2: Arc<dyn RemoteConfigStorage> =
             Arc::new(FileRemoteConfigStorage::new(storage_path.clone()).unwrap());
         let rc2 = RemoteConfig::with_storage(app, storage2);
+
+        run_ensure_initialized(&rc2).unwrap();
 
         let value = rc2.get_value("motd");
         assert_eq!(value.source(), RemoteConfigValueSource::Remote);

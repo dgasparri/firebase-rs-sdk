@@ -103,7 +103,6 @@ optional = true
 [dev-dependencies]
 serde-wasm-bindgen = "0.5"
 webbrowser = "0.8"
-tokio = { version = "1", features = ["macros", "rt", "fs", "io-util"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
@@ -118,9 +117,11 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+tokio = { version = "1", features = ["macros", "rt", "io-util"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 httpmock = "0.7"
+tokio = { version = "1", features = ["macros", "rt", "fs", "io-util"] }
 
 
 [package.metadata.docs.rs]
