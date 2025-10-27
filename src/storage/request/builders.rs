@@ -524,21 +524,21 @@ mod tests {
         }
     }
 
-    fn build_storage() -> FirebaseStorageImpl {
+    async fn build_storage() -> FirebaseStorageImpl {
         let options = FirebaseOptions {
             storage_bucket: Some("my-bucket".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let container = app.container();
         let auth_provider = container.get_provider("auth-internal");
         let app_check_provider = container.get_provider("app-check-internal");
         FirebaseStorageImpl::new(app, auth_provider, app_check_provider, None, None).unwrap()
     }
 
-    #[test]
-    fn builds_get_metadata_request() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn builds_get_metadata_request() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "photos/cat.png");
         let request = get_metadata_request(&storage, &location);
         assert_eq!(
@@ -549,9 +549,9 @@ mod tests {
         assert_eq!(request.query_params.get("alt"), Some(&"json".to_string()));
     }
 
-    #[test]
-    fn builds_update_metadata_request() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn builds_update_metadata_request() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "docs/file.txt");
         let mut metadata = SetMetadataRequest::default();
         metadata.content_type = Some("text/plain".into());
@@ -570,9 +570,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn builds_list_request() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn builds_list_request() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "");
         let mut options = ListOptions::default();
         options.max_results = Some(25);
@@ -594,9 +594,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn download_bytes_request_sets_range_header() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn download_bytes_request_sets_range_header() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "docs/file.txt");
         let request = download_bytes_request(&storage, &location, Some(1024));
         assert_eq!(request.method, Method::GET);
@@ -608,9 +608,9 @@ mod tests {
         assert_eq!(request.success_codes, vec![200, 206]);
     }
 
-    #[test]
-    fn download_url_request_builds_signed_url() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn download_url_request_builds_signed_url() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "photos/cat.jpg");
         let request = download_url_request(&storage, &location);
 
@@ -630,18 +630,18 @@ mod tests {
         assert!(url.contains("/v0/b/my%2Dbucket"));
     }
 
-    #[test]
-    fn delete_object_request_accepts_empty_response() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn delete_object_request_accepts_empty_response() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "docs/file.txt");
         let request = delete_object_request(&storage, &location);
         assert_eq!(request.method, Method::DELETE);
         assert!(request.success_codes.contains(&204));
     }
 
-    #[test]
-    fn multipart_upload_request_sets_protocol_and_body() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn multipart_upload_request_sets_protocol_and_body() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "photos/dog.jpg");
         let mut metadata = UploadMetadata::new();
         metadata.content_type = Some("image/jpeg".into());
@@ -676,9 +676,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn create_resumable_upload_request_extracts_upload_url() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn create_resumable_upload_request_extracts_upload_url() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "videos/clip.mp4");
         let mut metadata = UploadMetadata::new();
         metadata.content_type = Some("video/mp4".into());
@@ -707,9 +707,9 @@ mod tests {
         assert_eq!(url, "https://example.com/upload/session");
     }
 
-    #[test]
-    fn get_resumable_upload_status_reads_headers() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn get_resumable_upload_status_reads_headers() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "videos/clip.mp4");
         let request = get_resumable_upload_status_request(
             &storage,
@@ -737,9 +737,9 @@ mod tests {
         assert!(!status.finalized);
     }
 
-    #[test]
-    fn continue_resumable_upload_handles_final_response() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn continue_resumable_upload_handles_final_response() {
+        let storage = build_storage().await;
         let location = Location::new("my-bucket", "videos/clip.mp4");
         let chunk = vec![0_u8, 1, 2, 3];
         let request = continue_resumable_upload_request(

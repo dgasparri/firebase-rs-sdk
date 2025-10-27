@@ -103,21 +103,21 @@ mod tests {
         }
     }
 
-    fn build_storage() -> FirebaseStorageImpl {
+    async fn build_storage() -> FirebaseStorageImpl {
         let options = FirebaseOptions {
             storage_bucket: Some("my-bucket".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let container = app.container();
         let auth_provider = container.get_provider("auth-internal");
         let app_check_provider = container.get_provider("app-check-internal");
         FirebaseStorageImpl::new(app, auth_provider, app_check_provider, None, None).unwrap()
     }
 
-    #[test]
-    fn parses_list_response() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn parses_list_response() {
+        let storage = build_storage().await;
         let json = serde_json::json!({
             "prefixes": ["photos/"],
             "items": [

@@ -55,14 +55,14 @@ This plan captures the work required to ship the next major version of the fireb
   - 2025-02-14: Wired Database listener lifecycle to pause/resume the realtime repo; `go_online` / `go_offline` now drive transport activation.
   - 2025-10-27: Finished the realtime transport port: native builds use `tokio_tungstenite` with auth/App Check handshakes and queued reconnects, wasm builds switch between `web_sys::WebSocket` and long-poll fetch fallbacks, `on_disconnect` commands proxy through both transports, and listener integration tests (`tests/database_listeners.rs`, `tests/wasm_database_listeners.rs`) cover the streaming path.
 - [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, making the module wasm-compatible and updating the examples:
-  -  [x] Module Ai
-  -  [x] Module Analytics
-  -  [ ] Module Functions
-  -  [ ] Module Messaging (wasm parity)
-  -  [ ] Module Installations
-  -  [ ] Module Performance
-  -  [ ] Module Remote Config
-  -  [ ] Module Data Connect
+  -  [x] Wasm parity for module Ai
+  -  [x] Wasm parity for module Analytics
+  -  [ ] Wasm parity for module Functions
+  -  [ ] Wasm parity for module Messaging (wasm parity)
+  -  [ ] Wasm parity for module Installations
+  -  [ ] Wasm parity for module Performance
+  -  [ ] Wasm parity for module Remote Config
+  -  [ ] Wasm parity for module Data Connect
 - [ ] Messaging WASM parity implementation plan
   - [ ] Audit wasm-only messaging paths for parity with real `web-sys` bindings (e.g. `Notification::request_permission`, `PushSubscription::get_key`).
   - [ ] Extend `web-sys` feature flags to include `RegistrationOptions`, `PushEncryptionKeyName`, `ServiceWorkerUpdateViaCache`, `NotificationPermission`, and `NavigatorCookies` as required.

@@ -243,28 +243,28 @@ mod tests {
         }
     }
 
-    fn build_storage() -> FirebaseStorageImpl {
+    async fn build_storage() -> FirebaseStorageImpl {
         let options = FirebaseOptions {
             storage_bucket: Some("my-bucket".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let container = app.container();
         let auth_provider = container.get_provider("auth-internal");
         let app_check_provider = container.get_provider("app-check-internal");
         FirebaseStorageImpl::new(app, auth_provider, app_check_provider, None, None).unwrap()
     }
 
-    #[test]
-    fn root_reference_has_expected_url() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn root_reference_has_expected_url() {
+        let storage = build_storage().await;
         let root = storage.root_reference().unwrap();
         assert_eq!(root.to_gs_url(), "gs://my-bucket/");
     }
 
-    #[test]
-    fn child_computes_new_path() {
-        let storage = build_storage();
+    #[tokio::test]
+    async fn child_computes_new_path() {
+        let storage = build_storage().await;
         let root = storage.root_reference().unwrap();
         let image = root.child("images/photo.png");
         assert_eq!(image.to_gs_url(), "gs://my-bucket/images/photo.png");

@@ -6,6 +6,8 @@ pub mod app;
 pub mod app_check;
 pub mod auth;
 pub mod component;
+
+
 // TODO(async-wasm): Re-enable data_connect once Stage 3 migration lands.
 // #[cfg(not(target_arch = "wasm32"))]
 // pub mod data_connect;
@@ -20,10 +22,7 @@ pub mod functions;
 
 pub mod installations;
 pub mod logger;
-//#[cfg(not(target_arch = "wasm32"))]
 pub mod messaging;
-//#[cfg(target_arch = "wasm32")]
-//pub mod messaging {}
 
 // TODO(async-wasm): Re-enable performance module in Stage 3.
 // #[cfg(not(target_arch = "wasm32"))]
@@ -35,9 +34,10 @@ pub mod remote_config;
 
 // TODO(async-wasm): Re-enable storage when Stage 3 auditing completes.
 // #[cfg(not(target_arch = "wasm32"))]
-// pub mod storage;
+pub mod storage;
 // #[cfg(target_arch = "wasm32")]
 // pub mod storage {}
+
 pub mod util;
 
 #[cfg(test)]

@@ -4361,3 +4361,46 @@ Functions Async
 
 
 OK so write them clearly in ./WASM_PLAN.md
+
+
+Thinking
+  I’m ensuring the notify_id_change method correctly triggers on registration and deletion (with an empty string),
+  confirming the use of Arc is consistent, and verifying all tests pass despite some acceptable warnings. I’m wrapping
+  up by preparing a summary of these modifications, test results, and noting any warnings seen.
+
+> Installations Update
+
+  - Added listener support (Installations::on_id_change) with an unsubscribe handle plus internal bookkeeping so
+  callbacks fire when a new FID is registered; listeners live in InstallationsInner::listeners, and we notify them right
+  after a successful remote registration.
+  - Exposed the new IdChangeUnsubscribe via src/installations/mod.rs and documented the feature in src/installations/
+  README.md.
+  - Updated native tests with on_id_change_notifies_after_registration to assert the listener fires once the mock
+  backend issues an FID, and ensured the wasm message token flow keeps building after the gating tweaks.
+
+  Tests: cargo test installations::api::tests::on_id_change_notifies_after_registration, cargo test
+  functions::api::tests, cargo check --target wasm32-unknown-unknown --features wasm-web, cargo check --target wasm32-
+  unknown-unknown --features wasm-web,experimental-indexed-db.
+
+all tests passed, what's next to do?
+
+ Thinking
+  I added the on_id_change feature and I’m thinking about recapping it briefly. I want to propose what the user might do
+  next—like working on concurrency, retries, and wasm bindgen tests—and highlight any tasks still outstanding. It seems
+  some of this is already mentioned in the README, so I’m piecing together a clear plan to move forward.
+
+> Messaging and Installations both compile and the new Installations::on_id_change hook is in place with tests.
+  Remaining Stage‑3 work (as noted in the README/WASM plan) is larger scope—persistence coordination/backoff, emulator/
+  diagnostics parity, richer wasm integration (FCM lifecycle, multi-context sync, wasm-bindgen tests). I’d schedule
+  those follow-ups as dedicated tasks rather than tackling them piecemeal now.
+
+
+hinking
+  I added the on_id_change feature and I’m thinking about recapping it briefly. I want to propose what the user might do
+  next—like working on concurrency, retries, and wasm bindgen tests—and highlight any tasks still outstanding. It seems
+  some of this is already mentioned in the README, so I’m piecing together a clear plan to move forward.
+
+> Messaging and Installations both compile and the new Installations::on_id_change hook is in place with tests.
+  Remaining Stage‑3 work (as noted in the README/WASM plan) is larger scope—persistence coordination/backoff, emulator/
+  diagnostics parity, richer wasm integration (FCM lifecycle, multi-context sync, wasm-bindgen tests). I’d schedule
+  those follow-ups as dedicated tasks rather than tackling them piecemeal now.
