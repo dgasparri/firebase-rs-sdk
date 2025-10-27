@@ -156,6 +156,8 @@ async fn main() -> StorageResult<()> {
   `X-Firebase-AppCheck`, `X-Firebase-Storage-Version`, and `X-Firebase-GMPID` metadata on every request.
 - Unified async transport built on `reqwest::Client`, so native and wasm targets share the same retry logic while
   exposing an `async` public API.
+- Added runnable examples under `examples/` (`storage_get_stream.rs`, `storage_upload_string.rs`) covering streaming
+  downloads and string uploads to make the new APIs easier to adopt.
 
 ## Still To Do
 

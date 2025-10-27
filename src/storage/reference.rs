@@ -178,6 +178,22 @@ impl StorageReference {
     ///
     /// Returns a [`StreamingResponse`] whose [`StorageByteStream`] can be consumed using the
     /// standard `tokio::io::AsyncRead` interfaces.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::error::Error;
+    /// # use tokio::io::{AsyncReadExt, copy};
+    /// # use tokio::fs::File;
+    /// # use firebase_rs_sdk::storage::StorageReference;
+    /// # async fn example(reference: StorageReference) -> Result<(), Box<dyn Error>> {
+    /// let response = reference.get_stream(None).await?;
+    /// let mut reader = response.reader;
+    /// let mut file = File::create("download.bin").await?;
+    /// copy(&mut reader, &mut file).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn get_stream(
         &self,
         max_download_size_bytes: Option<u64>,
