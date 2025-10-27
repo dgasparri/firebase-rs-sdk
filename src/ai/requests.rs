@@ -227,7 +227,9 @@ impl RequestFactory {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Task {
     GenerateContent,
+    #[allow(dead_code)]
     CountTokens,
+    #[allow(dead_code)]
     Predict,
 }
 
