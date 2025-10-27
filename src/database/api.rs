@@ -1414,7 +1414,7 @@ impl DatabaseReference {
     /// # use firebase_rs_sdk::database::{DatabaseReference, DatabaseResult};
     /// # use serde_json::json;
     /// # fn demo(messages: &DatabaseReference) -> DatabaseResult<()> {
-    /// let new_message = messages.push_with_value(json!({ "text": "hi" }))?;
+    /// let new_message = messages.push_with_value(json!({ "text": "hi" })).await?;
     /// assert!(new_message.key().is_some());
     /// # Ok(())
     /// # }
