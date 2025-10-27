@@ -19,9 +19,9 @@ October 20th, 2025.)
 use firebase_rs_sdk::app::api::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::functions::{get_functions, register_functions_component};
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     register_functions_component();
 
     let app = initialize_app(
@@ -30,23 +30,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         },
         Some(FirebaseAppSettings::default()),
-    )?;
+    )
+    .await?;
 
-    let functions = get_functions(Some(app), None)?;
+    let functions = get_functions(Some(app.clone()), None).await?;
     let callable = functions
-        .https_callable::<serde_json::Value, serde_json::Value>("helloWorld")?;
+        .https_callable::<JsonValue, JsonValue>("helloWorld")?;
 
-    let response = callable.call(&json!({ "message": "hi" }))?;
+    let response = callable
+        .call_async(&json!({ "message": "hi" }))
+        .await?;
     println!("response: {response:?}");
     Ok(())
 }
 ```
 
+Use your platform's async runtime to drive the `main` future (for example `#[tokio::main]` on
+native targets or `wasm_bindgen_futures::spawn_local` on `wasm32-unknown-unknown`).
+
 ## Implemented
 
 - Component registration so `Functions` instances can be resolved from a `FirebaseApp` container.
 - Native HTTPS callable transport backed by async `reqwest::Client`, exposed through an async
-  transport layer while preserving the blocking `call` convenience wrapper on native targets.
+  transport layer.
+- Public callable API is async-only so the module works seamlessly on native and WASM targets.
 - Error code mapping aligned with the JS SDK (`packages/functions/src/error.ts`) including backend
   `status` translation and message propagation.
 - Custom-domain targeting (including emulator-style origins) by interpreting the instance
@@ -72,6 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   `packages/functions/src/api.ts`.
 - Comprehensive error detail decoding (custom `details` payload) and cancellation handling.
 - Broader test coverage mirroring `packages/functions/src/callable.test.ts`.
+- Restore Firebase Messaging token forwarding on WASM once the messaging module exposes a wasm-web
+  implementation.
 
 ## Next steps - Detailed completion plan
 

@@ -20,11 +20,7 @@ pub mod firestore;
 #[cfg(not(feature = "firestore"))]
 pub mod firestore {}
 
-// TODO(async-wasm): Re-enable functions module as part of Stage 3.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod functions;
-// #[cfg(target_arch = "wasm32")]
-// pub mod functions {}
+pub mod functions;
 
 pub mod installations;
 pub mod logger;

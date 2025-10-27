@@ -20,18 +20,6 @@ use crate::functions::context::CallContext;
 const DEFAULT_REGION: &str = "us-central1";
 const DEFAULT_TIMEOUT_MS: u64 = 70_000;
 
-#[cfg(not(target_arch = "wasm32"))]
-fn block_on_future<F>(future: F) -> F::Output
-where
-    F: std::future::Future,
-{
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to create Tokio runtime for blocking callable invocation")
-        .block_on(future)
-}
-
 /// Client entry point for invoking HTTPS callable Cloud Functions.
 ///
 /// This mirrors the JavaScript `FunctionsService` implementation in
@@ -81,17 +69,23 @@ impl Functions {
     /// # use firebase_rs_sdk::functions::error::FunctionsResult;
     /// # use firebase_rs_sdk::app::api::initialize_app;
     /// # use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+    /// # async fn demo() -> firebase_rs_sdk::functions::error::FunctionsResult<()> {
     /// # register_functions_component();
     /// # let app = initialize_app(FirebaseOptions {
     /// #     project_id: Some("demo-project".into()),
     /// #     ..Default::default()
-    /// # }, Some(FirebaseAppSettings::default())).unwrap();
-    /// let functions = get_functions(Some(app), None)?;
+    /// # }, Some(FirebaseAppSettings::default())).await.unwrap();
+    /// # use serde_json::json;
+    /// let functions = get_functions(Some(app.clone()), None).await?;
     /// let callable = functions
     ///     .https_callable::<serde_json::Value, serde_json::Value>("helloWorld")?;
-    /// let response = callable.call(&serde_json::json!({"text": "hi"}))?;
+    /// let response = callable
+    ///     .call_async(&json!({"text": "hi"}))
+    ///     .await?;
     /// println!("{:?}", response);
-    /// # Ok::<(), firebase_rs_sdk::functions::error::FunctionsError>(())
+    /// # Ok(())
+    /// # }
+    /// # let _ = demo;
     /// ```
     pub fn https_callable<Request, Response>(
         &self,
@@ -148,20 +142,14 @@ where
     Request: serde::Serialize,
     Response: serde::de::DeserializeOwned,
 {
-    #[cfg(not(target_arch = "wasm32"))]
-    /// Blocking convenience wrapper that awaits `call_async` using a local executor.
-    pub fn call(&self, data: &Request) -> FunctionsResult<Response> {
-        block_on_future(self.call_async(data))
-    }
-
     /// Asynchronously invokes the backend function and returns the decoded response payload.
     ///
     /// The request and response serialization mirrors the JavaScript SDK behaviour: payloads are
     /// encoded as JSON objects (`{ "data": ... }`) and any server error is mapped to a
     /// `FunctionsError` code.
     ///
-    /// This method is available on all targets and forms the basis for the blocking `call` helper on
-    /// native platforms.
+    /// This method is available on all targets and should be awaited within the caller's async
+    /// runtime.
     pub async fn call_async(&self, data: &Request) -> FunctionsResult<Response> {
         let payload = serde_json::to_value(data).map_err(|err| {
             internal_error(format!("Failed to serialize callable payload: {err}"))
@@ -352,14 +340,16 @@ pub fn register_functions_component() {
 /// Mirrors the modular helper exported from `packages/functions/src/api.ts`.
 /// Passing `region_or_domain` allows selecting a different region or custom domain just like the
 /// `app.functions('europe-west1')` overload in the JavaScript SDK.
-pub fn get_functions(
+pub async fn get_functions(
     app: Option<FirebaseApp>,
     region_or_domain: Option<&str>,
 ) -> FunctionsResult<Arc<Functions>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => crate::app::api::get_app(None)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     let provider = app::registry::get_provider(&app, FUNCTIONS_COMPONENT_NAME);
@@ -374,7 +364,7 @@ pub fn get_functions(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::app::api::initialize_app;
@@ -395,8 +385,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn https_callable_invokes_backend() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn https_callable_invokes_backend() {
         let server = match panic::catch_unwind(|| MockServer::start()) {
             Ok(server) => server,
             Err(_) => {
@@ -418,21 +408,25 @@ mod tests {
             project_id: Some("demo-project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let functions = get_functions(Some(app), Some(&server.url("/callable"))).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let functions = get_functions(Some(app), Some(&server.url("/callable")))
+            .await
+            .unwrap();
         let callable = functions
             .https_callable::<serde_json::Value, serde_json::Value>("hello")
             .unwrap();
 
         let payload = json!({ "message": "ping" });
-        let response = callable.call(&payload).unwrap();
+        let response = callable.call_async(&payload).await.unwrap();
 
         assert_eq!(response, json!({ "message": "pong" }));
         mock.assert();
     }
 
-    #[test]
-    fn https_callable_includes_context_headers() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn https_callable_includes_context_headers() {
         let server = match panic::catch_unwind(|| MockServer::start()) {
             Ok(server) => server,
             Err(_) => {
@@ -458,8 +452,12 @@ mod tests {
             project_id: Some("demo-project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let functions = get_functions(Some(app), Some(&server.url("/callable"))).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let functions = get_functions(Some(app), Some(&server.url("/callable")))
+            .await
+            .unwrap();
         functions.set_context_overrides(CallContext {
             auth_token: Some("auth-token".into()),
             messaging_token: Some("iid-token".into()),
@@ -471,7 +469,7 @@ mod tests {
             .unwrap();
 
         let payload = json!({ "ping": true });
-        let response = callable.call(&payload).unwrap();
+        let response = callable.call_async(&payload).await.unwrap();
 
         assert_eq!(response, json!({ "ok": true }));
         mock.assert();

@@ -8,6 +8,7 @@ use crate::app::FirebaseApp;
 use crate::app_check::FirebaseAppCheckInternal;
 use crate::auth::Auth;
 use crate::component::provider::Provider;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::messaging::Messaging;
 
 /// Metadata that may be attached to callable Function requests.
@@ -21,9 +22,11 @@ pub struct CallContext {
 pub struct ContextProvider {
     auth_provider: Provider,
     auth_internal_provider: Provider,
+    #[cfg(not(target_arch = "wasm32"))]
     messaging_provider: Provider,
     app_check_provider: Provider,
     cached_auth: Mutex<Option<Arc<Auth>>>,
+    #[cfg(not(target_arch = "wasm32"))]
     cached_messaging: Mutex<Option<Arc<Messaging>>>,
     cached_app_check: Mutex<Option<Arc<FirebaseAppCheckInternal>>>,
     overrides: Mutex<Option<CallContext>>,
@@ -32,7 +35,17 @@ pub struct ContextProvider {
 impl Debug for ContextProvider {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let auth_cached = self.cached_auth.lock().unwrap().is_some();
-        let messaging_cached = self.cached_messaging.lock().unwrap().is_some();
+        #[allow(unused_variables)]
+        let messaging_cached = {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.cached_messaging.lock().unwrap().is_some()
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                false
+            }
+        };
         let app_check_cached = self.cached_app_check.lock().unwrap().is_some();
         f.debug_struct("ContextProvider")
             .field("auth_cached", &auth_cached)
@@ -47,18 +60,19 @@ impl ContextProvider {
         let container = app.container();
         let auth_provider = container.get_provider("auth");
         let auth_internal_provider = container.get_provider("auth-internal");
-        let messaging_provider = container.get_provider("messaging");
         let app_check_provider = container.get_provider("app-check-internal");
 
         Self {
             auth_provider,
             auth_internal_provider,
-            messaging_provider,
             app_check_provider,
             cached_auth: Mutex::new(None),
-            cached_messaging: Mutex::new(None),
             cached_app_check: Mutex::new(None),
             overrides: Mutex::new(None),
+            #[cfg(not(target_arch = "wasm32"))]
+            messaging_provider: container.get_provider("messaging"),
+            #[cfg(not(target_arch = "wasm32"))]
+            cached_messaging: Mutex::new(None),
         }
     }
 
@@ -85,24 +99,21 @@ impl ContextProvider {
     }
 
     async fn fetch_messaging_token(&self) -> Option<String> {
-        let messaging = self.ensure_messaging()?;
-
-        #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+        #[cfg(target_arch = "wasm32")]
         {
-            match messaging.get_token(None).await {
-                Ok(token) if !token.is_empty() => Some(token),
-                _ => None,
-            }
+            let _ = self;
+            None
         }
 
-        #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+        #[cfg(not(target_arch = "wasm32"))]
         {
             use crate::messaging::token_store;
 
             const MESSAGING_TOKEN_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
+            let messaging = self.ensure_messaging()?;
             let store_key = messaging.app().name().to_string();
-            if let Ok(Some(record)) = token_store::read_token_async(&store_key).await {
+            if let Ok(Some(record)) = token_store::read_token(&store_key) {
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|duration| duration.as_millis() as u64)
@@ -160,6 +171,7 @@ impl ContextProvider {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn ensure_messaging(&self) -> Option<Arc<Messaging>> {
         if let Some(cached) = self.cached_messaging.lock().unwrap().clone() {
             return Some(cached);

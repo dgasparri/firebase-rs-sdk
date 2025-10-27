@@ -233,15 +233,16 @@ mod wasm {
             .map_err(|err| internal_error(format_js_error("create AbortController", err)))?;
         let signal = abort_controller.signal();
 
-        let mut init = RequestInit::new();
-        init.method("POST");
-        init.mode(RequestMode::Cors);
-        init.signal(Some(&signal));
+        let init = RequestInit::new();
+        init.set_method("POST");
+        init.set_mode(RequestMode::Cors);
+        init.set_signal(Some(&signal));
 
         let body = serde_json::to_string(&payload).map_err(|err| {
             internal_error(format!("Failed to serialize callable payload: {err}"))
         })?;
-        init.body(Some(&JsValue::from_str(&body)));
+        let body_js = JsValue::from_str(&body);
+        init.set_body(&body_js);
 
         let request = Request::new_with_str_and_init(&url, &init)
             .map_err(|err| internal_error(format_js_error("build callable request", err)))?;
