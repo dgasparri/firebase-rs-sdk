@@ -1,71 +1,89 @@
-# Firebase Performance Monitoring Port (Rust)
+# Firebase Performance Module
 
-This directory holds the starting point for the Rust port of Firebase Performance Monitoring. The current
-implementation provides a minimal stub so that other modules can resolve the performance component and record
-synthetic traces.
+## Introduction
+
+This module contains the Rust port of the Firebase Performance Monitoring SDK. The current implementation wires the
+`performance` component into the shared container and offers a lightweight, in-memory trace recorder so other services
+can depend on it while the full feature set is being ported.
 
 ## Porting status
 
-- performance 3% `[#         ]`
+- performance 5% `[##        ]`
 
-==As of October 21th, 2025== 
+==As of October 21st, 2025==
 
-Prompt: Compare the original JS/Typescript files in ./packages/performance and the ported files in Rust in ./src/performance, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
+The Rust crate currently exposes component registration and manual trace recording. The JavaScript SDK includes automatic
+instrumentation, backend upload, installations integration, sampling, remote configuration, and logging utilities that
+remain to be implemented.
 
-Thinking
-  I'm estimating that the Rust stub covers about 3-5% of the full JavaScript features because it only handles manual
-  trace storing. The JS version includes extensive instrumentation, API services, and tracing capabilities that the Rust
-  code doesn't. I'll explain this and suggest logical next steps based on these differences.
+## Quick Start Example
 
-Port Estimate
+```rust,no_run
+use std::time::Duration;
 
-  - About 5 % of the JS Performance SDK has a Rust equivalent today. The Rust crate stops at component registration
-  plus an in-memory trace stub (src/performance/api.rs:40) and simple error/constants (src/performance/error.rs:4, src/
-  performance/constants.rs:1).
-  - The JS package delivers full functionality—PerformanceController setup with IndexedDB validation and transport
-  bootstrapping (packages/performance/src/controllers/perf.ts:1), API service wiring, installations integration,
-  remote-config driven settings, automatic page-load and network instrumentation (packages/performance/src/resources/
-  trace.ts:1, packages/performance/src/resources/network_request.ts), session handling, logging, and upload via
-  transport_service. None of these surfaces or backends are present in Rust.
-  - Advanced trace abilities (attributes, increment metrics, web vitals, OOB routes, user timing hooks) plus sampling,
-  error reporting, and console logging provided through services/* and utils/* modules are absent in the Rust stub,
-  leaving only manual timing with TraceHandle::stop.
-  - Test coverage mirrors this gap: the JS suite spans controllers, resources, services, and utilities, while Rust has
-  just one unit test around trace recording (src/performance/api.rs:169).
+use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::performance::get_performance;
 
-1. Next actions: implement a real PerformanceController that wires installations tokens and transport uploads; port
-  Trace/NetworkRequest semantics (attributes, metrics, auto instrumentation); add settings/remote-config handling and
-  the transport service to move beyond local stubs.
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let options = FirebaseOptions {
+        project_id: Some("demo-project".into()),
+        ..Default::default()
+    };
+    let settings = FirebaseAppSettings {
+        name: Some("demo-app".into()),
+        ..Default::default()
+    };
+    let app = initialize_app(options, Some(settings)).await?;
+    let performance = get_performance(Some(app.clone())).await?;
 
-## Current Functionality
+    let mut trace = performance.new_trace("page_load")?;
+    trace.put_metric("items_rendered", 5)?;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    let trace_data = trace.stop().await?;
 
-- **Component wiring** – `register_performance_component` registers the `performance` component, enabling
-  `get_performance` to retrieve a `Performance` instance through the shared component container.
-- **Trace handling** – `Performance::new_trace` returns a `TraceHandle` that records duration and custom metrics in
-  memory when `stop` is called.
-- **Recorded traces** – `Performance::recorded_trace` allows inspection of the last stored trace by name.
-- **Errors/constants** – Basic error codes (`performance/invalid-argument`, `performance/internal`) and component name
-  constant.
-- **Tests** – Unit test covering trace creation, metric recording, and stored trace retrieval.
+    println!(
+        "trace '{}' completed in {:?} with metrics {:?}",
+        trace_data.name, trace_data.duration, trace_data.metrics
+    );
 
-This stub does not interact with the real Performance Monitoring backend, nor does it capture network traces or auto
-instrumentation.
+    Ok(())
+}
+```
 
-## Work Remaining (vs `packages/performance`)
+## Implemented
 
-1. **Backend transport**
-   - Implement data collection and upload (custom traces, network requests) conforming to the Performance backend API.
-2. **Automatic instrumentation**
-   - Port automatic page load, network, and resource timing instrumentation from the JS SDK.
-3. **Trace lifecycle**
-   - Support attribute recording, measure start/stop APIs, increment metrics, and session handling.
-4. **Settings & sampling**
-   - Integrate remote config, sampling rates, and data collection enablement toggles.
-5. **Environment guards**
-   - Mirror browser-specific checks (e.g., `isSupported`) and React Native/node behaviour.
-6. **Logging/diagnostics**
-   - Port logger utilities to surface diagnostic info and error conditions.
-7. **Testing parity**
-   - Translate unit/integration tests (traces, network collection, settings) and verify with the emulator/real backend.
+- **Component registration** – `register_performance_component` exposes the `performance` component so
+  `get_performance` can asynchronously resolve instances through the shared container (`src/performance/api.rs`).
+- **Async trace handles** – `Performance::new_trace` returns a `TraceHandle` whose `stop` method is `async` and stores
+  results via an `async_lock::Mutex`, making the API cooperative on wasm targets.
+- **In-memory trace store** – Recorded traces are kept in memory and can be retrieved asynchronously with
+  `Performance::recorded_trace` for inspection during tests or debugging.
+- **Error surface** – Minimal error codes (`performance/invalid-argument`, `performance/internal`) mirroring the JS SDK.
+- **Unit tests** – Async test covering trace recording, metric storage, and retrieval.
 
-Addressing these items will bring the Rust Performance module to parity with the JavaScript SDK and enable production use.
+## Still to do
+
+- Backend transport: collect traces and upload them to the Performance Monitoring backend, including installations token
+  integration and throttling logic.
+- Automatic instrumentation: port page-load, network request, and resource timing instrumentation found in the
+  JavaScript SDK.
+- Trace lifecycle: support attributes, custom metrics, increment APIs, session handling, and end-to-end sampling.
+- Settings & sampling: integrate remote config toggles, rate limiting, and logging controls.
+- Platform guards: replicate browser environment checks (e.g., `isSupported`) and add stubs for non-web targets.
+- Testing parity: port the JS test suites for traces, network monitoring, transport, and settings validation.
+
+## Next Steps - Detailed Completion Plan
+
+1. **Introduce persistent trace buffering**
+   - Add IndexedDB (wasm) and file-based (native) stores so traces survive reloads before upload.
+   - Wire the buffers into the async trace recorder and add tests for persistence behaviour.
+2. **Implement transport wiring**
+   - Port the PerformanceController/Transport service to batch traces, attach installations tokens, and honour backend
+     rate limits.
+   - Add integration tests that validate request payloads against the JS fixtures.
+3. **Expand trace semantics**
+   - Implement attribute setters, metric increment APIs, and network request tracing to close the gap with the JS
+     `Trace` and `NetworkRequestTrace` abstractions.
+   - Extend the README and rustdoc with examples once these features land.

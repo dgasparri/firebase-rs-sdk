@@ -23,8 +23,7 @@ pub mod installations;
 pub mod logger;
 pub mod messaging;
 
-// TODO(async-wasm): Re-enable performance module in Stage 3.
-//pub mod performance;
+pub mod performance;
 pub mod platform;
 pub mod remote_config;
 

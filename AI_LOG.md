@@ -4782,3 +4782,252 @@ Thinking
   - Extended storage’s doctest example to rust,ignore and added the streaming download example to the README.
   - Added the examples/storage_get_stream.rs and examples/storage_upload_string.rs samples, showing streaming downloads
   and string uploads.
+
+
+
+
+
+
+
+ what needs to be done to reach full async API and wasm-parity for the module remote_config
+
+> Thinking
+  I'm analyzing remote_config's mix of synchronous and asynchronous methods to identify what’s missing for a fully
+  async API matching wasm parity. I’m comparing the current Rust API with the JavaScript version, especially focusing
+  on methods like activate that are synchronous here but async in JS, and checking dependencies like reqwest for wasm
+  compatibility. I want to gather details from the code and Cargo features to map out necessary changes.
+
+Thinking
+  I'm analyzing remote_config's mix of synchronous and asynchronous methods to identify what’s missing for a fully
+  async API matching wasm parity. I’m comparing the current Rust API with the JavaScript version, especially focusing
+  on methods like activate that are synchronous here but async in JS, and checking dependencies like reqwest for wasm
+  compatibility. I want to gather details from the code and Cargo features to map out necessary changes.
+    Search remote-config in Cargo.toml
+    Read Cargo.toml, storage.rs
+
+> Thinking
+  I'm mapping out how the Rust remote_config module needs to evolve for full async API and wasm parity, focusing on
+  converting storage traits to async, replacing blocking filesystem operations, and adapting public APIs like activate
+• Explored
+  └ Search fetch_and_activate in remote_config
+    Read api.rs
+
+> Thinking
+  I'm mapping out the steps to convert the current synchronous storage layer to fully asynchronous, especially for
+  I’m mapping out what’s missing for full async API and WASM parity in the remote_config module. This involves
+  identifying synchronous traits that must become async for IndexedDB support, considering how key RemoteConfig
+  functions depend on storage, and noting that WASM will need a new IndexedDB storage implementation aligned with the
+  existing platform helpers. I’ll dig deeper into relevant files like value.rs and platform/indexed_db next.
+
+• Explored
+  └ List platform
+    List browser
+    Read indexed_db.rs
+
+> Thinking
+  I'll examine the remote_config module's code to identify which synchronous methods need async conversion for full
+  async API parity, especially storage traits and initialization patterns. I'll also consider wasm compatibility issues
+  around std::fs usage and async setup in component factories, aiming to produce a clear to-do list referencing relevant
+  code lines and module README.
+
+• Explored
+  └ Read settings.rs
+    List remote-config
+    Read api.ts
+    Search custom_signals: None in api.rs
+    Search trait RemoteConfigStorage in storage.rs
+    Read api.rs
+
+> Thinking
+  I’m compiling key points about where the RemoteConfig Rust implementation falls short of a full asynchronous API
+  and wasm parity. The storage trait is synchronous and uses blocking file operations that won’t compile or work well
+  on wasm, so gating and async rewrites are needed. Activation is also synchronous and doesn’t persist fetched data,
+  unlike JS, so it requires redesign for async persistence. The API lacks async methods like ensure_initialized and
+  fetch_and_activate, plus support for custom signals is missing. For wasm parity, FileRemoteConfigStorage must be
+  gated out and replaced with an async IndexedDB implementation, and fetch cancellation and real-time updates need
+  consideration. Adding wasm integration tests to verify async storage and fetch behavior is also important. I’m
+  referencing precise file locations like src/remote_config/storage.rs:46 for the storage trait and src/remote_config/
+  api.rs:230 for activation to ground the analysis. I’ll organize the insights into bullet lists on async gaps, wasm
+  tasks, and suggested next steps to make the final message clear and actionable.
+
+IMPORTANTE: Remote config
+> Async API Gaps
+
+  - Promote RemoteConfigStorage to an async trait so backends can perform non-blocking I/O (e.g. IndexedDB) instead of
+  the current sync contract (src/remote_config/storage.rs:46) and update RemoteConfigStorageCache::* writes that still
+  call into blocking setters (src/remote_config/storage.rs:150).
+  - Make RemoteConfig::activate awaitable, persist the last fetched payload instead of relying on the in-memory
+  fetched_* fields, and update callers accordingly (src/remote_config/api.rs:230); the JS SDK returns a promise because
+  it flushes to storage before resolving.
+  - Surface the remaining async helpers from the JS API (ensure_initialized, fetch_and_activate, set_custom_signals,
+  set_log_level, realtime listeners) so consumers don’t reimplement them; none of these are exposed from mod.rs today
+  (src/remote_config/mod.rs:5).
+  - Feed custom signals into fetches instead of hard-coding custom_signals: None (src/remote_config/api.rs:167) by
+  plumbing an async set_custom_signals API through the storage cache and fetch client options.
+  - Persist throttle metadata and richer fetch errors similar to the TS client so async callers can distinguish throttle
+  vs failure; today we only map to FetchStatus in memory (src/remote_config/api.rs:145).
+
+  Wasm Parity Tasks
+
+  - Provide an IndexedDbRemoteConfigStorage under the wasm-web/experimental-indexed-db features using the shared helpers
+  (src/platform/browser/indexed_db.rs:15) and gate the file-based storage that depends on std::fs off wasm targets (src/
+  remote_config/storage.rs:109).
+  - Hydrate the cache asynchronously on wasm (ensure_initialized) so getters wait for IndexedDB round-trips before
+  exposing values, matching the TS RemoteConfig._initializePromise.
+  - Add a wasm-aware fetch client that mirrors the JS abort-signal behaviour; the current wasm path lacks timeout/abort
+  support and simply awaits reqwest::Client::send() (src/remote_config/fetch.rs:331).
+  - Implement real-time update plumbing (observer registration plus websocket/channel handling) so the wasm build can
+  mirror onConfigUpdate; no Rust code maps to packages/remote-config/src/api.ts:onConfigUpdate.
+  - Extend the test matrix with wasm_bindgen_test cases covering IndexedDB-backed storage and async activation to ensure
+  the wasm32 build stays green.
+
+  Next Steps
+
+  - Decide on an async storage interface shape (likely async_trait) and prototype an IndexedDB-backed storage to
+  validate the design.
+  - Once the storage layer is async, flip activate/ensure_initialized/set_custom_signals to async and add the missing
+  public exports.
+
+
+
+The goal is to propagate the async all the way to the public API without using block in the library. It is OK to
+▌ change the public API even with disrupting changes
+
+> Thinking
+  I'm mapping out how to propagate async throughout the RemoteConfig API and its tests, focusing on removing blocking
+  calls like block_on and updating all storage cache method calls to be awaited properly. I’m also considering which
+  functions like set_defaults should remain sync or be async and checking where ensure_initialized should be called to
+  make sure data is loaded before access. This involves updating API exports, adding new async methods, adjusting fetch
+  logic to use stored custom signals, and revising tests accordingly. I'll also watch for any lingering non-await calls
+  in the codebase.
+
+• Explored
+  └ Search set_last_fetch_status in *.rs
+
+> Thinking
+  I'm outlining how to add set_custom_signals and related methods to RemoteConfig, including validation of signal keys
+  and values, merging logic, and integration into fetch requests. I also want to handle initialization, expose the
+  CustomSignals type properly, and update existing async workflows like fetch and activate with necessary awaits. This
+  will keep the Rust API aligned with the TypeScript behavior and ensure proper storage interactions.
+
+
+
+ Updated Plan
+  └ ✔ Refactor remote_config storage trait/cache to async, including custom signal support and async hydration helpers.
+    □ Implement platform storage backends (in-memory, file, wasm IndexedDB) under new async trait.
+    ✔ Adapt RemoteConfig API to async flow (activate, ensure_initialized, fetch integration, new helpers) and update
+      exports/README/tests.
+
+• Explored
+  └ Read storage.rs, api.rs, constants.rs, mod.rs, README.md
+
+> Thinking
+  I’m preparing a clear, concise bullet list of key code changes with file paths and line numbers, including async
+  storage updates, RemoteConfig API changes, new custom signals features, and README updates. I’ll also note the
+  test failures due to sandbox network limits and suggest rerunning tests outside the sandbox. To wrap up, I’ll add a
+  numbered list of next steps including finishing IndexedDB support and handling throttling.
+
+> - Made the persistence layer fully async and cache custom signals alongside metadata so hydration works for every
+  backend (src/remote_config/storage.rs:60, src/remote_config/storage.rs:185).
+  - Promoted the core API to async—ensure_initialized, fetch, and activate now await storage, and fetch_and_activate
+  wraps the common flow (src/remote_config/api.rs:161, src/remote_config/api.rs:168, src/remote_config/api.rs:265, src/
+  remote_config/api.rs:400).
+  - Added first-class custom signal support with validation, merge semantics, and fetch propagation, using shared limits
+  (src/remote_config/constants.rs:3, src/remote_config/api.rs:192, src/remote_config/api.rs:378, src/remote_config/
+  api.rs:388, src/remote_config/api.rs:407).
+  - Re-exported the CustomSignals alias from the module root to keep the public surface clean (src/remote_config/
+  mod.rs:10).
+  - Updated the module README to highlight the async usage pattern and newly implemented helpers (src/remote_config/
+  README.md:41, src/remote_config/README.md:55).
+
+  Tests:
+
+  - cargo test remote_config:: (fails: httpmock cannot bind to 127.0.0.1 under the sandbox; rerun outside the restricted
+  environment to verify the native fetch tests).
+
+  Next steps:
+
+  1. Implement the IndexedDB-backed storage (and other platform defaults) on top of the new async trait.
+  2. Extend throttling/backoff persistence and logging controls, then re-run the native fetch tests once sandbox
+  networking is available.
+
+
+  Next steps:
+
+  1. Implement the IndexedDB-backed storage (and other platform defaults) on top of the new async trait.
+  2. Extend throttling/backoff persistence and logging controls, then re-run the native fetch tests once sandbox
+  networking is available.
+
+▌ I prefer we work on module performance. Make the API completely async and wasm-parity
+
+> Thinking
+  This is a detailed strategy to fully async the API, add an IndexedDB-backed storage for wasm with async traits, and
+  improve performance by switching to async-friendly locks like async_lock::Mutex. I'll carefully balance keeping some
+  sync getters while making heavy operations async, implement wasm storage with JSON serialization in IndexedDB, and
+  dynamically select storage backend for wasm features. I'll also update configuration constructors, tests, and docs to
+  align with these changes.
+
+• Updated Plan
+  └ □ Add async-friendly improvements and custom signal validation to reduce locking overhead.
+    □ Introduce IndexedDB-backed storage for wasm builds and wire it into RemoteConfig initialization.
+    □ Finalize README/docs to reflect async API & wasm parity; run available tests.
+
+  Formulating async wasm storage plan (1m 04s • Esc to interrupt)
+
+Thinking
+  I'm working through adding a thread-local cache for the IndexedDB handle in wasm builds to avoid costly repeated
+  opens. This involves defining a thread_local! RefCell<Option<IdbDatabase>> outside the function under cfg, then
+  updating open_remote_config_db to first check the cache before opening the database anew. I’m ensuring all type
+  constraints, imports, and async handling fit well for wasm and non-wasm targets, and planning to update documentation
+  accordingly.
+
+  Implementing cached IndexedDB access for wasm (1m 57s • Esc to interrupt)
+
+Thinking
+  I'll highlight the key changes: adding IndexedDB storage for wasm, automatic storage selection, integrating custom
+  signals with new fetch behavior, and updating the README accordingly. I'll also note the blocked remote_config tests
+  due to sandbox limits and suggest next steps like adding mobile storage and running tests outside sandbox.
+
+> - RemoteConfig now auto-selects an IndexedDB persistence backend for wasm builds when both wasm-web and experimental-
+  indexed-db are enabled, bringing storage parity with the JS SDK and caching the database handle for tighter
+  performance (src/remote_config/storage.rs:482-713, src/remote_config/api.rs:76-88).
+  - Custom signals are fully async, validated, persisted, and forwarded on every fetch, with the helpers re-exported
+  from the module root to keep the public API tidy (src/remote_config/api.rs:192-420, src/remote_config/mod.rs:10).
+  - Updated module docs to reflect the async flow, new wasm persistence, and refreshed next steps for platform defaults
+  and realtime follow-ups (src/remote_config/README.md:53-98).
+
+  Tests
+
+  - cargo test remote_config:: (fails in this sandbox because httpmock cannot bind to 127.0.0.1; rerun outside the
+  restricted environment for the native fetch tests).
+
+  Next steps (optional)
+
+  1. Enable persistent defaults for mobile/native targets and add cleanup/quota handling to the new storage layer.
+  2. Re-run the full remote_config test suite outside the sandbox to validate the native HTTP client.
+
+
+Thinking
+  I’m gathering a concise overview of the major changes: replacing the README via apply_patch, updating mod.rs to re-
+  export Custom, enabling the module in the lib, employing async APIs with async_lock, and maintaining wasm parity with
+  non-blocking code. I’ll highlight get_performance, TraceHandle::stop, and recorded_trace now being async, plus the
+  new Quick start example and test coverage. I’m preparing bullet points referencing key files and lines, instructions
+  for running cargo test performance::, and notes on warnings like those related to Firestore. This will help the user
+  understand the improvements and how to verify them smoothly.
+
+> - Re-enabled the performance module and converted its public surface to async so callers use the same pattern as other
+  components (src/lib.rs:26, src/performance/api.rs:131).
+  - Swapped the trace store over to async_lock::Mutex and made TraceHandle::stop/Performance::recorded_trace awaitable,
+  keeping the recording path non-blocking on wasm while retaining the in-memory stub (src/performance/api.rs:56, src/
+  performance/api.rs:81).
+  - Refreshed the module README with an async quick-start, clarified current coverage, and laid out the next
+  implementation steps for parity (src/performance/README.md).
+
+  Tests: cargo test performance:: (passes; other warnings stem from existing Firestore code).
+
+
+Thinking
+  I’m working through how to fix test compilation issues for wasm targets by conditionally compiling the tests module
+  only when not targeting wasm32. This involves gating imports and test code using #[cfg(not(target_arch = "wasm32"))]
+  to avoid missing tokio time features on wasm. I’m aiming to keep tokio time-based sleeps for non-wasm tests while
+  skipping those tests entirely on wasm, simplifying dependencies and preventing build errors.

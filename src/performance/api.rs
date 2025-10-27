@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use crate::app;
@@ -10,6 +10,7 @@ use crate::component::types::{
 use crate::component::{Component, ComponentType};
 use crate::performance::constants::PERFORMANCE_COMPONENT_NAME;
 use crate::performance::error::{internal_error, invalid_argument, PerformanceResult};
+use async_lock::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct Performance {
@@ -47,10 +48,12 @@ impl Performance {
         }
     }
 
+    /// Returns the [`FirebaseApp`] that owns this Performance monitor.
     pub fn app(&self) -> &FirebaseApp {
         &self.inner.app
     }
 
+    /// Creates a new manual trace, mirroring the JS SDK's `trace()` helper.
     pub fn new_trace(&self, name: &str) -> PerformanceResult<TraceHandle> {
         if name.trim().is_empty() {
             return Err(invalid_argument("Trace name must not be empty"));
@@ -63,12 +66,14 @@ impl Performance {
         })
     }
 
-    pub fn recorded_trace(&self, name: &str) -> Option<PerformanceTrace> {
-        self.inner.traces.lock().unwrap().get(name).cloned()
+    /// Returns the most recently recorded trace with `name`, if any.
+    pub async fn recorded_trace(&self, name: &str) -> Option<PerformanceTrace> {
+        self.inner.traces.lock().await.get(name).cloned()
     }
 }
 
 impl TraceHandle {
+    /// Adds (or replaces) a numeric metric for the trace.
     pub fn put_metric(&mut self, name: &str, value: i64) -> PerformanceResult<()> {
         if name.trim().is_empty() {
             return Err(invalid_argument("Metric name must not be empty"));
@@ -77,7 +82,8 @@ impl TraceHandle {
         Ok(())
     }
 
-    pub fn stop(self) -> PerformanceResult<PerformanceTrace> {
+    /// Stops the trace and stores the timing/metrics in the parent [`Performance`] instance.
+    pub async fn stop(self) -> PerformanceResult<PerformanceTrace> {
         let duration = self.start.elapsed();
         let trace = PerformanceTrace {
             name: self.name.clone(),
@@ -88,7 +94,7 @@ impl TraceHandle {
             .inner
             .traces
             .lock()
-            .unwrap()
+            .await
             .insert(self.name.clone(), trace.clone());
         Ok(trace)
     }
@@ -127,11 +133,17 @@ pub fn register_performance_component() {
     ensure_registered();
 }
 
-pub fn get_performance(app: Option<FirebaseApp>) -> PerformanceResult<Arc<Performance>> {
+/// Resolves (or lazily creates) the [`Performance`] instance associated with the provided app.
+///
+/// This mirrors the behaviour of the JavaScript SDK's `getPerformance` helper. When `app` is
+/// `None`, the default app is resolved asynchronously via [`get_app`](crate::app::api::get_app).
+pub async fn get_performance(app: Option<FirebaseApp>) -> PerformanceResult<Arc<Performance>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => crate::app::api::get_app(None)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     let provider = app::registry::get_provider(&app, PERFORMANCE_COMPONENT_NAME);
@@ -148,11 +160,12 @@ pub fn get_performance(app: Option<FirebaseApp>) -> PerformanceResult<Arc<Perfor
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use tokio::time::sleep;
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -166,22 +179,24 @@ mod tests {
         }
     }
 
-    #[test]
-    fn trace_records_duration_and_metrics() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn trace_records_duration_and_metrics() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let performance = get_performance(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let performance = get_performance(Some(app.clone())).await.unwrap();
         let mut trace = performance.new_trace("load").unwrap();
         trace.put_metric("items", 3).unwrap();
-        std::thread::sleep(Duration::from_millis(10));
-        let result = trace.stop().unwrap();
+        sleep(Duration::from_millis(10)).await;
+        let result = trace.stop().await.unwrap();
         assert_eq!(result.metrics.get("items"), Some(&3));
         assert!(result.duration >= Duration::from_millis(10));
 
-        let stored = performance.recorded_trace("load").unwrap();
+        let stored = performance.recorded_trace("load").await.unwrap();
         assert_eq!(stored.metrics.get("items"), Some(&3));
     }
 }
