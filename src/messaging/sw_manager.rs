@@ -1,21 +1,22 @@
-use crate::messaging::error::{unsupported_browser, MessagingResult};
-
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 mod wasm {
-    use std::rc::Rc;
-
-    use wasm_bindgen::closure::Closure;
+    use js_sys::Reflect;
     use wasm_bindgen::JsCast;
     use wasm_bindgen::JsValue;
     use wasm_bindgen_futures::JsFuture;
+
+    use gloo_timers::future::TimeoutFuture;
 
     use crate::messaging::constants::{
         DEFAULT_REGISTRATION_TIMEOUT_MS, DEFAULT_SW_PATH, DEFAULT_SW_SCOPE,
         REGISTRATION_POLL_INTERVAL_MS,
     };
     use crate::messaging::error::{
-        available_in_window, failed_default_registration, internal_error, unsupported_browser,
-        MessagingResult,
+        available_in_window, failed_default_registration, unsupported_browser, MessagingResult,
     };
 
     /// Thin wrapper around a `ServiceWorkerRegistration` reference.
@@ -75,18 +76,29 @@ mod wasm {
                 available_in_window("Service worker registration requires a Window context")
             })?;
             let navigator = window.navigator();
-            let container = navigator.service_worker().ok_or_else(|| {
-                unsupported_browser(
+            let navigator_js = JsValue::from(navigator.clone());
+            let container_value = Reflect::get(&navigator_js, &JsValue::from_str("serviceWorker"))
+                .map_err(|_| {
+                    unsupported_browser(
+                        "Service workers are not available in this browser environment.",
+                    )
+                })?;
+            if container_value.is_undefined() || container_value.is_null() {
+                return Err(unsupported_browser(
                     "Service workers are not available in this browser environment.",
-                )
-            })?;
+                ));
+            }
+            let container: web_sys::ServiceWorkerContainer =
+                container_value.dyn_into().map_err(|_| {
+                    unsupported_browser(
+                        "Service workers are not available in this browser environment.",
+                    )
+                })?;
 
-            let mut options = web_sys::RegistrationOptions::new();
-            options.scope(DEFAULT_SW_SCOPE);
+            let options = web_sys::RegistrationOptions::new();
+            options.set_scope(DEFAULT_SW_SCOPE);
 
-            let promise = container
-                .register_with_str_and_options(DEFAULT_SW_PATH, &options)
-                .map_err(|err| internal_error(format_js_error("serviceWorker.register", err)))?;
+            let promise = container.register_with_options(DEFAULT_SW_PATH, &options);
             let registration_js = JsFuture::from(promise).await.map_err(|err| {
                 failed_default_registration(format_js_error("serviceWorker.register", err))
             })?;
@@ -139,39 +151,10 @@ mod wasm {
     }
 
     async fn sleep_ms(ms: i32) -> MessagingResult<()> {
-        let window = web_sys::window().ok_or_else(|| {
-            available_in_window("Timers require a Window context for service worker polling")
-        })?;
-        let window = Rc::new(window);
-
-        let promise = js_sys::Promise::new(&mut |resolve, reject| {
-            let resolve_fn = resolve.unchecked_into::<js_sys::Function>();
-            let reject_fn = reject.unchecked_into::<js_sys::Function>();
-            let window = Rc::clone(&window);
-
-            let closure = Closure::once(move || {
-                let _ = resolve_fn.call0(&JsValue::UNDEFINED);
-            });
-
-            if window
-                .set_timeout_with_callback_and_timeout_and_arguments_0(
-                    closure.as_ref().unchecked_ref(),
-                    ms,
-                )
-                .is_ok()
-            {
-                closure.forget();
-            } else {
-                // If setTimeout fails we propagate an error through the promise rejection path.
-                let error = js_sys::Error::new("Failed to schedule timeout");
-                let _ = reject_fn.call1(&JsValue::UNDEFINED, &error);
-            }
-        });
-
-        JsFuture::from(promise)
-            .await
-            .map(|_| ())
-            .map_err(|err| internal_error(format_js_error("setTimeout", err)))
+        if ms > 0 {
+            TimeoutFuture::new(ms as u32).await;
+        }
+        Ok(())
     }
 
     fn format_js_error(operation: &str, err: JsValue) -> String {
@@ -183,14 +166,32 @@ mod wasm {
     pub use ServiceWorkerRegistrationHandle as Handle;
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 pub use wasm::{Handle as ServiceWorkerRegistrationHandle, Manager as ServiceWorkerManager};
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(any(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        not(feature = "experimental-indexed-db")
+    )
+))]
 #[derive(Default)]
 pub struct ServiceWorkerManager;
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(any(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        not(feature = "experimental-indexed-db")
+    )
+))]
 impl ServiceWorkerManager {
     pub fn new() -> Self {
         Self
@@ -200,18 +201,37 @@ impl ServiceWorkerManager {
         None
     }
 
-    pub async fn register_default(&mut self) -> MessagingResult<ServiceWorkerRegistrationHandle> {
-        Err(unsupported_browser(
+    pub async fn register_default(
+        &mut self,
+    ) -> crate::messaging::error::MessagingResult<ServiceWorkerRegistrationHandle> {
+        Err(crate::messaging::error::unsupported_browser(
             "Service worker registration is only available when the `wasm-web` feature is enabled.",
         ))
     }
 }
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(any(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        not(feature = "experimental-indexed-db")
+    )
+))]
 #[derive(Clone, Debug)]
 pub struct ServiceWorkerRegistrationHandle;
 
-#[cfg(all(test, not(all(feature = "wasm-web", target_arch = "wasm32"))))]
+#[cfg(all(
+    test,
+    any(
+        not(all(feature = "wasm-web", target_arch = "wasm32")),
+        all(
+            feature = "wasm-web",
+            target_arch = "wasm32",
+            not(feature = "experimental-indexed-db")
+        )
+    )
+))]
 mod tests {
     use super::*;
 

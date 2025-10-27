@@ -668,3 +668,25 @@ I’d peg the messaging port at roughly 25 %—we now have service-worker regi
   lifecycle, message delivery handlers, and a few parity checks. I bumped the README to reflect 25 % and added a first
   bullet under “Next steps” pointing to the async Installations plan (wasm fetch client + shared persistence) so the
   messaging work ties into that roadmap.
+
+
+
+
+  Messaging/Firestore Wasm Work
+
+  - Cargo.toml:72-96 enables the missing web-sys bindings (RegistrationOptions, PushEncryptionKeyName,
+  NotificationPermission, etc.) so the messaging wasm code can compile against real browser APIs.
+  - Firestore datastore traits (src/firestore/remote/datastore/mod.rs, http.rs, in_memory.rs) and
+  Connection::build_request (connection.rs:167) now use async_trait(?Send)/skip timeout so wasm builds no longer require
+  Send futures or native-only APIs.
+  - Messaging modules are fully wasm-aware:
+      - src/messaging/mod.rs, sw_manager.rs, subscription.rs, token_store.rs, support.rs, and the wasm FCM client
+  (fcm_rest/mod.rs, wasm.rs) gate their heavy implementations behind wasm-web + experimental-indexed-db and provide
+  clear fallbacks (unsupported errors or in-memory stores) when IndexedDB isn’t available.
+      - src/messaging/api.rs reworks permission/token flows to use NotificationPermission, re-exported Installations
+  config, real service-worker helpers, and returns explicit unsupported_browser errors when IndexedDB is disabled.
+      - src/messaging/token_store.rs now has a full IndexedDB + BroadcastChannel path and an async in-memory fallback;
+  helper methods are cfg-gated to suppress dead-code warnings without breaking wasm builds.
+      - src/installations/mod.rs re-exports extract_app_config so messaging can share the async Installations plumbing.
+  - src/messaging/README.md:12-61 documents the --features wasm-web,experimental-indexed-db requirement and notes the
+  IndexedDB fallback behavior.

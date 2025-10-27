@@ -6,6 +6,8 @@
 //! `false` for native targets.
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use js_sys::Reflect;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use wasm_bindgen::{JsCast, JsValue};
 
 /// Returns `true` when the current environment exposes the browser APIs that
@@ -29,12 +31,21 @@ pub fn is_supported() -> bool {
         None => return false,
     };
     let navigator = window.navigator();
+    let navigator_js = JsValue::from(navigator.clone());
 
-    if !navigator.cookie_enabled() {
+    let cookie_enabled = Reflect::get(&navigator_js, &JsValue::from_str("cookieEnabled"))
+        .ok()
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    if !cookie_enabled {
         return false;
     }
 
-    if navigator.service_worker().is_none() {
+    let service_worker_available = Reflect::get(&navigator_js, &JsValue::from_str("serviceWorker"))
+        .ok()
+        .map(|value| !value.is_undefined() && !value.is_null())
+        .unwrap_or(false);
+    if !service_worker_available {
         return false;
     }
 
@@ -67,17 +78,17 @@ pub fn is_supported() -> bool {
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 fn property_in(target: &JsValue, property: &str) -> bool {
-    js_sys::Reflect::has(target, &JsValue::from_str(property)).unwrap_or(false)
+    Reflect::has(target, &JsValue::from_str(property)).unwrap_or(false)
 }
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 fn prototype_has_property(target: &JsValue, constructor: &str, property: &str) -> bool {
-    let ctor = match js_sys::Reflect::get(target, &JsValue::from_str(constructor)) {
+    let ctor = match Reflect::get(target, &JsValue::from_str(constructor)) {
         Ok(value) => value,
         Err(_) => return false,
     };
 
-    let prototype = match js_sys::Reflect::get(&ctor, &JsValue::from_str("prototype")) {
+    let prototype = match Reflect::get(&ctor, &JsValue::from_str("prototype")) {
         Ok(value) => value,
         Err(_) => return false,
     };

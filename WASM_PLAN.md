@@ -70,6 +70,10 @@ This plan captures the work required to ship the next major version of the fireb
   - [ ] Update `platform::browser::indexed_db` and the messaging token store to operate on real `IdbDatabase` handles for wasm.
   - [ ] Rebuild the service worker helpers to use `RegistrationOptions`, `Promise`/`JsFuture`, and shared `format_js_error` utilities without duplication.
   - [ ] Add wasm-bindgen smoke tests for permission and token flows and document wasm usage details in `src/messaging/README.md`.
+  - [ ] Wire the full Installations + FCM REST token lifecycle on wasm (registration, refresh, deletion) and document the IndexedDB requirement versus the in-memory fallback.
+  - [ ] Implement multi-context coordination (BroadcastChannel/storage events) and token refresh timers so browser tabs stay in sync, matching the JS SDK behaviour.
+  - [ ] Port foreground/background message listeners, payload dispatchers, and the messaging error catalog; update docs and tests accordingly.
+  - [ ] Stand up wasm-bindgen integration tests exercising service worker registration, push subscription, and token refresh flows.
 - [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.
 - [ ] Ensure token acquisition hooks (`auth_token`, `app_check_token`) are fully async across the board and document any intentionally unsupported scenarios.
 

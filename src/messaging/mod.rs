@@ -16,13 +16,31 @@ pub use api::{
 };
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 pub use subscription::PushSubscriptionManager;
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    not(feature = "experimental-indexed-db")
+))]
+pub use subscription::PushSubscriptionManager;
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 pub use subscription::{PushSubscriptionDetails, PushSubscriptionHandle, PushSubscriptionManager};
 pub use support::is_supported;
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-pub use sw_manager::ServiceWorkerRegistrationHandle;
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 pub use sw_manager::{ServiceWorkerManager, ServiceWorkerRegistrationHandle};
-
-pub use sw_manager::ServiceWorkerManager;
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    not(feature = "experimental-indexed-db")
+))]
+pub use sw_manager::{ServiceWorkerManager, ServiceWorkerRegistrationHandle};
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+pub use sw_manager::{ServiceWorkerManager, ServiceWorkerRegistrationHandle};
 pub use types::{FcmOptions, MessageHandler, MessagePayload, NotificationPayload, Unsubscribe};

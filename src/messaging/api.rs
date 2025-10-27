@@ -5,7 +5,17 @@ use std::sync::{
 };
 use std::sync::{Arc, LazyLock};
 
+#[cfg(not(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+)))]
 use rand::distributions::Alphanumeric;
+#[cfg(not(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+)))]
 use rand::{thread_rng, Rng};
 
 use crate::app;
@@ -14,30 +24,58 @@ use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentType};
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-use crate::installations::config::extract_app_config;
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+use crate::installations::extract_app_config;
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 use crate::installations::{get_installations_internal, InstallationEntryData};
 use crate::messaging::constants::MESSAGING_COMPONENT_NAME;
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+use crate::messaging::error::invalid_argument;
 use crate::messaging::error::{
-    available_in_service_worker, available_in_window, internal_error, invalid_argument,
-    token_deletion_failed, MessagingResult,
+    available_in_service_worker, available_in_window, internal_error, token_deletion_failed,
+    MessagingResult,
 };
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 use crate::messaging::fcm_rest::{
     FcmClient, FcmRegistrationRequest, FcmSubscription, FcmUpdateRequest,
 };
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 use crate::messaging::token_store::{self, InstallationInfo, SubscriptionInfo, TokenRecord};
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use crate::messaging::token_store::{self, InstallationInfo, TokenRecord};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::types::MessagePayload;
 use crate::messaging::types::{MessageHandler, Unsubscribe};
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 use std::time::{SystemTime, UNIX_EPOCH};
-
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use web_sys::NotificationPermission;
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 use crate::messaging::constants::DEFAULT_VAPID_KEY;
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::error::{permission_blocked, unsupported_browser};
@@ -61,9 +99,19 @@ struct MessagingInner {
 }
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[derive(Clone)]
 struct HandlerEntry {
     id: usize,
     handler: MessageHandler,
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+impl std::fmt::Debug for HandlerEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandlerEntry")
+            .field("id", &self.id)
+            .finish()
+    }
 }
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
@@ -150,6 +198,12 @@ impl Messaging {
     }
 }
 
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(not(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+)))]
 fn generate_token() -> String {
     thread_rng()
         .sample_iter(&Alphanumeric)
@@ -175,7 +229,7 @@ async fn request_permission_impl() -> MessagingResult<PermissionState> {
     }
 
     let current = web_sys::Notification::permission();
-    match as_permission_state(&current) {
+    match permission_state_from_enum(current) {
         PermissionState::Granted => return Ok(PermissionState::Granted),
         PermissionState::Denied => {
             return Err(permission_blocked(
@@ -191,11 +245,13 @@ async fn request_permission_impl() -> MessagingResult<PermissionState> {
         .await
         .map_err(|err| internal_error(format_js_error("requestPermission", err)))?;
 
-    let status = result
-        .as_string()
-        .unwrap_or_else(|| web_sys::Notification::permission());
+    let status = result.as_string();
+    let permission_state = status
+        .as_deref()
+        .map(permission_state_from_str)
+        .unwrap_or_else(|| permission_state_from_enum(web_sys::Notification::permission()));
 
-    match as_permission_state(&status) {
+    match permission_state {
         PermissionState::Granted => Ok(PermissionState::Granted),
         PermissionState::Denied | PermissionState::Default => Err(permission_blocked(
             "Notification permission not granted by the user.",
@@ -204,7 +260,16 @@ async fn request_permission_impl() -> MessagingResult<PermissionState> {
 }
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-fn as_permission_state(value: &str) -> PermissionState {
+fn permission_state_from_enum(value: NotificationPermission) -> PermissionState {
+    match value {
+        NotificationPermission::Granted => PermissionState::Granted,
+        NotificationPermission::Denied => PermissionState::Denied,
+        _ => PermissionState::Default,
+    }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+fn permission_state_from_str(value: &str) -> PermissionState {
     match value {
         "granted" => PermissionState::Granted,
         "denied" => PermissionState::Denied,
@@ -214,8 +279,17 @@ fn as_permission_state(value: &str) -> PermissionState {
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 fn format_js_error(operation: &str, err: JsValue) -> String {
-    let detail = err.as_string().unwrap_or_else(|| format!("{:?}", err));
-    format!("Notification.{operation} failed: {detail}")
+    if let Some(message) = err.as_string() {
+        format!("{operation} failed: {message}")
+    } else if let Some(exception) = err.dyn_ref::<web_sys::DomException>() {
+        format!(
+            "{operation} failed: {}: {}",
+            exception.name(),
+            exception.message()
+        )
+    } else {
+        format!("{operation} failed: {:?}", err)
+    }
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
@@ -406,7 +480,11 @@ async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
     }
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> MessagingResult<String> {
     use crate::messaging::subscription::PushSubscriptionManager;
     use crate::messaging::support::is_supported;
@@ -427,10 +505,7 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
 
     let mut sw_manager = ServiceWorkerManager::new();
     let registration = sw_manager.register_default().await?;
-    let scope = registration
-        .as_web_sys()
-        .scope()
-        .unwrap_or_else(|| String::from("/"));
+    let scope = registration.as_web_sys().scope();
 
     let mut push_manager = PushSubscriptionManager::new();
     let subscription = push_manager.subscribe(&registration, vapid_key).await?;
@@ -520,7 +595,22 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
     Ok(token)
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    not(feature = "experimental-indexed-db")
+))]
+async fn get_token_wasm(_: &Messaging, _: Option<&str>) -> MessagingResult<String> {
+    Err(unsupported_browser(
+        "Firebase Messaging token persistence requires the `experimental-indexed-db` feature on wasm targets.",
+    ))
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
     use crate::messaging::subscription::PushSubscriptionManager;
     use crate::messaging::sw_manager::ServiceWorkerManager;
@@ -579,7 +669,22 @@ async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
     Ok(removed)
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    not(feature = "experimental-indexed-db")
+))]
+async fn delete_token_impl(_: &Messaging) -> MessagingResult<bool> {
+    Err(token_deletion_failed(
+        "Token deletion is unavailable without the `experimental-indexed-db` feature on wasm targets.",
+    ))
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 async fn fetch_installation_info(
     messaging: &Messaging,
     force_refresh: bool,
@@ -612,7 +717,11 @@ async fn fetch_installation_info(
     })
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 fn system_time_to_millis(time: SystemTime) -> MessagingResult<u64> {
     time.duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
@@ -644,21 +753,6 @@ fn dummy_installation_info() -> InstallationInfo {
         refresh_token: String::new(),
         auth_token: String::new(),
         auth_token_expiration_ms: u64::MAX,
-    }
-}
-
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-fn format_js_error(operation: &str, err: JsValue) -> String {
-    if let Some(message) = err.as_string() {
-        format!("{operation} failed: {message}")
-    } else if let Some(exception) = err.dyn_ref::<web_sys::DomException>() {
-        format!(
-            "{operation} failed: {}: {}",
-            exception.name(),
-            exception.message()
-        )
-    } else {
-        format!("{operation} failed: {:?}", err)
     }
 }
 

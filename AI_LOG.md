@@ -4317,3 +4317,47 @@ Functions Async
   offer a documented in-memory token strategy when it’s not.
   2. Address the lingering register_version warning by awaiting (or explicitly dropping) the future during Firestore
   initialisation.
+
+
+
+ Thinking
+  I’ll provide a summary of the WASM updates, including completed test runs, and suggest next actions like integrating
+  FCM REST APIs and expanding testing. I’ll check the existing WASM_PLAN for tasks to ensure alignment and then update
+  the plan and response accordingly.
+
+> Messaging Async/WASM
+
+  - Functions + Messaging now build on wasm with --features wasm-web[,experimental-indexed-db]; the service-worker, push
+  subscription, and token store code paths compile in both indexed-db and fallback configurations.
+  - Firestore datastore traits and connection no longer rely on native-only Send futures or RequestBuilder::timeout,
+  unblocking wasm builds.
+
+  Tests: cargo check --target wasm32-unknown-unknown --features wasm-web, cargo check --target wasm32-unknown-unknown
+  --features wasm-web,experimental-indexed-db, cargo test functions::api::tests.
+
+  Next steps:
+
+  1. Re-enable the full FCM token lifecycle (Installations + REST calls) on wasm, and provide a clear documentation
+  story for the fallback “no IndexedDB” mode.
+  2. Port the remaining messaging features (multi-tab sync, message listeners, error catalog) and expand wasm-specific
+  tests (wasm-bindgen smoke cases).
+  3. Tidy the lingering Firestore warning by awaiting or explicitly dropping register_version so builds stay warning-
+  free.
+
+
+  
+> Those follow-ups are fairly large:
+
+  - FCM lifecycle on wasm means wiring Installations + REST flows end to end, handling retries, persistence, and token
+  refresh. That touches messaging::api, the REST client, Installations interop, and docs/tests—easily several files and
+  requires new tests.
+  - Multi-context sync, listeners, and error catalog is another multi-file effort; we’d need to port logic from the JS
+  SDK, add service-worker hooks, and expand test coverage.
+  - Wasm test suite (wasm-bindgen) needs new harness code and CI plumbing.
+
+  Given the size and cross-cutting nature, it’s better to capture each chunk as dedicated plan items (Stage 3 messaging
+  follow-ups) rather than squeeze them in now. That keeps this PR focused and lets us schedule the bigger work
+  deliberately.
+
+
+OK so write them clearly in ./WASM_PLAN.md

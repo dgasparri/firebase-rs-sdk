@@ -3,9 +3,21 @@
 //! Mirrors the logic in `packages/messaging/src/internals/token-manager.ts` regarding
 //! interaction with the browser `PushManager`.
 
+#[cfg(any(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        not(feature = "experimental-indexed-db")
+    )
+))]
 use crate::messaging::error::{unsupported_browser, MessagingResult};
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 mod wasm {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
@@ -43,10 +55,10 @@ mod wasm {
         }
 
         pub fn details(&self) -> MessagingResult<PushSubscriptionDetails> {
-            let endpoint = self
-                .inner
-                .endpoint()
-                .ok_or_else(|| token_subscribe_failed("Push subscription missing endpoint"))?;
+            let endpoint = self.inner.endpoint();
+            if endpoint.trim().is_empty() {
+                return Err(token_subscribe_failed("Push subscription missing endpoint"));
+            }
             let auth = extract_key(&self.inner, "auth")?;
             let p256dh = extract_key(&self.inner, "p256dh")?;
 
@@ -108,10 +120,11 @@ mod wasm {
             .map_err(|err| internal_error(format_js_error("getSubscription", err)))?;
 
             let subscription = if existing.is_undefined() || existing.is_null() {
-                let mut options = web_sys::PushSubscriptionOptionsInit::new();
-                options.user_visible_only(true);
+                let options = web_sys::PushSubscriptionOptionsInit::new();
+                options.set_user_visible_only(true);
                 let application_server_key = vapid_key_to_uint8_array(vapid_key)?;
-                options.application_server_key(Some(&application_server_key));
+                let key_value: JsValue = application_server_key.into();
+                options.set_application_server_key(&key_value);
 
                 let promise = push_manager
                     .subscribe_with_options(&options)
@@ -155,7 +168,19 @@ mod wasm {
         subscription: &web_sys::PushSubscription,
         name: &str,
     ) -> MessagingResult<String> {
-        if let Some(buffer) = subscription.get_key(name) {
+        let key_name = match name {
+            "p256dh" => web_sys::PushEncryptionKeyName::P256dh,
+            "auth" => web_sys::PushEncryptionKeyName::Auth,
+            other => {
+                return Err(token_subscribe_failed(format!(
+                    "Unsupported push encryption key name: {other}"
+                )))
+            }
+        };
+        let buffer = subscription.get_key(key_name).map_err(|err| {
+            token_subscribe_failed(format_js_error("PushSubscription.getKey", err))
+        })?;
+        if let Some(buffer) = buffer {
             let view = js_sys::Uint8Array::new(&buffer);
             Ok(base64::engine::general_purpose::STANDARD.encode(view.to_vec()))
         } else {
@@ -175,17 +200,35 @@ mod wasm {
     pub use PushSubscriptionManager as Manager;
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
 pub use wasm::{
     Details as PushSubscriptionDetails, Handle as PushSubscriptionHandle,
     Manager as PushSubscriptionManager,
 };
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(any(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        not(feature = "experimental-indexed-db")
+    )
+))]
 #[derive(Default)]
 pub struct PushSubscriptionManager;
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(any(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        not(feature = "experimental-indexed-db")
+    )
+))]
 impl PushSubscriptionManager {
     pub fn new() -> Self {
         Self
@@ -208,16 +251,40 @@ impl PushSubscriptionManager {
     pub fn clear_cache(&mut self) {}
 }
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(any(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        not(feature = "experimental-indexed-db")
+    )
+))]
 #[derive(Clone, Debug)]
 pub struct PushSubscriptionHandle;
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[cfg(any(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    all(
+        feature = "wasm-web",
+        target_arch = "wasm32",
+        not(feature = "experimental-indexed-db")
+    )
+))]
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PushSubscriptionDetails;
 
-#[cfg(all(test, not(all(feature = "wasm-web", target_arch = "wasm32"))))]
+#[cfg(all(
+    test,
+    any(
+        not(all(feature = "wasm-web", target_arch = "wasm32")),
+        all(
+            feature = "wasm-web",
+            target_arch = "wasm32",
+            not(feature = "experimental-indexed-db")
+        )
+    )
+))]
 mod tests {
     use super::*;
 

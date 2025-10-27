@@ -11,6 +11,9 @@ C'è _async in functions
 
 Check that there is adequate testing for wasm (see for example ./src/functions/api.rs che tutti i test sono dietro gate not wasm32)
 
+Fare anche un search per wasm32 per vedere quali parti di codice sono bloccate
+
+
 ## contare linee di codice
 
 

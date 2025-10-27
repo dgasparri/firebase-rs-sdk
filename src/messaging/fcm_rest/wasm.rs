@@ -45,7 +45,7 @@ impl FcmClient {
                     let status = response.status();
                     let parsed = self.parse_response(response).await?;
 
-                    if status.is_success() {
+                    if (200..=299).contains(&status) {
                         return map_subscribe_response(parsed);
                     }
 
@@ -93,7 +93,7 @@ impl FcmClient {
                     let status = response.status();
                     let parsed = self.parse_response(response).await?;
 
-                    if status.is_success() {
+                    if (200..=299).contains(&status) {
                         return map_update_response(parsed);
                     }
 
@@ -138,7 +138,7 @@ impl FcmClient {
                     let status = response.status();
                     let parsed = self.parse_response(response).await?;
 
-                    if status.is_success() {
+                    if (200..=299).contains(&status) {
                         if let Some(error) = parsed.error {
                             return Err(token_unsubscribe_failed(error.message));
                         }
@@ -193,11 +193,12 @@ impl FcmClient {
         body: Option<String>,
     ) -> Result<Response, String> {
         let window = web_sys::window().ok_or_else(|| "Global window missing".to_string())?;
-        let mut init = RequestInit::new();
-        init.method(method);
-        init.mode(RequestMode::Cors);
-        if let Some(body) = body {
-            init.body(Some(&JsValue::from_str(&body)));
+        let init = RequestInit::new();
+        init.set_method(method);
+        init.set_mode(RequestMode::Cors);
+        let body_js = body.map(|b| JsValue::from_str(&b));
+        if let Some(ref body_value) = body_js {
+            init.set_body(body_value);
         }
 
         let request =
