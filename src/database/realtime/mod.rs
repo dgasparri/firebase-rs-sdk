@@ -929,14 +929,15 @@ mod wasm {
     use super::*;
     use crate::database::error::DatabaseError;
     use crate::logger::Logger;
+    use crate::platform::runtime;
     use async_lock::Mutex as AsyncMutex;
-    use gloo_timers::future::TimeoutFuture;
     use js_sys::{ArrayBuffer, Uint8Array};
     use reqwest::{Client, StatusCode};
     use serde_json::{json, Map as JsonMap, Value as JsonValue};
     use std::collections::{HashMap, VecDeque};
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, LazyLock, Mutex as StdMutex, Weak};
+    use std::time::Duration;
     use url::Url;
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
@@ -1579,7 +1580,7 @@ mod wasm {
     ) {
         while !control.is_cancelled() {
             if !state.online.load(Ordering::SeqCst) {
-                TimeoutFuture::new(LONG_POLL_INTERVAL_MS).await;
+                runtime::sleep(Duration::from_millis(LONG_POLL_INTERVAL_MS as u64)).await;
                 continue;
             }
 
@@ -1594,12 +1595,12 @@ mod wasm {
                 Err(err) => {
                     WASM_LONG_POLL_LOGGER.warn(format!("long-poll request failed: {err}"));
                     propagate_error(&state, err.to_string()).await;
-                    TimeoutFuture::new(LONG_POLL_ERROR_BACKOFF_MS).await;
+                    runtime::sleep(Duration::from_millis(LONG_POLL_ERROR_BACKOFF_MS as u64)).await;
                     continue;
                 }
             }
 
-            TimeoutFuture::new(LONG_POLL_INTERVAL_MS).await;
+            runtime::sleep(Duration::from_millis(LONG_POLL_INTERVAL_MS as u64)).await;
         }
     }
 

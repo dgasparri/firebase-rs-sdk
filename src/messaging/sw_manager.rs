@@ -9,8 +9,6 @@ mod wasm {
     use wasm_bindgen::JsValue;
     use wasm_bindgen_futures::JsFuture;
 
-    use gloo_timers::future::TimeoutFuture;
-
     use crate::messaging::constants::{
         DEFAULT_REGISTRATION_TIMEOUT_MS, DEFAULT_SW_PATH, DEFAULT_SW_SCOPE,
         REGISTRATION_POLL_INTERVAL_MS,
@@ -18,6 +16,7 @@ mod wasm {
     use crate::messaging::error::{
         available_in_window, failed_default_registration, unsupported_browser, MessagingResult,
     };
+    use crate::platform::runtime;
 
     /// Thin wrapper around a `ServiceWorkerRegistration` reference.
     #[derive(Clone)]
@@ -151,9 +150,11 @@ mod wasm {
     }
 
     async fn sleep_ms(ms: i32) -> MessagingResult<()> {
-        if ms > 0 {
-            TimeoutFuture::new(ms as u32).await;
+        if ms <= 0 {
+            return Ok(());
         }
+        let duration = std::time::Duration::from_millis(ms as u64);
+        runtime::sleep(duration).await;
         Ok(())
     }
 

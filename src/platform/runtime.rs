@@ -43,6 +43,11 @@ pub async fn sleep(duration: Duration) {
     sleep_impl(duration).await;
 }
 
+/// Cooperatively yields to the scheduler/event-loop in a platform-aware way.
+pub async fn yield_now() {
+    yield_now_impl().await;
+}
+
 /// Timeout error returned when an operation exceeds the allotted duration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeoutError;
@@ -80,6 +85,17 @@ async fn sleep_impl(duration: Duration) {
     sleep(duration).await;
 }
 
+#[cfg(target_arch = "wasm32")]
+async fn yield_now_impl() {
+    use gloo_timers::future::TimeoutFuture;
+    TimeoutFuture::new(0).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn yield_now_impl() {
+    tokio::task::yield_now().await;
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 async fn with_timeout_impl<F, T>(future: F, duration: Duration) -> Result<T, TimeoutError>
 where
@@ -101,6 +117,7 @@ where
 
     let mut future = Box::pin(future);
     let timeout_ms = duration.as_millis().min(u32::MAX as u128) as u32;
+    let timeout_ms = timeout_ms.max(1);
     let mut timeout_future = Box::pin(TimeoutFuture::new(timeout_ms));
 
     poll_fn(|cx| {

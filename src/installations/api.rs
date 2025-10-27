@@ -27,8 +27,7 @@ use crate::installations::persistence::{
 };
 use crate::installations::rest::{RegisteredInstallation, RestClient};
 use crate::installations::types::{InstallationEntryData, InstallationToken};
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-use gloo_timers::future::TimeoutFuture;
+use crate::platform::runtime;
 
 #[derive(Clone, Debug)]
 pub struct Installations {
@@ -92,14 +91,8 @@ enum EnsureAction {
     Register,
 }
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 async fn concurrency_yield() {
-    TimeoutFuture::new(0).await;
-}
-
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-async fn concurrency_yield() {
-    tokio::task::yield_now().await;
+    runtime::yield_now().await;
 }
 
 impl InstallationEntry {
