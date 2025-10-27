@@ -39,7 +39,8 @@ use firebase_rs_sdk::analytics::{
 use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
 
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FirebaseOptions {
         api_key: Some("AIza...".into()),
         app_id: Some("1:1234567890:web:abcdef".into()),
@@ -51,8 +52,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    let app = initialize_app(options, Some(settings))?;
-    let analytics = get_analytics(Some(app))?;
+    let app = initialize_app(options, Some(settings)).await?;
+    let analytics = get_analytics(Some(app)).await?;
 
     // Provide the GA4 measurement ID and API secret generated in Google Analytics.
     let config = MeasurementProtocolConfig::new("G-1234567890", "api-secret")
@@ -61,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut params = BTreeMap::new();
     params.insert("engagement_time_msec".to_string(), "100".to_string());
-    analytics.log_event("tutorial_begin", params)?;
+    analytics.log_event("tutorial_begin", params).await?;
 
     Ok(())
 }

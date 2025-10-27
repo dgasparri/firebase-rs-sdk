@@ -54,14 +54,14 @@ This plan captures the work required to ship the next major version of the fireb
   - 2025-02-14: Converted the REST backend to async `reqwest`, added async `DatabaseReference` helpers, and re-enabled the module for wasm builds (falling back to in-memory when transports were incomplete).
   - 2025-02-14: Wired Database listener lifecycle to pause/resume the realtime repo; `go_online` / `go_offline` now drive transport activation.
   - 2025-10-27: Finished the realtime transport port: native builds use `tokio_tungstenite` with auth/App Check handshakes and queued reconnects, wasm builds switch between `web_sys::WebSocket` and long-poll fetch fallbacks, `on_disconnect` commands proxy through both transports, and listener integration tests (`tests/database_listeners.rs`, `tests/wasm_database_listeners.rs`) cover the streaming path.
-- [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, gating wasm-incompatible features with clear documentation.
-  -  [ ] Update Ai
-  -  [ ] Update Analytics
-  -  [ ] Update Functions
-  -  [ ] Update Installations
-  -  [ ] Update Performance
-  -  [ ] Update Remote Config
-  -  [ ] Update Data Connect
+- [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, making the module wasm-compatible and updating the examples:
+  -  [x] Module Ai
+  -  [x] Module Analytics
+  -  [ ] Module Functions
+  -  [ ] Module Installations
+  -  [ ] Module Performance
+  -  [ ] Module Remote Config
+  -  [ ] Module Data Connect
 - [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.
 - [ ] Ensure token acquisition hooks (`auth_token`, `app_check_token`) are fully async across the board and document any intentionally unsupported scenarios.
 

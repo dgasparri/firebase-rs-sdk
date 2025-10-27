@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+
+use async_trait::async_trait;
 
 use crate::analytics::config::{fetch_dynamic_config, from_app_options, DynamicConfig};
 use crate::analytics::constants::ANALYTICS_COMPONENT_NAME;
@@ -16,9 +19,17 @@ use crate::component::types::{
 };
 use crate::component::{Component, ComponentType};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Analytics {
     inner: Arc<AnalyticsInner>,
+}
+
+impl fmt::Debug for Analytics {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Analytics")
+            .field("app", &self.inner.app.name())
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -32,12 +43,11 @@ pub struct ConsentSettings {
     pub entries: BTreeMap<String, String>,
 }
 
-#[derive(Debug)]
 struct AnalyticsInner {
     app: FirebaseApp,
     events: Mutex<Vec<AnalyticsEvent>>,
     client_id: Mutex<String>,
-    transport: Mutex<Option<MeasurementProtocolDispatcher>>,
+    transport: Mutex<Option<Arc<dyn AnalyticsTransport>>>,
     config: Mutex<Option<DynamicConfig>>,
     default_event_params: Mutex<BTreeMap<String, String>>,
     consent_settings: Mutex<Option<ConsentSettings>>,
@@ -50,6 +60,43 @@ struct AnalyticsInner {
 pub struct AnalyticsEvent {
     pub name: String,
     pub params: BTreeMap<String, String>,
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+trait AnalyticsTransport: Send + Sync {
+    async fn send(
+        &self,
+        client_id: &str,
+        event_name: &str,
+        params: &BTreeMap<String, String>,
+    ) -> AnalyticsResult<()>;
+}
+
+#[derive(Clone)]
+struct MeasurementProtocolTransport {
+    dispatcher: MeasurementProtocolDispatcher,
+}
+
+impl MeasurementProtocolTransport {
+    fn new(dispatcher: MeasurementProtocolDispatcher) -> Self {
+        Self { dispatcher }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl AnalyticsTransport for MeasurementProtocolTransport {
+    async fn send(
+        &self,
+        client_id: &str,
+        event_name: &str,
+        params: &BTreeMap<String, String>,
+    ) -> AnalyticsResult<()> {
+        self.dispatcher
+            .send_event(client_id, event_name, params)
+            .await
+    }
 }
 
 impl Analytics {
@@ -78,7 +125,11 @@ impl Analytics {
         &self.inner.app
     }
 
-    pub fn log_event(&self, name: &str, params: BTreeMap<String, String>) -> AnalyticsResult<()> {
+    pub async fn log_event(
+        &self,
+        name: &str,
+        params: BTreeMap<String, String>,
+    ) -> AnalyticsResult<()> {
         validate_event_name(name)?;
         let merged_params = self.merge_default_event_params(params);
         let mut events = self.inner.events.lock().unwrap();
@@ -89,7 +140,7 @@ impl Analytics {
         events.push(event.clone());
         drop(events);
 
-        self.dispatch_event(&event)
+        self.dispatch_event(&event).await
     }
 
     pub fn recorded_events(&self) -> Vec<AnalyticsEvent> {
@@ -104,8 +155,8 @@ impl Analytics {
     /// Resolves the measurement configuration for this analytics instance. The value is derived
     /// from the Firebase app options when possible and otherwise fetched from the Firebase
     /// analytics REST endpoint. Results are cached for subsequent calls.
-    pub fn measurement_config(&self) -> AnalyticsResult<DynamicConfig> {
-        self.ensure_dynamic_config()
+    pub async fn measurement_config(&self) -> AnalyticsResult<DynamicConfig> {
+        self.ensure_dynamic_config().await
     }
 
     /// Configures the analytics instance to forward events using the GA4 Measurement Protocol.
@@ -119,29 +170,31 @@ impl Analytics {
     ) -> AnalyticsResult<()> {
         let dispatcher = MeasurementProtocolDispatcher::new(config)?;
         let mut transport = self.inner.transport.lock().unwrap();
-        *transport = Some(dispatcher);
+        *transport = Some(Arc::new(MeasurementProtocolTransport::new(dispatcher)));
         Ok(())
     }
 
     /// Convenience helper that resolves the measurement configuration and configures the
     /// measurement protocol using the provided API secret. The dispatcher targets the default GA4
     /// collection endpoint.
-    pub fn configure_measurement_protocol_with_secret(
+    pub async fn configure_measurement_protocol_with_secret(
         &self,
         api_secret: impl Into<String>,
     ) -> AnalyticsResult<()> {
         self.configure_measurement_protocol_with_secret_internal(api_secret, None)
+            .await
     }
 
     /// Convenience helper that resolves the measurement configuration and configures the
     /// measurement protocol using the provided API secret and custom endpoint. This is primarily
     /// intended for testing or emulator scenarios.
-    pub fn configure_measurement_protocol_with_secret_and_endpoint(
+    pub async fn configure_measurement_protocol_with_secret_and_endpoint(
         &self,
         api_secret: impl Into<String>,
         endpoint: MeasurementProtocolEndpoint,
     ) -> AnalyticsResult<()> {
         self.configure_measurement_protocol_with_secret_internal(api_secret, Some(endpoint))
+            .await
     }
 
     /// Overrides the client identifier reported to the measurement protocol. When unset the
@@ -184,7 +237,7 @@ impl Analytics {
             .set_send_page_view(guard.send_page_view);
     }
 
-    fn dispatch_event(&self, event: &AnalyticsEvent) -> AnalyticsResult<()> {
+    async fn dispatch_event(&self, event: &AnalyticsEvent) -> AnalyticsResult<()> {
         let transport = {
             let guard = self.inner.transport.lock().unwrap();
             guard.clone()
@@ -193,19 +246,21 @@ impl Analytics {
         if self.inner.collection_enabled.load(Ordering::SeqCst) {
             if let Some(transport) = transport {
                 let client_id = self.inner.client_id.lock().unwrap().clone();
-                transport.send_event(&client_id, &event.name, &event.params)?
+                transport
+                    .send(&client_id, &event.name, &event.params)
+                    .await?
             }
         }
 
         Ok(())
     }
 
-    fn configure_measurement_protocol_with_secret_internal(
+    async fn configure_measurement_protocol_with_secret_internal(
         &self,
         api_secret: impl Into<String>,
         endpoint: Option<MeasurementProtocolEndpoint>,
     ) -> AnalyticsResult<()> {
-        let config = self.ensure_dynamic_config()?;
+        let config = self.ensure_dynamic_config().await?;
         let mut mp_config =
             MeasurementProtocolConfig::new(config.measurement_id().to_string(), api_secret);
         if let Some(endpoint) = endpoint {
@@ -214,7 +269,7 @@ impl Analytics {
         self.configure_measurement_protocol(mp_config)
     }
 
-    fn ensure_dynamic_config(&self) -> AnalyticsResult<DynamicConfig> {
+    async fn ensure_dynamic_config(&self) -> AnalyticsResult<DynamicConfig> {
         if let Some(cached) = self.inner.config.lock().unwrap().clone() {
             return Ok(cached);
         }
@@ -229,7 +284,8 @@ impl Analytics {
             return Ok(local);
         }
 
-        let fetched = fetch_dynamic_config(&self.inner.app)?;
+        // Fetch without holding the config mutex to avoid blocking other readers while awaiting.
+        let fetched = fetch_dynamic_config(&self.inner.app).await?;
         let mut guard = self.inner.config.lock().unwrap();
         *guard = Some(fetched.clone());
         self.inner
@@ -261,6 +317,11 @@ impl Analytics {
     /// Returns whether analytics collection is currently enabled.
     pub fn collection_enabled(&self) -> bool {
         self.inner.collection_enabled.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    fn set_transport_for_tests(&self, transport: Arc<dyn AnalyticsTransport>) {
+        *self.inner.transport.lock().unwrap() = Some(transport);
     }
 }
 
@@ -314,11 +375,13 @@ pub fn register_analytics_component() {
     ensure_registered();
 }
 
-pub fn get_analytics(app: Option<FirebaseApp>) -> AnalyticsResult<Arc<Analytics>> {
+pub async fn get_analytics(app: Option<FirebaseApp>) -> AnalyticsResult<Arc<Analytics>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => crate::app::api::get_app(None)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     let provider = app::registry::get_provider(&app, ANALYTICS_COMPONENT_NAME);
@@ -331,12 +394,10 @@ pub fn get_analytics(app: Option<FirebaseApp>) -> AnalyticsResult<Arc<Analytics>
 mod tests {
     use super::*;
     use crate::analytics::gtag::GlobalGtagRegistry;
-    use crate::analytics::transport::MeasurementProtocolEndpoint;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use httpmock::prelude::*;
     use std::collections::BTreeMap;
-    use std::sync::{LazyLock, Mutex};
+    use std::sync::{Arc, LazyLock, Mutex};
 
     static GTAG_TEST_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -360,8 +421,43 @@ mod tests {
         GTAG_TEST_MUTEX.lock().unwrap()
     }
 
-    #[test]
-    fn log_event_records_entry() {
+    #[derive(Default, Clone)]
+    struct RecordingTransport {
+        events: Arc<Mutex<Vec<(String, BTreeMap<String, String>)>>>,
+        clients: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AnalyticsTransport for RecordingTransport {
+        async fn send(
+            &self,
+            client_id: &str,
+            event_name: &str,
+            params: &BTreeMap<String, String>,
+        ) -> AnalyticsResult<()> {
+            self.clients.lock().unwrap().push(client_id.to_string());
+            self.events
+                .lock()
+                .unwrap()
+                .push((event_name.to_string(), params.clone()));
+            Ok(())
+        }
+    }
+
+    impl RecordingTransport {
+        fn take_events(&self) -> Vec<(String, BTreeMap<String, String>)> {
+            self.events.lock().unwrap().clone()
+        }
+
+        #[allow(dead_code)]
+        fn clients(&self) -> Vec<String> {
+            self.clients.lock().unwrap().clone()
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn log_event_records_entry() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
@@ -369,19 +465,24 @@ mod tests {
             measurement_id: Some("G-LOCAL123".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let analytics = get_analytics(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
         let mut params = BTreeMap::new();
         params.insert("origin".into(), "test".into());
-        analytics.log_event("test_event", params.clone()).unwrap();
+        analytics
+            .log_event("test_event", params.clone())
+            .await
+            .unwrap();
         let events = analytics.recorded_events();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].name, "test_event");
         assert_eq!(events[0].params, params);
     }
 
-    #[test]
-    fn default_event_parameters_are_applied() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn default_event_parameters_are_applied() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
@@ -389,8 +490,10 @@ mod tests {
             measurement_id: Some("G-LOCAL789".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let analytics = get_analytics(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
         analytics.set_default_event_parameters(BTreeMap::from([(
             "origin".to_string(),
             "default".to_string(),
@@ -398,7 +501,7 @@ mod tests {
 
         let mut params = BTreeMap::new();
         params.insert("value".into(), "42".into());
-        analytics.log_event("test", params).unwrap();
+        analytics.log_event("test", params).await.unwrap();
 
         let events = analytics.recorded_events();
         let recorded = &events[0];
@@ -406,8 +509,8 @@ mod tests {
         assert_eq!(recorded.params.get("value"), Some(&"42".to_string()));
     }
 
-    #[test]
-    fn default_event_parameters_do_not_override_explicit_values() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn default_event_parameters_do_not_override_explicit_values() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
@@ -415,8 +518,10 @@ mod tests {
             measurement_id: Some("G-LOCAL990".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let analytics = get_analytics(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
         analytics.set_default_event_parameters(BTreeMap::from([(
             "value".to_string(),
             "default".to_string(),
@@ -424,15 +529,15 @@ mod tests {
 
         let mut params = BTreeMap::new();
         params.insert("value".into(), "custom".into());
-        analytics.log_event("test", params).unwrap();
+        analytics.log_event("test", params).await.unwrap();
 
         let events = analytics.recorded_events();
         let recorded = &events[0];
         assert_eq!(recorded.params.get("value"), Some(&"custom".to_string()));
     }
 
-    #[test]
-    fn measurement_config_uses_local_options() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn measurement_config_uses_local_options() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
@@ -441,10 +546,12 @@ mod tests {
             app_id: Some("1:123:web:abc".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let analytics = get_analytics(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
 
-        let config = analytics.measurement_config().unwrap();
+        let config = analytics.measurement_config().await.unwrap();
         assert_eq!(config.measurement_id(), "G-LOCAL456");
         assert_eq!(config.app_id(), Some("1:123:web:abc"));
 
@@ -452,25 +559,28 @@ mod tests {
         assert_eq!(gtag_state.measurement_id, Some("G-LOCAL456".to_string()));
     }
 
-    #[test]
-    fn configure_with_secret_requires_measurement_context() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn configure_with_secret_requires_measurement_context() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let analytics = get_analytics(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
 
         let err = analytics
             .configure_measurement_protocol_with_secret("secret")
+            .await
             .unwrap_err();
         assert_eq!(err.code_str(), "analytics/missing-measurement-id");
     }
 
-    #[test]
-    fn collection_toggle_controls_state() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn collection_toggle_controls_state() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
@@ -478,8 +588,10 @@ mod tests {
             measurement_id: Some("G-LOCALCOLLECT".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let analytics = get_analytics(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
 
         assert!(analytics.collection_enabled());
         analytics.set_collection_enabled(false);
@@ -488,8 +600,8 @@ mod tests {
         assert!(analytics.collection_enabled());
     }
 
-    #[test]
-    fn gtag_state_tracks_defaults_and_config() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn gtag_state_tracks_defaults_and_config() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
@@ -497,8 +609,10 @@ mod tests {
             measurement_id: Some("G-GTAGTEST".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let analytics = get_analytics(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
 
         analytics.set_default_event_parameters(BTreeMap::from([(
             "currency".to_string(),
@@ -512,7 +626,7 @@ mod tests {
             send_page_view: Some(false),
         });
         // Force measurement configuration resolution so the gtag registry is populated.
-        analytics.measurement_config().unwrap();
+        analytics.measurement_config().await.unwrap();
 
         let state = analytics.gtag_state();
         assert_eq!(state.data_layer_name, "dataLayer");
@@ -535,87 +649,36 @@ mod tests {
         );
     }
 
-    #[test]
-    fn measurement_protocol_dispatches_events() {
-        if std::env::var("FIREBASE_NETWORK_TESTS").is_err() {
-            eprintln!(
-                "skipping measurement_protocol_dispatches_events: set FIREBASE_NETWORK_TESTS=1 to enable"
-            );
-            return;
-        }
-
+    #[tokio::test(flavor = "current_thread")]
+    async fn measurement_protocol_dispatches_events() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
 
-        let server = match std::panic::catch_unwind(|| MockServer::start()) {
-            Ok(server) => server,
-            Err(_) => {
-                eprintln!(
-                    "skipping measurement_protocol_dispatches_events: sandbox forbids binding sockets"
-                );
-                return;
-            }
-        };
-        let collect_path = "/mp/collect";
-        let mock_collect = server.mock(|when, then| {
-            when.method(POST)
-                .path(collect_path)
-                .query_param("measurement_id", "G-TEST123")
-                .query_param("api_secret", "secret-key");
-            then.status(204);
-        });
-
-        let config_path = "/v1alpha/projects/-/apps/app-123/webConfig";
-        let mock_config = server.mock(|when, then| {
-            when.method(GET)
-                .path(config_path)
-                .header("x-goog-api-key", "api-key");
-            then.status(200).json_body(serde_json::json!({
-                "measurementId": "G-TEST123",
-                "appId": "app-123"
-            }));
-        });
-
         let options = FirebaseOptions {
             project_id: Some("project".into()),
-            app_id: Some("app-123".into()),
-            api_key: Some("api-key".into()),
+            measurement_id: Some("G-TEST123".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let analytics = get_analytics(Some(app)).unwrap();
-
-        let endpoint_url = format!(
-            "{}/{}",
-            server.base_url().trim_end_matches('/'),
-            collect_path.trim_start_matches('/')
-        );
-
-        let config_template = format!(
-            "{}/{{app-id}}/webConfig",
-            format!(
-                "{}/v1alpha/projects/-/apps",
-                server.base_url().trim_end_matches('/')
-            )
-        );
-        std::env::set_var("FIREBASE_ANALYTICS_CONFIG_URL", config_template);
-
-        analytics
-            .configure_measurement_protocol_with_secret_and_endpoint(
-                "secret-key",
-                MeasurementProtocolEndpoint::Custom(endpoint_url),
-            )
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
             .unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
 
+        let transport = RecordingTransport::default();
+        analytics.set_transport_for_tests(Arc::new(transport.clone()));
         analytics.set_client_id("client-123");
 
         let mut params = BTreeMap::new();
         params.insert("engagement_time_msec".to_string(), "100".to_string());
-        analytics.log_event("test_event", params).unwrap();
 
-        mock_config.assert();
-        mock_collect.assert();
+        analytics
+            .log_event("test_event", params.clone())
+            .await
+            .unwrap();
 
-        std::env::remove_var("FIREBASE_ANALYTICS_CONFIG_URL");
+        let events = transport.take_events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "test_event");
+        assert_eq!(events[0].1, params);
     }
 }

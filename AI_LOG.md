@@ -4080,3 +4080,41 @@ Thinking
   - cargo test --test database_listeners
 
   (Wasm test suites compile, but wasm-bindgen-test cannot spawn its HTTP runner in this sandbox.)
+
+
+
+Thinking
+  I'm putting together a final message that highlights improvements to the AI service with asynchronous tokenized HTTP
+  calls, referencing key lines like src/ai/api.rs:189 for transport and src/ai/api.rs:429 for request sending. I'll
+  also mention analytics testing details from src/analytics/api.rs—including RecordingTransport—and point out relevant
+  configs and quick start updates to keep the explanation clear and approachable.
+
+> Async + wasm readied both the AI and Analytics surfaces:
+
+  - AI now drives real generateContent requests via a reusable HTTP transport; Auth/App Check tokens and custom
+  endpoints flow through the request pipeline, with test hooks for deterministic assertions (src/ai/api.rs:189, src/ai/
+  api.rs:429). The request builder is wasm-safe by only applying the timeout on native targets (src/ai/requests.rs:109).
+  - Analytics exposes async-first APIs (log_event, measurement_config, get_analytics) and routes dispatch through
+  a pluggable transport trait so wasm and tests can avoid blocking calls (src/analytics/api.rs:65, src/analytics/
+  api.rs:128, src/analytics/api.rs:378). Dynamic config fetches and Measurement Protocol sends now await reqwest
+  directly and skip timeout wiring on wasm (src/analytics/config.rs:47, src/analytics/transport.rs:99).
+  - Quick starts and docs were refreshed for the async workflow and analytics is exported again from the crate root
+  (src/analytics/README.md:33, src/ai/README.md:12, src/lib.rs:3).
+
+  Testing
+
+  - cargo test ai::api::tests::generate_text_includes_backend_info -- --nocapture
+  - cargo test ai::api::tests::limited_use_app_check_token_attached_to_requests -- --nocapture
+  - cargo test ai::models::generative_model::tests::normalizes_google_model_name -- --nocapture
+  - cargo test ai::models::generative_model::tests::normalizes_vertex_model_name_and_prepares_request -- --nocapture
+  - cargo test analytics::api::tests:: -- --nocapture
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+
+  Next Steps
+
+  1. Expand Analytics toward parity: user properties, consent persistence, and recommended event helpers still mirror
+  TODO items in src/analytics/README.md.
+  2. Consider sharing the new analytics transport trait with other modules (e.g., functions/events) to keep wasm-safe
+  HTTP patterns consistent.
+
+▌

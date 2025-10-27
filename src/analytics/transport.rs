@@ -1,4 +1,8 @@
 use std::collections::BTreeMap;
+#[cfg(target_arch = "wasm32")]
+#[allow(unused_imports)]
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use reqwest::Client;
@@ -6,7 +10,6 @@ use reqwest::StatusCode;
 use serde::Serialize;
 
 use crate::analytics::error::{internal_error, invalid_argument, network_error, AnalyticsResult};
-use crate::util::runtime::block_on;
 
 /// Configuration used to dispatch analytics events through the GA4 Measurement Protocol.
 #[derive(Clone, Debug)]
@@ -37,6 +40,7 @@ impl MeasurementProtocolConfig {
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn timeout(&self) -> Duration {
         self.timeout
     }
@@ -92,8 +96,14 @@ impl MeasurementProtocolDispatcher {
                 "measurement protocol api_secret must not be empty",
             ));
         }
+        #[cfg(not(target_arch = "wasm32"))]
         let client = Client::builder()
             .timeout(config.timeout())
+            .build()
+            .map_err(|err| internal_error(format!("failed to build HTTP client: {err}")))?;
+
+        #[cfg(target_arch = "wasm32")]
+        let client = Client::builder()
             .build()
             .map_err(|err| internal_error(format!("failed to build HTTP client: {err}")))?;
 
@@ -104,7 +114,7 @@ impl MeasurementProtocolDispatcher {
     ///
     /// The caller is responsible for providing a stable `client_id`, typically sourced from
     /// Firebase Installations or another per-device identifier.
-    pub fn send_event(
+    pub async fn send_event(
         &self,
         client_id: &str,
         event_name: &str,
@@ -127,40 +137,38 @@ impl MeasurementProtocolDispatcher {
         let api_secret = self.config.api_secret().to_owned();
         let client = self.client.clone();
 
-        block_on(async move {
-            let response = client
-                .post(&endpoint)
-                .query(&[
-                    ("measurement_id", measurement_id.as_str()),
-                    ("api_secret", api_secret.as_str()),
-                ])
-                .header("content-type", "application/json")
-                .body(body)
-                .send()
-                .await
-                .map_err(|err| network_error(format!("failed to send analytics event: {err}")))?;
+        let response = client
+            .post(&endpoint)
+            .query(&[
+                ("measurement_id", measurement_id.as_str()),
+                ("api_secret", api_secret.as_str()),
+            ])
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(|err| network_error(format!("failed to send analytics event: {err}")))?;
 
-            if response.status().is_success() {
-                return Ok(());
+        if response.status().is_success() {
+            return Ok(());
+        }
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "<unavailable response body>".to_string());
+
+        let message = match status {
+            StatusCode::BAD_REQUEST => {
+                format!("measurement protocol rejected the event (400). Response: {body}")
             }
+            _ => format!(
+                "measurement protocol request failed with status {status}. Response: {body}"
+            ),
+        };
 
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "<unavailable response body>".to_string());
-
-            let message = match status {
-                StatusCode::BAD_REQUEST => {
-                    format!("measurement protocol rejected the event (400). Response: {body}")
-                }
-                _ => format!(
-                    "measurement protocol request failed with status {status}. Response: {body}"
-                ),
-            };
-
-            Err(network_error(message))
-        })
+        Err(network_error(message))
     }
 
     pub fn config(&self) -> &MeasurementProtocolConfig {

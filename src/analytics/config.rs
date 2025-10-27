@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use reqwest::Client;
@@ -7,7 +8,6 @@ use crate::analytics::error::{
     config_fetch_failed, internal_error, missing_measurement_id, AnalyticsResult,
 };
 use crate::app::FirebaseApp;
-use crate::util::runtime::block_on;
 
 /// Minimal dynamic configuration returned by the Firebase Analytics config endpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub(crate) fn from_app_options(app: &FirebaseApp) -> Option<DynamicConfig> {
 
 /// Fetches remote dynamic configuration for the provided Firebase app using the REST endpoint
 /// `/v1alpha/projects/-/apps/{app_id}/webConfig`.
-pub(crate) fn fetch_dynamic_config(app: &FirebaseApp) -> AnalyticsResult<DynamicConfig> {
+pub(crate) async fn fetch_dynamic_config(app: &FirebaseApp) -> AnalyticsResult<DynamicConfig> {
     let options = app.options();
     let app_id = options.app_id.clone().ok_or_else(|| {
         missing_measurement_id(
@@ -58,16 +58,16 @@ pub(crate) fn fetch_dynamic_config(app: &FirebaseApp) -> AnalyticsResult<Dynamic
         )
     })?;
 
-    block_on(fetch_dynamic_config_async(app_id, api_key))
-}
-
-async fn fetch_dynamic_config_async(
-    app_id: String,
-    api_key: String,
-) -> AnalyticsResult<DynamicConfig> {
     let url = dynamic_config_url(&app_id);
+
+    #[cfg(not(target_arch = "wasm32"))]
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|err| internal_error(format!("failed to build HTTP client: {err}")))?;
+
+    #[cfg(target_arch = "wasm32")]
+    let client = Client::builder()
         .build()
         .map_err(|err| internal_error(format!("failed to build HTTP client: {err}")))?;
 
