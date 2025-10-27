@@ -125,7 +125,8 @@ impl HttpDatastore {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Datastore for HttpDatastore {
     async fn get_document(&self, key: &DocumentKey) -> FirestoreResult<DocumentSnapshot> {
         let doc_path = format!("documents/{}", key.path().canonical_string());

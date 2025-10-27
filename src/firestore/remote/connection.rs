@@ -167,8 +167,11 @@ impl Connection {
     ) -> RequestBuilder {
         let url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
         let mut builder = self.client.request(method, url);
-        if let Some(timeout) = context.request_timeout {
-            builder = builder.timeout(timeout);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(timeout) = context.request_timeout {
+                builder = builder.timeout(timeout);
+            }
         }
         if let Some(token) = context.auth_token.as_deref() {
             builder = builder.bearer_auth(token);

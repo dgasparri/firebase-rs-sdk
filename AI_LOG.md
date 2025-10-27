@@ -4244,3 +4244,76 @@ Messaging Wasm Parity (in‑progress)
   errors. The module requires a deeper audit (token-store fallback, wasm-friendly service-worker tooling, updated web-
   sys bindings, and async conversions). I’ve left the scaffolding and plan updates in place so the next pass can pick up
   right where the compiler stopped.
+
+
+
+
+ Thinking
+  I'm putting together a clear summary highlighting key updates such as gating token generation and storage on the new
+  experimental-indexed-db feature, the revamped service worker registration using modern APIs, and changes to FCM REST
+  API handling. I'll list important file ranges, note extended Cargo features, cover tests run with their warnings,
+  and suggest next steps like implementing real FCM flows when the feature is disabled or addressing the pending
+  register_version future warning. This will give the user a thorough overview of the messaging refactor and its current
+  state.
+
+> Async Messaging Updates
+
+  - Cargo.toml:72-96 adds the missing web-sys bindings (registration options, push crypto keys, notification permission,
+  etc.) needed by the wasm messaging stack.
+  - src/firestore/remote/datastore/mod.rs:15-47 and src/firestore/remote/datastore/http.rs:134-177 mark datastore/token-
+  provider traits ?Send on wasm and ensure the wasm HTTP client no longer requires a Send future.
+  - src/firestore/remote/connection.rs:167-175 guards the reqwest::RequestBuilder::timeout call so wasm builds skip the
+  native-only API.
+  - src/installations/mod.rs:11-13 re-exports extract_app_config so messaging can pull install config without touching
+  the private module.
+  - src/messaging/api.rs:100-737 rewires the module around wasm gating: handler bookkeeping is #[cfg]-scoped, permission
+  flow now uses NotificationPermission, get_token / delete_token return an unsupported_browser error when experimental-
+  indexed-db is absent, and all native helpers (generate_token, app_store_key, etc.) are hidden from wasm builds to keep
+  the linker quiet.
+  - src/messaging/token_store.rs:1-361 splits the store into two paths: IndexedDB + BroadcastChannel when experimental-
+  indexed-db is on, and an async memory store fallback otherwise; the wasm-only globals are similarly gated so the
+  module compiles for both configurations.
+  - src/messaging/sw_manager.rs:1-219, src/messaging/subscription.rs:1-266, src/messaging/support.rs:23-80, and src/
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+      - Warning remaining: register_version("@firebase/firestore", …) still isn’t awaited (pre-existing).
+  - cargo test functions::api::tests
+
+  Next steps
+
+  1. Revisit the remaining messaging TODOs: wire the real FCM REST flows into the wasm path now that the plumbing
+  compiles, add multi-context token refresh, and expand listener support.
+  2. Address the lingering register_version future warning in Firestore (decide whether to await or explicitly drop the
+  registration task).
+
+▌
+
+Functions Async
+
+  - Cargo.toml:72-96 enables the extra web-sys bindings (service-worker options, push crypto keys, notification
+  permission) required for the messaging wasm transport.
+  - src/firestore/remote/* gates the datastore/token-provider traits and connection timeout on wasm so the Firestore
+  client now compiles without Send executors.
+  - src/installations/mod.rs:11 re-exports extract_app_config, letting messaging reuse the async Installations helpers.
+  - src/messaging/api.rs reworks the wasm flow: handler bookkeeping is cfg-gated, permission handling uses
+  NotificationPermission, and the wasm token path only activates when experimental-indexed-db is enabled (falling back
+  to an unsupported_browser error otherwise).
+  - src/messaging/token_store.rs splits token persistence into IndexedDB+BroadcastChannel (when experimental-indexed-db)
+  and an async in-memory store fallback, removing wasm-only globals from the lightweight build.
+  - src/messaging/sw_manager.rs, subscription.rs, support.rs, and fcm_rest/wasm.rs move to the new web APIs
+  (RegistrationOptions, PushEncryptionKeyName, RequestInit::set_*, gloo_timers::TimeoutFuture) and guard the wasm
+  implementations behind experimental-indexed-db. Non-wasm or wasm-without-IDB now hit explicit unsupported_browser
+  stubs.
+  - src/messaging/mod.rs, constants.rs, and fcm_rest/mod.rs update re-exports/constants so the heavier wasm code only
+  compiles when IndexedDB is available.
+  - src/messaging/README.md documents the --features wasm-web,experimental-indexed-db requirement and notes the in-
+  memory fallback when IndexedDB is absent.
+
+  Tests: cargo check --target wasm32-unknown-unknown --features wasm-web (warning: register_version("@firebase/
+  firestore", …) is still an unused future); cargo test functions::api::tests.
+
+  Next steps:
+
+  1. Wire the real FCM REST token operations into Messaging::get_token/delete_token when IndexedDB is available, and
+  offer a documented in-memory token strategy when it’s not.
+  2. Address the lingering register_version warning by awaiting (or explicitly dropping) the future during Firestore
+  initialisation.

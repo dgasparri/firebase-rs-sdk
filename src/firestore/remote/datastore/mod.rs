@@ -11,7 +11,8 @@ use crate::firestore::value::MapValue;
 pub mod http;
 pub mod in_memory;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait Datastore: Send + Sync + 'static {
     async fn get_document(&self, key: &DocumentKey) -> FirestoreResult<DocumentSnapshot>;
     async fn set_document(
@@ -30,7 +31,8 @@ pub trait Datastore: Send + Sync + 'static {
     async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()>;
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait TokenProvider: Send + Sync + 'static {
     async fn get_token(&self) -> FirestoreResult<Option<String>>;
     fn invalidate_token(&self);
@@ -39,7 +41,8 @@ pub trait TokenProvider: Send + Sync + 'static {
 #[derive(Default, Clone)]
 pub struct NoopTokenProvider;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl TokenProvider for NoopTokenProvider {
     async fn get_token(&self) -> FirestoreResult<Option<String>> {
         Ok(None)
