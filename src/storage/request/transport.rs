@@ -1,3 +1,4 @@
+use crate::platform::runtime::{self, TimeoutError};
 use crate::storage::error::{internal_error, StorageError, StorageResult};
 use crate::storage::util::is_url;
 use reqwest::{Client, Response, StatusCode, Url};
@@ -72,7 +73,7 @@ impl HttpClient {
 
             let delay = backoff.next_delay();
             if delay > Duration::from_millis(0) {
-                sleep(delay).await;
+                runtime::sleep(delay).await;
             }
 
             let result = self.try_once(&info).await;
@@ -117,7 +118,6 @@ impl HttpClient {
         }
 
         let mut request_builder = self.client.request(info.method.clone(), url);
-        request_builder = request_builder.timeout(info.timeout);
 
         for (header, value) in &info.headers {
             request_builder = request_builder.header(header, value);
@@ -137,13 +137,7 @@ impl HttpClient {
             RequestBody::Empty => {}
         }
 
-        let response = request_builder.send().await.map_err(|err| {
-            if err.is_timeout() {
-                RequestError::Timeout
-            } else {
-                RequestError::Network(err.to_string())
-            }
-        })?;
+        let response = send_with_timeout(request_builder, info.timeout).await?;
 
         ResponsePayload::from_response(response)
             .await
@@ -166,20 +160,27 @@ impl HttpClient {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-async fn sleep(duration: Duration) {
-    tokio::time::sleep(duration).await;
+async fn send_with_timeout(
+    builder: reqwest::RequestBuilder,
+    timeout: Duration,
+) -> Result<Response, RequestError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let send_future = builder.timeout(timeout).send();
+    #[cfg(target_arch = "wasm32")]
+    let send_future = builder.send();
+
+    match runtime::with_timeout(send_future, timeout).await {
+        Ok(result) => result.map_err(map_reqwest_error),
+        Err(TimeoutError) => Err(RequestError::Timeout),
+    }
 }
 
-#[cfg(target_arch = "wasm32")]
-async fn sleep(duration: Duration) {
-    use gloo_timers::future::TimeoutFuture;
-
-    let millis = duration.as_millis().min(u32::MAX as u128) as u32;
-    if millis == 0 {
-        return;
+fn map_reqwest_error(err: reqwest::Error) -> RequestError {
+    if err.is_timeout() {
+        RequestError::Timeout
+    } else {
+        RequestError::Network(err.to_string())
     }
-    TimeoutFuture::new(millis).await;
 }
 
 fn should_retry<O>(status: StatusCode, info: &RequestInfo<O>) -> bool {

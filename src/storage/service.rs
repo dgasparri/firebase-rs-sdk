@@ -318,10 +318,10 @@ mod tests {
     use crate::component::{Component, ComponentType};
     use crate::storage::request::{RequestInfo, ResponseHandler};
     use reqwest::Method;
+    use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
-    use std::future::Future;
 
     fn unique_settings(prefix: &str) -> FirebaseAppSettings {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -441,7 +441,11 @@ mod tests {
 
     #[tokio::test]
     async fn prepare_request_includes_app_check_header_when_available() {
-        let storage = build_storage_with(|app| async move { register_app_check(app).await }).await;
+        let storage = build_storage_with(|app| {
+            let app = app.clone();
+            async move { register_app_check(&app).await }
+        })
+        .await;
         let prepared = storage.prepare_request(test_request()).await.unwrap();
 
         assert_eq!(
