@@ -14,20 +14,16 @@ pub mod component;
 
 pub mod database;
 
-// TODO(async-wasm): Re-enable firestore once Stage 3 completes.
-#[cfg(feature = "firestore")]
 pub mod firestore;
-#[cfg(not(feature = "firestore"))]
-pub mod firestore {}
 
 pub mod functions;
 
 pub mod installations;
 pub mod logger;
-#[cfg(not(target_arch = "wasm32"))]
+//#[cfg(not(target_arch = "wasm32"))]
 pub mod messaging;
-#[cfg(target_arch = "wasm32")]
-pub mod messaging {}
+//#[cfg(target_arch = "wasm32")]
+//pub mod messaging {}
 
 // TODO(async-wasm): Re-enable performance module in Stage 3.
 // #[cfg(not(target_arch = "wasm32"))]

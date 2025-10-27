@@ -5,7 +5,7 @@ This plan captures the work required to ship the next major version of the fireb
 ## Focus Areas
 1. Land Stage 1 by making the `src/app` module fully async-aware and wasm-ready, unblocking downstream crates and documenting any temporary gating.
 2. Deliver Stage 2 by porting `auth`, `app_check`, and `messaging` to the shared async platform so every consumer can rely on the same token and messaging contracts. **Status:** ✅ Completed – all three modules now expose async APIs, share the token provider abstraction, and schedule timer-driven refresh using the new platform runtime.
-3. Execute Stage 3 across the remaining modules, completing the Storage/Database async adoption, updating examples, and tightening wasm feature guards. Current priority order (most urgent first): **Firestore → Storage → Installations → Remote Config → other modules.**
+3. Execute Stage 3 across the remaining modules, completing the Storage/Database async adoption, updating examples, and tightening wasm feature guards. Current priority order (most urgent first): **Firestore → Messaging (wasm parity) → Storage → Installations → Remote Config → other modules.**
 4. This is a major version update. It is OK to make disrupting changes to the old API and change the public API to async when needed/recommended. Creating a clean, wasm compatible library is more important than legacy to the old API. Do not waste time trying to retain the old API. When a module blocks progress, comment out the offending imports with a `// TODO(async-wasm): re-enable once <reason>` note so the workspace keeps moving.
 
 ## Stage 0 – Tooling & Policy Prerequisites
@@ -58,10 +58,18 @@ This plan captures the work required to ship the next major version of the fireb
   -  [x] Module Ai
   -  [x] Module Analytics
   -  [ ] Module Functions
+  -  [ ] Module Messaging (wasm parity)
   -  [ ] Module Installations
   -  [ ] Module Performance
   -  [ ] Module Remote Config
   -  [ ] Module Data Connect
+- [ ] Messaging WASM parity implementation plan
+  - [ ] Audit wasm-only messaging paths for parity with real `web-sys` bindings (e.g. `Notification::request_permission`, `PushSubscription::get_key`).
+  - [ ] Extend `web-sys` feature flags to include `RegistrationOptions`, `PushEncryptionKeyName`, `ServiceWorkerUpdateViaCache`, `NotificationPermission`, and `NavigatorCookies` as required.
+  - [ ] Replace native-only APIs (`RequestBuilder::timeout`, `Navigator::cookie_enabled`, etc.) with wasm-compatible abstractions via `platform` utilities.
+  - [ ] Update `platform::browser::indexed_db` and the messaging token store to operate on real `IdbDatabase` handles for wasm.
+  - [ ] Rebuild the service worker helpers to use `RegistrationOptions`, `Promise`/`JsFuture`, and shared `format_js_error` utilities without duplication.
+  - [ ] Add wasm-bindgen smoke tests for permission and token flows and document wasm usage details in `src/messaging/README.md`.
 - [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.
 - [ ] Ensure token acquisition hooks (`auth_token`, `app_check_token`) are fully async across the board and document any intentionally unsupported scenarios.
 

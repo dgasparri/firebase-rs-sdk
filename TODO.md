@@ -1,5 +1,19 @@
 # Miscellaneous TODO
 
+## WASM and async
+
+WASM parity 
+Read ./AGENTS.md for context. Our focus now it to make the library and each module async and wasm-compatible,
+▌ eliminating all the blocks. Breaking the API is OK. Read the WASM_PLAN.md and work on the module Functions
+
+
+C'è _async in functions
+
+Check that there is adequate testing for wasm (see for example ./src/functions/api.rs che tutti i test sono dietro gate not wasm32)
+
+## contare linee di codice
+
+
 come posso contare le linee di codice in un progetto Rust? Ci sono tool o script (anche python)?
 
 Ecco i metodi più usati (da super veloce a più “su misura”) per contare le linee in un progetto Rust.

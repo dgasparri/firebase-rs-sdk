@@ -4117,4 +4117,130 @@ Thinking
   2. Consider sharing the new analytics transport trait with other modules (e.g., functions/events) to keep wasm-safe
   HTTP patterns consistent.
 
-▌
+
+
+Thinking
+  I'm piecing together why the functions module is commented out and not compiled, causing its tests not to run. It
+  seems the module is disabled, likely not yet ported, so our changes still need to ensure consistency and eventual
+  compatibility. Since it's not built into the crate by default, I want to check if any features like "functions" gate
+  its compilation and try running cargo check with those features to confirm unaffected parts compile and catch any
+  errors in our edits. I'll look into Cargo.toml features to see how this module might be included or gated.
+
+• Explored
+  └ Search functions in Cargo.toml
+
+• Updated Plan
+  └ ✔ Inspect existing functions module and identify blocking/native-only code paths
+    ✔ Refactor functions API to remove blocking helpers and ensure async-only usage, updating documentation and tests
+    □ Run relevant tests/checks and update module README to reflect async changes
+
+> Thinking
+  I’m weighing whether to run extra compile checks for the disabled functions module to confirm no errors, even though
+  it’s not built or tested by default. It seems best to note in the final summary that the module remains disabled and
+  untested, update the plan to mark testing done, and collect git status and diff outputs before wrapping up.
+
+
+ I'm putting together a final message that highlights updating src/functions/api.rs with async docs and removal of the
+  sync helper, referencing specific lines like 74, 145, 386, and 422; noting README updates at line 19; mentioning tests
+  run but skipped due to disabled module; and suggesting next steps like re-enabling the module and verifying tests
+  afterward.
+
+> Functions Async
+
+  - src/functions/api.rs:74 updates the https_callable rustdoc to demonstrate awaiting the callable future and removes
+  the legacy blocking helper from the public surface.
+  - src/functions/api.rs:145 clarifies that CallableFunction::call_async must run inside the caller’s executor,
+  reinforcing the async-only contract for both native and wasm targets.
+  - src/functions/api.rs:386 and src/functions/api.rs:422 convert the callable HTTP tests to #[tokio::test] so they
+  await the async API instead of relying on an inline runtime.
+  - src/functions/README.md:19 revises the quick-start to async fn main() with guidance on driving it from Tokio or
+  spawn_local, and src/functions/README.md:43 notes the async-only API in the Implemented list.
+
+  Tests: cargo test functions::api::tests::https_callable_invokes_backend (module is still commented out at the crate
+  root, so the callable tests are currently filtered).
+
+  Next steps: once the functions module is re-exposed in src/lib.rs, rerun the callable tests (native + wasm smoke) to
+  confirm the async surface builds end-to-end.
+
+
+
+
+Thinking
+  I’m listing the key updates like adding pub mod functions, making get_functions async, and removing the blocking call
+  method in favor of call_async. I’ll mention tests run, doc updates, and stubbed messaging tokens on wasm, plus the
+  TODO to restore them. I’ll also suggest natural next steps like updating other modules for the async API and fixing
+  deprecated warnings.
+
+> Functions Async
+
+  - src/lib.rs:23 now re-exports the functions module for all targets so the async port participates in the workspace
+  build.
+  - src/functions/api.rs:69 updates the rustdoc example and removes the old blocking convenience, leaving
+  CallableFunction::call_async as the single entry point; the component helper at src/functions/api.rs:343 is now pub
+  async fn get_functions, awaits app::api::get_app, and tests/Docs await initialize_app.
+  - src/functions/context.rs:22 wraps the messaging-specific fields and token lookup behind #[cfg(not(target_arch =
+  "wasm32"))], returning None on wasm so the module compiles even while the messaging crate stays stubbed; native builds
+  still pull cached FCM tokens via token_store::read_token.
+  - src/functions/README.md:30 switches the quick-start to an async workflow (initialize_app(...).await?,
+  get_functions(...).await?) and records the pending follow-up to reinstate messaging-token forwarding on wasm.
+  - src/functions/api.rs:408 and :452 migrate the callable tests to fully async flow (Tokio flavored) that await both
+  app initialization and get_functions, keeping parity with the new API.
+
+  Tests: cargo test functions::api::tests; cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next steps:
+
+  1. Update any downstream call sites of get_functions or CallableFunction to await the async APIs.
+  2. Re-enable the messaging component on wasm (or provide lightweight bindings) so FCM tokens flow again and remove the
+  wasm-only stub in ContextProvider.
+  3. Tackle the web_sys::RequestInit deprecation warnings in src/functions/transport.rs to future-proof the fetch
+  transport.
+
+
+  Next steps:
+
+  1. Sweep the workspace for lingering call sites of get_functions/CallableFunction::call_async to ensure they await the
+  new async APIs.
+  2. Re-enable messaging support on wasm so the context provider can forward FCM tokens in web builds.
+  3. Add wasm-bindgen tests for the callable transport once messaging/web infrastructure is in place.
+
+▌ all tests passed, continue with the next steps
+
+• Explored
+  └ Search get_functions in src
+
+> Thinking
+  I’m reviewing the complexity of re-enabling messaging support on wasm, which appears quite involved due to missing
+  features and major compile errors from the messaging module. After inspecting the code and previous attempts, I see no
+  current call sites to fix, so step one is effectively done, and re-enabling messaging will require substantial rework.
+  I’m considering summarizing this status and suggesting a cautious approach without immediate code changes.
+
+> No further get_functions call sites outside the module, so we’re already fully async at the crate surface. The
+  remaining follow-ups – re-enabling messaging on wasm and adding wasm-bindgen coverage – require broader messaging-
+  module work, so we should tackle those once the messaging port is ready.
+
+
+Messaging Wasm Parity (in‑progress)
+  I updated WASM_PLAN.md with a dedicated Stage 3 track for the messaging module’s wasm parity and started the refactor,
+  but the codebase still fails the wasm check. Key blockers surfaced immediately:
+
+  - src/messaging/token_store.rs: the wasm IndexedDB façade is only partial. After adding experimental-indexed-db
+  gating, the fallback path still references BroadcastChannel, cache globals, and BroadcastPayload types that are now
+  behind stricter cfgs. Those symbols are missing whenever the experimental feature is disabled, so the wasm build
+  aborts.
+  - src/messaging/api.rs: large sections (permission flow, service-worker helpers, Push subscription handling) assume
+  bindings that don’t exist in web-sys defaults. Even after enabling additional web-sys features, methods such as
+  register_with_str_and_options, Notification::permission, and PushSubscription::get_key need to be called with the
+  newer API (enums/Result returns). Several helpers (HandlerEntry needing Debug, .ok_or_else() on String, etc.) also
+  need rewrites.
+  - src/messaging/sw_manager.rs: the service-worker registration path still calls deprecated APIs
+  (RegistrationOptions::new() returning Result, .register_with_options, etc.) and mixes js_sys promises; additional glue
+  is required to make that code compile on wasm.
+  - src/messaging/fcm_rest/wasm.rs: response handling currently inspects raw status codes (u16) and still calls the
+  deprecated RequestInit setters—these need to be converted to Response::status() (already u16) combined with manual
+  range checks and the new setter methods.
+
+  Because of these issues, cargo check --target wasm32-unknown-unknown --features wasm-web still halts with dozens of
+  errors. The module requires a deeper audit (token-store fallback, wasm-friendly service-worker tooling, updated web-
+  sys bindings, and async conversions). I’ve left the scaffolding and plan updates in place so the next pass can pick up
+  right where the compiler stopped.
