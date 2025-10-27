@@ -295,6 +295,19 @@ impl StorageReference {
         wasm::bytes_to_blob(&bytes)
     }
 
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    /// Streams data from a [`web_sys::ReadableStream`] via the resumable upload pipeline.
+    pub async fn upload_readable_stream_resumable(
+        &self,
+        stream: &web_sys::ReadableStream,
+        total_size: u64,
+        metadata: Option<UploadMetadata>,
+    ) -> StorageResult<ObjectMetadata> {
+        let reader = wasm::readable_stream_async_reader(stream)?;
+        self.upload_reader_resumable(reader, total_size, metadata)
+            .await
+    }
+
     /// Streams data from an [`AsyncRead`](futures::io::AsyncRead) source using the resumable upload API.
     pub async fn upload_reader_resumable<R>(
         &self,

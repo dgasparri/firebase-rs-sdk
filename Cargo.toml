@@ -74,6 +74,8 @@ features = [
     "PushSubscriptionOptionsInit",
     "PushEncryptionKeyName",
     "PushSubscriptionJson",
+    "ReadableStream",
+    "ReadableStreamDefaultReader",
     "IdbFactory",
     "IdbOpenDbRequest",
     "IdbDatabase",
