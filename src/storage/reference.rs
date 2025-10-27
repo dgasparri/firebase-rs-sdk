@@ -5,6 +5,8 @@ use crate::storage::list::{parse_list_result, ListOptions, ListResult};
 use crate::storage::location::Location;
 use crate::storage::metadata::ObjectMetadata;
 use crate::storage::path::{child, last_component, parent};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::storage::request::StreamingResponse;
 use crate::storage::request::{
     continue_resumable_upload_request, create_resumable_upload_request, delete_object_request,
     download_bytes_request, download_url_request, get_metadata_request, list_request,
@@ -24,6 +26,9 @@ pub struct StorageReference {
     storage: FirebaseStorageImpl,
     location: Location,
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type StreamingDownload = StreamingResponse;
 
 impl StorageReference {
     pub(crate) fn new(storage: FirebaseStorageImpl, location: Location) -> Self {
@@ -166,6 +171,21 @@ impl StorageReference {
         }
 
         Ok(bytes)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Streams the referenced object as an async reader without buffering the entire payload.
+    ///
+    /// Returns a [`StreamingResponse`] whose [`StorageByteStream`] can be consumed using the
+    /// standard `tokio::io::AsyncRead` interfaces.
+    pub async fn get_stream(
+        &self,
+        max_download_size_bytes: Option<u64>,
+    ) -> StorageResult<StreamingResponse> {
+        self.ensure_not_root("get_stream")?;
+        let request =
+            download_bytes_request(&self.storage, &self.location, max_download_size_bytes);
+        self.storage.run_streaming_request(request).await
     }
 
     /// Returns a signed download URL for the object.

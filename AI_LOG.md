@@ -4404,3 +4404,353 @@ hinking
   Remaining Stage‑3 work (as noted in the README/WASM plan) is larger scope—persistence coordination/backoff, emulator/
   diagnostics parity, richer wasm integration (FCM lifecycle, multi-context sync, wasm-bindgen tests). I’d schedule
   those follow-ups as dedicated tasks rather than tackling them piecemeal now.
+
+
+
+
+Thinking
+  I'm putting together the final message to explain changes made in src/storage/request/transport.rs around line 120,
+  including running cargo check commands for normal and wasm targets. I'll clearly mention the removal of per-request
+  timeouts on the wasm backend and suggest considering manual timeout implementations like using fetch-based timeouts or
+  AbortController. I'll also outline optional next steps to revisit this behavior in the future.
+
+> - Gate the per-request timeout call to native builds only (src/storage/request/transport.rs:120), since reqwest’s WASM
+  backend lacks that API; add a comment documenting the limitation so future work can hook in a WASM-friendly timeout
+  strategy.
+
+  Checks: cargo check, cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next: 1) Decide whether to implement an async timeout shim for WASM (e.g. using gloo_timers with select!) so we can
+  surface RequestError::Timeout there too.
+
+
+
+Thinking
+  I’m putting together a final message explaining the new platform-specific timeout handling for storage requests,
+  especially the wasm implementation using TimeoutFuture and poll_fn. I’ll reference exact lines in src/storage/
+  request/transport.rs for the send helper (around line 178), the wasm timeout logic (lines 190-219), and the shared
+  map_reqwest_error function (line 222). I’ll also note tests run with both native and wasm targets and suggest next
+  steps like verifying timeout behavior in a real wasm environment or considering more advanced abort handling.
+
+> Adopted a platform-aware request timeout so WASM builds mirror the native behaviour. In src/storage/request/
+  transport.rs:178-188 I refactored the native path to go through a shared send_with_timeout, while src/storage/request/
+  transport.rs:190-220 now races the fetch future against a gloo_timers::future::TimeoutFuture via poll_fn, returning
+  RequestError::Timeout when the timer fires. Also centralized the reqwest error mapping in src/storage/request/
+  transport.rs:222-227 so both code paths report consistent failures.
+
+  Tests:
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+
+  Next: verify the WASM timeout pathway in a browser (e.g. with a deliberately stalled endpoint) to confirm the error
+  surfaces as expected.
+
+
+I've noticed that the timer is a recurrent problem when developing for target wasm. Is there common code that could be
+▌ shared between modules? Would it be efficient to put maybe a common library somewhere under the folder ./src/
+▌ platform ?
+
+• Explored
+  └ List platform
+    List browser
+    Read runtime.rs
+
+> Bringing the timeout logic into src/platform would be a good fit. That module already centralises
+  cross-target glue (runtime::sleep, spawn_detached, etc.), so we can extend it with something like
+  platform::runtime::race_timeout(future, Duration) that hides the gloo_timers vs. tokio details. Storage and messaging
+  could then rely on the shared helper instead of embedding bespoke WASM timers.
+
+  If you want me to consolidate it now, happy to draft a small API (e.g. returning Result<T, TimeoutError> from a
+  generic async function) and replace the per-module code.
+
+
+
+• Updated Plan
+  └ □ Design a shared platform timeout helper API and add it under src/platform.
+    □ Refactor storage (and related modules) to use the shared helper and ensure checks pass.
+
+Thinking
+  I’m adding a with_timeout async function in the runtime module that wraps a future with a timeout, using
+  tokio::time::timeout on native and gloo_timers on wasm. This includes defining a TimeoutError type and updating
+  storage’s send_with_timeout to leverage this helper, also replacing local sleep functions with the runtime’s to unify
+  timing utilities.
+
+
+ Updated Plan
+  └ ✔ Design a shared platform timeout helper API and add it under src/platform.
+    ✔ Refactor storage (and related modules) to use the shared helper and ensure checks pass.
+
+> Thinking
+  I'll craft a clear summary covering the changes in src/platform/runtime.rs, highlight the removal of local sleep, the
+  addition of the with_timeout helper, inclusion of TimeoutError, and mention tests run, along with optional next steps
+  suggesting other modules could adopt the new helper. I'll also gather accurate line references for the final message.
+
+• Explored
+  └ Read runtime.rs, transport.rs
+
+> - Added a cross-platform timeout utility (with_timeout) plus TimeoutError in src/platform/runtime.rs:46-118 so any
+  async task can share the same WASM-friendly timer logic that falls back to Tokio on native targets.
+  - Refactored storage transport to use the shared helper and the existing platform sleep, removing bespoke #[cfg] forks
+  while preserving native per-request reqwest timeouts (src/storage/request/transport.rs:1-203).
+
+  Tests:
+
+  - cargo check
+  - cargo check --target wasm32-unknown-unknown --features wasm-web
+
+  Next: 1) Swap other ad-hoc timers (e.g. messaging WASM code) to platform::runtime::with_timeout/sleep so they all ride
+  the shared implementation.
+
+
+ Updated Plan
+  └ ✔ Locate ad-hoc timer usage in realtime DB, installations, messaging modules.
+    ✔ Refactor to `platform::runtime` helpers, run formatting and checks.
+
+> - Extended src/platform/runtime.rs:46-118 with a shared yield_now helper and hardened the WASM timeout implementation
+  (minimum 1 ms) so all modules share consistent scheduling and timeout primitives.
+  - Replaced module-specific timers with the shared utilities:
+      - src/installations/api.rs:27-105 now yields via runtime::yield_now instead of feature-gated stubs.
+      - src/database/realtime/mod.rs:933-1604 uses runtime::sleep for long-poll backoff, dropping direct gloo_timers
+  usage.
+      - src/messaging/sw_manager.rs:5-155 relies on runtime::sleep for registration polling.
+  - Storage transport already consumes runtime::sleep/with_timeout, so all known timers route through the shared
+  platform layer.
+
+  Checks: cargo check, cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next: 1) Sweep remaining modules for bespoke timers (if any pop up later, wire them to platform::runtime).
+
+
+Thinking
+  I need to identify what’s left for achieving storage WASM parity and exposing the async API. I’ll highlight key tasks
+  like integrating a reqwest fallback, managing the event loop, supporting streaming, and verifying platform-specific
+  WASM features. I also want to ensure that request transports compile correctly with WASM, inspect chunked uploads that
+  might rely on non-WASM code like tokio::fs, and look for todo comments or conditional compilation flags that could
+  reveal unfinished parts. Let’s explore these items carefully to understand the gap.
+
+• Explored
+  └ Search TODO in storage
+    Read upload.rs, api.rs
+
+> Thinking
+  I’m organizing what’s left to do around making the async API easy to use and matching WASM capabilities. I’m
+  thinking about adding JS-style upload and download helpers, implementing streaming downloads for WASM using
+  web_sys::ReadableStream, and ensuring all async functions truly return futures. I also want to check for any
+  synchronous API parts or gated features like resumable uploads behind cfg attributes and look for tokio usage in the
+  storage module to fully understand async support.
+
+Thinking
+  I’m organizing a clear plan for finishing WASM parity based on the README and code exploration. This includes
+  adjusting request adapters for WASM fetch credentials, bridging functions to handle storage data between Rust and JS
+  types, enhancing UploadTask features for WASM, and improving async APIs with watcher support—all wrapped up with docs
+  and tests updates to unify the experience. Let’s put these tasks into an easy-to-follow checklist with file references
+  for the final response.
+
+
+IMPORTANT:
+> - The WASM transport now compiles and shares timeout/backoff logic, but the storage surface still lacks the Web
+  SDK conveniences that matter most in browsers: StorageReference::upload_string, blob/stream download helpers, and
+  lightweight wrappers that accept web_sys::Blob/js_sys::Uint8Array. Those need to be added (ideally under a wasm-web
+  gate) so WASM callers can avoid manual Vec<u8> shims.
+  - Resumable uploads are functional, yet UploadTask in src/storage/upload.rs stops at a single run_to_completion
+  future. To match the async observer model exposed in JS (and to let WASM apps hook into progress UI), we still have to
+  introduce UploadTaskSnapshot, observer registration (on_state_changed-style APIs), and pause/resume/cancel hooks. The
+  internal state machine is already close; it just needs the public async façade and notifications.
+  - Error handling remains trimmed down: StorageErrorCode doesn’t cover the full suite and the transport never forces
+  auth/app-check refresh on 401/403. We should wire runtime::with_timeout’s TimeoutError into richer retry logic, bubble
+  distinct errors, and retrigger token fetches so browsers behave like the JS SDK when tokens expire mid-session.
+  - WASM parity also depends on request coverage during retries. The Web SDK replays failed uploads/
+  downloads with exponential backoff and streams partial responses; our HttpClient does backoff but still
+  buffers the entire body. Adding chunked download helpers (or at least exposing a streamed reader on wasm via
+  reqwest::wasm::Response::bytes_stream) will keep large-file scenarios tractable.
+  - Finally, the public documentation/examples still assume tokio everywhere. To “surface the async API” for
+  wasm users, we should extend src/storage/README.md and rustdoc examples with wasm_bindgen_test snippets (e.g.,
+  wasm_bindgen_futures::spawn_local(async move { … })), and add at least one examples/storage_upload_string.rs gated for
+  wasm-web so the async story is visible.
+
+  Once these pieces land, we can update the module README status, broaden tests (native + wasm-bindgen-test), and
+  consider publishing a first cut of the WASM-ready async API.
+
+Thinking
+  I'm planning to keep wasm-specific conversion helpers in a separate module under conditional compilation to keep
+  native builds clean. I want to implement string formatting variants like Raw, Base64, Base64Url, and DataUrl with
+  proper error handling using existing crates and integrate these helpers into the storage upload routines thoughtfully,
+  ensuring metadata like content type is set correctly without unnecessary cloning or ownership issues.
+
+• Explored
+  └ Search upload_bytes in reference.rs
+    Read reference.rs
+
+> Thinking
+  I’m working out how to conditionally pass either Some(metadata) or None to upload_bytes based on whether metadata or
+  content type exists, to keep the argument optional and accurate. I also see an opportunity to restructure metadata
+  handling since we need to check and possibly set content types in the metadata. Additionally, I’m considering adding a
+  get_string method with optional format support, paralleling the JS Web API behavior for string downloads and encoding
+  conversions. This involves defining helpers for encoding bytes into strings in various formats.
+
+• Explored
+  └ Search getString in storage
+
+  Adjusting optional metadata handling (2m 05s • Esc to interrupt)
+
+
+
+conversions in string.rs, WASM bridging code, and README updates. I’ll highlight test coverage as well as next steps
+  like considering streaming instead of buffering blobs fully in memory. Let’s organize a clear, structured final
+  message with bullet points referencing code locations and explain the overall improvements.
+
+> - Extended StorageReference with parity helpers (upload_string, WASM-only upload_blob/upload_uint8_array variants,
+  and get_blob) so browsers can call the same names exposed by the JS SDK while native code keeps using Vec<u8> (src/
+  storage/reference.rs:230-294).
+  - Added the shared string conversion core—StringFormat, prepare_string_upload, and unit coverage—to avoid duplicating
+  upload-string parsing while re-exporting the enum from the module root (src/storage/string.rs:7-152, src/storage/
+  mod.rs:145-152).
+  - Introduced small WASM utilities that turn Blob/Uint8Array into Vec<u8> (and back) to keep the reference methods thin
+  and feature-gated (src/storage/wasm.rs:1-34).
+  - Updated the storage README to document the new browser-friendly helpers and adjust the remaining streaming work
+  items (src/storage/README.md:16-158).
+  - Added merge-metadata assertions so inferred content types behave like the Web SDK (src/storage/reference.rs:350-
+  363).
+
+  Tests: cargo check, cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next: 1) Introduce true streaming/reader-based uploads so large blobs don’t require buffering before resumable
+  transfers.
+
+▌ all tests passed, continue
+
+
+Thinking
+  I’m thinking through how to add streaming upload support by allowing async readers instead of full buffers,
+  considering resumable chunking, trait compatibility across wasm and tokio, and parallels with JS Blob slicing. I’m
+  also weighing adding examples and tests for new upload functions while ensuring wasm compatibility, preparing for a
+  future streaming API that handles unknown total sizes gracefully. Let’s map out these next actions carefully!
+
+> - Added Web-SDK-parity uploads/downloads on StorageReference: upload_string (with inferred content type) plus WASM-
+  only helpers for Blob/Uint8Array sources and get_blob, so browser builds call the same API surface as JS (src/storage/
+  reference.rs:230-294, src/storage/reference.rs:297-316).
+  - Introduced a shared string-preparation module that mirrors Firebase’s StringFormat handling (raw/base64/base64url/
+  data-URL) with unit tests, re-exported from the storage crate root for easy access (src/storage/string.rs:7-152, src/
+  storage/mod.rs:145-152).
+  - Added WASM glue utilities to bridge Blob/Uint8Array and Vec<u8> without duplicating logic in the reference methods
+  (src/storage/wasm.rs:1-34).
+  - Updated the storage README to highlight the new browser-friendly helpers and trimmed the TODO list to focus on true
+  streaming uploads next (src/storage/README.md:16-158).
+  - Covered metadata merge behaviour with dedicated tests so inferred MIME types never override explicit user choices
+  (src/storage/reference.rs:350-363).
+
+  Checks: cargo check, cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next: 1) Add genuine streaming uploads (reader-based) so large files don’t require full buffering before resumable
+  transfers.
+
+
+Thinking
+  I’m figuring out how to add a streaming upload method that accepts an async byte stream, handles chunking and
+  resumable upload protocol, and tracks progress. The main challenge is requiring the total upload size beforehand to
+  properly finalize, so I’m designing the API to accept total size and yield metadata once done, with careful handling
+  of chunk boundaries and platform-specific trait bounds for streams.
+
+  Implementing AsyncRead streaming upload method
+
+  I’m planning the details for implementing a streaming upload method that reads from an AsyncRead source in chunks,
+  sends them as resumable upload chunks tracking progress, and handles edge cases like premature end or zero-length
+  uploads. This involves defining a platform-aware UploadAsyncRead trait, reading loop with buffering, and carefully
+  finalizing the upload once total bytes are sent, all while integrating error handling and progress callbacks.
+
+  Finalizing streaming upload integration plan
+
+  I’m wrapping up the design for adding a new UploadAsyncRead trait in a new module, updating Cargo features, refining
+  the streaming upload method with consideration for zero-size uploads and metadata cloning, and planning README and
+  test updates—though full tests may be tricky due to network dependencies, so I might leave those as TODOs for now.
+
+  Finalizing streaming upload integration plan (4m 46s • Esc to interrupt)
+
+  Thinking
+  I’m preparing to add new resumable upload functions to reference.rs, ensuring proper imports and cloning where needed.
+  I’ll handle edge cases like zero-size uploads, carefully manage async reading loops with EOF checks, and finalize
+  uploads with metadata extraction while updating documentation accordingly.
+
+Thinking
+  I’m making sure the upload_reader_resumable_with_progress function correctly handles finalization and metadata
+  return conditions without redundant final chunks, and accounts for partial reads and potential leftover data. I’ll
+  also update progress reporting to cover edge cases like zero total size and confirm Option consumption. Lastly, I’m
+  preparing to refresh the README with new streaming features and TODO notes, then run cargo fmt to tidy up.
+
+Thinking
+  I'm putting together the final message highlighting the new streaming API with the upload_reader_resumable method
+  in src/storage/stream.rs around line 298, the UploadAsyncRead re-export in src/storage/mod.rs lines 99-156, and
+  the README updates near lines 16-30. I'll mention running cargo check to verify, note that streaming now supports
+  AsyncRead (with a zero-size fallback), and suggest next steps about adapting to browser ReadableStream. I'll format it
+  with a clear quick summary and bullet points referencing file paths and line numbers.
+
+
+Thinking
+  I’m putting together a final message highlighting the new AsyncRead streaming trait and its re-export, updates in
+  README docs including zero-size finalization, and referencing key lines in the source files. I’ll also note the tests
+  run with cargo check and wasm checks, explain the fallback for zero-size uploads, and suggest next steps, like hooking
+  up ReadableStream. The message will be clean and bullet-pointed for clarity.
+
+> - Added upload_reader_resumable and upload_reader_resumable_with_progress so callers can stream large uploads from any
+  futures::io::AsyncRead without buffering, handling zero-length files and chunked progress just like the JS resumable
+  flow (src/storage/reference.rs:298-417).
+  - Introduced the cross-platform UploadAsyncRead trait and re-export, giving native builds a Send requirement while
+  keeping WASM compatible (src/storage/stream.rs:1-11, src/storage/mod.rs:155-159).
+  - Kept the API surface tidy: the new helpers reuse existing request builders and progress reporting, and documentation
+  now calls out both async-reader uploads and the remaining browser-stream gap (src/storage/README.md:16-58).
+
+  Tests: cargo check; cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next: 1) Add adapters from web_sys::ReadableStream/service-worker streams into UploadAsyncRead so WASM callers can
+  stream without manual glue.
+
+ Thinking
+  I’m mapping out how to bridge web_sys::ReadableStream into an AsyncRead-compatible struct for WASM by
+  wrapping ReadableStreamDefaultReader and managing chunked reads with JsFuture polls. This involves creating a
+  ReadableStreamAsyncReader that buffers chunks, polls JS Promises properly, and integrates cleanly with existing upload
+  interfaces while carefully handling errors and wasm-specific features.
+
+
+Thinking
+  I'll include a bullet list summarizing the changed files like upload_reader_resumable and
+  upload_readable_stream_resumable, highlight the new streaming trait and the WASM ReadableStream bridging, mention
+  README updates and test runs, and suggest possible next steps like streaming download or observer features.
+
+> - Added native-agnostic streaming uploads: upload_reader_resumable and its progress variant now stream any
+  futures::io::AsyncRead without buffering, reusing the existing resumable chunk pipeline (src/storage/reference.rs:298-
+  417). Introduced the crate-level UploadAsyncRead alias so callers can pass platform-appropriate readers directly (src/
+  storage/mod.rs:150-159, src/storage/stream.rs).
+  - For WASM builds, bridged browser streams by exposing a ReadableStream adapter that implements AsyncRead, plus a
+  convenience upload_readable_stream_resumable entry point and ReadableStream-aware helper functions (src/storage/
+  reference.rs:298-309, src/storage/wasm.rs:37-166). Also expanded web-sys features to include the needed stream types
+  (Cargo.toml:70-98).
+  - Refreshed module docs to highlight async-reader uploads and the new browser parity, while noting streaming downloads
+  as the next gap (src/storage/README.md:16-58, 140-158).
+
+  Checks: cargo check; cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next: 1) Add streaming download APIs (e.g. get_stream) so large responses can be consumed incrementally, mirroring the
+  Web SDK.
+
+Thinking
+  I'll highlight key changes like the new get_stream API in reference.rs around line 298, streaming alias and methods
+  in transport.rs, plus the introduction of dependencies such as bytes, tokio-util (with features), and reqwest stream
+  support. Mentioning run_streaming_request and testing status, I'll also note wasm streaming limitations and suggest
+  verifying downloads or updating docs next.
+
+> - Added native streaming downloads by plumbing a streaming path through the storage transport layer and service
+  (src/storage/request/transport.rs:54, src/storage/service.rs:131). Hosting builds now expose StreamingResponse/
+  StorageByteStream, letting us hand callers a tokio::io::AsyncRead without buffering whole objects.
+  - Extended StorageReference with get_stream (native) and a type alias StreamingDownload so apps can pull object bytes
+  incrementally (src/storage/reference.rs:288). WASM got a matching ReadableStream bridge earlier, so both upload and
+  download sides now offer parity helpers per platform.
+  - Documented the new streaming capability in the storage README and wired re-exports so consumers can reach the async
+  reader types directly from firebase_rs_sdk::storage (src/storage/README.md:16, src/storage/mod.rs:145).
+
+  Dependencies: added bytes and tokio-util, plus enabled reqwest’s stream feature for native targets.
+
+  Checks: cargo check; cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next: 1) Add high-level helpers/tests showing how to consume the new get_stream (e.g., piping to a file or hashing the
+  stream) so users have guidance and we validate the async reader path.

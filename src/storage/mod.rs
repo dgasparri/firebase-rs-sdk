@@ -140,6 +140,9 @@ pub use request::{
     RequestInfo, ResponseHandler, ResponsePayload, ResumableUploadStatus,
     RESUMABLE_UPLOAD_CHUNK_SIZE,
 };
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(inline)]
+pub use request::{StorageByteStream, StreamingResponse};
 
 // pub use request::builders::{create_resumable_upload_request,  delete_object_request, download_bytes_request, download_url_request, get_metadata_request, get_resumable_upload_status_request,  list_request, multipart_upload_request, update_metadata_request, RequestInfo, RequestMethod, RequestBuilder, ResumableUploadStatus, RESUMABLE_UPLOAD_CHUNK_SIZE};
 

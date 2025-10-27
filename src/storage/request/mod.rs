@@ -11,4 +11,9 @@ pub use builders::{
     update_metadata_request, ResumableUploadStatus, RESUMABLE_UPLOAD_CHUNK_SIZE,
 };
 pub use info::{RequestBody, RequestInfo, ResponseHandler};
+#[cfg(target_arch = "wasm32")]
 pub use transport::{HttpClient, RequestError, ResponsePayload};
+#[cfg(not(target_arch = "wasm32"))]
+pub use transport::{
+    HttpClient, RequestError, ResponsePayload, StorageByteStream, StreamingResponse,
+};

@@ -14,6 +14,18 @@ Check that there is adequate testing for wasm (see for example ./src/functions/a
 Fare anche un search per wasm32 per vedere quali parti di codice sono bloccate
 
 
+## Test fallito forse race condition perché ogni tanto fallisce ogni tanto no
+
+failures:
+
+---- functions::api::tests::https_callable_includes_context_headers stdout ----
+
+thread 'functions::api::tests::https_callable_includes_context_headers' panicked at src\functions\api.rs:460:14:
+called `Result::unwrap()` on an `Err` value: FunctionsError { code: Internal, message: "Service functions is not available", details: None }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+
 ## contare linee di codice
 
 

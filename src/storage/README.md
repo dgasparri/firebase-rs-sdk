@@ -20,6 +20,7 @@ It includes error handling, configuration options, and integration with Firebase
 - Handle file uploads with progress tracking
 - Upload strings and browser blobs with shared helpers
 - Stream large uploads directly from async readers
+- Stream downloads as native async readers (non-WASM)
 - List files and directories in storage
 - Manage object metadata
 - Comprehensive error handling
@@ -145,6 +146,8 @@ async fn main() -> StorageResult<()> {
   downloads so browser callers can mirror the Web SDK entry points without extra glue code.
 - Added `upload_reader_resumable` helpers so large files can stream from any `AsyncRead` without buffering the entire
   payload, and introduced WASM adapters for `ReadableStream` sources to keep browser behaviour aligned with the Web SDK.
+- Added native `get_stream` so downloads can be consumed progressively via `AsyncRead` instead of buffering everything in
+  memory.
 - Expanded metadata and type models: `ObjectMetadata` now tracks MD5/CRC/ETag values, parses download tokens into a
   typed collection, and exposes helpers for byte sizes. `UploadMetadata`/`SettableMetadata` provide builder-style
   ergonomics for configuring uploads and metadata updates while serialising to the REST-friendly camelCase payloads.

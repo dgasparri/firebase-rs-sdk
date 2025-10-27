@@ -12,6 +12,8 @@ use crate::storage::constants::{
 use crate::storage::error::{internal_error, no_default_bucket, StorageResult};
 use crate::storage::location::Location;
 use crate::storage::reference::StorageReference;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::storage::request::StreamingResponse;
 use crate::storage::request::{BackoffConfig, HttpClient, RequestInfo};
 use crate::storage::util::is_url;
 
@@ -197,6 +199,16 @@ impl FirebaseStorageImpl {
         let client = self.upload_http_client()?;
         let info = self.prepare_request(info).await?;
         client.execute(info).await
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn run_streaming_request<O>(
+        &self,
+        info: RequestInfo<O>,
+    ) -> StorageResult<StreamingResponse> {
+        let client = self.http_client()?;
+        let info = self.prepare_request(info).await?;
+        client.execute_streaming(info).await
     }
 
     async fn prepare_request<O>(&self, mut info: RequestInfo<O>) -> StorageResult<RequestInfo<O>> {
