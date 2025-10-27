@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 
 use serde_json::{json, Value};
 
@@ -12,6 +12,7 @@ use crate::component::types::{
 use crate::component::{Component, ComponentType};
 use crate::data_connect::constants::DATA_CONNECT_COMPONENT_NAME;
 use crate::data_connect::error::{internal_error, invalid_argument, DataConnectResult};
+use async_lock::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct DataConnectService {
@@ -54,7 +55,11 @@ impl DataConnectService {
         self.inner.endpoint.as_deref()
     }
 
-    pub fn execute(&self, request: QueryRequest) -> DataConnectResult<QueryResponse> {
+    /// Executes a Data Connect query or mutation.
+    ///
+    /// This mirrors the async surface of the JS SDK; the current stub simply echoes the
+    /// request payload until real transports are wired in.
+    pub async fn execute(&self, request: QueryRequest) -> DataConnectResult<QueryResponse> {
         if request.operation.trim().is_empty() {
             return Err(invalid_argument("Operation text must not be empty"));
         }
@@ -107,19 +112,21 @@ pub fn register_data_connect_component() {
     ensure_registered();
 }
 
-pub fn get_data_connect_service(
+pub async fn get_data_connect_service(
     app: Option<FirebaseApp>,
     endpoint: Option<&str>,
 ) -> DataConnectResult<Arc<DataConnectService>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => crate::app::api::get_app(None)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     let endpoint_string = endpoint.map(|e| e.to_string());
     let cache_key = (app.name().to_string(), endpoint_string.clone());
-    if let Some(service) = DATA_CONNECT_CACHE.lock().unwrap().get(&cache_key).cloned() {
+    if let Some(service) = DATA_CONNECT_CACHE.lock().await.get(&cache_key).cloned() {
         return Ok(service);
     }
 
@@ -132,7 +139,7 @@ pub fn get_data_connect_service(
     } {
         DATA_CONNECT_CACHE
             .lock()
-            .unwrap()
+            .await
             .insert(cache_key.clone(), service.clone());
         return Ok(service);
     }
@@ -147,7 +154,7 @@ pub fn get_data_connect_service(
         Ok(service) => {
             DATA_CONNECT_CACHE
                 .lock()
-                .unwrap()
+                .await
                 .insert(cache_key, service.clone());
             Ok(service)
         }
@@ -160,7 +167,7 @@ pub fn get_data_connect_service(
             } {
                 DATA_CONNECT_CACHE
                     .lock()
-                    .unwrap()
+                    .await
                     .insert(cache_key, service.clone());
                 Ok(service)
             } else {
@@ -170,7 +177,7 @@ pub fn get_data_connect_service(
                 ));
                 DATA_CONNECT_CACHE
                     .lock()
-                    .unwrap()
+                    .await
                     .insert(cache_key, fallback.clone());
                 Ok(fallback)
             }
@@ -179,7 +186,7 @@ pub fn get_data_connect_service(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::app::api::initialize_app;
@@ -197,15 +204,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn execute_returns_stub_payload() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn execute_returns_stub_payload() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let service =
-            get_data_connect_service(Some(app), Some("https://example/graphql")).expect("service");
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let service = get_data_connect_service(Some(app), Some("https://example/graphql"))
+            .await
+            .expect("service");
         let mut vars = BTreeMap::new();
         vars.insert("id".into(), json!(123));
         let response = service
@@ -213,6 +223,7 @@ mod tests {
                 operation: "query GetItem { item { id } }".into(),
                 variables: vars.clone(),
             })
+            .await
             .unwrap();
         assert!(response
             .data
@@ -224,19 +235,22 @@ mod tests {
         assert_eq!(response.data.get("variables").unwrap(), &json!(vars));
     }
 
-    #[test]
-    fn empty_operation_errors() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn empty_operation_errors() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let service = get_data_connect_service(Some(app), None).unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+        let service = get_data_connect_service(Some(app), None).await.unwrap();
         let err = service
             .execute(QueryRequest {
                 operation: "   ".into(),
                 variables: BTreeMap::new(),
             })
+            .await
             .unwrap_err();
         assert_eq!(err.code_str(), "data-connect/invalid-argument");
     }

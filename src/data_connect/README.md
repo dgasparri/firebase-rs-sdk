@@ -1,7 +1,8 @@
 # Firebase Data Connect Port (Rust)
 
-This directory hosts the early-stage Rust port of Firebase Data Connect. The aim is to mirror the modular JS SDK
-(`@firebase/data-connect`) so applications can execute Data Connect queries through the shared component framework.
+This module contains the early-stage Rust port of Firebase Data Connect. The goal is to mirror the modular JS SDK
+(`@firebase/data-connect`) so applications can execute Data Connect queries asynchronously through the shared component
+framework.
 
 ## Porting status
 
@@ -33,16 +34,57 @@ Port Estimate
 Natural next steps: 1) Implement real transports (REST/emulator) with auth/App Check headers so DataConnectService::execute can hit live endpoints; 2) Port QueryManager/MutationManager and supporting types to provide query refs, caching, and subscription semantics; 3) Mirror option validation and multi-instance handling so the Rust façade aligns with the JS modular API surface.
 
 
+## Quick Start Example
+
+```rust,no_run
+use std::collections::BTreeMap;
+
+use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+use firebase_rs_sdk::data_connect::{
+    get_data_connect_service, QueryRequest
+};
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let options = FirebaseOptions {
+        project_id: Some("demo-project".into()),
+        ..Default::default()
+    };
+    let settings = FirebaseAppSettings {
+        name: Some("demo-app".into()),
+        ..Default::default()
+    };
+    let app = initialize_app(options, Some(settings)).await?;
+    let service = get_data_connect_service(Some(app.clone()), Some("https://example/graphql"))
+        .await?;
+
+    let mut variables = BTreeMap::new();
+    variables.insert("id".into(), serde_json::json!(123));
+
+    let response = service
+        .execute(QueryRequest {
+            operation: "query GetItem($id: ID!) { item(id: $id) { id } }".into(),
+            variables,
+        })
+        .await?;
+
+    println!("response payload: {}", response.data);
+
+    Ok(())
+}
+```
+
 ## Current Functionality
 
-- **Component wiring** – `register_data_connect_component` registers a `data-connect` component allowing apps to retrieve a
-  `DataConnectService` via `get_data_connect_service`.
-- **Service stub** – `DataConnectService::execute` accepts a `QueryRequest` (operation text + variables) and returns a
-  synthetic `QueryResponse` echoing the request and resolved endpoint.
+- **Component wiring** – `register_data_connect_component` registers a `data-connect` component allowing apps to
+  asynchronously retrieve a `DataConnectService` via `get_data_connect_service`.
+- **Async service stub** – `DataConnectService::execute` is async and returns a synthetic `QueryResponse` that echoes the
+  request and selected endpoint, making it safe to call from wasm and native event loops.
 - **Endpoint handling** – Supports per-endpoint instances via instance identifiers/options.
 - **Errors/constants** – Basic error codes (`data-connect/invalid-argument`, `data-connect/internal`) and component name
   constant.
-- **Tests** – Unit tests covering successful execution and empty-operation validation.
+- **Tests** – Async unit tests covering successful execution and empty-operation validation.
 
 The module currently provides structural integration but does not talk to the real Data Connect backend.
 
