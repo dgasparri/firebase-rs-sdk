@@ -21,7 +21,7 @@ impl FirestoreDataConverter for UserConverter {
 }
 
 #[allow(dead_code)]
-fn example_with_converter(
+async fn example_with_converter(
     firestore: &Firestore,
     client: &FirestoreClient,
 ) -> FirestoreResult<Option<MyUser>> {
@@ -29,14 +29,16 @@ fn example_with_converter(
         .collection("typed-users")?
         .with_converter(UserConverter);
     let doc = users.doc(Some("ada"))?;
-    client.set_doc_with_converter(
-        &doc,
-        MyUser {
-            _name: "Ada".to_string(),
-        },
-        None,
-    )?;
-    let typed_snapshot = client.get_doc_with_converter(&doc)?;
+    client
+        .set_doc_with_converter(
+            &doc,
+            MyUser {
+                _name: "Ada".to_string(),
+            },
+            None,
+        )
+        .await?;
+    let typed_snapshot = client.get_doc_with_converter(&doc).await?;
     let user: Option<MyUser> = typed_snapshot.data()?;
     Ok(user)
 }
