@@ -103,7 +103,7 @@ optional = true
 [dev-dependencies]
 serde-wasm-bindgen = "0.5"
 webbrowser = "0.8"
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "fs", "io-util"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }

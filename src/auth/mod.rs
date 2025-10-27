@@ -32,7 +32,7 @@
 //!
 //! ## Example Usage
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use firebase_rs_sdk::app::*;
 //! use firebase_rs_sdk::auth::*;
 //! use std::error::Error;

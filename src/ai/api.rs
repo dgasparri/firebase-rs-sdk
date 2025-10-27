@@ -632,13 +632,13 @@ pub fn register_ai_component() {
 /// # use firebase_rs_sdk::ai::get_ai;
 /// # use firebase_rs_sdk::app::api::initialize_app;
 /// # use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
-/// # async fn example() -> firebase_rs_sdk::ai::error::AiResult<()> {
+/// # async fn example() {
 /// let options = FirebaseOptions {
 ///     project_id: Some("project".into()),
 ///     api_key: Some("test".into()),
 ///     ..Default::default()
 /// };
-/// let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
+/// let app = initialize_app(options, Some(FirebaseAppSettings::default())).await.unwrap();
 /// let ai = get_ai(
 ///     Some(app),
 ///     Some(AiOptions {
@@ -646,8 +646,8 @@ pub fn register_ai_component() {
 ///         use_limited_use_app_check_tokens: Some(false),
 ///     }),
 /// )
-/// .await?;
-/// # Ok(())
+/// .await
+/// .unwrap();
 /// # }
 /// ```
 pub async fn get_ai(

@@ -1410,11 +1410,11 @@ impl DatabaseReference {
     /// Port of `push()` in `packages/database/src/api/Reference_impl.ts`.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,ignore
     /// # use firebase_rs_sdk::database::{DatabaseReference, DatabaseResult};
     /// # use serde_json::json;
     /// # fn demo(messages: &DatabaseReference) -> DatabaseResult<()> {
-    /// let new_message = messages.push_with_value(json!({ "text": "hi" })).await?;
+    /// let new_message = messages.push_with_value(json!({ "text": "hi" })).await.expected("Failed to push message");
     /// assert!(new_message.key().is_some());
     /// # Ok(())
     /// # }

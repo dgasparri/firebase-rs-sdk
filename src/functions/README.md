@@ -21,6 +21,7 @@ use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::functions::{get_functions, register_functions_component};
 use serde_json::{json, Value as JsonValue};
 
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     register_functions_component();
 

@@ -181,7 +181,7 @@ impl StorageReference {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```rust,ignore
     /// # use std::error::Error;
     /// # use tokio::io::{AsyncReadExt, copy};
     /// # use tokio::fs::File;

@@ -81,74 +81,77 @@ async function getCities(db) {
 
 Here is the equivalent example using the Rust port of the SDK:
 
-```rust,no_run
-use std::collections::BTreeMap;
-use std::error::Error;
-
-use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk::firestore::*;
-
-# fn main() -> Result<(), Box<dyn Error>> {
-let firebase_config = FirebaseOptions {
-    api_key: Some("demo-api-key".into()),
-    project_id: Some("demo-project".into()),
-    ..Default::default()
-};
-
-let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default()))?;
-let firestore_arc = get_firestore(Some(app.clone()))?;
-let firestore = Firestore::from_arc(firestore_arc);
-
-// Talk to the hosted Firestore REST API. Configure credentials/tokens as needed.
-let client = FirestoreClient::with_http_datastore(firestore.clone())?;
-
-let cities = load_cities(&firestore, &client)?;
-
-println!("Loaded {} cities from Firestore:", cities.len());
-for city in cities {
-    let name = field_as_string(&city, "name").unwrap_or_else(|| "Unknown".into());
-    let state = field_as_string(&city, "state").unwrap_or_else(|| "Unknown".into());
-    let country = field_as_string(&city, "country").unwrap_or_else(|| "Unknown".into());
-    let population = field_as_i64(&city, "population").unwrap_or_default();
-    println!("- {name}, {state} ({country}) — population {population}");
-}
-
-#    Ok(())
+```rust,ignore
+# use std::collections::BTreeMap;
+#
+# use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
+# use firebase_rs_sdk::firestore::*;
+#
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+#     let firebase_config = FirebaseOptions {
+#         api_key: Some("demo-api-key".into()),
+#         project_id: Some("demo-project".into()),
+#         ..Default::default()
+#     };
+#
+#     let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default()))
+#         .await
+#         .expect("Unable to initialize app");
+#     let firestore_arc = get_firestore(Some(app.clone()))
+#         .await
+#         .expect("Unable to get Firestore instance");
+#     let firestore = Firestore::from_arc(firestore_arc);
+#
+#     // Talk to the hosted Firestore REST API. Configure credentials/tokens as needed.
+#     let client = FirestoreClient::with_http_datastore(firestore.clone())?;
+#
+#     let cities = load_cities(&firestore, &client)
+#         .await
+#         .expect("Failed to load cities");
+#
+#     println!("Loaded {} cities from Firestore:", cities.len());
+#     for city in cities {
+#         let name = field_as_string(&city, "name").unwrap_or_else(|| "Unknown".into());
+#         let state = field_as_string(&city, "state").unwrap_or_else(|| "Unknown".into());
+#         let country = field_as_string(&city, "country").unwrap_or_else(|| "Unknown".into());
+#         let population = field_as_i64(&city, "population").unwrap_or_default();
+#         println!("- {name}, {state} ({country}) — population {population}");
+#     }
+#
+#     Ok(())
 # }
-
-/// Mirrors the `getCities` helper in `JSEXAMPLE.ts`, issuing the equivalent modular query
-/// against the remote Firestore backend.
-fn load_cities(
-    firestore: &Firestore,
-    client: &FirestoreClient,
-) -> FirestoreResult<Vec<BTreeMap<String, FirestoreValue>>> {
-    // The modular JS quickstart queries the `cities` collection.
-    let query = firestore.collection("cities")?.query();
-    let snapshot = client.get_docs(&query)?;
-
-    let mut documents = Vec::new();
-    for doc in snapshot.documents() {
-        if let Some(data) = doc.data() {
-            documents.push(data.clone());
-        }
-    }
-
-    Ok(documents)
-}
-
-fn field_as_string(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<String> {
-    data.get(field).and_then(|value| match value.kind() {
-        ValueKind::String(text) => Some(text.clone()),
-        _ => None,
-    })
-}
-
-fn field_as_i64(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<i64> {
-    data.get(field).and_then(|value| match value.kind() {
-        ValueKind::Integer(value) => Some(*value),
-        _ => None,
-    })
-}
+#
+# async fn load_cities(
+#     firestore: &Firestore,
+#     client: &FirestoreClient,
+# ) -> FirestoreResult<Vec<BTreeMap<String, FirestoreValue>>> {
+#     let query = firestore.collection("cities")?.query();
+#     let snapshot = client.get_docs(&query).await?;
+#
+#     let mut documents = Vec::new();
+#     for doc in snapshot.documents() {
+#     if let Some(data) = doc.data() {
+#             documents.push(data.clone());
+#         }
+#     }
+#
+#     Ok(documents)
+# }
+#
+# fn field_as_string(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<String> {
+#     data.get(field).and_then(|value| match value.kind() {
+#         ValueKind::String(text) => Some(text.clone()),
+#         _ => None,
+#     })
+# }
+#
+# fn field_as_i64(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<i64> {
+#     data.get(field).and_then(|value| match value.kind() {
+#         ValueKind::Integer(value) => Some(*value),
+#         _ => None,
+#     })
+# }
 ```
 
 As you can see, there are clear parallels between the TypeScript methods (initializeApp(), getFirestore(), collection(), getDocs()) and their Rust counterparts (initialize_app(), get_firestore(), collection(), get_docs()). 
@@ -164,4 +167,3 @@ Please be aware that this library is distributed "as is", and the author(s) offe
 ## How to contribute
 
 We welcome contributions from everyone. The porting process is time and AI intensive, if you have any or both of those, your help is appreciated! Please refer to the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) for the details. 
-

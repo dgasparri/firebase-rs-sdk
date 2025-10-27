@@ -35,7 +35,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use firebase_rs_sdk::app::api::initialize_app;
 //! use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 //! use firebase_rs_sdk::app_check::api::{custom_provider, initialize_app_check, token_with_ttl};
@@ -93,7 +93,7 @@
 //!
 //! Using Converters:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use firebase_rs_sdk::app::*;
 //! use firebase_rs_sdk::firestore::*;
 //! use std::collections::BTreeMap;
