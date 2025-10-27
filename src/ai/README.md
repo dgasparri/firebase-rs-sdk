@@ -16,42 +16,46 @@ use firebase_rs_sdk::ai::{get_ai, GenerateTextRequest};
 use firebase_rs_sdk::app::api::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let app = initialize_app(
+        FirebaseOptions {
+            api_key: Some("fake-key".into()),
+            project_id: Some("demo-project".into()),
+            app_id: Some("1:123:web:abc".into()),
+            ..Default::default()
+        },
+        Some(FirebaseAppSettings::default()),
+    )
+    .await?;
 
-let app = initialize_app(
-    FirebaseOptions {
-        api_key: Some("fake-key".into()),
-        project_id: Some("demo-project".into()),
-        app_id: Some("1:123:web:abc".into()),
-        ..Default::default()
-    },
-    Some(FirebaseAppSettings::default()),
-)?;
+    let ai = get_ai(
+        Some(app),
+        Some(AiOptions {
+            backend: Some(Backend::vertex_ai("us-central1")),
+            use_limited_use_app_check_tokens: Some(false),
+        }),
+    )
+    .await?;
 
-let ai = get_ai(
-    Some(app),
-    Some(AiOptions {
-        backend: Some(Backend::vertex_ai("us-central1")),
-        use_limited_use_app_check_tokens: Some(false),
-    }),
-)?;
+    let response = ai
+        .generate_text(GenerateTextRequest {
+            prompt: "Hello Gemini!".to_owned(),
+            model: None,
+        })
+        .await?;
+    println!("{}", response.text);
 
-let response = ai.generate_text(GenerateTextRequest {
-    prompt: "Hello Gemini!".to_owned(),
-    model: None,
-})?;
-println!("{}", response.text);
-
-# Ok(())
-# }
+    Ok(())
+}
 ```
 
 ## Implemented
 - Component registration for the `ai` Firebase namespace with multi-instance support.
 - `Backend` configuration enum plus `GoogleAiBackend`/`VertexAiBackend`, matching `packages/ai/src/backend.ts`.
 - Instance identifier helpers (`encode_instance_identifier`, `decode_instance_identifier`) to keep parity with JS caching semantics.
-- Public `get_ai` API that mirrors the JavaScript `getAI()` surface, including backend-aware caching and runtime option updates.
-- Stubbed `AiService::generate_text` method with backend-aware diagnostics for integration testing.
+- Public async `get_ai` API that mirrors the JavaScript `getAI()` surface, including backend-aware caching and runtime option updates suitable for native and wasm callers.
+- Async `AiService::generate_text` method with backend-aware diagnostics for integration testing.
 - Basic unit coverage for backend differentiation, caching behaviour, and prompt validation.
 - Rich error surface (`AiError`, `AiErrorCode`, `CustomErrorData`) aligned with `packages/ai/src/errors.ts`, plus helper tests.
 - HTTP request factory (`RequestOptions`, `PreparedRequest`) mirroring `constructRequest` in `packages/ai/src/requests/request.ts`, so clients can build REST calls without leaving Rust.

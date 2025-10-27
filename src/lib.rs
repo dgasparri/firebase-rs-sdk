@@ -1,10 +1,6 @@
 #![doc = include_str!("RUSTDOC.md")]
 
-// TODO(async-wasm): Re-enable AI module once Stage 3 async migration completes.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod ai;
-// #[cfg(target_arch = "wasm32")]
-// pub mod ai {}
+pub mod ai;
 
 // TODO(async-wasm): Re-enable analytics module during Stage 3.
 // #[cfg(not(target_arch = "wasm32"))]

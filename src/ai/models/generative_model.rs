@@ -109,23 +109,26 @@ mod tests {
         }
     }
 
-    fn init_service(options: FirebaseOptions, backend: Option<Backend>) -> Arc<AiService> {
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+    async fn init_service(options: FirebaseOptions, backend: Option<Backend>) -> Arc<AiService> {
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         match backend {
-            Some(backend) => crate::ai::get_ai(
-                Some(app),
-                Some(AiOptions {
-                    backend: Some(backend),
-                    use_limited_use_app_check_tokens: None,
-                }),
-            )
-            .unwrap(),
-            None => crate::ai::get_ai_service(Some(app)).unwrap(),
+            Some(backend) => {
+                crate::ai::get_ai(
+                    Some(app),
+                    Some(AiOptions {
+                        backend: Some(backend),
+                        use_limited_use_app_check_tokens: None,
+                    }),
+                )
+                .await
+                .unwrap()
+            }
+            None => crate::ai::get_ai_service(Some(app)).await.unwrap(),
         }
     }
 
-    #[test]
-    fn normalizes_google_model_name() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn normalizes_google_model_name() {
         let service = init_service(
             FirebaseOptions {
                 api_key: Some("api".into()),
@@ -134,7 +137,8 @@ mod tests {
                 ..Default::default()
             },
             None,
-        );
+        )
+        .await;
         let model = GenerativeModel::new(service.clone(), "gemini-pro", None).unwrap();
         assert_eq!(model.model(), "models/gemini-pro");
 
@@ -142,8 +146,8 @@ mod tests {
         assert_eq!(already_prefixed.model(), "models/gemini-pro");
     }
 
-    #[test]
-    fn normalizes_vertex_model_name_and_prepares_request() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn normalizes_vertex_model_name_and_prepares_request() {
         let service = init_service(
             FirebaseOptions {
                 api_key: Some("api".into()),
@@ -152,7 +156,8 @@ mod tests {
                 ..Default::default()
             },
             Some(Backend::vertex_ai("us-central1")),
-        );
+        )
+        .await;
         let model = GenerativeModel::new(
             service,
             "gemini-pro",

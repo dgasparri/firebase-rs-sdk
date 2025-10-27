@@ -169,7 +169,30 @@ impl AiService {
         factory.construct_request(model, Task::GenerateContent, false, body, request_options)
     }
 
-    pub fn generate_text(&self, request: GenerateTextRequest) -> AiResult<GenerateTextResponse> {
+    /// Generates text using the configured backend.
+    ///
+    /// Mirrors the high-level behaviour of `generateText` in
+    /// `packages/ai/src/api.ts`, producing a backend-labelled synthetic string
+    /// while the real transport pipeline is still under construction.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use firebase_rs_sdk::ai::{AiService, GenerateTextRequest};
+    /// # async fn example(ai: AiService) -> firebase_rs_sdk::ai::error::AiResult<()> {
+    /// let response = ai
+    ///     .generate_text(GenerateTextRequest {
+    ///         prompt: "Hello Gemini".to_owned(),
+    ///         model: None,
+    ///     })
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn generate_text(
+        &self,
+        request: GenerateTextRequest,
+    ) -> AiResult<GenerateTextResponse> {
         if request.prompt.trim().is_empty() {
             return Err(invalid_argument("Prompt must not be empty"));
         }
@@ -304,23 +327,34 @@ pub fn register_ai_component() {
 /// # use firebase_rs_sdk::ai::get_ai;
 /// # use firebase_rs_sdk::app::api::initialize_app;
 /// # use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+/// # async fn example() -> firebase_rs_sdk::ai::error::AiResult<()> {
 /// let options = FirebaseOptions {
 ///     project_id: Some("project".into()),
 ///     api_key: Some("test".into()),
 ///     ..Default::default()
 /// };
-/// let app = initialize_app(options, Some(FirebaseAppSettings::default())).unwrap();
-/// let ai = get_ai(Some(app), Some(AiOptions {
-///     backend: Some(Backend::vertex_ai("us-central1")),
-///     use_limited_use_app_check_tokens: Some(false),
-/// }));
-/// assert!(ai.is_ok());
+/// let app = initialize_app(options, Some(FirebaseAppSettings::default())).await?;
+/// let ai = get_ai(
+///     Some(app),
+///     Some(AiOptions {
+///         backend: Some(Backend::vertex_ai("us-central1")),
+///         use_limited_use_app_check_tokens: Some(false),
+///     }),
+/// )
+/// .await?;
+/// # Ok(())
+/// # }
 /// ```
-pub fn get_ai(app: Option<FirebaseApp>, options: Option<AiOptions>) -> AiResult<Arc<AiService>> {
+pub async fn get_ai(
+    app: Option<FirebaseApp>,
+    options: Option<AiOptions>,
+) -> AiResult<Arc<AiService>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None).map_err(|err| internal_error(err.to_string()))?,
+        None => crate::app::api::get_app(None)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?,
     };
 
     let options = options.unwrap_or_default();
@@ -379,8 +413,8 @@ pub fn get_ai(app: Option<FirebaseApp>, options: Option<AiOptions>) -> AiResult<
 }
 
 /// Convenience wrapper that mirrors the original Rust stub signature.
-pub fn get_ai_service(app: Option<FirebaseApp>) -> AiResult<Arc<AiService>> {
-    get_ai(app, None)
+pub async fn get_ai_service(app: Option<FirebaseApp>) -> AiResult<Arc<AiService>> {
+    get_ai(app, None).await
 }
 
 #[cfg(test)]
@@ -402,51 +436,53 @@ mod tests {
         }
     }
 
-    #[test]
-    fn generate_text_includes_backend_info() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn generate_text_includes_backend_info() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let ai = get_ai_service(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let ai = get_ai_service(Some(app)).await.unwrap();
         let response = ai
             .generate_text(GenerateTextRequest {
                 prompt: "Hello AI".to_string(),
                 model: Some("text-test".to_string()),
             })
+            .await
             .unwrap();
         assert_eq!(response.model, "text-test");
         assert!(response.text.contains("generated 8 chars"));
         assert!(response.text.contains("backend:GOOGLE_AI"));
     }
 
-    #[test]
-    fn empty_prompt_errors() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn empty_prompt_errors() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             api_key: Some("api".into()),
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let ai = get_ai_service(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let ai = get_ai_service(Some(app)).await.unwrap();
         let err = ai
             .generate_text(GenerateTextRequest {
                 prompt: "  ".to_string(),
                 model: None,
             })
+            .await
             .unwrap_err();
         assert_eq!(err.code_str(), "AI/invalid-argument");
     }
 
-    #[test]
-    fn backend_identifier_creates_unique_instances() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn backend_identifier_creates_unique_instances() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
 
         let google = get_ai(
             Some(app.clone()),
@@ -455,6 +491,7 @@ mod tests {
                 use_limited_use_app_check_tokens: None,
             }),
         )
+        .await
         .unwrap();
 
         let vertex = get_ai(
@@ -464,6 +501,7 @@ mod tests {
                 use_limited_use_app_check_tokens: Some(true),
             }),
         )
+        .await
         .unwrap();
 
         assert_ne!(Arc::as_ptr(&google), Arc::as_ptr(&vertex));
@@ -471,51 +509,52 @@ mod tests {
         assert!(vertex.options().use_limited_use_app_check_tokens);
     }
 
-    #[test]
-    fn get_ai_reuses_cached_instance() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_ai_reuses_cached_instance() {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             api_key: Some("api".into()),
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
 
-        let first = get_ai_service(Some(app.clone())).unwrap();
+        let first = get_ai_service(Some(app.clone())).await.unwrap();
         first
             .generate_text(GenerateTextRequest {
                 prompt: "ping".to_string(),
                 model: None,
             })
+            .await
             .unwrap();
 
-        let second = get_ai(Some(app.clone()), None).unwrap();
+        let second = get_ai(Some(app.clone()), None).await.unwrap();
         assert_eq!(Arc::as_ptr(&first), Arc::as_ptr(&second));
     }
 
-    #[test]
-    fn api_settings_require_project_id() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn api_settings_require_project_id() {
         let options = FirebaseOptions {
             api_key: Some("api".into()),
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let ai = get_ai_service(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let ai = get_ai_service(Some(app)).await.unwrap();
         let err = ai.api_settings().unwrap_err();
         assert_eq!(err.code(), AiErrorCode::NoProjectId);
     }
 
-    #[test]
-    fn prepare_generate_content_request_builds_expected_url() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn prepare_generate_content_request_builds_expected_url() {
         let options = FirebaseOptions {
             api_key: Some("api".into()),
             project_id: Some("project".into()),
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).unwrap();
-        let ai = get_ai_service(Some(app)).unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let ai = get_ai_service(Some(app)).await.unwrap();
         let prepared = ai
             .prepare_generate_content_request(
                 "models/gemini-1.5-flash",
