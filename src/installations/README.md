@@ -54,6 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Internal helper that surfaces the full installation entry (FID, refresh token, auth token) for other modules such as Messaging (`src/installations/api.rs:185`).
 - Unit tests covering config validation, async REST flows, persistence round-trips, delete behaviour, and service behaviour for forced refreshes (`src/installations/rest/tests.rs:1`, `src/installations/api.rs:472`, `src/installations/persistence.rs:80`).
 - Private `installations-internal` component provides shared `get_id`/`get_token` helpers (`src/installations/api.rs:210`).
+- `Installations::on_id_change` exposes the JS `onIdChange` listener semantics, returning an unsubscribe handle and notifying when new Installation IDs are registered (`src/installations/api.rs`).
 
 ### WASM Notes
 - Enable the `wasm-web` feature to pull in the fetch-based REST client and browser-specific glue.
@@ -62,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Still to do
 - Add concurrency coordination and migrations for the persistence layer (IndexedDB-style pending markers, multi-process guards).
-- Implement JS parity APIs: `onIdChange` and internal factory helpers for other modules.
+- Implement additional JS parity APIs (heartbeat headers, emulator tooling, diagnostics hooks) and surface richer telemetry for downstream modules.
 - Add ETag handling, heartbeat/X-Firebase-Client integration, and exponential backoff policies for REST requests.
 - Provide emulator support, diagnostics logging, and richer error mapping from REST responses.
 - Expand integration tests and shared fixtures to cover retry paths and error propagation.
@@ -75,5 +76,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
    - Extend the new pending-registration markers with structured telemetry/backoff so repeated failures remain observable.
    - Add retry/backoff policies on IndexedDB opening failures and consider exposing metrics to consumers.
 3. **Follow-on parity work**
-   - Revisit JS parity items (`onIdChange`, heartbeat headers, emulator tooling) once the messaging integration settles.
+   - Revisit JS parity items (heartbeat headers, emulator tooling) once the messaging integration settles.
    - Expand structured logging and diagnostics so native and wasm targets surface actionable errors to consuming modules.

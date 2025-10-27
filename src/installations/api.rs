@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 
 use async_lock::Mutex as AsyncMutex;
@@ -34,12 +35,15 @@ pub struct Installations {
     inner: Arc<InstallationsInner>,
 }
 
+pub type IdChangeUnsubscribe = Box<dyn FnOnce()>;
+
 struct InstallationsInner {
     app: FirebaseApp,
     config: AppConfig,
     rest_client: RestClient,
     persistence: Arc<dyn InstallationsPersistence>,
     state: AsyncMutex<CachedState>,
+    listeners: StdMutex<HashMap<usize, Arc<dyn Fn(String) + Send + Sync>>>,
 }
 
 impl std::fmt::Debug for InstallationsInner {
@@ -49,6 +53,23 @@ impl std::fmt::Debug for InstallationsInner {
             .field("config", &self.config)
             .field("rest_client", &self.rest_client)
             .finish()
+    }
+}
+
+impl InstallationsInner {
+    fn notify_id_change(&self, fid: &str) {
+        let callbacks: Vec<Arc<dyn Fn(String) + Send + Sync>> = {
+            let listeners = self.listeners.lock().unwrap();
+            if listeners.is_empty() {
+                return;
+            }
+            listeners.values().cloned().collect()
+        };
+
+        let fid_owned = fid.to_string();
+        for callback in callbacks {
+            callback(fid_owned.clone());
+        }
     }
 }
 
@@ -137,6 +158,8 @@ impl InstallationsInternal {
 static INSTALLATIONS_CACHE: LazyLock<StdMutex<HashMap<String, Arc<Installations>>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
+static NEXT_LISTENER_ID: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(1));
+
 impl Installations {
     fn new(app: FirebaseApp) -> InstallationsResult<Self> {
         let config = extract_app_config(&app)?;
@@ -153,6 +176,7 @@ impl Installations {
                 rest_client,
                 persistence,
                 state: AsyncMutex::new(CachedState::default()),
+                listeners: StdMutex::new(HashMap::new()),
             }),
         })
     }
@@ -164,6 +188,24 @@ impl Installations {
     pub async fn get_id(&self) -> InstallationsResult<String> {
         let entry = self.ensure_entry().await?;
         Ok(entry.fid)
+    }
+
+    /// Registers a listener that fires whenever the Installation ID changes.
+    pub fn on_id_change<F>(&self, callback: F) -> IdChangeUnsubscribe
+    where
+        F: Fn(String) + Send + Sync + 'static,
+    {
+        let id = NEXT_LISTENER_ID.fetch_add(1, Ordering::SeqCst);
+        let callback: Arc<dyn Fn(String) + Send + Sync> = Arc::new(callback);
+        {
+            let mut listeners = self.inner.listeners.lock().unwrap();
+            listeners.insert(id, callback);
+        }
+
+        let inner = Arc::clone(&self.inner);
+        Box::new(move || {
+            inner.listeners.lock().unwrap().remove(&id);
+        })
     }
 
     pub async fn get_token(&self, force_refresh: bool) -> InstallationsResult<InstallationToken> {
@@ -331,6 +373,7 @@ impl Installations {
                         .persistence
                         .release_registration_lock(self.inner.app.name())
                         .await?;
+                    self.inner.notify_id_change(&entry.fid);
                     return Ok(entry);
                 }
             }
@@ -606,7 +649,7 @@ mod tests {
     use std::fs;
     use std::panic::{self, AssertUnwindSafe};
     use std::path::PathBuf;
-    use std::sync::{Mutex, MutexGuard};
+    use std::sync::{Arc, Mutex, MutexGuard};
     use std::time::{Duration, SystemTime};
 
     static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -704,6 +747,51 @@ mod tests {
         assert_eq!(fid1, "fid-from-server");
         assert_eq!(fid1, fid2);
         assert_eq!(hits, 1);
+        let _ = fs::remove_dir_all(cache_dir);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn on_id_change_notifies_after_registration() {
+        let _env_guard = env_guard();
+        let Some(server) = try_start_server() else {
+            eprintln!(
+                "Skipping on_id_change_notifies_after_registration: unable to start mock server"
+            );
+            return;
+        };
+        let create_mock = server.mock(|when, then| {
+            when.method(POST).path("/projects/project/installations");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "fid": "fid-from-server",
+                    "refreshToken": "refresh",
+                    "authToken": { "token": "token", "expiresIn": "3600s" }
+                }));
+        });
+
+        let (installations, cache_dir, _app_name, _app) = setup_installations(&server).await;
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let listener_capture = captured.clone();
+        let unsubscribe = installations.on_id_change(move |fid| {
+            listener_capture.lock().unwrap().push(fid);
+        });
+
+        let fid = installations.get_id().await.unwrap();
+        unsubscribe();
+
+        let hits = create_mock.hits();
+        if hits == 0 {
+            eprintln!(
+                "Skipping listener assertion in on_id_change_notifies_after_registration: local HTTP requests appear to be blocked"
+            );
+            let _ = fs::remove_dir_all(cache_dir);
+            return;
+        }
+
+        let observed = captured.lock().unwrap();
+        assert_eq!(observed.as_slice(), &[fid.clone()]);
+
         let _ = fs::remove_dir_all(cache_dir);
     }
 
