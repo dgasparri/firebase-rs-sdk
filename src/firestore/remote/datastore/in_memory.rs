@@ -4,7 +4,7 @@ use crate::firestore::api::query::{
     Bound, FieldFilter, FilterOperator, OrderBy, OrderDirection, QueryDefinition,
 };
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
-use crate::firestore::error::FirestoreResult;
+use crate::firestore::error::{internal_error, not_found, FirestoreResult};
 use crate::firestore::model::{DocumentKey, FieldPath};
 use crate::firestore::value::{FirestoreValue, MapValue, ValueKind};
 
@@ -95,6 +95,40 @@ impl Datastore for InMemoryDatastore {
         }
 
         Ok(documents)
+    }
+
+    async fn update_document(
+        &self,
+        key: &DocumentKey,
+        data: MapValue,
+        field_paths: Vec<FieldPath>,
+    ) -> FirestoreResult<()> {
+        let mut store = self.documents.lock().unwrap();
+        let canonical = key.path().canonical_string();
+        let current = store
+            .get(&canonical)
+            .cloned()
+            .ok_or_else(|| not_found(format!("Document {} does not exist", canonical)))?;
+
+        let mut fields = current.fields().clone();
+        for path in &field_paths {
+            let value = value_for_path(&data, path.segments()).ok_or_else(|| {
+                internal_error(format!(
+                    "Failed to resolve value for update path {}",
+                    path.canonical_string()
+                ))
+            })?;
+            set_value_at_path(&mut fields, path.segments(), value);
+        }
+
+        store.insert(canonical, MapValue::new(fields));
+        Ok(())
+    }
+
+    async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()> {
+        let mut store = self.documents.lock().unwrap();
+        store.remove(&key.path().canonical_string());
+        Ok(())
     }
 }
 
@@ -202,6 +236,46 @@ fn compare_snapshots(
         }
     }
     std::cmp::Ordering::Equal
+}
+
+fn value_for_path(map: &MapValue, segments: &[String]) -> Option<FirestoreValue> {
+    let (first, rest) = segments.split_first()?;
+    let value = map.fields().get(first)?;
+    if rest.is_empty() {
+        return Some(value.clone());
+    }
+    match value.kind() {
+        ValueKind::Map(child) => value_for_path(child, rest),
+        _ => None,
+    }
+}
+
+fn set_value_at_path(
+    fields: &mut BTreeMap<String, FirestoreValue>,
+    segments: &[String],
+    value: FirestoreValue,
+) {
+    if segments.is_empty() {
+        return;
+    }
+
+    if segments.len() == 1 {
+        fields.insert(segments[0].clone(), value);
+        return;
+    }
+
+    let first = &segments[0];
+    let entry = fields
+        .entry(first.clone())
+        .or_insert_with(|| FirestoreValue::from_map(BTreeMap::new()));
+
+    let mut child_fields = match entry.kind() {
+        ValueKind::Map(map) => map.fields().clone(),
+        _ => BTreeMap::new(),
+    };
+
+    set_value_at_path(&mut child_fields, &segments[1..], value);
+    *entry = FirestoreValue::from_map(child_fields);
 }
 
 fn compare_values(left: &FirestoreValue, right: &FirestoreValue) -> Option<std::cmp::Ordering> {

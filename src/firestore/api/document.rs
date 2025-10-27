@@ -92,6 +92,41 @@ impl FirestoreClient {
         self.datastore.set_document(&key, encoded, merge).await
     }
 
+    /// Applies a partial update to the document located at `path`.
+    ///
+    /// This mirrors the behaviour of the JS `updateDoc` API by only touching the
+    /// provided fields and requiring the document to exist.
+    ///
+    /// # Errors
+    /// Returns `firestore/invalid-argument` if `data` is empty and
+    /// `firestore/not-found` if the document does not exist.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// client
+    ///     .update_doc(
+    ///         "cities/sf",
+    ///         BTreeMap::from([
+    ///             ("population".into(), FirestoreValue::from_integer(900_000)),
+    ///         ]),
+    ///     )
+    ///     .await?;
+    /// ```
+    ///
+    /// TypeScript reference: `updateDoc` in
+    /// `packages/firestore/src/api/reference_impl.ts`.
+    pub async fn update_doc(
+        &self,
+        path: &str,
+        data: BTreeMap<String, FirestoreValue>,
+    ) -> FirestoreResult<()> {
+        let key = operations::validate_document_path(path)?;
+        let (encoded, field_paths) = operations::encode_update_document_data(data)?;
+        self.datastore
+            .update_document(&key, encoded, field_paths)
+            .await
+    }
+
     /// Adds a new document to the collection located at `collection_path` and
     /// returns the resulting snapshot.
     pub async fn add_doc(
@@ -119,6 +154,51 @@ impl FirestoreClient {
         let snapshot = self.get_doc(path.as_str()).await?;
         let converter = reference.converter();
         Ok(snapshot.into_typed(converter))
+    }
+
+    /// Updates a document referenced by a converted reference.
+    ///
+    /// Converters are intentionally ignored, matching the behaviour of the JS
+    /// SDK.
+    pub async fn update_doc_with_converter<C>(
+        &self,
+        reference: &ConvertedDocumentReference<C>,
+        data: BTreeMap<String, FirestoreValue>,
+    ) -> FirestoreResult<()>
+    where
+        C: FirestoreDataConverter,
+    {
+        let path = reference.path().canonical_string();
+        self.update_doc(path.as_str(), data).await
+    }
+
+    /// Deletes the document located at `path`.
+    ///
+    /// Mirrors the JS `deleteDoc` API and succeeds even if the document does
+    /// not exist.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// client.delete_doc("cities/sf").await?;
+    /// ```
+    ///
+    /// TypeScript reference: `deleteDoc` in
+    /// `packages/firestore/src/api/reference_impl.ts`.
+    pub async fn delete_doc(&self, path: &str) -> FirestoreResult<()> {
+        let key = operations::validate_document_path(path)?;
+        self.datastore.delete_document(&key).await
+    }
+
+    /// Deletes a document by converted reference.
+    pub async fn delete_doc_with_converter<C>(
+        &self,
+        reference: &ConvertedDocumentReference<C>,
+    ) -> FirestoreResult<()>
+    where
+        C: FirestoreDataConverter,
+    {
+        let path = reference.path().canonical_string();
+        self.delete_doc(path.as_str()).await
     }
 
     /// Executes the provided query and returns its results.
@@ -237,6 +317,96 @@ mod tests {
             snapshot.data().unwrap().get("name"),
             Some(&FirestoreValue::from_string("Ada"))
         );
+    }
+
+    #[tokio::test]
+    async fn update_document_merges_fields() {
+        let client = build_client().await;
+        let mut initial = BTreeMap::new();
+        initial.insert("name".to_string(), FirestoreValue::from_string("Ada"));
+        let mut stats = BTreeMap::new();
+        stats.insert("visits".to_string(), FirestoreValue::from_integer(1));
+        stats.insert("likes".to_string(), FirestoreValue::from_integer(5));
+        initial.insert("stats".to_string(), FirestoreValue::from_map(stats));
+        client
+            .set_doc("cities/sf", initial, None)
+            .await
+            .expect("set doc");
+
+        let mut update = BTreeMap::new();
+        let mut stats_update = BTreeMap::new();
+        stats_update.insert("visits".to_string(), FirestoreValue::from_integer(2));
+        stats_update.insert("shares".to_string(), FirestoreValue::from_integer(9));
+        update.insert("stats".to_string(), FirestoreValue::from_map(stats_update));
+        update.insert(
+            "state".to_string(),
+            FirestoreValue::from_string("California"),
+        );
+
+        client
+            .update_doc("cities/sf", update)
+            .await
+            .expect("update doc");
+
+        let snapshot = client.get_doc("cities/sf").await.expect("get doc");
+        let data = snapshot.data().expect("data");
+        assert_eq!(
+            data.get("state"),
+            Some(&FirestoreValue::from_string("California"))
+        );
+        let stats_value = data.get("stats").expect("stats present");
+        match stats_value.kind() {
+            ValueKind::Map(map) => {
+                assert_eq!(
+                    map.fields().get("visits"),
+                    Some(&FirestoreValue::from_integer(2))
+                );
+                assert_eq!(
+                    map.fields().get("likes"),
+                    Some(&FirestoreValue::from_integer(5))
+                );
+                assert_eq!(
+                    map.fields().get("shares"),
+                    Some(&FirestoreValue::from_integer(9))
+                );
+            }
+            _ => panic!("expected map"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_document_requires_existing() {
+        let client = build_client().await;
+        let mut update = BTreeMap::new();
+        update.insert("name".to_string(), FirestoreValue::from_string("Ada"));
+        let err = client
+            .update_doc("cities/unknown", update)
+            .await
+            .expect_err("missing doc");
+        assert_eq!(err.code_str(), "firestore/not-found");
+    }
+
+    #[tokio::test]
+    async fn delete_document_clears_state() {
+        let client = build_client().await;
+        let mut data = BTreeMap::new();
+        data.insert("name".to_string(), FirestoreValue::from_string("Ada"));
+        client
+            .set_doc("cities/sf", data, None)
+            .await
+            .expect("set doc");
+        client.delete_doc("cities/sf").await.expect("delete doc");
+        let snapshot = client.get_doc("cities/sf").await.expect("get doc");
+        assert!(!snapshot.exists());
+    }
+
+    #[tokio::test]
+    async fn delete_missing_document_is_noop() {
+        let client = build_client().await;
+        client
+            .delete_doc("cities/non-existent")
+            .await
+            .expect("delete missing");
     }
 
     #[tokio::test]

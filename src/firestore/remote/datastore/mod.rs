@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::api::DocumentSnapshot;
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::model::DocumentKey;
+use crate::firestore::model::{DocumentKey, FieldPath};
 use crate::firestore::value::MapValue;
 
 pub mod http;
@@ -21,6 +21,13 @@ pub trait Datastore: Send + Sync + 'static {
         merge: bool,
     ) -> FirestoreResult<()>;
     async fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>>;
+    async fn update_document(
+        &self,
+        key: &DocumentKey,
+        data: MapValue,
+        field_paths: Vec<FieldPath>,
+    ) -> FirestoreResult<()>;
+    async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()>;
 }
 
 #[async_trait]

@@ -7,7 +7,7 @@ use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde_json::{json, Value as JsonValue};
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::{DatabaseId, DocumentKey, GeoPoint, Timestamp};
+use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, Timestamp};
 use crate::firestore::value::{BytesValue, FirestoreValue, MapValue, ValueKind};
 
 #[derive(Clone, Debug)]
@@ -55,6 +55,46 @@ impl JsonProtoSerializer {
                         "name": name,
                         "fields": encode_map_fields(map)
                     }
+                }
+            ]
+        })
+    }
+
+    pub fn encode_update_body(
+        &self,
+        key: &DocumentKey,
+        map: &MapValue,
+        field_paths: &[FieldPath],
+    ) -> JsonValue {
+        let name = self.document_name(key);
+        let mask: Vec<String> = field_paths
+            .iter()
+            .map(FieldPath::canonical_string)
+            .collect();
+        json!({
+            "writes": [
+                {
+                    "update": {
+                        "name": name,
+                        "fields": encode_map_fields(map)
+                    },
+                    "updateMask": {
+                        "fieldPaths": mask
+                    },
+                    "currentDocument": {
+                        "exists": true
+                    }
+                }
+            ]
+        })
+    }
+
+    pub fn encode_delete_body(&self, key: &DocumentKey) -> JsonValue {
+        let name = self.document_name(key);
+        json!({
+            "writes": [
+                {
+                    "delete": name
                 }
             ]
         })

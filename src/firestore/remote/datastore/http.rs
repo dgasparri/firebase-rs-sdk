@@ -12,7 +12,7 @@ use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{
     internal_error, invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
 };
-use crate::firestore::model::{DatabaseId, DocumentKey};
+use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath};
 use crate::firestore::remote::connection::{Connection, ConnectionBuilder, RequestContext};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
 use crate::firestore::value::MapValue;
@@ -131,10 +131,14 @@ impl Datastore for HttpDatastore {
         let doc_path = format!("documents/{}", key.path().canonical_string());
         let serializer = self.serializer.clone();
         let snapshot = self
-            .execute_with_retry(|context| async {
-                self.connection
-                    .invoke_json_optional(Method::GET, &doc_path, None, context)
-                    .await
+            .execute_with_retry(|context| {
+                let context = context.clone();
+                let doc_path = doc_path.clone();
+                async move {
+                    self.connection
+                        .invoke_json_optional(Method::GET, &doc_path, None, &context)
+                        .await
+                }
             })
             .await?;
 
@@ -169,16 +173,20 @@ impl Datastore for HttpDatastore {
         }
 
         let commit_body = self.serializer.encode_commit_body(key, &data);
-        self.execute_with_retry(|context| async {
-            self.connection
-                .invoke_json(
-                    Method::POST,
-                    "documents:commit",
-                    Some(commit_body.clone()),
-                    context,
-                )
-                .await
-                .map(|_| ())
+        self.execute_with_retry(|context| {
+            let context = context.clone();
+            let body = commit_body.clone();
+            async move {
+                self.connection
+                    .invoke_json(
+                        Method::POST,
+                        "documents:commit",
+                        Some(body.clone()),
+                        &context,
+                    )
+                    .await
+                    .map(|_| ())
+            }
         })
         .await
     }
@@ -200,10 +208,15 @@ impl Datastore for HttpDatastore {
         let serializer = self.serializer.clone();
 
         let response = self
-            .execute_with_retry(|context| async {
-                self.connection
-                    .invoke_json(Method::POST, &request_path, Some(body.clone()), context)
-                    .await
+            .execute_with_retry(|context| {
+                let context = context.clone();
+                let request_path = request_path.clone();
+                let body = body.clone();
+                async move {
+                    self.connection
+                        .invoke_json(Method::POST, &request_path, Some(body.clone()), &context)
+                        .await
+                }
             })
             .await?;
 
@@ -238,6 +251,57 @@ impl Datastore for HttpDatastore {
         }
 
         Ok(snapshots)
+    }
+
+    async fn update_document(
+        &self,
+        key: &DocumentKey,
+        data: MapValue,
+        field_paths: Vec<FieldPath>,
+    ) -> FirestoreResult<()> {
+        if field_paths.is_empty() {
+            return Err(invalid_argument(
+                "update_document requires at least one field path",
+            ));
+        }
+
+        let body = self.serializer.encode_update_body(key, &data, &field_paths);
+        self.execute_with_retry(|context| {
+            let context = context.clone();
+            let body = body.clone();
+            async move {
+                self.connection
+                    .invoke_json(
+                        Method::POST,
+                        "documents:commit",
+                        Some(body.clone()),
+                        &context,
+                    )
+                    .await
+                    .map(|_| ())
+            }
+        })
+        .await
+    }
+
+    async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()> {
+        let body = self.serializer.encode_delete_body(key);
+        self.execute_with_retry(|context| {
+            let context = context.clone();
+            let body = body.clone();
+            async move {
+                self.connection
+                    .invoke_json(
+                        Method::POST,
+                        "documents:commit",
+                        Some(body.clone()),
+                        &context,
+                    )
+                    .await
+                    .map(|_| ())
+            }
+        })
+        .await
     }
 }
 

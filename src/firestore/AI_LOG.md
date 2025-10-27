@@ -789,3 +789,48 @@ Updated Plan
   1. Next natural steps: extend FirestoreClient with update_doc/delete_doc parity and write batches, then tackle real-
   time listeners to unlock broader API coverage.
 
+
+Ran cargo test --features firestore update_document_merges_fields
+
+• Updated Plan
+  └ ✔ Review current Firestore client/datastore code and TS reference to scope update/delete porting requirements.
+    ✔ Implement update/delete operations across datastore layers and client API, mirroring JS semantics where feasible.
+    ✔ Add unit tests and update Firestore README/documentation to reflect new capabilities.
+    □ Run formatting/tests and verify workspace state.
+
+• Updated Plan
+  └ ✔ Review current Firestore client/datastore code and TS reference to scope update/delete porting requirements.
+    ✔ Implement update/delete operations across datastore layers and client API, mirroring JS semantics where feasible.
+    ✔ Add unit tests and update Firestore README/documentation to reflect new capabilities.
+    ✔ Run formatting/tests and verify workspace state.
+
+• Ran git status -sb
+
+• Explored
+  └ Read document.rs, operations.rs, in_memory.rs, http.rs, serializer.rs, mod.rs, README.md
+
+> Thinking
+  I'll summarize the new async update and delete support in Firestore client and datastores with precise file and line
+  references, note README reorganizations, highlight tests run (including warnings but passing results), and mention
+  limitations and suggestions for next steps in a clear, bullet-point format.
+
+> Added partial updateDoc/deleteDoc parity for Firestore so single-document writes cover the JS surface on both in-
+  memory and HTTP backends.
+
+  - src/firestore/api/document.rs:95-202 adds update_doc/delete_doc (plus converter helpers) and documents the JS
+  references, while the new tests at src/firestore/api/document.rs:322-365 exercise merge behaviour, not-found errors,
+  and delete idempotence.
+  - src/firestore/api/operations.rs:21-114 now flattens update masks (encode_update_document_data) and rejects empty
+  payloads; helper tests guard nested path handling.
+  - src/firestore/remote/datastore/mod.rs:24-30, http.rs:256-305, and in_memory.rs:100-133 extend the datastore trait
+  and implementations with update/delete support, including map patching on the in-memory store and REST commit bodies
+  via encode_update_body/encode_delete_body (serializer.rs:63-101).
+  - src/firestore/README.md:3-218 reorganizes the module doc into the mandated sections, calls out the new single-
+  document writes, and refreshes the roadmap/still-to-do list.
+
+  Tests: cargo test --features firestore update_document_merges_fields (emitted the pre-existing register_version
+  unused-future warning).
+
+▌ Improve documentation in @filename                                                                                    
+
+
