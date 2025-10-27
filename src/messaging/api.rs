@@ -198,7 +198,11 @@ impl Messaging {
     }
 }
 
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")))]
+#[cfg(not(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+)))]
 fn generate_token() -> String {
     thread_rng()
         .sample_iter(&Alphanumeric)
