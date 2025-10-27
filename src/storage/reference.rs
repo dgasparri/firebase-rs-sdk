@@ -1,17 +1,19 @@
 use crate::storage::error::{
-    invalid_argument, invalid_root_operation, no_download_url, StorageResult,
+    internal_error, invalid_argument, invalid_root_operation, no_download_url, StorageResult,
 };
 use crate::storage::list::{parse_list_result, ListOptions, ListResult};
 use crate::storage::location::Location;
 use crate::storage::metadata::ObjectMetadata;
 use crate::storage::path::{child, last_component, parent};
 use crate::storage::request::{
-    delete_object_request, download_bytes_request, download_url_request, get_metadata_request,
-    list_request, multipart_upload_request, update_metadata_request,
+    continue_resumable_upload_request, create_resumable_upload_request, delete_object_request,
+    download_bytes_request, download_url_request, get_metadata_request, list_request,
+    multipart_upload_request, update_metadata_request, RESUMABLE_UPLOAD_CHUNK_SIZE,
 };
 use crate::storage::service::FirebaseStorageImpl;
+use crate::storage::stream::UploadAsyncRead;
 use crate::storage::string::{prepare_string_upload, StringFormat};
-use crate::storage::upload::UploadTask;
+use crate::storage::upload::{UploadProgress, UploadTask};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::storage::wasm;
 use crate::storage::{SettableMetadata, UploadMetadata};
@@ -291,6 +293,128 @@ impl StorageReference {
     ) -> StorageResult<web_sys::Blob> {
         let bytes = self.get_bytes(max_download_size_bytes).await?;
         wasm::bytes_to_blob(&bytes)
+    }
+
+    /// Streams data from an [`AsyncRead`](futures::io::AsyncRead) source using the resumable upload API.
+    pub async fn upload_reader_resumable<R>(
+        &self,
+        reader: R,
+        total_size: u64,
+        metadata: Option<UploadMetadata>,
+    ) -> StorageResult<ObjectMetadata>
+    where
+        R: UploadAsyncRead,
+    {
+        self.upload_reader_resumable_with_progress(reader, total_size, metadata, |_| {})
+            .await
+    }
+
+    /// Streams data from an [`AsyncRead`](futures::io::AsyncRead) source while reporting chunk progress.
+    pub async fn upload_reader_resumable_with_progress<R, F>(
+        &self,
+        mut reader: R,
+        total_size: u64,
+        metadata: Option<UploadMetadata>,
+        mut progress: F,
+    ) -> StorageResult<ObjectMetadata>
+    where
+        R: UploadAsyncRead,
+        F: FnMut(UploadProgress),
+    {
+        use futures::io::AsyncReadExt;
+
+        self.ensure_not_root("upload_reader_resumable")?;
+
+        let storage = self.storage();
+        let request =
+            create_resumable_upload_request(&storage, self.location(), metadata, total_size);
+        let upload_url = storage.run_upload_request(request).await?;
+
+        if total_size == 0 {
+            let request = continue_resumable_upload_request(
+                &storage,
+                self.location(),
+                &upload_url,
+                0,
+                0,
+                Vec::new(),
+                true,
+            );
+            let status = storage.run_upload_request(request).await?;
+            progress(UploadProgress::new(0, 0));
+            let metadata = status
+                .metadata
+                .ok_or_else(|| internal_error("resumable upload completed without metadata"))?;
+            return Ok(metadata);
+        }
+
+        let chunk_size = RESUMABLE_UPLOAD_CHUNK_SIZE as usize;
+        let mut buffer = vec![0u8; chunk_size];
+        let mut offset = 0u64;
+
+        while offset < total_size {
+            let remaining = (total_size - offset) as usize;
+            let to_read = remaining.min(chunk_size);
+            let mut read_total = 0usize;
+
+            while read_total < to_read {
+                let read = reader
+                    .read(&mut buffer[read_total..to_read])
+                    .await
+                    .map_err(|err| {
+                        internal_error(format!("failed to read from upload source: {err}"))
+                    })?;
+                if read == 0 {
+                    break;
+                }
+                read_total += read;
+            }
+
+            if read_total == 0 {
+                return Err(internal_error(
+                    "upload source ended before the declared total_size was reached",
+                ));
+            }
+
+            let finalize = offset + read_total as u64 == total_size;
+            let chunk = buffer[..read_total].to_vec();
+
+            let request = continue_resumable_upload_request(
+                &storage,
+                self.location(),
+                &upload_url,
+                offset,
+                total_size,
+                chunk,
+                finalize,
+            );
+            let status = storage.run_upload_request(request).await?;
+            offset = status.current;
+            progress(UploadProgress::new(offset, total_size));
+
+            if finalize {
+                let metadata = status
+                    .metadata
+                    .ok_or_else(|| internal_error("resumable upload completed without metadata"))?;
+                return Ok(metadata);
+            }
+        }
+
+        let request = continue_resumable_upload_request(
+            &storage,
+            self.location(),
+            &upload_url,
+            offset,
+            total_size,
+            Vec::new(),
+            true,
+        );
+        let status = storage.run_upload_request(request).await?;
+        progress(UploadProgress::new(offset, total_size));
+        let metadata = status
+            .metadata
+            .ok_or_else(|| internal_error("resumable upload completed without metadata"))?;
+        Ok(metadata)
     }
 }
 

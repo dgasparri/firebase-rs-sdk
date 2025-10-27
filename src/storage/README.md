@@ -19,6 +19,7 @@ It includes error handling, configuration options, and integration with Firebase
 - Manage storage references
 - Handle file uploads with progress tracking
 - Upload strings and browser blobs with shared helpers
+- Stream large uploads directly from async readers
 - List files and directories in storage
 - Manage object metadata
 - Comprehensive error handling
@@ -44,8 +45,8 @@ Storage Port Coverage
 
 Key Gaps
 
-  - JS exposes string uploads and streaming/blob downloads (packages/storage/src/api.ts:129, packages/storage/src/
-  reference.ts:201), but the Rust port only offers byte-buffer APIs—no upload_string, get_blob, or get_stream.
+  - JS exposes direct `ReadableStream`/service-worker piping (packages/storage/src/reference.ts:201), whereas the Rust
+  port still requires callers to adapt browser streams into `AsyncRead` sources before invoking the resumable helpers.
   - The modular upload task with observers, pause/resume/cancel, and snapshot events (packages/storage/src/task.ts:62,
   packages/storage/src/public-types.ts:214) is only partially implemented: the async `UploadTask` covers resumable flows
   but still lacks observer hooks and state transitions (src/storage/upload.rs:40).
@@ -56,7 +57,8 @@ Key Gaps
   upload flows are in place, but advanced task management, streaming/string conveniences, and full error parity remain
   outstanding.
 
-Natural next step: implement the missing upload/download variants and enrich UploadTask to follow the observer-based API expected from the JS SDK.
+Natural next step: wire in observer-based upload tasks, add direct `ReadableStream` adapters for WASM, and continue filling
+out the remaining error/streaming parity gaps.
 
 ### References to the Firebase JS SDK - storage module
 
@@ -141,6 +143,8 @@ async fn main() -> StorageResult<()> {
   metadata. Request builders for multipart/resumable flows are unit-tested with emulator-style mocks.
 - Implemented string uploads (`upload_string`) plus WASM conveniences for `Blob`/`Uint8Array` sources and `get_blob`
   downloads so browser callers can mirror the Web SDK entry points without extra glue code.
+- Added `upload_reader_resumable` helpers so large files can stream from any `AsyncRead` without buffering the entire
+  payload, keeping native and wasm behaviour aligned with the JS SDK's resumable flow.
 - Expanded metadata and type models: `ObjectMetadata` now tracks MD5/CRC/ETag values, parses download tokens into a
   typed collection, and exposes helpers for byte sizes. `UploadMetadata`/`SettableMetadata` provide builder-style
   ergonomics for configuring uploads and metadata updates while serialising to the REST-friendly camelCase payloads.
@@ -154,8 +158,8 @@ async fn main() -> StorageResult<()> {
 
 1. **Token refresh & error awareness** – Now that headers are attached, add handling for auth/app-check failures by
    forcing token refreshes on 401/403 responses and mapping them to dedicated `StorageErrorCode`s.
-2. **Streaming uploads** – Extend the upload surface with streaming sources (e.g. readers for large blobs) so callers can
-  avoid buffering entire files when mirroring the JS SDK's streaming behaviours.
+2. **Browser streaming sources** – Add adapters for `ReadableStream`/service-worker streams so WASM callers can forward
+  native browser streams without intermediate buffering, matching the JS SDK's Blob stream integration.
 3. **Task observers & snapshots** – Model `UploadTaskSnapshot`, observer callbacks, and state transitions so clients can
    subscribe to upload progress events the same way the Web SDK exposes `state_changed` streams.
 4. **Error parity** – Flesh out the error module with the full suite of error codes, HTTP status mapping, and helper

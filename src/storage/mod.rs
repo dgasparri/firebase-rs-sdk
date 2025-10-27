@@ -94,6 +94,7 @@ mod path;
 pub mod reference;
 pub mod request;
 pub mod service;
+mod stream;
 mod string;
 mod upload;
 mod util;
@@ -153,3 +154,6 @@ pub use upload::{UploadProgress, UploadTask, UploadTaskState};
 
 #[doc(inline)]
 pub use util::{is_retry_status_code, is_url};
+
+#[doc(inline)]
+pub use stream::UploadAsyncRead;
