@@ -72,6 +72,8 @@ features = [
     "PushManager",
     "PushSubscription",
     "PushSubscriptionOptionsInit",
+    "PushEncryptionKeyName",
+    "PushSubscriptionJson",
     "IdbFactory",
     "IdbOpenDbRequest",
     "IdbDatabase",
@@ -86,6 +88,9 @@ features = [
     "Url",
     "WebSocket",
     "Notification",
+    "NotificationPermission",
+    "RegistrationOptions",
+    "ServiceWorkerUpdateViaCache",
 ]
 
 [dependencies.wasm-bindgen-futures]
