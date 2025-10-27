@@ -5,26 +5,26 @@ setlocal EnableDelayedExpansion
 set "REPO_ROOT=%~dp0.."
 cd /d "%REPO_ROOT%"
 
-echo running cargo test --lib:
-cargo test --lib
+echo running cargo test:
+cargo test
 if errorlevel 1 (
-    echo error: cargo test --lib failed
-    echo try: cargo test --lib -- --test-threads=1
+    echo error: cargo test failed
+    echo try: cargo test -- --test-threads=1
     exit /b 1
 )
 
 
-echo running cargo test --lib --target wasm32-unknown-unknown --features wasm-web:
-cargo test --lib --target wasm32-unknown-unknown --features wasm-web
+echo running cargo test --target wasm32-unknown-unknown --features wasm-web:
+cargo test --target wasm32-unknown-unknown --features wasm-web
 if errorlevel 1 (
-    echo error: cargo test --lib --target wasm32-unknown-unknown --features wasm-web failed
+    echo error: cargo test --target wasm32-unknown-unknown --features wasm-web failed
     exit /b 1
 )
 
-echo running cargo test --lib --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db:
-cargo test --lib --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+echo running cargo test --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db:
+cargo test --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
 if errorlevel 1 (
-    echo error: cargo test --lib --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db failed
+    echo error: cargo test --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db failed
     exit /b 1
 )
 

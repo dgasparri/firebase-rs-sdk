@@ -4754,3 +4754,23 @@ Thinking
 
   Next: 1) Add high-level helpers/tests showing how to consume the new get_stream (e.g., piping to a file or hashing the
   stream) so users have guidance and we validate the async reader path.
+
+- Added get_stream API on native builds so callers can download large objects via AsyncRead without buffering the
+  entire payload; the doc comment includes a Tokio copy example (src/storage/reference.rs:288).
+  - Wired streaming support through the transport and service layers, exposing StreamingResponse/StorageByteStream
+  alongside existing helpers (src/storage/request/transport.rs:53, src/storage/service.rs:131).
+  - Updated the storage module exports and README to surface the new streaming capability and note download streaming
+  parity (src/storage/mod.rs:145, src/storage/README.md:18).
+
+  Checks: cargo check; cargo check --target wasm32-unknown-unknown --features wasm-web.
+
+  Next: 1) Consider adding a higher-level helper or example test that saves a streamed download to disk, ensuring the
+  new API is exercised end-to-end.
+
+
+- Added examples/storage_get_stream.rs (native) showing how to stream a download via StorageReference::get_stream,
+  piping the bytes to a file with Tokio.
+  - Added examples/storage_upload_string.rs demonstrating upload_string with StringFormat::Raw.
+  - Kept wasm builds guarded with informative messages so examples run only on supported targets.
+
+  Next: 1) Update the storage README to reference the new examples if you’d like them discoverable from docs.
