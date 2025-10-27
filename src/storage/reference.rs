@@ -10,7 +10,10 @@ use crate::storage::request::{
     list_request, multipart_upload_request, update_metadata_request,
 };
 use crate::storage::service::FirebaseStorageImpl;
+use crate::storage::string::{prepare_string_upload, StringFormat};
 use crate::storage::upload::UploadTask;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+use crate::storage::wasm;
 use crate::storage::{SettableMetadata, UploadMetadata};
 use std::convert::TryFrom;
 
@@ -223,6 +226,93 @@ impl StorageReference {
         self.ensure_not_root("upload_bytes_resumable")?;
         Ok(UploadTask::new(self.clone(), data, metadata))
     }
+
+    /// Uploads a string using the specified [`StringFormat`], mirroring the Web SDK's `uploadString` helper.
+    pub async fn upload_string(
+        &self,
+        data: &str,
+        format: StringFormat,
+        metadata: Option<UploadMetadata>,
+    ) -> StorageResult<ObjectMetadata> {
+        self.ensure_not_root("upload_string")?;
+        let prepared = prepare_string_upload(data, format)?;
+        let metadata = merge_metadata(metadata, prepared.content_type);
+        self.upload_bytes(prepared.bytes, metadata).await
+    }
+
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    /// Uploads a [`web_sys::Blob`] by reading it into memory and delegating to [`upload_bytes`].
+    pub async fn upload_blob(
+        &self,
+        blob: &web_sys::Blob,
+        metadata: Option<UploadMetadata>,
+    ) -> StorageResult<ObjectMetadata> {
+        let data = wasm::blob_to_vec(blob).await?;
+        self.upload_bytes(data, metadata).await
+    }
+
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    /// Creates a resumable upload task backed by the contents of a [`web_sys::Blob`].
+    pub async fn upload_blob_resumable(
+        &self,
+        blob: &web_sys::Blob,
+        metadata: Option<UploadMetadata>,
+    ) -> StorageResult<UploadTask> {
+        let data = wasm::blob_to_vec(blob).await?;
+        self.upload_bytes_resumable(data, metadata)
+    }
+
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    /// Uploads the contents of a [`js_sys::Uint8Array`].
+    pub async fn upload_uint8_array(
+        &self,
+        data: &js_sys::Uint8Array,
+        metadata: Option<UploadMetadata>,
+    ) -> StorageResult<ObjectMetadata> {
+        self.upload_bytes(wasm::uint8_array_to_vec(data), metadata)
+            .await
+    }
+
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    /// Creates a resumable upload task from a [`js_sys::Uint8Array`].
+    pub fn upload_uint8_array_resumable(
+        &self,
+        data: &js_sys::Uint8Array,
+        metadata: Option<UploadMetadata>,
+    ) -> StorageResult<UploadTask> {
+        self.upload_bytes_resumable(wasm::uint8_array_to_vec(data), metadata)
+    }
+
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    /// Downloads the object as a [`web_sys::Blob`], matching the Web SDK's `getBlob`.
+    pub async fn get_blob(
+        &self,
+        max_download_size_bytes: Option<u64>,
+    ) -> StorageResult<web_sys::Blob> {
+        let bytes = self.get_bytes(max_download_size_bytes).await?;
+        wasm::bytes_to_blob(&bytes)
+    }
+}
+
+fn merge_metadata(
+    metadata: Option<UploadMetadata>,
+    inferred_content_type: Option<String>,
+) -> Option<UploadMetadata> {
+    match (metadata, inferred_content_type) {
+        (Some(mut metadata), Some(content_type)) => {
+            if metadata.content_type.is_none() {
+                metadata.content_type = Some(content_type);
+            }
+            Some(metadata)
+        }
+        (Some(metadata), None) => Some(metadata),
+        (None, Some(content_type)) => {
+            let mut metadata = UploadMetadata::new();
+            metadata.content_type = Some(content_type);
+            Some(metadata)
+        }
+        (None, None) => None,
+    }
 }
 
 #[cfg(test)]
@@ -272,5 +362,19 @@ mod tests {
         assert_eq!(image.to_gs_url(), "gs://my-bucket/images/photo.png");
         assert_eq!(image.name(), "photo.png");
         assert_eq!(image.parent().unwrap().to_gs_url(), "gs://my-bucket/images");
+    }
+
+    #[test]
+    fn merge_metadata_preserves_existing_content_type() {
+        let original = UploadMetadata::new().with_content_type("image/png");
+        let merged =
+            merge_metadata(Some(original.clone()), Some("text/plain".to_string())).unwrap();
+        assert_eq!(merged.content_type.as_deref(), Some("image/png"));
+    }
+
+    #[test]
+    fn merge_metadata_uses_inferred_when_absent() {
+        let merged = merge_metadata(None, Some("text/plain".to_string())).unwrap();
+        assert_eq!(merged.content_type.as_deref(), Some("text/plain"));
     }
 }

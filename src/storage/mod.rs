@@ -94,8 +94,11 @@ mod path;
 pub mod reference;
 pub mod request;
 pub mod service;
+mod string;
 mod upload;
 mod util;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+mod wasm;
 
 #[doc(inline)]
 pub use api::{
@@ -141,6 +144,9 @@ pub use request::{
 
 #[doc(inline)]
 pub use service::FirebaseStorageImpl;
+
+#[doc(inline)]
+pub use string::StringFormat;
 
 #[doc(inline)]
 pub use upload::{UploadProgress, UploadTask, UploadTaskState};
