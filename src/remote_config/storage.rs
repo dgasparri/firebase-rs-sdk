@@ -4,6 +4,12 @@
 //! `packages/remote-config/src/storage/`. The Rust implementation keeps everything in-process for now
 //! but exposes a trait so a persistent backend can be plugged in later.
 
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 #[cfg(not(target_arch = "wasm32"))]
@@ -14,6 +20,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::remote_config::constants::RC_CUSTOM_SIGNAL_MAX_ALLOWED_SIGNALS;
 use crate::remote_config::error::{internal_error, invalid_argument, RemoteConfigResult};
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -458,6 +470,245 @@ impl RemoteConfigStorage for FileRemoteConfigStorage {
         let merged = merge_custom_signals(record.custom_signals.clone(), &signals)?;
         record.custom_signals = Some(merged.clone());
         self.persist(&record)?;
+        Ok(merged)
+    }
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+#[derive(Clone, Debug, Default)]
+pub struct IndexedDbRemoteConfigStorage;
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+impl IndexedDbRemoteConfigStorage {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const REMOTE_CONFIG_DATABASE_NAME: &str = "firebase-remote-config";
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const REMOTE_CONFIG_DATABASE_VERSION: u32 = 1;
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const REMOTE_CONFIG_STORE_NAME: &str = "firebase-remote-config-store";
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+thread_local! {
+    static REMOTE_CONFIG_DB_HANDLE: RefCell<Option<web_sys::IdbDatabase>> = RefCell::new(None);
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const KEY_LAST_FETCH_STATUS: &str = "last_fetch_status";
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const KEY_LAST_SUCCESSFUL_FETCH_TIMESTAMP: &str = "last_successful_fetch_timestamp_millis";
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const KEY_ACTIVE_CONFIG: &str = "active_config";
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const KEY_ACTIVE_CONFIG_ETAG: &str = "active_config_etag";
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const KEY_ACTIVE_CONFIG_TEMPLATE_VERSION: &str = "active_config_template_version";
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+const KEY_CUSTOM_SIGNALS: &str = "custom_signals";
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+async fn open_remote_config_db() -> RemoteConfigResult<web_sys::IdbDatabase> {
+    if let Some(db) = REMOTE_CONFIG_DB_HANDLE.with(|cell| cell.borrow().clone()) {
+        return Ok(db);
+    }
+
+    let db = crate::platform::browser::indexed_db::open_database_with_store(
+        REMOTE_CONFIG_DATABASE_NAME,
+        REMOTE_CONFIG_DATABASE_VERSION,
+        REMOTE_CONFIG_STORE_NAME,
+    )
+    .await
+    .map_err(|err| internal_error(err.to_string()))?;
+
+    REMOTE_CONFIG_DB_HANDLE.with(|cell| {
+        cell.replace(Some(db.clone()));
+    });
+
+    Ok(db)
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+async fn read_value<T>(key: &str) -> RemoteConfigResult<Option<T>>
+where
+    T: DeserializeOwned,
+{
+    let db = open_remote_config_db().await?;
+    let stored =
+        crate::platform::browser::indexed_db::get_string(&db, REMOTE_CONFIG_STORE_NAME, key)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?;
+
+    if let Some(raw) = stored {
+        let value = serde_json::from_str(&raw).map_err(|err| {
+            internal_error(format!("failed to parse stored value for '{key}': {err}"))
+        })?;
+        Ok(Some(value))
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+async fn write_value<T>(key: &str, value: Option<&T>) -> RemoteConfigResult<()>
+where
+    T: Serialize,
+{
+    let db = open_remote_config_db().await?;
+    if let Some(value) = value {
+        let serialized = serde_json::to_string(value).map_err(|err| {
+            internal_error(format!("failed to serialize value for '{key}': {err}"))
+        })?;
+        crate::platform::browser::indexed_db::put_string(
+            &db,
+            REMOTE_CONFIG_STORE_NAME,
+            key,
+            &serialized,
+        )
+        .await
+        .map_err(|err| internal_error(err.to_string()))?
+    } else {
+        crate::platform::browser::indexed_db::delete_key(&db, REMOTE_CONFIG_STORE_NAME, key)
+            .await
+            .map_err(|err| internal_error(err.to_string()))?
+    }
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+impl RemoteConfigStorage for IndexedDbRemoteConfigStorage {
+    async fn get_last_fetch_status(&self) -> RemoteConfigResult<Option<FetchStatus>> {
+        read_value(KEY_LAST_FETCH_STATUS).await
+    }
+
+    async fn set_last_fetch_status(&self, status: FetchStatus) -> RemoteConfigResult<()> {
+        write_value(KEY_LAST_FETCH_STATUS, Some(&status)).await
+    }
+
+    async fn get_last_successful_fetch_timestamp_millis(&self) -> RemoteConfigResult<Option<u64>> {
+        read_value(KEY_LAST_SUCCESSFUL_FETCH_TIMESTAMP).await
+    }
+
+    async fn set_last_successful_fetch_timestamp_millis(
+        &self,
+        timestamp: u64,
+    ) -> RemoteConfigResult<()> {
+        write_value(KEY_LAST_SUCCESSFUL_FETCH_TIMESTAMP, Some(&timestamp)).await
+    }
+
+    async fn get_active_config(&self) -> RemoteConfigResult<Option<HashMap<String, String>>> {
+        read_value(KEY_ACTIVE_CONFIG).await
+    }
+
+    async fn set_active_config(&self, config: HashMap<String, String>) -> RemoteConfigResult<()> {
+        write_value(KEY_ACTIVE_CONFIG, Some(&config)).await
+    }
+
+    async fn get_active_config_etag(&self) -> RemoteConfigResult<Option<String>> {
+        read_value(KEY_ACTIVE_CONFIG_ETAG).await
+    }
+
+    async fn set_active_config_etag(&self, etag: Option<String>) -> RemoteConfigResult<()> {
+        write_value(KEY_ACTIVE_CONFIG_ETAG, etag.as_ref()).await
+    }
+
+    async fn get_active_config_template_version(&self) -> RemoteConfigResult<Option<u64>> {
+        read_value(KEY_ACTIVE_CONFIG_TEMPLATE_VERSION).await
+    }
+
+    async fn set_active_config_template_version(
+        &self,
+        template_version: Option<u64>,
+    ) -> RemoteConfigResult<()> {
+        write_value(
+            KEY_ACTIVE_CONFIG_TEMPLATE_VERSION,
+            template_version.as_ref(),
+        )
+        .await
+    }
+
+    async fn get_custom_signals(&self) -> RemoteConfigResult<Option<CustomSignals>> {
+        read_value(KEY_CUSTOM_SIGNALS).await
+    }
+
+    async fn set_custom_signals(
+        &self,
+        signals: CustomSignals,
+    ) -> RemoteConfigResult<CustomSignals> {
+        let existing = read_value::<CustomSignals>(KEY_CUSTOM_SIGNALS).await?;
+        let merged = merge_custom_signals(existing, &signals)?;
+        write_value(KEY_CUSTOM_SIGNALS, Some(&merged)).await?;
         Ok(merged)
     }
 }

@@ -24,6 +24,12 @@ use crate::remote_config::fetch::{
 };
 use crate::remote_config::settings::{RemoteConfigSettings, RemoteConfigSettingsUpdate};
 pub use crate::remote_config::storage::CustomSignals;
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+use crate::remote_config::storage::IndexedDbRemoteConfigStorage;
 use crate::remote_config::storage::{
     FetchStatus, InMemoryRemoteConfigStorage, RemoteConfigStorage, RemoteConfigStorageCache,
 };
@@ -69,6 +75,16 @@ static REMOTE_CONFIG_CACHE: LazyLock<Mutex<HashMap<String, Arc<RemoteConfig>>>> 
 
 impl RemoteConfig {
     fn new(app: FirebaseApp) -> Self {
+        #[cfg(all(
+            feature = "wasm-web",
+            target_arch = "wasm32",
+            feature = "experimental-indexed-db"
+        ))]
+        {
+            let storage: Arc<dyn RemoteConfigStorage> =
+                Arc::new(IndexedDbRemoteConfigStorage::new());
+            return Self::with_storage(app, storage);
+        }
         Self::with_storage(app, Arc::new(InMemoryRemoteConfigStorage::default()))
     }
 
