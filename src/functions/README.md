@@ -95,3 +95,8 @@ native targets or `wasm_bindgen_futures::spawn_local` on `wasm32-unknown-unknown
 3. **Advanced error handling**
    - Surface backend `details` payloads and cancellation hooks so callers can differentiate retryable
      vs. fatal failures, matching `packages/functions/src/error.ts` semantics.
+4. **Async adoption sweep**
+   - Audit the workspace for callers of `get_functions` and `CallableFunction::call_async`, updating
+     each site to await the async APIs and adjusting examples/docs where necessary.
+   - Re-run the smoke scripts (`scripts/smoke.sh` / `.bat`) to confirm both native and wasm builds
+     stay green after the sweep.
