@@ -1,32 +1,51 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, LazyLock, Mutex};
 
+use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::ai::backend::{Backend, BackendType};
 use crate::ai::constants::AI_COMPONENT_NAME;
-use crate::ai::error::{internal_error, invalid_argument, AiError, AiErrorCode, AiResult};
+use crate::ai::error::{
+    internal_error, invalid_argument, AiError, AiErrorCode, AiResult, CustomErrorData,
+};
 use crate::ai::helpers::{decode_instance_identifier, encode_instance_identifier};
 use crate::ai::public_types::{AiOptions, AiRuntimeOptions};
 use crate::ai::requests::{ApiSettings, PreparedRequest, RequestFactory, RequestOptions, Task};
 use crate::app;
 use crate::app::{FirebaseApp, FirebaseOptions};
+use crate::app_check::FirebaseAppCheckInternal;
+use crate::auth::Auth;
 use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
-use crate::component::{Component, ComponentType};
+use crate::component::{Component, ComponentType, Provider};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AiService {
     inner: Arc<AiInner>,
 }
 
-#[derive(Debug)]
+impl fmt::Debug for AiService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AiService")
+            .field("app", &self.inner.app.name())
+            .field("backend", &self.inner.backend.backend_type())
+            .finish()
+    }
+}
+
 struct AiInner {
     app: FirebaseApp,
     backend: Backend,
     options: Mutex<AiRuntimeOptions>,
     default_model: Option<String>,
+    auth_provider: Provider,
+    app_check_provider: Provider,
+    transport: Mutex<Arc<dyn AiHttpTransport>>,
+    #[cfg(test)]
+    test_tokens: Mutex<TestTokenOverrides>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -47,10 +66,101 @@ impl CacheKey {
 static AI_OVERRIDES: LazyLock<Mutex<HashMap<CacheKey, Arc<AiService>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+trait AiHttpTransport: Send + Sync {
+    async fn send(&self, request: PreparedRequest) -> AiResult<Value>;
+}
+
+struct ReqwestTransport {
+    client: reqwest::Client,
+}
+
+impl Default for ReqwestTransport {
+    fn default() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestTokenOverrides {
+    auth: Option<String>,
+    app_check: Option<String>,
+    limited_app_check: Option<String>,
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl AiHttpTransport for ReqwestTransport {
+    async fn send(&self, request: PreparedRequest) -> AiResult<Value> {
+        let builder = request
+            .into_reqwest(&self.client)
+            .map_err(|err| internal_error(format!("failed to encode AI request: {err}")))?;
+
+        let response = builder.send().await.map_err(|err| {
+            AiError::new(
+                AiErrorCode::FetchError,
+                format!("failed to send AI request: {err}"),
+                None,
+            )
+        })?;
+
+        let status = response.status();
+        let bytes = response.bytes().await.map_err(|err| {
+            AiError::new(
+                AiErrorCode::FetchError,
+                format!("failed to read AI response body: {err}"),
+                None,
+            )
+        })?;
+
+        let parsed = serde_json::from_slice::<Value>(&bytes);
+
+        if !status.is_success() {
+            let mut data = CustomErrorData::default().with_status(status.as_u16());
+            if let Some(reason) = status.canonical_reason() {
+                data = data.with_status_text(reason);
+            }
+
+            return match parsed {
+                Ok(json) => {
+                    let message = AiService::extract_error_message(&json)
+                        .unwrap_or_else(|| format!("AI endpoint returned HTTP {status}"));
+                    Err(AiError::new(
+                        AiErrorCode::FetchError,
+                        message,
+                        Some(data.with_response(json)),
+                    ))
+                }
+                Err(_) => {
+                    let raw = String::from_utf8_lossy(&bytes).to_string();
+                    Err(AiError::new(
+                        AiErrorCode::FetchError,
+                        format!("AI endpoint returned HTTP {status}"),
+                        Some(data.with_response(json!({ "raw": raw }))),
+                    ))
+                }
+            };
+        }
+
+        parsed.map_err(|err| {
+            AiError::new(
+                AiErrorCode::ParseFailed,
+                format!("failed to parse AI response JSON: {err}"),
+                None,
+            )
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct GenerateTextRequest {
     pub prompt: String,
     pub model: Option<String>,
+    pub request_options: Option<RequestOptions>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,6 +175,8 @@ impl AiService {
         backend: Backend,
         options: AiRuntimeOptions,
         default_model: Option<String>,
+        auth_provider: Provider,
+        app_check_provider: Provider,
     ) -> Self {
         Self {
             inner: Arc::new(AiInner {
@@ -72,6 +184,11 @@ impl AiService {
                 backend,
                 options: Mutex::new(options),
                 default_model,
+                auth_provider,
+                app_check_provider,
+                transport: Mutex::new(Arc::new(ReqwestTransport::default())),
+                #[cfg(test)]
+                test_tokens: Mutex::new(TestTokenOverrides::default()),
             }),
         }
     }
@@ -108,7 +225,103 @@ impl AiService {
         *self.inner.options.lock().unwrap() = options;
     }
 
-    pub(crate) fn api_settings(&self) -> AiResult<ApiSettings> {
+    #[cfg(test)]
+    fn set_transport_for_tests(&self, transport: Arc<dyn AiHttpTransport>) {
+        *self.inner.transport.lock().unwrap() = transport;
+    }
+
+    #[cfg(test)]
+    fn override_tokens_for_tests(
+        &self,
+        auth: Option<String>,
+        app_check: Option<String>,
+        limited_app_check: Option<String>,
+    ) {
+        let mut overrides = self.inner.test_tokens.lock().unwrap();
+        overrides.auth = auth;
+        overrides.app_check = app_check;
+        overrides.limited_app_check = limited_app_check;
+    }
+
+    async fn fetch_auth_token(&self) -> AiResult<Option<String>> {
+        #[cfg(test)]
+        if let Some(token) = self.inner.test_tokens.lock().unwrap().auth.clone() {
+            return Ok(Some(token));
+        }
+
+        let auth = match self
+            .inner
+            .auth_provider
+            .get_immediate_with_options::<Auth>(None, true)
+        {
+            Ok(Some(auth)) => auth,
+            Ok(None) => return Ok(None),
+            Err(err) => {
+                return Err(internal_error(format!(
+                    "failed to resolve auth provider: {err}"
+                )))
+            }
+        };
+
+        match auth.get_token(false).await {
+            Ok(Some(token)) if token.is_empty() => Ok(None),
+            Ok(Some(token)) => Ok(Some(token)),
+            Ok(None) => Ok(None),
+            Err(err) => Err(internal_error(format!(
+                "failed to obtain auth token: {err}"
+            ))),
+        }
+    }
+
+    async fn fetch_app_check_token(&self, limited_use: bool) -> AiResult<Option<String>> {
+        #[cfg(test)]
+        {
+            let overrides = self.inner.test_tokens.lock().unwrap();
+            if limited_use {
+                if let Some(token) = overrides.limited_app_check.clone() {
+                    return Ok(Some(token));
+                }
+            } else if let Some(token) = overrides.app_check.clone() {
+                return Ok(Some(token));
+            }
+        }
+
+        let app_check = match self
+            .inner
+            .app_check_provider
+            .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
+        {
+            Ok(Some(app_check)) => app_check,
+            Ok(None) => return Ok(None),
+            Err(err) => {
+                return Err(internal_error(format!(
+                    "failed to resolve App Check provider: {err}"
+                )))
+            }
+        };
+
+        let result = if limited_use {
+            app_check.get_limited_use_token().await
+        } else {
+            app_check.get_token(false).await
+        }
+        .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
+
+        if let Some(error) = result.error {
+            return Err(internal_error(error.to_string()));
+        }
+        if let Some(error) = result.internal_error {
+            return Err(internal_error(error.to_string()));
+        }
+
+        if result.token.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(result.token))
+        }
+    }
+
+    pub(crate) async fn api_settings(&self) -> AiResult<ApiSettings> {
         let options = self.inner.app.options();
         let FirebaseOptions {
             api_key,
@@ -139,41 +352,48 @@ impl AiService {
             )
         })?;
 
+        let runtime_options = self.options();
         let automatic = self.inner.app.automatic_data_collection_enabled();
+        let app_check_token = self
+            .fetch_app_check_token(runtime_options.use_limited_use_app_check_tokens)
+            .await?;
+        let auth_token = self.fetch_auth_token().await?;
+
         Ok(ApiSettings::new(
             api_key,
             project_id,
             app_id,
             self.inner.backend.clone(),
             automatic,
-            None,
-            None,
+            app_check_token,
+            auth_token,
         ))
     }
 
-    pub(crate) fn request_factory(&self) -> AiResult<RequestFactory> {
-        Ok(RequestFactory::new(self.api_settings()?))
+    pub(crate) async fn request_factory(&self) -> AiResult<RequestFactory> {
+        Ok(RequestFactory::new(self.api_settings().await?))
     }
 
     /// Prepares a REST request for a `generateContent` call without executing it.
     ///
     /// This mirrors the behaviour of `constructRequest` in the TypeScript SDK and allows advanced
     /// callers to integrate with custom HTTP stacks while the SDK handles URL/header generation.
-    pub fn prepare_generate_content_request(
+    pub async fn prepare_generate_content_request(
         &self,
         model: &str,
         body: Value,
         request_options: Option<RequestOptions>,
     ) -> AiResult<PreparedRequest> {
-        let factory = self.request_factory()?;
+        let factory = self.request_factory().await?;
         factory.construct_request(model, Task::GenerateContent, false, body, request_options)
     }
 
     /// Generates text using the configured backend.
     ///
-    /// Mirrors the high-level behaviour of `generateText` in
-    /// `packages/ai/src/api.ts`, producing a backend-labelled synthetic string
-    /// while the real transport pipeline is still under construction.
+    /// This issues a `generateContent` REST call against the active backend, attaching
+    /// auth and App Check credentials when available. The optional
+    /// [`RequestOptions`] can override the base URL or timeout, which is primarily
+    /// intended for tests and emulator scenarios.
     ///
     /// # Examples
     ///
@@ -184,6 +404,7 @@ impl AiService {
     ///     .generate_text(GenerateTextRequest {
     ///         prompt: "Hello Gemini".to_owned(),
     ///         model: None,
+    ///         request_options: None,
     ///     })
     ///     .await?;
     /// # Ok(())
@@ -201,21 +422,95 @@ impl AiService {
             .or_else(|| self.inner.default_model.clone())
             .unwrap_or_else(|| "text-bison-001".to_string());
 
-        let backend_label = self.backend_type().to_string();
-        let location_suffix = self
-            .location()
-            .map(|loc| format!(" @{}", loc))
-            .unwrap_or_default();
-        let synthetic = format!(
-            "[backend:{}{}] generated {} chars",
-            backend_label,
-            location_suffix,
-            request.prompt.len()
-        );
-        Ok(GenerateTextResponse {
-            text: synthetic,
-            model,
+        let body = Self::build_generate_text_body(&request.prompt);
+        let prepared = self
+            .prepare_generate_content_request(&model, body, request.request_options.clone())
+            .await?;
+        let response = self.execute_prepared_request(prepared).await?;
+        let text = match Self::extract_text_from_response(&response) {
+            Some(text) => text,
+            None => {
+                return Err(AiError::new(
+                    AiErrorCode::ResponseError,
+                    "AI response did not contain textual content",
+                    Some(CustomErrorData::default().with_response(response)),
+                ))
+            }
+        };
+
+        Ok(GenerateTextResponse { text, model })
+    }
+
+    async fn execute_prepared_request(&self, prepared: PreparedRequest) -> AiResult<Value> {
+        let transport = self.inner.transport.lock().unwrap().clone();
+        transport.send(prepared).await
+    }
+
+    fn build_generate_text_body(prompt: &str) -> Value {
+        json!({
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": prompt,
+                        }
+                    ]
+                }
+            ]
         })
+    }
+
+    fn extract_text_from_response(response: &Value) -> Option<String> {
+        if let Some(candidates) = response
+            .get("candidates")
+            .and_then(|value| value.as_array())
+        {
+            for candidate in candidates {
+                if let Some(text) = Self::extract_text_from_candidate(candidate) {
+                    if !text.trim().is_empty() {
+                        return Some(text);
+                    }
+                }
+            }
+        }
+
+        response
+            .get("output")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string())
+    }
+
+    fn extract_text_from_candidate(candidate: &Value) -> Option<String> {
+        if let Some(content) = candidate.get("content") {
+            if let Some(parts) = content.get("parts").and_then(|value| value.as_array()) {
+                for part in parts {
+                    if let Some(text) = part.get("text").and_then(|value| value.as_str()) {
+                        if !text.is_empty() {
+                            return Some(text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        candidate
+            .get("output")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string())
+    }
+
+    fn extract_error_message(value: &Value) -> Option<String> {
+        if let Some(error) = value.get("error") {
+            if let Some(message) = error.get("message").and_then(|v| v.as_str()) {
+                return Some(message.to_string());
+            }
+        }
+
+        value
+            .get("message")
+            .and_then(|v| v.as_str())
+            .map(|message| message.to_string())
     }
 }
 
@@ -259,6 +554,9 @@ fn ai_factory(
         .as_deref()
         .map(|identifier| decode_instance_identifier(identifier));
 
+    let auth_provider = container.get_provider("auth-internal");
+    let app_check_provider = container.get_provider("app-check-internal");
+
     let backend = match identifier_backend {
         Some(Ok(backend)) => backend,
         Some(Err(err)) => {
@@ -300,7 +598,14 @@ fn ai_factory(
         .get("defaultModel")
         .and_then(|value| value.as_str().map(|s| s.to_string()));
 
-    let service = AiService::new((*app).clone(), backend, runtime_options, default_model);
+    let service = AiService::new(
+        (*app).clone(),
+        backend,
+        runtime_options,
+        default_model,
+        auth_provider,
+        app_check_provider,
+    );
     Ok(Arc::new(service) as DynService)
 }
 
@@ -402,8 +707,15 @@ pub async fn get_ai(
                 Cache::insert(cache_key.clone(), service.clone());
                 Ok(service)
             } else {
-                let fallback =
-                    Arc::new(AiService::new(app.clone(), backend, runtime_options, None));
+                let container = app.container();
+                let fallback = Arc::new(AiService::new(
+                    app.clone(),
+                    backend,
+                    runtime_options,
+                    None,
+                    container.get_provider("auth-internal"),
+                    container.get_provider("app-check-internal"),
+                ));
                 Cache::insert(cache_key.clone(), fallback.clone());
                 Ok(fallback)
             }
@@ -425,10 +737,13 @@ mod tests {
     use crate::ai::public_types::AiOptions;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use async_trait::async_trait;
     use serde_json::json;
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     fn unique_settings() -> FirebaseAppSettings {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
             name: Some(format!("ai-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
@@ -436,24 +751,145 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct TestTransport {
+        responses: Arc<Mutex<VecDeque<AiResult<Value>>>>,
+        requests: Arc<Mutex<Vec<PreparedRequest>>>,
+    }
+
+    impl TestTransport {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        fn push_response(&self, response: AiResult<Value>) {
+            self.responses.lock().unwrap().push_back(response);
+        }
+
+        fn take_requests(&self) -> Vec<PreparedRequest> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AiHttpTransport for TestTransport {
+        async fn send(&self, request: PreparedRequest) -> AiResult<Value> {
+            self.requests.lock().unwrap().push(request);
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| Err(internal_error("no stub response configured")))
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn generate_text_includes_backend_info() {
+        let transport = TestTransport::new();
+        transport.push_response(Ok(json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "text": "Hello from mock" }
+                        ]
+                    }
+                }
+            ]
+        })));
+
         let options = FirebaseOptions {
             project_id: Some("project".into()),
+            api_key: Some("api".into()),
+            app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let ai = get_ai_service(Some(app)).await.unwrap();
+        ai.set_transport_for_tests(Arc::new(transport.clone()));
         let response = ai
             .generate_text(GenerateTextRequest {
                 prompt: "Hello AI".to_string(),
-                model: Some("text-test".to_string()),
+                model: Some("models/gemini-pro".to_string()),
+                request_options: None,
             })
             .await
             .unwrap();
-        assert_eq!(response.model, "text-test");
-        assert!(response.text.contains("generated 8 chars"));
-        assert!(response.text.contains("backend:GOOGLE_AI"));
+
+        assert_eq!(response.model, "models/gemini-pro");
+        assert_eq!(response.text, "Hello from mock");
+
+        let requests = transport.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0]
+            .url
+            .as_str()
+            .ends_with("models/gemini-pro:generateContent"));
+        assert_eq!(requests[0].header("x-goog-api-key"), Some("api"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn limited_use_app_check_token_attached_to_requests() {
+        let transport = TestTransport::new();
+        transport.push_response(Ok(json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "text": "Limited token response" }
+                        ]
+                    }
+                }
+            ]
+        })));
+
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            api_key: Some("api".into()),
+            app_id: Some("app".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
+
+        let ai = get_ai(
+            Some(app),
+            Some(AiOptions {
+                backend: Some(Backend::google_ai()),
+                use_limited_use_app_check_tokens: Some(true),
+            }),
+        )
+        .await
+        .unwrap();
+
+        ai.set_transport_for_tests(Arc::new(transport.clone()));
+        ai.override_tokens_for_tests(
+            None,
+            Some("standard-token".into()),
+            Some("limited-token".into()),
+        );
+
+        let response = ai
+            .generate_text(GenerateTextRequest {
+                prompt: "token test".to_string(),
+                model: Some("models/gemini-pro".to_string()),
+                request_options: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response.text, "Limited token response");
+
+        let requests = transport.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].header("x-firebase-appcheck"),
+            Some("limited-token")
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -464,12 +900,15 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let ai = get_ai_service(Some(app)).await.unwrap();
         let err = ai
             .generate_text(GenerateTextRequest {
                 prompt: "  ".to_string(),
                 model: None,
+                request_options: None,
             })
             .await
             .unwrap_err();
@@ -482,7 +921,9 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
 
         let google = get_ai(
             Some(app.clone()),
@@ -517,14 +958,13 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
 
         let first = get_ai_service(Some(app.clone())).await.unwrap();
         first
-            .generate_text(GenerateTextRequest {
-                prompt: "ping".to_string(),
-                model: None,
-            })
+            .prepare_generate_content_request("models/test-model", json!({ "contents": [] }), None)
             .await
             .unwrap();
 
@@ -539,9 +979,11 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let ai = get_ai_service(Some(app)).await.unwrap();
-        let err = ai.api_settings().unwrap_err();
+        let err = ai.api_settings().await.unwrap_err();
         assert_eq!(err.code(), AiErrorCode::NoProjectId);
     }
 
@@ -553,7 +995,9 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         let ai = get_ai_service(Some(app)).await.unwrap();
         let prepared = ai
             .prepare_generate_content_request(
@@ -561,6 +1005,7 @@ mod tests {
                 json!({ "contents": [] }),
                 None,
             )
+            .await
             .unwrap();
         assert_eq!(
             prepared.url.as_str(),

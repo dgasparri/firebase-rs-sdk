@@ -81,10 +81,6 @@ impl PreparedRequest {
     }
 
     /// Converts the prepared request into a `reqwest::RequestBuilder`.
-    ///
-    /// This helper is only compiled when the `ai-http` feature is enabled so the core library
-    /// remains network agnostic.
-    #[cfg(feature = "ai-http")]
     pub fn into_reqwest(
         self,
         client: &reqwest::Client,
@@ -114,8 +110,11 @@ impl PreparedRequest {
             HttpMethod::Post => client.post(self.url.clone()),
         }
         .headers(headers)
-        .timeout(self.timeout)
         .body(self.body.to_string());
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let builder = builder.timeout(self.timeout);
+
         Ok(builder)
     }
 }

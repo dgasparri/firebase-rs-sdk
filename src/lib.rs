@@ -1,12 +1,7 @@
 #![doc = include_str!("RUSTDOC.md")]
 
 pub mod ai;
-
-// TODO(async-wasm): Re-enable analytics module during Stage 3.
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod analytics;
-// #[cfg(target_arch = "wasm32")]
-// pub mod analytics {}
+pub mod analytics;
 pub mod app;
 pub mod app_check;
 pub mod auth;

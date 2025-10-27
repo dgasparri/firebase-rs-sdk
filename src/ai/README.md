@@ -42,6 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .generate_text(GenerateTextRequest {
             prompt: "Hello Gemini!".to_owned(),
             model: None,
+            request_options: None,
         })
         .await?;
     println!("{}", response.text);
@@ -55,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `Backend` configuration enum plus `GoogleAiBackend`/`VertexAiBackend`, matching `packages/ai/src/backend.ts`.
 - Instance identifier helpers (`encode_instance_identifier`, `decode_instance_identifier`) to keep parity with JS caching semantics.
 - Public async `get_ai` API that mirrors the JavaScript `getAI()` surface, including backend-aware caching and runtime option updates suitable for native and wasm callers.
-- Async `AiService::generate_text` method with backend-aware diagnostics for integration testing.
+- `AiService::generate_text` now issues real `generateContent` REST requests (using `reqwest`) and automatically attaches Auth/App Check tokens when available.
 - Basic unit coverage for backend differentiation, caching behaviour, and prompt validation.
 - Rich error surface (`AiError`, `AiErrorCode`, `CustomErrorData`) aligned with `packages/ai/src/errors.ts`, plus helper tests.
 - HTTP request factory (`RequestOptions`, `PreparedRequest`) mirroring `constructRequest` in `packages/ai/src/requests/request.ts`, so clients can build REST calls without leaving Rust.

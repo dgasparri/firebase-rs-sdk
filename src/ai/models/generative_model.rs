@@ -5,14 +5,14 @@ use serde_json::Value;
 use crate::ai::api::AiService;
 use crate::ai::backend::BackendType;
 use crate::ai::error::AiResult;
-use crate::ai::requests::{ApiSettings, PreparedRequest, RequestFactory, RequestOptions, Task};
+use crate::ai::requests::{PreparedRequest, RequestOptions, Task};
 
 /// Port of the Firebase JS SDK `GenerativeModel` class.
 ///
 /// Reference: `packages/ai/src/models/generative-model.ts`.
 #[derive(Clone, Debug)]
 pub struct GenerativeModel {
-    api_settings: ApiSettings,
+    service: Arc<AiService>,
     model: String,
     default_request_options: Option<RequestOptions>,
 }
@@ -27,11 +27,10 @@ impl GenerativeModel {
         model_name: impl Into<String>,
         request_options: Option<RequestOptions>,
     ) -> AiResult<Self> {
-        let api_settings = service.api_settings()?;
         let backend_type = service.backend_type();
         let model = normalize_model_name(model_name.into(), backend_type);
         Ok(Self {
-            api_settings,
+            service,
             model,
             default_request_options: request_options,
         })
@@ -43,12 +42,12 @@ impl GenerativeModel {
     }
 
     /// Prepares a `generateContent` request using the stored API settings.
-    pub fn prepare_generate_content_request(
+    pub async fn prepare_generate_content_request(
         &self,
         body: Value,
         request_options: Option<RequestOptions>,
     ) -> AiResult<PreparedRequest> {
-        let factory = RequestFactory::new(self.api_settings.clone());
+        let factory = self.service.request_factory().await?;
         let effective_options = request_options.or_else(|| self.default_request_options.clone());
         factory.construct_request(
             &self.model,
@@ -110,19 +109,19 @@ mod tests {
     }
 
     async fn init_service(options: FirebaseOptions, backend: Option<Backend>) -> Arc<AiService> {
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let app = initialize_app(options, Some(unique_settings()))
+            .await
+            .unwrap();
         match backend {
-            Some(backend) => {
-                crate::ai::get_ai(
-                    Some(app),
-                    Some(AiOptions {
-                        backend: Some(backend),
-                        use_limited_use_app_check_tokens: None,
-                    }),
-                )
-                .await
-                .unwrap()
-            }
+            Some(backend) => crate::ai::get_ai(
+                Some(app),
+                Some(AiOptions {
+                    backend: Some(backend),
+                    use_limited_use_app_check_tokens: None,
+                }),
+            )
+            .await
+            .unwrap(),
             None => crate::ai::get_ai_service(Some(app)).await.unwrap(),
         }
     }
@@ -172,6 +171,7 @@ mod tests {
 
         let prepared = model
             .prepare_generate_content_request(json!({"contents": []}), None)
+            .await
             .unwrap();
         assert_eq!(
             prepared.url.as_str(),
