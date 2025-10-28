@@ -36,6 +36,8 @@ Coverage Highlights
   async `ConfirmationResult` that plugs into pluggable application verifiers for reCAPTCHA/Play Integrity tokens.
   - Multi-factor enrollment for phone numbers reuses the same confirmation pipeline; `Auth::multi_factor()` exposes async
   helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape.
+  - `PhoneAuthProvider` mirrors the JS provider API, exposing verification helpers plus credential-based sign-in/link/reauth
+  flows for SMS codes alongside the `sign_in_with_phone_number` convenience wrappers.
   - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
   `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
   without rewriting REST plumbing.
@@ -175,6 +177,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 - **Multi-factor APIs** (`api/core/mfa.rs`, `types.rs`)
   - Phone-based second-factor enrollment reuses the confirmation pipeline; `Auth::multi_factor()` returns a
     `MultiFactorUser` with async helpers for session creation, enrollment, factor inspection, and unenrollment.
+- **Phone provider utilities** (`phone/`)
+  - `PhoneAuthProvider` and `PhoneAuthCredential` offer low-level verification helpers alongside credential-based
+    sign-in/link/reauth flows, mirroring the Firebase JS provider ergonomics for SMS authentication.
 - **Models & types** (`model.rs`, `types.rs`)
   - User models (`User`, `UserCredential`), provider structs (`EmailAuthProvider`), action code types, token metadata.
 - **Errors & result handling** (`error.rs`)

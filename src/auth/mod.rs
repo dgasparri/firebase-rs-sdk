@@ -93,6 +93,7 @@ pub mod error;
 pub mod model;
 pub mod oauth;
 pub mod persistence;
+pub mod phone;
 mod token_manager;
 #[cfg(all(not(target_arch = "wasm32"), feature = "firestore"))]
 pub mod token_provider;
@@ -106,6 +107,9 @@ pub use error::{AuthError, AuthResult};
 
 #[doc(inline)]
 pub use model::{AuthConfig, AuthCredential, EmailAuthProvider, User, UserCredential};
+
+#[doc(inline)]
+pub use phone::{PhoneAuthCredential, PhoneAuthProvider, PHONE_PROVIDER_ID};
 
 #[doc(inline)]
 pub use oauth::{

@@ -41,6 +41,7 @@ use crate::auth::types::{
     ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl,
     ApplicationVerifier, ConfirmationResult, MultiFactorInfo, MultiFactorSession, MultiFactorUser,
 };
+use crate::auth::{PhoneAuthCredential, PHONE_PROVIDER_ID};
 use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
@@ -70,7 +71,6 @@ use phone::{
 
 const DEFAULT_OAUTH_REQUEST_URI: &str = "http://localhost";
 const DEFAULT_IDENTITY_TOOLKIT_ENDPOINT: &str = "https://identitytoolkit.googleapis.com/v1";
-const PHONE_PROVIDER_ID: &str = "phone";
 const CLIENT_TYPE_WEB: &str = "CLIENT_TYPE_WEB";
 const RECAPTCHA_ENTERPRISE: &str = "RECAPTCHA_ENTERPRISE";
 
@@ -428,6 +428,22 @@ impl Auth {
             .await
     }
 
+    /// Sends an SMS verification code and returns the verification identifier.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// let verification_id = auth
+    ///     .send_phone_verification_code("+15551234567", verifier)
+    ///     .await?;
+    /// ```
+    pub async fn send_phone_verification_code(
+        &self,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+    ) -> AuthResult<String> {
+        self.send_phone_verification(phone_number, verifier).await
+    }
+
     /// Links the currently signed-in account with the provided phone number.
     pub async fn link_with_phone_number(
         self: &Arc<Self>,
@@ -454,6 +470,51 @@ impl Auth {
             PhoneFinalization::Reauth { id_token },
         )
         .await
+    }
+
+    /// Signs in using a credential produced by [`PhoneAuthProvider::credential`].
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// let credential = PhoneAuthProvider::credential(verification_id, sms_code);
+    /// let user = auth.sign_in_with_phone_credential(credential).await?;
+    /// ```
+    pub async fn sign_in_with_phone_credential(
+        self: &Arc<Self>,
+        credential: PhoneAuthCredential,
+    ) -> AuthResult<UserCredential> {
+        self.finalize_phone_credential(credential, PhoneFinalization::SignIn)
+            .await
+    }
+
+    /// Links the current user with the provided phone credential.
+    pub async fn link_with_phone_credential(
+        self: &Arc<Self>,
+        credential: PhoneAuthCredential,
+    ) -> AuthResult<UserCredential> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        self.finalize_phone_credential(credential, PhoneFinalization::Link { id_token })
+            .await
+    }
+
+    /// Reauthenticates the current user with an SMS credential.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// let credential = PhoneAuthProvider::credential(verification_id, sms_code);
+    /// auth.reauthenticate_with_phone_credential(credential).await?;
+    /// ```
+    pub async fn reauthenticate_with_phone_credential(
+        self: &Arc<Self>,
+        credential: PhoneAuthCredential,
+    ) -> AuthResult<Arc<User>> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        let result = self
+            .finalize_phone_credential(credential, PhoneFinalization::Reauth { id_token })
+            .await?;
+        Ok(result.user)
     }
 
     /// Registers an observer that is invoked whenever auth state changes.
@@ -514,13 +575,9 @@ impl Auth {
         verifier: Arc<dyn ApplicationVerifier>,
         flow: PhoneFinalization,
     ) -> AuthResult<ConfirmationResult> {
-        let api_key = self.api_key()?;
-        let endpoint = self.identity_toolkit_endpoint();
-        let request = self.build_phone_verification_request(phone_number, verifier)?;
-        let response =
-            send_phone_verification_code(&self.rest_client, &endpoint, &api_key, &request).await?;
-
-        let verification_id = response.session_info;
+        let verification_id = self
+            .send_phone_verification(phone_number, Arc::clone(&verifier))
+            .await?;
         let session_info = Arc::new(verification_id.clone());
         let auth = Arc::clone(self);
         let flow_holder = Arc::new(flow);
@@ -543,6 +600,19 @@ impl Auth {
                 }
             },
         ))
+    }
+
+    pub(crate) async fn send_phone_verification(
+        &self,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+    ) -> AuthResult<String> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = self.build_phone_verification_request(phone_number, verifier)?;
+        let response =
+            send_phone_verification_code(&self.rest_client, &endpoint, &api_key, &request).await?;
+        Ok(response.session_info)
     }
 
     fn build_phone_verification_request(
@@ -906,6 +976,17 @@ impl Auth {
         };
 
         self.handle_phone_response(response, flow).await
+    }
+
+    async fn finalize_phone_credential(
+        self: &Arc<Self>,
+        credential: PhoneAuthCredential,
+        flow: PhoneFinalization,
+    ) -> AuthResult<UserCredential> {
+        let (verification_id, verification_code) = credential.into_parts();
+        self.clone()
+            .finalize_phone_confirmation(verification_id, verification_code, flow)
+            .await
     }
 
     async fn handle_phone_response(
@@ -2012,6 +2093,7 @@ mod tests {
     use crate::auth::types::{
         ActionCodeSettings, AndroidSettings, ApplicationVerifier, IosSettings,
     };
+    use crate::auth::PhoneAuthProvider;
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
     use httpmock::prelude::*;
     use serde_json::json;
@@ -2510,6 +2592,85 @@ mod tests {
             credential.user.info().phone_number.as_deref(),
             Some("+15551234567")
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn phone_auth_provider_sign_in_with_credential() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let verifier: Arc<dyn ApplicationVerifier> = Arc::new(StaticVerifier {
+            token: "recaptcha-token",
+            kind: "recaptcha",
+        });
+
+        let send_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:sendVerificationCode")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "phoneNumber": "+15551234567",
+                    "recaptchaToken": "recaptcha-token",
+                    "clientType": CLIENT_TYPE_WEB
+                }));
+            then.status(200)
+                .json_body(json!({ "sessionInfo": "provider-session" }));
+        });
+
+        let provider = PhoneAuthProvider::new(auth.clone());
+        let verification_id = provider
+            .verify_phone_number("+15551234567", verifier.clone())
+            .await
+            .expect("verification should succeed");
+        assert_eq!(verification_id, "provider-session");
+        send_mock.assert();
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPhoneNumber")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "sessionInfo": "provider-session",
+                    "code": "123456"
+                }));
+            then.status(200).json_body(json!({
+                "localId": "phone-uid",
+                "idToken": "phone-id-token",
+                "refreshToken": "phone-refresh-token",
+                "expiresIn": "3600",
+                "phoneNumber": "+15551234567",
+                "isNewUser": false
+            }));
+        });
+
+        let lookup_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:lookup")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({ "idToken": "phone-id-token" }));
+            then.status(200).json_body(json!({
+                "users": [{
+                    "localId": "phone-uid",
+                    "email": TEST_EMAIL,
+                    "emailVerified": true,
+                    "phoneNumber": "+15551234567",
+                    "mfaInfo": []
+                }]
+            }));
+        });
+
+        let credential = PhoneAuthProvider::credential(&verification_id, "123456");
+        let result = provider
+            .sign_in_with_credential(credential)
+            .await
+            .expect("sign-in should succeed");
+
+        finalize_mock.assert();
+        lookup_mock.assert();
+
+        assert_eq!(result.user.uid(), "phone-uid");
+        assert_eq!(result.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
+        assert_eq!(result.operation_type.as_deref(), Some("signIn"));
     }
 
     #[tokio::test(flavor = "current_thread")]
