@@ -5031,3 +5031,14 @@ Thinking
   only when not targeting wasm32. This involves gating imports and test code using #[cfg(not(target_arch = "wasm32"))]
   to avoid missing tokio time features on wasm. I’m aiming to keep tokio time-based sleeps for non-wasm tests while
   skipping those tests entirely on wasm, simplifying dependencies and preventing build errors.
+
+
+
+> - Re-introduced the data_connect module at the crate root so it now builds on every target (src/lib.rs:11).
+  - Shifted the Data Connect API to a fully async surface: the component cache uses async_lock::Mutex,
+  get_data_connect_service awaits app resolution, and DataConnectService::execute is async-safe across native and wasm
+  (src/data_connect/api.rs:16, src/data_connect/api.rs:111, src/data_connect/api.rs:59).
+  - Updated tests to async Tokio harnesses gated off wasm, ensuring the stub remains portable while keeping coverage
+  (src/data_connect/api.rs:208).
+  - Refreshed the README with an async quick-start plus revised “Current Functionality” reflecting the new non-blocking
+  behaviour (src/data_connect/README.md).

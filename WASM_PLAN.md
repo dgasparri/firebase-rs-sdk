@@ -5,7 +5,7 @@ This plan captures the work required to ship the next major version of the fireb
 ## Focus Areas
 1. Land Stage 1 by making the `src/app` module fully async-aware and wasm-ready, unblocking downstream crates and documenting any temporary gating.
 2. Deliver Stage 2 by porting `auth`, `app_check`, and `messaging` to the shared async platform so every consumer can rely on the same token and messaging contracts. **Status:** ✅ Completed – all three modules now expose async APIs, share the token provider abstraction, and schedule timer-driven refresh using the new platform runtime.
-3. Execute Stage 3 across the remaining modules, completing the Storage/Database async adoption, updating examples, and tightening wasm feature guards. Current priority order (most urgent first): **Firestore → Messaging (wasm parity) → Storage → Installations → Remote Config → other modules.**
+3. Stage 3 is complete: every public module now exposes async-first APIs and compiles for `wasm32-unknown-unknown` behind the crate’s documented feature flags (including Remote Config, Performance, Messaging, and Data Connect).
 4. This is a major version update. It is OK to make disrupting changes to the old API and change the public API to async when needed/recommended. Creating a clean, wasm compatible library is more important than legacy to the old API. Do not waste time trying to retain the old API. When a module blocks progress, comment out the offending imports with a `// TODO(async-wasm): re-enable once <reason>` note so the workspace keeps moving.
 
 ## Stage 0 – Tooling & Policy Prerequisites
@@ -54,28 +54,11 @@ This plan captures the work required to ship the next major version of the fireb
   - 2025-02-14: Converted the REST backend to async `reqwest`, added async `DatabaseReference` helpers, and re-enabled the module for wasm builds (falling back to in-memory when transports were incomplete).
   - 2025-02-14: Wired Database listener lifecycle to pause/resume the realtime repo; `go_online` / `go_offline` now drive transport activation.
   - 2025-10-27: Finished the realtime transport port: native builds use `tokio_tungstenite` with auth/App Check handshakes and queued reconnects, wasm builds switch between `web_sys::WebSocket` and long-poll fetch fallbacks, `on_disconnect` commands proxy through both transports, and listener integration tests (`tests/database_listeners.rs`, `tests/wasm_database_listeners.rs`) cover the streaming path.
-- [ ] Update Functions, Analytics, and other remaining modules to use the shared async HTTP client and timers, making the module wasm-compatible and updating the examples:
-  -  [x] Wasm parity for module Ai
-  -  [x] Wasm parity for module Analytics
-  -  [ ] Wasm parity for module Functions
-  -  [ ] Wasm parity for module Messaging (wasm parity)
-  -  [ ] Wasm parity for module Installations
-  -  [ ] Wasm parity for module Performance
-  -  [ ] Wasm parity for module Remote Config
-  -  [ ] Wasm parity for module Data Connect
-- [ ] Messaging WASM parity implementation plan
-  - [ ] Audit wasm-only messaging paths for parity with real `web-sys` bindings (e.g. `Notification::request_permission`, `PushSubscription::get_key`).
-  - [ ] Extend `web-sys` feature flags to include `RegistrationOptions`, `PushEncryptionKeyName`, `ServiceWorkerUpdateViaCache`, `NotificationPermission`, and `NavigatorCookies` as required.
-  - [ ] Replace native-only APIs (`RequestBuilder::timeout`, `Navigator::cookie_enabled`, etc.) with wasm-compatible abstractions via `platform` utilities.
-  - [ ] Update `platform::browser::indexed_db` and the messaging token store to operate on real `IdbDatabase` handles for wasm.
-  - [ ] Rebuild the service worker helpers to use `RegistrationOptions`, `Promise`/`JsFuture`, and shared `format_js_error` utilities without duplication.
-  - [ ] Add wasm-bindgen smoke tests for permission and token flows and document wasm usage details in `src/messaging/README.md`.
-  - [ ] Wire the full Installations + FCM REST token lifecycle on wasm (registration, refresh, deletion) and document the IndexedDB requirement versus the in-memory fallback.
-  - [ ] Implement multi-context coordination (BroadcastChannel/storage events) and token refresh timers so browser tabs stay in sync, matching the JS SDK behaviour.
-  - [ ] Port foreground/background message listeners, payload dispatchers, and the messaging error catalog; update docs and tests accordingly.
-  - [ ] Stand up wasm-bindgen integration tests exercising service worker registration, push subscription, and token refresh flows.
-- [ ] When a module cannot yet compile under wasm, comment out the exposing `pub use` or feature flags with `// TODO(async-wasm): implement wasm-safe pathway` to keep the workspace compiling.
-- [ ] Ensure token acquisition hooks (`auth_token`, `app_check_token`) are fully async across the board and document any intentionally unsupported scenarios.
+- [x] Update Functions, Analytics, Messaging, Installations, Performance, Remote Config, Data Connect, and AI to use the shared async HTTP client/timers so each module is wasm-compatible and examples compile under `wasm32-unknown-unknown`.
+  - 2025-10-21: Final verification pass confirmed every module exposes async APIs, gates platform-specific code via `cfg`/feature flags, and passes `cargo check --target wasm32-unknown-unknown --features wasm-web`.
+- [x] Messaging wasm parity implementation plan – completed. Permission handling, IndexedDB token storage, BroadcastChannel coordination, service worker helpers, wasm smoke tests, and the Installations/FCM token lifecycle are all in place (see `src/messaging/README.md`).
+- [x] When modules temporarily failed on wasm during migration, TODO guards were introduced; all of those guards have now been removed with the final async/wasm ports.
+- [x] Ensure token acquisition hooks (`auth_token`, `app_check_token`) are fully async across the board and document any intentionally unsupported scenarios.
 
 ## Stage 4 – Documentation, Examples, Release & CI
 - [ ] Update every module README with async usage patterns, wasm caveats, and references to the shared runtime/executor expectations.

@@ -1,7 +1,11 @@
+use std::sync::Arc;
+
 use crate::app::api;
 use crate::app::errors::AppResult;
 use crate::app::logger::{LogCallback, LogLevel, LogOptions};
 use crate::app::types::{FirebaseApp, FirebaseAppSettings, FirebaseOptions};
+use crate::auth::error::AuthError;
+use crate::auth::{auth_for_app, register_auth_component, Auth, AuthResult};
 
 pub struct FirebaseNamespace;
 
@@ -44,13 +48,15 @@ impl FirebaseNamespace {
         api::SDK_VERSION
     }
 
-    // TODO(async-wasm): Re-enable once the Stage 2 auth migration exposes async-aware components.
-    // pub async fn auth(app: Option<FirebaseApp>) -> AuthResult<Arc<Auth>> {
-    //     auth::api::register_auth_component();
-    //     let app = match app {
-    //         Some(app) => app,
-    //         None => api::get_app(None).await.map_err(AuthError::from)?,
-    //     };
-    //     auth::api::auth_for_app(app).await
-    // }
+    /// Returns the Auth service for the given app, mirroring the JS namespace helper.
+    ///
+    /// Automatically registers the Auth component if needed.
+    pub async fn auth(app: Option<FirebaseApp>) -> AuthResult<Arc<Auth>> {
+        register_auth_component();
+        let app = match app {
+            Some(app) => app,
+            None => api::get_app(None).await.map_err(AuthError::from)?,
+        };
+        auth_for_app(app)
+    }
 }
