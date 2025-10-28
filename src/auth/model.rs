@@ -193,6 +193,10 @@ pub struct SignInWithPasswordResponse {
     pub email: String,
     #[serde(rename = "expiresIn")]
     pub expires_in: String,
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: Option<String>,
+    #[serde(rename = "mfaInfo")]
+    pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -231,6 +235,10 @@ pub struct SignUpResponse {
     pub expires_in: Option<String>,
     #[serde(rename = "isNewUser")]
     pub is_new_user: Option<bool>,
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: Option<String>,
+    #[serde(rename = "mfaInfo")]
+    pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -255,6 +263,10 @@ pub struct SignInWithCustomTokenResponse {
     pub expires_in: Option<String>,
     #[serde(rename = "isNewUser")]
     pub is_new_user: Option<bool>,
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: Option<String>,
+    #[serde(rename = "mfaInfo")]
+    pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -285,6 +297,10 @@ pub struct SignInWithEmailLinkResponse {
     pub expires_in: Option<String>,
     #[serde(rename = "isNewUser")]
     pub is_new_user: Option<bool>,
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: Option<String>,
+    #[serde(rename = "mfaInfo")]
+    pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

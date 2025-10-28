@@ -38,6 +38,8 @@ Coverage Highlights
   helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape.
   - `PhoneAuthProvider` mirrors the JS provider API, exposing verification helpers plus credential-based sign-in/link/reauth
   flows for SMS codes alongside the `sign_in_with_phone_number` convenience wrappers.
+  - Phone MFA sign-in flows are covered end-to-end (`sign_in_with_phone_number_flow`, `multi_factor_phone_enrollment_flow`
+    tests), providing the building blocks needed for the upcoming resolver work.
   - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
   `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
   without rewriting REST plumbing.
@@ -59,12 +61,21 @@ Major Gaps
 
 Next Steps
 
-  1. Finish the multi-factor subsystem: implement TOTP enrollment/sign-in, surface `MultiFactorResolver`, and propagate
-  `mfaPendingCredential` errors so step-up challenges integrate with the primary sign-in APIs.
-  2. Deliver browser bridge crates for popup/redirect and reCAPTCHA/Play Integrity so wasm builds can reuse the higher-
-  level strategies without bespoke JS glue.
-  3. Expand token/error mapping plus tenant and emulator support to mirror the JS SDK, adding integration coverage once
-  mocks are insufficient.
+  1. **MultiFactorResolver integration** – Surface a resolver API when `mfaPendingCredential` is returned from primary
+     sign-in calls. Reuse the phone MFA helpers already built (see `start_phone_mfa_enrollment`/`multi_factor_phone_enrollment_flow`
+     tests) to offer `resolver.hints`, `resolver.session`, and phone verification helpers that mirror the JS resolver.
+     Wire the resolver into email/password, OAuth, custom token, and phone sign-in so callers can complete step-up
+     challenges without dropping state.
+  2. **TOTP support** – Add the TOTP enrollment/sign-in endpoints, extend the resolver to handle TOTP assertions, and
+     persist TOTP metadata alongside the phone factors. Include doc updates and wasm-native verifier guidance.
+  3. **Error mapping & public enums** – Map the MFA-specific error codes (`auth/multi-factor-auth-required`,
+     `auth/multi-factor-info-not-found`, etc.) to strongly-typed variants so libraries can branch on them cleanly.
+  4. **Browser bridge crates** – Deliver popup/redirect + reCAPTCHA/Play Integrity adapters for wasm targets so the phone
+     provider and MFA flows can run in the browser with minimal glue.
+  5. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
+     emulator toggles with rustdoc’d APIs, ensuring they interoperate with MFA resolvers.
+  6. **Testing/documentation sweep** – Port the remaining JS suites (resolver/TOTP/browser flows) and expand the README
+     to document resolver usage and known platform differences.
 
 
 

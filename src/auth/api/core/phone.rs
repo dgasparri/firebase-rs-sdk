@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::error::{AuthError, AuthResult};
+use crate::auth::model::MfaEnrollmentInfo;
 
 fn endpoint_url(base: &str, path: &str, api_key: &str) -> String {
     format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key)
@@ -91,6 +92,10 @@ pub struct PhoneSignInResponse {
     pub phone_number: Option<String>,
     #[serde(rename = "temporaryProof")]
     pub temporary_proof: Option<String>,
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: Option<String>,
+    #[serde(rename = "mfaInfo")]
+    pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
 pub async fn sign_in_with_phone_number(

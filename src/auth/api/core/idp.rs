@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::error::{AuthError, AuthResult};
+use crate::auth::model::MfaEnrollmentInfo;
 
 /// Fields returned by the `signInWithIdp` Firebase Auth REST endpoint.
 #[derive(Debug, Deserialize)]
@@ -25,6 +26,10 @@ pub struct SignInWithIdpResponse {
     pub oauth_id_token: Option<String>,
     #[serde(rename = "providerId")]
     pub provider_id: Option<String>,
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: Option<String>,
+    #[serde(rename = "mfaInfo")]
+    pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
 #[derive(Debug, Serialize, Clone)]
