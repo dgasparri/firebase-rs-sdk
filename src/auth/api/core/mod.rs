@@ -16,8 +16,9 @@ use crate::app::{AppError, FirebaseApp, LOGGER as APP_LOGGER};
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::{
     AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider, GetAccountInfoResponse,
-    SignInWithPasswordRequest, SignInWithPasswordResponse, SignUpRequest, SignUpResponse, User,
-    UserCredential, UserInfo,
+    SignInWithCustomTokenRequest, SignInWithCustomTokenResponse, SignInWithEmailLinkRequest,
+    SignInWithEmailLinkResponse, SignInWithPasswordRequest, SignInWithPasswordResponse,
+    SignUpRequest, SignUpResponse, User, UserCredential, UserInfo,
 };
 use crate::auth::oauth::{
     credential::OAuthCredential, InMemoryRedirectPersistence, OAuthPopupHandler,
@@ -33,6 +34,10 @@ use crate::auth::persistence::{
     AuthPersistence, InMemoryPersistence, PersistedAuthState, PersistenceListener,
     PersistenceSubscription,
 };
+use crate::auth::types::{
+    ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl,
+    MultiFactorInfo,
+};
 use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
@@ -43,14 +48,26 @@ use crate::platform::runtime::{sleep as runtime_sleep, spawn_detached};
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::PartialObserver;
 use account::{
-    confirm_password_reset, delete_account, get_account_info, send_email_verification,
-    send_password_reset_email, update_account, verify_password, UpdateAccountRequest,
-    UpdateAccountResponse, UpdateString,
+    apply_action_code, confirm_password_reset, delete_account, get_account_info,
+    reset_password_info, send_email_verification, send_password_reset_email,
+    send_sign_in_link_to_email, update_account, verify_password, MfaEnrollmentInfo,
+    UpdateAccountRequest, UpdateAccountResponse, UpdateString,
 };
 use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
 
 const DEFAULT_OAUTH_REQUEST_URI: &str = "http://localhost";
 const DEFAULT_IDENTITY_TOOLKIT_ENDPOINT: &str = "https://identitytoolkit.googleapis.com/v1";
+
+struct SignInResponsePayload<'a> {
+    local_id: &'a str,
+    email: Option<&'a str>,
+    id_token: &'a str,
+    refresh_token: &'a str,
+    expires_in: Option<&'a str>,
+    provider_id: Option<&'a str>,
+    operation: &'a str,
+    anonymous: bool,
+}
 
 pub struct Auth {
     app: FirebaseApp,
@@ -197,24 +214,18 @@ impl Auth {
         let response: SignInWithPasswordResponse = self
             .execute_request("accounts:signInWithPassword", &api_key, &request)
             .await?;
+        let payload = SignInResponsePayload {
+            local_id: &response.local_id,
+            email: Some(&response.email),
+            id_token: &response.id_token,
+            refresh_token: &response.refresh_token,
+            expires_in: Some(&response.expires_in),
+            provider_id: Some(EmailAuthProvider::PROVIDER_ID),
+            operation: "signIn",
+            anonymous: false,
+        };
 
-        let expires_in = self.parse_expires_in(&response.expires_in)?;
-        let user = self.build_user_from_response(&response.local_id, &response.email);
-        user.update_tokens(
-            Some(response.id_token.clone()),
-            Some(response.refresh_token.clone()),
-            Some(expires_in),
-        );
-        let user_arc = Arc::new(user);
-        *self.current_user.lock().unwrap() = Some(user_arc.clone());
-        self.after_token_update(user_arc.clone())?;
-        self.listeners.notify(user_arc.clone());
-
-        Ok(UserCredential {
-            user: user_arc,
-            provider_id: Some(EmailAuthProvider::PROVIDER_ID.to_string()),
-            operation_type: Some("signIn".to_string()),
-        })
+        self.finalize_sign_in(payload)
     }
 
     /// Creates a new user using email/password credentials.
@@ -224,38 +235,148 @@ impl Auth {
         password: &str,
     ) -> AuthResult<UserCredential> {
         let api_key = self.api_key()?;
-
-        let request = SignUpRequest {
-            email: email.to_owned(),
-            password: password.to_owned(),
-            return_secure_token: true,
-        };
+        let mut request = SignUpRequest::default();
+        request.email = Some(email.to_owned());
+        request.password = Some(password.to_owned());
+        request.return_secure_token = Some(true);
 
         let response: SignUpResponse = self
             .execute_request("accounts:signUp", &api_key, &request)
             .await?;
 
-        let user = self.build_user_from_response(&response.local_id, &response.email);
-        let expires_in = response
-            .expires_in
-            .as_ref()
-            .map(|expires| self.parse_expires_in(expires))
-            .transpose()?;
-        user.update_tokens(
-            Some(response.id_token.clone()),
-            Some(response.refresh_token.clone()),
-            expires_in,
-        );
-        let user_arc = Arc::new(user);
-        *self.current_user.lock().unwrap() = Some(user_arc.clone());
-        self.after_token_update(user_arc.clone())?;
-        self.listeners.notify(user_arc.clone());
+        let local_id = response
+            .local_id
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing localId".into()))?;
+        let id_token = response
+            .id_token
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing idToken".into()))?;
+        let refresh_token = response
+            .refresh_token
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing refreshToken".into()))?;
+        let expires_in = response.expires_in.as_deref();
+        let response_email = response.email.as_deref().unwrap_or(email);
 
-        Ok(UserCredential {
-            user: user_arc,
-            provider_id: Some(EmailAuthProvider::PROVIDER_ID.to_string()),
-            operation_type: Some("signUp".to_string()),
-        })
+        let payload = SignInResponsePayload {
+            local_id,
+            email: Some(response_email),
+            id_token,
+            refresh_token,
+            expires_in,
+            provider_id: Some(EmailAuthProvider::PROVIDER_ID),
+            operation: "signUp",
+            anonymous: false,
+        };
+
+        self.finalize_sign_in(payload)
+    }
+
+    /// Exchanges a custom authentication token for Firebase credentials.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// let credential = auth.sign_in_with_custom_token(my_signed_jwt).await?;
+    /// println!("Signed in as {}", credential.user.uid());
+    /// ```
+    pub async fn sign_in_with_custom_token(&self, token: &str) -> AuthResult<UserCredential> {
+        let api_key = self.api_key()?;
+        let request = SignInWithCustomTokenRequest {
+            token: token.to_owned(),
+            return_secure_token: true,
+        };
+
+        let response: SignInWithCustomTokenResponse = self
+            .execute_request("accounts:signInWithCustomToken", &api_key, &request)
+            .await?;
+
+        let local_id = response
+            .local_id
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing localId".into()))?;
+        let id_token = response
+            .id_token
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing idToken".into()))?;
+        let refresh_token = response
+            .refresh_token
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing refreshToken".into()))?;
+        let expires_in = response.expires_in.as_deref();
+        let email = response.email.as_deref();
+        let operation = if response.is_new_user.unwrap_or(false) {
+            "signUp"
+        } else {
+            "signIn"
+        };
+
+        let payload = SignInResponsePayload {
+            local_id,
+            email,
+            id_token,
+            refresh_token,
+            expires_in,
+            provider_id: Some("custom"),
+            operation,
+            anonymous: false,
+        };
+
+        self.finalize_sign_in(payload)
+    }
+
+    /// Signs the user in anonymously, creating an anonymous user if needed.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// let anon = auth.sign_in_anonymously().await?;
+    /// assert!(anon.user.is_anonymous());
+    /// ```
+    pub async fn sign_in_anonymously(&self) -> AuthResult<UserCredential> {
+        if let Some(user) = self.current_user() {
+            if user.is_anonymous() {
+                return Ok(UserCredential {
+                    user,
+                    provider_id: Some("anonymous".to_string()),
+                    operation_type: Some("signIn".to_string()),
+                });
+            }
+        }
+
+        let api_key = self.api_key()?;
+        let mut request = SignUpRequest::default();
+        request.return_secure_token = Some(true);
+
+        let response: SignUpResponse = self
+            .execute_request("accounts:signUp", &api_key, &request)
+            .await?;
+
+        let local_id = response
+            .local_id
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing localId".into()))?;
+        let id_token = response
+            .id_token
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing idToken".into()))?;
+        let refresh_token = response
+            .refresh_token
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing refreshToken".into()))?;
+        let expires_in = response.expires_in.as_deref();
+
+        let payload = SignInResponsePayload {
+            local_id,
+            email: None,
+            id_token,
+            refresh_token,
+            expires_in,
+            provider_id: Some("anonymous"),
+            operation: "signIn",
+            anonymous: true,
+        };
+
+        self.finalize_sign_in(payload)
     }
 
     /// Registers an observer that is invoked whenever auth state changes.
@@ -316,16 +437,87 @@ impl Auth {
         Url::parse(&endpoint).map_err(|err| AuthError::Network(err.to_string()))
     }
 
-    fn build_user_from_response(&self, local_id: &str, email: &str) -> User {
+    fn build_user(&self, local_id: &str, email: Option<&str>, provider_id: Option<&str>) -> User {
         let info = UserInfo {
             uid: local_id.to_string(),
             display_name: None,
-            email: Some(email.to_string()),
+            email: email.map(|value| value.to_string()),
             phone_number: None,
             photo_url: None,
-            provider_id: EmailAuthProvider::PROVIDER_ID.to_string(),
+            provider_id: provider_id
+                .unwrap_or(EmailAuthProvider::PROVIDER_ID)
+                .to_string(),
         };
         User::new(self.app.clone(), info)
+    }
+
+    fn finalize_sign_in(&self, payload: SignInResponsePayload<'_>) -> AuthResult<UserCredential> {
+        let SignInResponsePayload {
+            local_id,
+            email,
+            id_token,
+            refresh_token,
+            expires_in,
+            provider_id,
+            operation,
+            anonymous,
+        } = payload;
+
+        let mut user = self.build_user(local_id, email, provider_id);
+        user.set_anonymous(anonymous);
+        let expiration = expires_in
+            .map(|value| self.parse_expires_in(value))
+            .transpose()?;
+        user.update_tokens(
+            Some(id_token.to_string()),
+            Some(refresh_token.to_string()),
+            expiration,
+        );
+        let user_arc = Arc::new(user);
+        *self.current_user.lock().unwrap() = Some(user_arc.clone());
+        self.after_token_update(user_arc.clone())?;
+        self.listeners.notify(user_arc.clone());
+
+        Ok(UserCredential {
+            user: user_arc,
+            provider_id: provider_id.map(|id| id.to_string()),
+            operation_type: Some(operation.to_string()),
+        })
+    }
+
+    fn map_mfa_info(entries: &[MfaEnrollmentInfo]) -> Option<MultiFactorInfo> {
+        let entry = entries.first()?;
+        let uid = entry
+            .mfa_enrollment_id
+            .clone()
+            .unwrap_or_else(|| "".to_string());
+        let factor_id = entry
+            .factor_id
+            .clone()
+            .or_else(|| {
+                if entry.phone_info.is_some() {
+                    Some("phone".to_string())
+                } else if entry.totp_info.is_some() {
+                    Some("totp".to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "unknown".to_string());
+        let enrollment_time = entry.enrolled_at.as_ref().and_then(|value| match value {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            Value::Bool(b) => Some(b.to_string()),
+            Value::Null => None,
+            other => Some(other.to_string()),
+        });
+
+        Some(MultiFactorInfo {
+            uid,
+            display_name: entry.display_name.clone(),
+            enrollment_time,
+            factor_id,
+        })
     }
 
     fn api_key(&self) -> AuthResult<String> {
@@ -485,6 +677,27 @@ impl Auth {
         send_password_reset_email(&self.rest_client, &endpoint, &api_key, email).await
     }
 
+    /// Sends a sign-in link to the provided email address.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// let settings = ActionCodeSettings {
+    ///     url: "https://example.com/finish".into(),
+    ///     handle_code_in_app: true,
+    ///     ..Default::default()
+    /// };
+    /// auth.send_sign_in_link_to_email("user@example.com", &settings).await?;
+    /// ```
+    pub async fn send_sign_in_link_to_email(
+        &self,
+        email: &str,
+        settings: &ActionCodeSettings,
+    ) -> AuthResult<()> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        send_sign_in_link_to_email(&self.rest_client, &endpoint, &api_key, email, settings).await
+    }
+
     /// Confirms a password reset OOB code and applies the new password.
     pub async fn confirm_password_reset(
         &self,
@@ -510,6 +723,157 @@ impl Auth {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         send_email_verification(&self.rest_client, &endpoint, &api_key, &id_token).await
+    }
+
+    /// Returns `true` if the supplied link is an email sign-in link.
+    pub fn is_sign_in_with_email_link(&self, email_link: &str) -> bool {
+        ActionCodeUrl::parse(email_link)
+            .map(|url| url.operation == ActionCodeOperation::EmailSignIn)
+            .unwrap_or(false)
+    }
+
+    /// Completes the email link sign-in flow for the given email address.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// if auth.is_sign_in_with_email_link(&link) {
+    ///     let credential = auth.sign_in_with_email_link("user@example.com", &link).await?;
+    ///     println!("Signed in as {}", credential.user.uid());
+    /// }
+    /// ```
+    pub async fn sign_in_with_email_link(
+        &self,
+        email: &str,
+        email_link: &str,
+    ) -> AuthResult<UserCredential> {
+        let api_key = self.api_key()?;
+        let action_url = ActionCodeUrl::parse(email_link)
+            .ok_or_else(|| AuthError::InvalidCredential("Invalid email action link".into()))?;
+
+        if action_url.operation != ActionCodeOperation::EmailSignIn {
+            return Err(AuthError::InvalidCredential(
+                "Action link does not represent an email sign-in operation".into(),
+            ));
+        }
+
+        let request = SignInWithEmailLinkRequest {
+            email: email.to_owned(),
+            oob_code: action_url.code.clone(),
+            return_secure_token: true,
+            tenant_id: action_url.tenant_id.clone(),
+            id_token: None,
+        };
+
+        let response: SignInWithEmailLinkResponse = self
+            .execute_request("accounts:signInWithEmailLink", &api_key, &request)
+            .await?;
+
+        let local_id = response
+            .local_id
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing localId".into()))?;
+        let id_token = response
+            .id_token
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing idToken".into()))?;
+        let refresh_token = response
+            .refresh_token
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing refreshToken".into()))?;
+        let expires_in = response.expires_in.as_deref();
+        let response_email = response.email.as_deref().unwrap_or(email);
+        let operation = if response.is_new_user.unwrap_or(false) {
+            "signUp"
+        } else {
+            "signIn"
+        };
+
+        let payload = SignInResponsePayload {
+            local_id,
+            email: Some(response_email),
+            id_token,
+            refresh_token,
+            expires_in,
+            provider_id: Some(EmailAuthProvider::PROVIDER_ID),
+            operation,
+            anonymous: false,
+        };
+
+        self.finalize_sign_in(payload)
+    }
+
+    /// Applies an out-of-band action code issued by Firebase Auth.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// auth.apply_action_code("ACTION_CODE_FROM_EMAIL").await?;
+    /// ```
+    pub async fn apply_action_code(&self, oob_code: &str) -> AuthResult<()> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        apply_action_code(&self.rest_client, &endpoint, &api_key, oob_code, None).await
+    }
+
+    /// Retrieves metadata describing the provided action code.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// let info = auth.check_action_code("ACTION_CODE").await?;
+    /// println!("Operation: {:?}", info.operation);
+    /// ```
+    pub async fn check_action_code(&self, oob_code: &str) -> AuthResult<ActionCodeInfo> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let response =
+            reset_password_info(&self.rest_client, &endpoint, &api_key, oob_code, None).await?;
+
+        let request_type = response
+            .request_type
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing requestType".into()))?;
+        let operation = ActionCodeOperation::from_request_type(request_type).ok_or_else(|| {
+            AuthError::InvalidCredential(format!("Unknown requestType: {request_type}"))
+        })?;
+
+        let email = if operation == ActionCodeOperation::VerifyAndChangeEmail {
+            response.new_email.as_deref()
+        } else {
+            response.email.as_deref()
+        };
+        let previous_email = if operation == ActionCodeOperation::VerifyAndChangeEmail {
+            response.email.as_deref()
+        } else {
+            response.new_email.as_deref()
+        };
+
+        let multi_factor_info = response
+            .mfa_info
+            .as_ref()
+            .and_then(|infos| Self::map_mfa_info(infos));
+
+        let data = ActionCodeInfoData {
+            email: email.map(|value| value.to_string()),
+            previous_email: previous_email.map(|value| value.to_string()),
+            multi_factor_info,
+            from_email: None,
+        };
+
+        Ok(ActionCodeInfo { data, operation })
+    }
+
+    /// Returns the email address associated with the provided password reset code.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// let email = auth.verify_password_reset_code("RESET_CODE").await?;
+    /// println!("Reset applies to {email}");
+    /// ```
+    pub async fn verify_password_reset_code(&self, oob_code: &str) -> AuthResult<String> {
+        let info = self.check_action_code(oob_code).await?;
+        info.data
+            .email
+            .clone()
+            .ok_or_else(|| AuthError::InvalidCredential("Action code missing email".into()))
     }
 
     /// Updates the current user's display name and photo URL.
@@ -707,7 +1071,12 @@ impl Auth {
     }
 
     fn apply_password_reauth(&self, response: SignInWithPasswordResponse) -> AuthResult<Arc<User>> {
-        let user = self.build_user_from_response(&response.local_id, &response.email);
+        let mut user = self.build_user(
+            &response.local_id,
+            Some(&response.email),
+            Some(EmailAuthProvider::PROVIDER_ID),
+        );
+        user.set_anonymous(false);
         let expires_in = self.parse_expires_in(&response.expires_in)?;
         user.update_tokens(
             Some(response.id_token.clone()),
@@ -1191,6 +1560,7 @@ pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use crate::auth::types::{ActionCodeSettings, AndroidSettings, IosSettings};
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
     use httpmock::prelude::*;
     use serde_json::json;
@@ -1412,6 +1782,189 @@ mod tests {
             .expect("password reset should succeed");
 
         mock.assert();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_sign_in_link_to_email_posts_expected_body() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let settings = ActionCodeSettings {
+            url: "https://example.com/finish".into(),
+            handle_code_in_app: true,
+            i_os: Some(IosSettings {
+                bundle_id: "com.example.ios".into(),
+            }),
+            android: Some(AndroidSettings {
+                package_name: "com.example.android".into(),
+                install_app: Some(true),
+                minimum_version: Some("12".into()),
+            }),
+            dynamic_link_domain: Some("example.page.link".into()),
+            link_domain: Some("example.firebaseapp.com".into()),
+        };
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:sendOobCode")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "requestType": "EMAIL_SIGNIN",
+                    "email": TEST_EMAIL,
+                    "continueUrl": "https://example.com/finish",
+                    "dynamicLinkDomain": "example.page.link",
+                    "linkDomain": "example.firebaseapp.com",
+                    "canHandleCodeInApp": true,
+                    "clientType": "CLIENT_TYPE_WEB",
+                    "iOSBundleId": "com.example.ios",
+                    "androidPackageName": "com.example.android",
+                    "androidInstallApp": true,
+                    "androidMinimumVersionCode": "12"
+                }));
+            then.status(200);
+        });
+
+        auth.send_sign_in_link_to_email(TEST_EMAIL, &settings)
+            .await
+            .expect("sign-in link should be sent");
+
+        mock.assert();
+    }
+
+    #[test]
+    fn is_sign_in_with_email_link_checks_operation() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let valid_link = format!(
+            "https://example.com/action?apiKey={}&oobCode=oob-code&mode=signIn",
+            TEST_API_KEY
+        );
+        assert!(auth.is_sign_in_with_email_link(&valid_link));
+
+        let invalid_link = format!(
+            "https://example.com/action?apiKey={}&oobCode=oob-code&mode=verifyEmail",
+            TEST_API_KEY
+        );
+        assert!(!auth.is_sign_in_with_email_link(&invalid_link));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sign_in_with_email_link_success() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let email_link = format!(
+            "https://example.com/action?apiKey={}&oobCode=oob-code&mode=signIn",
+            TEST_API_KEY
+        );
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithEmailLink")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": TEST_EMAIL,
+                    "oobCode": "oob-code",
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": "email-link-uid",
+                "email": TEST_EMAIL,
+                "idToken": "email-link-id-token",
+                "refreshToken": "email-link-refresh",
+                "expiresIn": "3600"
+            }));
+        });
+
+        let credential = auth
+            .sign_in_with_email_link(TEST_EMAIL, &email_link)
+            .await
+            .expect("email link sign-in should succeed");
+
+        mock.assert();
+        assert_eq!(credential.user.uid(), "email-link-uid");
+        assert_eq!(
+            credential.provider_id.as_deref(),
+            Some(EmailAuthProvider::PROVIDER_ID)
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn apply_action_code_posts_oob_code() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:update")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "oobCode": "action-code"
+                }));
+            then.status(200);
+        });
+
+        auth.apply_action_code("action-code")
+            .await
+            .expect("apply action code should succeed");
+
+        mock.assert();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn check_action_code_returns_info() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:resetPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "oobCode": "reset-code"
+                }));
+            then.status(200).json_body(json!({
+                "email": TEST_EMAIL,
+                "requestType": "PASSWORD_RESET"
+            }));
+        });
+
+        let info = auth
+            .check_action_code("reset-code")
+            .await
+            .expect("check action code should succeed");
+
+        mock.assert();
+        assert_eq!(info.operation, ActionCodeOperation::PasswordReset);
+        assert_eq!(info.data.email.as_deref(), Some(TEST_EMAIL));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn verify_password_reset_code_returns_email() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:resetPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "oobCode": "reset-code"
+                }));
+            then.status(200).json_body(json!({
+                "email": TEST_EMAIL,
+                "requestType": "PASSWORD_RESET"
+            }));
+        });
+
+        let email = auth
+            .verify_password_reset_code("reset-code")
+            .await
+            .expect("verify password reset code should succeed");
+
+        mock.assert();
+        assert_eq!(email, TEST_EMAIL);
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -16,7 +16,7 @@ It includes error handling, configuration options, and integration with Firebase
 
 ## Porting status
 
-- auth 30% `[###       ]`
+- auth 70% `[#######   ]`
 
 ==As of October 21th, 2025== 
 
@@ -24,42 +24,41 @@ Prompt: Compare the original JS/Typescript files in ./packages/auth and the port
 
 Porting Estimate
 
-  - Roughly ~30% parity: Rust covers core email/password REST flows, persistence, and some OAuth scaffolding, but large swaths of
-  the JS module (custom token, phone, MFA, browser helpers, advanced settings) remain unported (packages/auth/src/api/
-  index.ts:56, packages/auth/src/core/index.ts:292).
+  - Roughly ~70% parity: Rust now covers email/password flows, custom-token and anonymous authentication, email link
+  actions, account management, persistence, and Secure Token refresh. Outstanding work centers on phone/MFA, browser glue,
+  tenant/emulator tooling, and full error parity (packages/auth/src/api/index.ts:56, packages/auth/src/core/index.ts:292).
 
 Coverage Highlights
 
-  - Email/password sign-in, account creation, and reauthentication are implemented (src/auth/api.rs:147, src/auth/
-  api.rs:184, src/auth/api.rs:533), aligning with the JS email/password strategy basics.
-  - Account management helpers—password reset, email verification, profile/email/password updates, deletion, and
-  unlinking—are present (src/auth/api.rs:429, src/auth/api.rs:458, src/auth/api.rs:503, src/auth/api.rs:515).
-  - OAuth credential exchange plus popup/redirect abstractions exist, letting consumers plug platform handlers while
-  reusing signInWithIdp (src/auth/api.rs:421, src/auth/oauth/provider.rs:1, src/auth/oauth/redirect.rs:1).
-  - Persistence and token refresh infrastructure (in-memory/closure storage and Secure Token client) mirror the JS
-  concepts at a basic level (src/auth/persistence/mod.rs:1, src/auth/api/token.rs:1), with a wasm-web storage variant
-  (src/auth/persistence/web.rs:1).
+  - Email/password sign-in & sign-up, custom token exchange, anonymous sessions, and email link sign-in share the same
+  token management pipeline, keeping parity with the JS strategies while remaining async/wasm-friendly.
+  - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
+  `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
+  without rewriting REST plumbing.
+  - Account mutation APIs (profile/email/password updates, deletion, provider unlinking, reauthentication) remain feature
+  complete relative to the JS REST surface, and listeners/persistence continue to mirror identity updates.
+  - Persistence, Secure Token refresh, and OAuth scaffolding stay platform-agnostic, with IndexedDB-backed storage
+  available behind the `wasm-web` feature for browser builds.
+  - Extensive httpmock-backed unit tests exercise request payloads and token refresh logic to guard against regressions
+  (requires loopback sockets when executed locally).
 
 Major Gaps
 
-  - JS exposes many additional endpoints—custom token, email link, phone SMS, reCAPTCHA config, password policy, token
-  revocation—that the Rust side lacks (packages/auth/src/api/index.ts:56).
-  - Strategy helpers for anonymous sign-in, email link flows, credential-based link/reauth, and verification utilities
-  remain unported (packages/auth/src/core/index.ts:292).
-  - Multi-factor enrollment/resolution, MFA-specific errors, and assertions are fully implemented in JS (packages/auth/
-  src/mfa/mfa_resolver.ts:37) but reduced to stubs returning NotImplemented in Rust (src/auth/types.rs:104).
-  - Browser-specific pieces—popup/redirect resolvers, iframe messaging, reCAPTCHA bootstrap, indexedDB/local/session
-  storage adapters—are absent on the Rust side (packages/auth/src/platform_browser/popup_redirect.ts:1, packages/auth/
-  src/platform_browser/load_js.ts:1).
-  - Auth settings, localization, tenant management, onIdTokenChanged listeners, emulator support, and rich error/code
-  mapping exported in JS (packages/auth/src/core/index.ts:204) have no Rust equivalents yet.
+  - Phone/SMS authentication, multi-factor enrollment & resolution, reCAPTCHA Enterprise / Play Integrity bridges, and
+  related error types remain to be ported from the JS SDK.
+  - Browser-specific popup/redirect resolvers, iframe messaging, and storage adapters are still stubbed out; wasm
+  consumers must currently supply their own handlers.
+  - Advanced features such as tenant-aware auth, localization helpers, emulator tooling, token revocation APIs, and rich
+  error/code mapping have not yet been implemented.
 
 Next Steps
 
-  1. Prioritize porting additional REST endpoints (custom token, phone, email link, token revoke) to close the biggest
-  functional gaps.
-  2. Introduce multi-factor primitives and richer listener/error plumbing to match the JS surface before tackling
-  browser-specific adapters.
+  1. Port the phone/MFA REST endpoints and multi-factor resolver types, designing traits that work for both native and
+  wasm targets.
+  2. Deliver browser bridge crates for popup/redirect, reCAPTCHA, and storage so wasm builds can reuse the higher-level
+  strategies without bespoke JS glue.
+  3. Expand token/error mapping plus tenant and emulator support to mirror the JS SDK, adding integration coverage once
+  mocks are insufficient.
 
 
 
@@ -73,7 +72,7 @@ Next Steps
 ## Development status as of 14th October 2025
 
 - Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth) for details)
-- Tests: 30 tests (passed)
+- Tests: httpmock-backed unit suite expanded (requires loopback binding when run locally)
 - Documentation: Most public functions are documented
 - Examples: 1 provided
 
@@ -159,8 +158,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     mirror the JS SDK strategies while remaining platform agnostic.
   - `Auth::builder().with_redirect_persistence(...)` allows apps to supply durable storage for pending redirect events.
 - **REST client scaffolding** (`api.rs`)
-  - Minimal email/password endpoint support (`signInWithPassword`, `signUp`) with token storage.
+  - Email/password, custom-token, anonymous, and email-link flows share the same token finalisation path, covering
+    `signInWithPassword`, `signUp`, `signInWithCustomToken`, and `signInWithEmailLink` while remaining async-friendly for
+    wasm builds.
   - `signInWithIdp` REST exchange for OAuth credentials produced by popup/redirect handlers.
+  - Unified helper for out-of-band actions (`sendOobCode`, `resetPassword`, `applyActionCode`) keeps email resets,
+    verification, and email link flows consistent across platforms.
 - **Account management APIs** (`api/account.rs`)
   - Password reset, email verification, profile/email/password updates, user deletion, and provider linking are wired via
     the Firebase Auth REST endpoints, surfaced through new `Auth` helpers. Re-authentication helpers cover both password

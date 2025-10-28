@@ -1,6 +1,7 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::app::FirebaseApp;
@@ -59,6 +60,48 @@ pub enum ActionCodeOperation {
     VerifyEmail,
 }
 
+impl ActionCodeOperation {
+    /// Returns the requestType string expected by the Identity Toolkit API.
+    pub fn as_request_type(&self) -> &'static str {
+        match self {
+            ActionCodeOperation::PasswordReset => "PASSWORD_RESET",
+            ActionCodeOperation::RecoverEmail => "RECOVER_EMAIL",
+            ActionCodeOperation::EmailSignIn => "EMAIL_SIGNIN",
+            ActionCodeOperation::RevertSecondFactorAddition => "REVERT_SECOND_FACTOR_ADDITION",
+            ActionCodeOperation::VerifyAndChangeEmail => "VERIFY_AND_CHANGE_EMAIL",
+            ActionCodeOperation::VerifyEmail => "VERIFY_EMAIL",
+        }
+    }
+
+    /// Parses a `requestType` string returned by the REST API.
+    pub fn from_request_type(value: &str) -> Option<Self> {
+        match value {
+            "PASSWORD_RESET" => Some(ActionCodeOperation::PasswordReset),
+            "RECOVER_EMAIL" => Some(ActionCodeOperation::RecoverEmail),
+            "EMAIL_SIGNIN" => Some(ActionCodeOperation::EmailSignIn),
+            "REVERT_SECOND_FACTOR_ADDITION" => {
+                Some(ActionCodeOperation::RevertSecondFactorAddition)
+            }
+            "VERIFY_AND_CHANGE_EMAIL" => Some(ActionCodeOperation::VerifyAndChangeEmail),
+            "VERIFY_EMAIL" => Some(ActionCodeOperation::VerifyEmail),
+            _ => None,
+        }
+    }
+
+    /// Parses the `mode` query parameter from action code links.
+    pub fn from_mode(value: &str) -> Option<Self> {
+        match value {
+            "recoverEmail" => Some(ActionCodeOperation::RecoverEmail),
+            "resetPassword" => Some(ActionCodeOperation::PasswordReset),
+            "signIn" => Some(ActionCodeOperation::EmailSignIn),
+            "verifyEmail" => Some(ActionCodeOperation::VerifyEmail),
+            "verifyAndChangeEmail" => Some(ActionCodeOperation::VerifyAndChangeEmail),
+            "revertSecondFactorAddition" => Some(ActionCodeOperation::RevertSecondFactorAddition),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionCodeInfoData {
     pub email: Option<String>,
@@ -86,19 +129,55 @@ pub struct ActionCodeUrl {
 impl ActionCodeUrl {
     /// Parses an out-of-band action link into its structured representation.
     pub fn parse(link: &str) -> Option<Self> {
-        let parsed = Url::parse(link).ok()?;
-        let query: std::collections::HashMap<_, _> = parsed.query_pairs().into_owned().collect();
+        let resolved_link = resolve_action_link(link)?;
+        let parsed = Url::parse(&resolved_link).ok()?;
+        let query: HashMap<_, _> = parsed.query_pairs().into_owned().collect();
         let api_key = query.get("apiKey")?.clone();
         let code = query.get("oobCode")?.clone();
+        let operation = query
+            .get("mode")
+            .and_then(|mode| ActionCodeOperation::from_mode(mode))?;
+        let language_code = query
+            .get("lang")
+            .cloned()
+            .or_else(|| query.get("languageCode").cloned());
         Some(Self {
             api_key,
             code,
             continue_url: query.get("continueUrl").cloned(),
-            language_code: query.get("languageCode").cloned(),
+            language_code,
             tenant_id: query.get("tenantId").cloned(),
-            operation: ActionCodeOperation::EmailSignIn,
+            operation,
         })
     }
+}
+
+fn resolve_action_link(link: &str) -> Option<String> {
+    fn helper(original: &str, depth: usize) -> Option<String> {
+        if depth > 4 {
+            return Some(original.to_string());
+        }
+        let parsed = Url::parse(original).ok()?;
+        let query: HashMap<_, _> = parsed.query_pairs().into_owned().collect();
+
+        if let Some(link_value) = query.get("link") {
+            if let Some(resolved) = helper(link_value, depth + 1) {
+                return Some(resolved);
+            }
+            return Some(link_value.clone());
+        }
+
+        if let Some(deep_link) = query.get("deep_link_id") {
+            if let Some(resolved) = helper(deep_link, depth + 1) {
+                return Some(resolved);
+            }
+            return Some(deep_link.clone());
+        }
+
+        Some(original.to_string())
+    }
+
+    helper(link, 0)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]

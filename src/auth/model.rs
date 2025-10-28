@@ -180,25 +180,96 @@ pub struct SignInWithPasswordResponse {
     pub expires_in: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct SignUpRequest {
-    pub email: String,
-    pub password: String,
+    #[serde(rename = "idToken", skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
+    #[serde(rename = "returnSecureToken", skip_serializing_if = "Option::is_none")]
+    pub return_secure_token: Option<bool>,
+    #[serde(rename = "email", skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(rename = "password", skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(rename = "captchaResponse", skip_serializing_if = "Option::is_none")]
+    pub captcha_response: Option<String>,
+    #[serde(rename = "clientType", skip_serializing_if = "Option::is_none")]
+    pub client_type: Option<String>,
+    #[serde(rename = "recaptchaVersion", skip_serializing_if = "Option::is_none")]
+    pub recaptcha_version: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SignUpResponse {
+    #[serde(rename = "idToken")]
+    pub id_token: Option<String>,
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: Option<String>,
+    #[serde(rename = "localId")]
+    pub local_id: Option<String>,
+    #[serde(rename = "email")]
+    pub email: Option<String>,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "expiresIn")]
+    pub expires_in: Option<String>,
+    #[serde(rename = "isNewUser")]
+    pub is_new_user: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SignInWithCustomTokenRequest {
+    #[serde(rename = "token")]
+    pub token: String,
     #[serde(rename = "returnSecureToken")]
     pub return_secure_token: bool,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SignUpResponse {
+#[derive(Debug, Deserialize, Clone)]
+pub struct SignInWithCustomTokenResponse {
     #[serde(rename = "idToken")]
-    pub id_token: String,
+    pub id_token: Option<String>,
     #[serde(rename = "refreshToken")]
-    pub refresh_token: String,
+    pub refresh_token: Option<String>,
     #[serde(rename = "localId")]
-    pub local_id: String,
-    pub email: String,
+    pub local_id: Option<String>,
+    #[serde(rename = "email")]
+    pub email: Option<String>,
     #[serde(rename = "expiresIn")]
     pub expires_in: Option<String>,
+    #[serde(rename = "isNewUser")]
+    pub is_new_user: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SignInWithEmailLinkRequest {
+    #[serde(rename = "email")]
+    pub email: String,
+    #[serde(rename = "oobCode")]
+    pub oob_code: String,
+    #[serde(rename = "returnSecureToken")]
+    pub return_secure_token: bool,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(rename = "idToken", skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SignInWithEmailLinkResponse {
+    #[serde(rename = "idToken")]
+    pub id_token: Option<String>,
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: Option<String>,
+    #[serde(rename = "localId")]
+    pub local_id: Option<String>,
+    #[serde(rename = "email")]
+    pub email: Option<String>,
+    #[serde(rename = "expiresIn")]
+    pub expires_in: Option<String>,
+    #[serde(rename = "isNewUser")]
+    pub is_new_user: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
