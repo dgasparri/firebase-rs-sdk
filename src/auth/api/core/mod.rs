@@ -10,11 +10,13 @@ use serde_json::Value;
 
 mod account;
 mod idp;
+mod mfa;
 mod phone;
 pub mod token;
 
 use crate::app::{AppError, FirebaseApp, LOGGER as APP_LOGGER};
 use crate::auth::error::{AuthError, AuthResult};
+use crate::auth::model::MfaEnrollmentInfo;
 use crate::auth::model::{
     AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider, GetAccountInfoResponse,
     SignInWithCustomTokenRequest, SignInWithCustomTokenResponse, SignInWithEmailLinkRequest,
@@ -37,7 +39,7 @@ use crate::auth::persistence::{
 };
 use crate::auth::types::{
     ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl,
-    ApplicationVerifier, ConfirmationResult, MultiFactorInfo,
+    ApplicationVerifier, ConfirmationResult, MultiFactorInfo, MultiFactorSession, MultiFactorUser,
 };
 use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
@@ -51,10 +53,15 @@ use crate::util::PartialObserver;
 use account::{
     apply_action_code, confirm_password_reset, delete_account, get_account_info,
     reset_password_info, send_email_verification, send_password_reset_email,
-    send_sign_in_link_to_email, update_account, verify_password, MfaEnrollmentInfo,
-    UpdateAccountRequest, UpdateAccountResponse, UpdateString,
+    send_sign_in_link_to_email, update_account, verify_password, UpdateAccountRequest,
+    UpdateAccountResponse, UpdateString,
 };
 use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
+use mfa::{
+    finalize_phone_mfa_enrollment, start_phone_mfa_enrollment, withdraw_mfa,
+    FinalizePhoneMfaEnrollmentRequest, PhoneEnrollmentInfo, PhoneVerificationInfo,
+    StartPhoneMfaEnrollmentRequest, WithdrawMfaRequest,
+};
 use phone::{
     link_with_phone_number as api_link_with_phone_number, send_phone_verification_code,
     sign_in_with_phone_number as api_sign_in_with_phone_number, verify_phone_number_for_existing,
@@ -84,6 +91,12 @@ enum PhoneFinalization {
     SignIn,
     Link { id_token: String },
     Reauth { id_token: String },
+}
+
+struct PhoneMfaEnrollmentFinalization {
+    id_token: String,
+    session_info: String,
+    display_name: Option<String>,
 }
 
 pub struct Auth {
@@ -116,6 +129,11 @@ impl AsyncTokenProvider for Arc<Auth> {
 }
 
 impl Auth {
+    /// Returns a multi-factor helper tied to this auth instance.
+    pub fn multi_factor(self: &Arc<Self>) -> MultiFactorUser {
+        MultiFactorUser::new(self.clone())
+    }
+
     /// Creates a builder for configuring an `Auth` instance before construction.
     pub fn builder(app: FirebaseApp) -> AuthBuilder {
         AuthBuilder::new(app)
@@ -561,6 +579,146 @@ impl Auth {
         Ok(request)
     }
 
+    fn build_phone_enrollment_info(
+        &self,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+    ) -> AuthResult<PhoneEnrollmentInfo> {
+        let token = verifier.verify()?;
+        let verifier_type = verifier.verifier_type().to_lowercase();
+        let mut info = PhoneEnrollmentInfo {
+            phone_number: phone_number.to_string(),
+            recaptcha_token: None,
+            captcha_response: None,
+            client_type: Some(CLIENT_TYPE_WEB.to_string()),
+            recaptcha_version: None,
+        };
+
+        match verifier_type.as_str() {
+            "recaptcha" | "recaptcha-v2" => {
+                info.recaptcha_token = Some(token);
+            }
+            "recaptcha-enterprise" => {
+                info.captcha_response = Some(token);
+                info.recaptcha_version = Some(RECAPTCHA_ENTERPRISE.to_string());
+            }
+            other => {
+                info.captcha_response = Some(token);
+                info.client_type = Some(other.to_string());
+            }
+        }
+
+        if info.client_type.is_none() {
+            info.client_type = Some(CLIENT_TYPE_WEB.to_string());
+        }
+
+        Ok(info)
+    }
+
+    pub(crate) async fn start_phone_mfa_enrollment(
+        self: &Arc<Self>,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+        display_name: Option<&str>,
+    ) -> AuthResult<ConfirmationResult> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let enrollment_info = self.build_phone_enrollment_info(phone_number, verifier)?;
+        let request = StartPhoneMfaEnrollmentRequest {
+            id_token: id_token.clone(),
+            phone_enrollment_info: enrollment_info,
+            tenant_id: None,
+        };
+
+        let response =
+            start_phone_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+
+        let session_info = response.phone_session_info.session_info;
+        let auth = Arc::clone(self);
+        let display_name = display_name.map(|value| value.to_string());
+        let id_token_for_flow = id_token.clone();
+        Ok(ConfirmationResult::new(
+            session_info.clone(),
+            move |code: &str| {
+                let auth = Arc::clone(&auth);
+                let code = code.to_string();
+                let session = session_info.clone();
+                let display = display_name.clone();
+                let id_token_value = id_token_for_flow.clone();
+                async move {
+                    auth.complete_phone_mfa_enrollment(
+                        PhoneMfaEnrollmentFinalization {
+                            id_token: id_token_value,
+                            session_info: session,
+                            display_name: display,
+                        },
+                        code,
+                    )
+                    .await
+                }
+            },
+        ))
+    }
+
+    async fn complete_phone_mfa_enrollment(
+        self: Arc<Self>,
+        flow: PhoneMfaEnrollmentFinalization,
+        verification_code: String,
+    ) -> AuthResult<UserCredential> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = FinalizePhoneMfaEnrollmentRequest {
+            id_token: flow.id_token.clone(),
+            phone_verification_info: PhoneVerificationInfo {
+                session_info: flow.session_info.clone(),
+                code: verification_code,
+            },
+            display_name: flow.display_name.clone(),
+            tenant_id: None,
+        };
+
+        let response =
+            finalize_phone_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+
+        self.update_current_user_tokens(
+            response.id_token.clone(),
+            response.refresh_token.clone(),
+            None,
+        )?;
+        let user = self.refresh_current_user_profile().await?;
+
+        Ok(UserCredential {
+            user,
+            provider_id: Some(PHONE_PROVIDER_ID.to_string()),
+            operation_type: Some("enroll".to_string()),
+        })
+    }
+
+    pub(crate) async fn withdraw_multi_factor(&self, enrollment_id: &str) -> AuthResult<()> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = WithdrawMfaRequest {
+            id_token: id_token.clone(),
+            mfa_enrollment_id: enrollment_id.to_string(),
+            tenant_id: None,
+        };
+
+        let response = withdraw_mfa(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let new_id_token = response.id_token.unwrap_or(id_token);
+        let new_refresh_token = response
+            .refresh_token
+            .or_else(|| user.refresh_token())
+            .unwrap_or_default();
+
+        self.update_current_user_tokens(new_id_token, new_refresh_token, None)?;
+        self.refresh_current_user_profile().await?;
+        Ok(())
+    }
+
     fn endpoint_url(&self, path: &str, api_key: &str) -> AuthResult<Url> {
         let base = self.identity_toolkit_endpoint();
         let endpoint = format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key);
@@ -622,6 +780,103 @@ impl Auth {
         })
     }
 
+    pub(crate) async fn fetch_enrolled_factors(&self) -> AuthResult<Vec<MultiFactorInfo>> {
+        let user = self.refresh_current_user_profile().await?;
+        Ok(user.mfa_info())
+    }
+
+    pub(crate) async fn multi_factor_session(&self) -> AuthResult<MultiFactorSession> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        Ok(MultiFactorSession { id_token })
+    }
+
+    fn update_current_user_tokens(
+        &self,
+        id_token: String,
+        refresh_token: String,
+        expires_in: Option<Duration>,
+    ) -> AuthResult<Arc<User>> {
+        let user = self.require_current_user()?;
+        user.update_tokens(Some(id_token), Some(refresh_token), expires_in);
+        self.after_token_update(user.clone())?;
+        Ok(user)
+    }
+
+    async fn refresh_current_user_profile(&self) -> AuthResult<Arc<User>> {
+        let Some(current) = self.current_user() else {
+            return Err(AuthError::InvalidCredential("No user signed in".into()));
+        };
+
+        let info = self.get_account_info().await?;
+        let account = info
+            .users
+            .into_iter()
+            .find(|user| user.local_id.as_deref() == Some(current.uid()))
+            .ok_or_else(|| {
+                AuthError::InvalidCredential("Account info missing current user".into())
+            })?;
+
+        let provider_id = account
+            .provider_user_info
+            .as_ref()
+            .and_then(|infos| infos.first())
+            .and_then(|info| info.provider_id.clone())
+            .unwrap_or_else(|| current.info().provider_id.clone());
+
+        let info = UserInfo {
+            uid: account
+                .local_id
+                .clone()
+                .unwrap_or_else(|| current.uid().to_string()),
+            display_name: account
+                .display_name
+                .clone()
+                .or_else(|| current.info().display_name.clone()),
+            email: account
+                .email
+                .clone()
+                .or_else(|| current.info().email.clone()),
+            phone_number: account
+                .phone_number
+                .clone()
+                .or_else(|| current.info().phone_number.clone()),
+            photo_url: account
+                .photo_url
+                .clone()
+                .or_else(|| current.info().photo_url.clone()),
+            provider_id,
+        };
+
+        let mut new_user = User::new(self.app.clone(), info);
+        new_user.set_email_verified(account.email_verified.unwrap_or(current.email_verified()));
+        new_user.set_anonymous(current.is_anonymous());
+        let access_token = current.token_manager().access_token();
+        let refresh_token = current.refresh_token();
+        let expiration = current.token_manager().expiration_time();
+        new_user
+            .token_manager()
+            .initialize(access_token, refresh_token, expiration);
+
+        if let Some(entries) = account.mfa_info.as_ref() {
+            let factors = Self::convert_mfa_entries(entries);
+            new_user.set_mfa_info(factors);
+        }
+
+        let new_user = Arc::new(new_user);
+        *self.current_user.lock().unwrap() = Some(new_user.clone());
+        self.after_token_update(new_user.clone())?;
+        self.listeners.notify(new_user.clone());
+        Ok(new_user)
+    }
+
+    fn convert_mfa_entries(entries: &[MfaEnrollmentInfo]) -> Vec<MultiFactorInfo> {
+        entries
+            .iter()
+            .filter_map(MultiFactorInfo::from_enrollment)
+            .collect()
+    }
+
     async fn finalize_phone_confirmation(
         self: Arc<Self>,
         session_info: String,
@@ -650,10 +905,10 @@ impl Auth {
             }
         };
 
-        self.handle_phone_response(response, flow)
+        self.handle_phone_response(response, flow).await
     }
 
-    fn handle_phone_response(
+    async fn handle_phone_response(
         &self,
         response: PhoneSignInResponse,
         flow: PhoneFinalization,
@@ -695,42 +950,16 @@ impl Auth {
             anonymous: false,
         };
 
-        self.finalize_sign_in(payload)
+        let credential = self.finalize_sign_in(payload)?;
+        self.refresh_current_user_profile().await?;
+        Ok(credential)
     }
 
     fn map_mfa_info(entries: &[MfaEnrollmentInfo]) -> Option<MultiFactorInfo> {
-        let entry = entries.first()?;
-        let uid = entry
-            .mfa_enrollment_id
-            .clone()
-            .unwrap_or_else(|| "".to_string());
-        let factor_id = entry
-            .factor_id
-            .clone()
-            .or_else(|| {
-                if entry.phone_info.is_some() {
-                    Some("phone".to_string())
-                } else if entry.totp_info.is_some() {
-                    Some("totp".to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| "unknown".to_string());
-        let enrollment_time = entry.enrolled_at.as_ref().and_then(|value| match value {
-            Value::String(s) => Some(s.clone()),
-            Value::Number(n) => Some(n.to_string()),
-            Value::Bool(b) => Some(b.to_string()),
-            Value::Null => None,
-            other => Some(other.to_string()),
-        });
-
-        Some(MultiFactorInfo {
-            uid,
-            display_name: entry.display_name.clone(),
-            enrollment_time,
-            factor_id,
-        })
+        entries
+            .iter()
+            .filter_map(MultiFactorInfo::from_enrollment)
+            .next()
     }
 
     fn api_key(&self) -> AuthResult<String> {
@@ -1563,7 +1792,12 @@ impl Auth {
             provider_id,
         };
 
-        let user = User::new(self.app.clone(), info);
+        let mut user = User::new(self.app.clone(), info);
+        user.set_email_verified(current_user.email_verified());
+        if let Some(entries) = response.mfa_info.as_ref() {
+            let factors = Self::convert_mfa_entries(entries);
+            user.set_mfa_info(factors);
+        }
         user.update_tokens(Some(id_token), Some(refresh_token), expires_in);
 
         let user_arc = Arc::new(user);
@@ -2246,11 +2480,28 @@ mod tests {
             }));
         });
 
+        let lookup_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:lookup")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({ "idToken": "phone-id-token" }));
+            then.status(200).json_body(json!({
+                "users": [{
+                    "localId": "phone-uid",
+                    "email": TEST_EMAIL,
+                    "emailVerified": true,
+                    "phoneNumber": "+15551234567",
+                    "mfaInfo": []
+                }]
+            }));
+        });
+
         let credential = confirmation
             .confirm("123456")
             .await
             .expect("phone confirmation should succeed");
         finalize_mock.assert();
+        lookup_mock.assert();
 
         assert_eq!(credential.user.uid(), "phone-uid");
         assert_eq!(credential.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
@@ -2259,6 +2510,102 @@ mod tests {
             credential.user.info().phone_number.as_deref(),
             Some("+15551234567")
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn multi_factor_phone_enrollment_flow() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server).await;
+
+        let verifier: Arc<dyn ApplicationVerifier> = Arc::new(StaticVerifier {
+            token: "recaptcha-token",
+            kind: "recaptcha",
+        });
+
+        let enroll_start = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaEnrollment:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "phoneEnrollmentInfo": {
+                        "phoneNumber": "+15551234567",
+                        "recaptchaToken": "recaptcha-token",
+                        "clientType": CLIENT_TYPE_WEB
+                    }
+                }));
+            then.status(200).json_body(json!({
+                "phoneSessionInfo": {"sessionInfo": "mfa-session"}
+            }));
+        });
+
+        let enroll_finalize = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaEnrollment:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "phoneVerificationInfo": {
+                        "sessionInfo": "mfa-session",
+                        "code": "654321"
+                    },
+                    "displayName": "Personal phone"
+                }));
+            then.status(200).json_body(json!({
+                "idToken": "mfa-id-token",
+                "refreshToken": "mfa-refresh-token"
+            }));
+        });
+
+        let lookup = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:lookup")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({"idToken": "mfa-id-token"}));
+            then.status(200).json_body(json!({
+                "users": [{
+                    "localId": TEST_UID,
+                    "email": TEST_EMAIL,
+                    "emailVerified": true,
+                    "mfaInfo": [{
+                        "mfaEnrollmentId": "enrollment-id",
+                        "displayName": "Personal phone",
+                        "phoneInfo": "+15551234567",
+                        "enrolledAt": "2023-01-01T00:00:00Z"
+                    }]
+                }]
+            }));
+        });
+
+        let mfa_user = auth.multi_factor();
+        let confirmation = mfa_user
+            .enroll_phone_number("+15551234567", verifier, Some("Personal phone"))
+            .await
+            .expect("start MFA enrollment");
+        enroll_start.assert();
+
+        let credential = confirmation
+            .confirm("654321")
+            .await
+            .expect("finalize MFA enrollment");
+
+        enroll_finalize.assert();
+        lookup.assert();
+
+        assert_eq!(credential.operation_type.as_deref(), Some("enroll"));
+        assert_eq!(credential.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
+
+        let factors = mfa_user
+            .enrolled_factors()
+            .await
+            .expect("load enrolled factors");
+        assert_eq!(factors.len(), 1);
+        assert_eq!(factors[0].uid, "enrollment-id");
+        assert_eq!(factors[0].factor_id, "phone");
+
+        let session = mfa_user.get_session().await.expect("create session");
+        assert_eq!(session.credential(), "mfa-id-token");
     }
 
     #[tokio::test(flavor = "current_thread")]

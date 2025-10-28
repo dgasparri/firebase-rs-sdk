@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use crate::app::FirebaseApp;
 use crate::auth::api::Auth;
-use crate::auth::error::{AuthError, AuthResult};
-use crate::auth::model::{User, UserCredential};
+use crate::auth::error::AuthResult;
+use crate::auth::model::{MfaEnrollmentInfo, User, UserCredential};
 use crate::util::PartialObserver;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -281,8 +281,38 @@ pub struct MultiFactorInfo {
     pub factor_id: String,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MultiFactorSession;
+impl MultiFactorInfo {
+    pub(crate) fn from_enrollment(enrollment: &MfaEnrollmentInfo) -> Option<Self> {
+        let uid = enrollment.mfa_enrollment_id.clone()?;
+        let factor_id = enrollment
+            .factor_id
+            .clone()
+            .or_else(|| enrollment.phone_info.as_ref().map(|_| "phone".to_string()))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        Some(Self {
+            uid,
+            display_name: enrollment.display_name.clone(),
+            enrollment_time: enrollment
+                .enrolled_at
+                .as_ref()
+                .map(|value| value.to_string()),
+            factor_id,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MultiFactorSession {
+    pub(crate) id_token: String,
+}
+
+impl MultiFactorSession {
+    /// Returns the ID token captured for this session.
+    pub fn credential(&self) -> &str {
+        &self.id_token
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultiFactorAssertion;
@@ -290,32 +320,41 @@ pub struct MultiFactorAssertion;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultiFactorResolver;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MultiFactorUser;
+#[derive(Clone)]
+pub struct MultiFactorUser {
+    auth: Arc<Auth>,
+}
 
 impl MultiFactorUser {
-    /// Returns the list of enrolled multi-factor authenticators.
-    pub fn enrolled_factors(&self) -> Vec<MultiFactorInfo> {
-        Vec::new()
+    pub(crate) fn new(auth: Arc<Auth>) -> Self {
+        Self { auth }
     }
 
-    /// Attempts to enroll a new multi-factor assertion (not yet implemented).
-    pub fn enroll(
-        &self,
-        _assertion: MultiFactorAssertion,
-        _display_name: Option<&str>,
-    ) -> AuthResult<()> {
-        Err(AuthError::NotImplemented("multi-factor enrollment"))
+    /// Returns the list of enrolled multi-factor authenticators.
+    pub async fn enrolled_factors(&self) -> AuthResult<Vec<MultiFactorInfo>> {
+        self.auth.fetch_enrolled_factors().await
     }
 
     /// Requests a multi-factor session for subsequent operations.
-    pub fn get_session(&self) -> AuthResult<MultiFactorSession> {
-        Err(AuthError::NotImplemented("multi-factor session"))
+    pub async fn get_session(&self) -> AuthResult<MultiFactorSession> {
+        self.auth.multi_factor_session().await
+    }
+
+    /// Starts phone number enrollment by sending a verification SMS.
+    pub async fn enroll_phone_number(
+        &self,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+        display_name: Option<&str>,
+    ) -> AuthResult<ConfirmationResult> {
+        self.auth
+            .start_phone_mfa_enrollment(phone_number, verifier, display_name)
+            .await
     }
 
     /// Removes an enrolled multi-factor authenticator.
-    pub fn unenroll(&self, _factor: &MultiFactorInfo) -> AuthResult<()> {
-        Err(AuthError::NotImplemented("multi-factor unenroll"))
+    pub async fn unenroll(&self, factor_uid: &str) -> AuthResult<()> {
+        self.auth.withdraw_multi_factor(factor_uid).await
     }
 }
 

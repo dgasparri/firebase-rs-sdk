@@ -1,9 +1,10 @@
 use crate::app::FirebaseApp;
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::token_manager::{TokenManager, TokenUpdate};
+use crate::auth::types::MultiFactorInfo;
 use crate::util::PartialObserver;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -24,6 +25,7 @@ pub struct User {
     email_verified: bool,
     is_anonymous: bool,
     token_manager: TokenManager,
+    mfa_factors: Arc<Mutex<Vec<MultiFactorInfo>>>,
 }
 
 impl User {
@@ -35,6 +37,7 @@ impl User {
             email_verified: false,
             is_anonymous: false,
             token_manager: TokenManager::default(),
+            mfa_factors: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -94,6 +97,18 @@ impl User {
     /// Returns the immutable `UserInfo` profile snapshot.
     pub fn info(&self) -> &UserInfo {
         &self.info
+    }
+
+    pub(crate) fn set_email_verified(&mut self, value: bool) {
+        self.email_verified = value;
+    }
+
+    pub(crate) fn set_mfa_info(&self, factors: Vec<MultiFactorInfo>) {
+        *self.mfa_factors.lock().unwrap() = factors;
+    }
+
+    pub fn mfa_info(&self) -> Vec<MultiFactorInfo> {
+        self.mfa_factors.lock().unwrap().clone()
     }
 }
 
@@ -288,6 +303,22 @@ pub struct ProviderUserInfo {
     pub phone_number: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct MfaEnrollmentInfo {
+    #[serde(rename = "mfaEnrollmentId")]
+    pub mfa_enrollment_id: Option<String>,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "phoneInfo")]
+    pub phone_info: Option<String>,
+    #[serde(rename = "totpInfo")]
+    pub totp_info: Option<Value>,
+    #[serde(rename = "enrolledAt")]
+    pub enrolled_at: Option<Value>,
+    #[serde(rename = "factorId")]
+    pub factor_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AccountInfoUser {
     #[serde(rename = "localId")]
@@ -304,6 +335,8 @@ pub struct AccountInfoUser {
     pub phone_number: Option<String>,
     #[serde(rename = "providerUserInfo")]
     pub provider_user_info: Option<Vec<ProviderUserInfo>>,
+    #[serde(rename = "mfaInfo")]
+    pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

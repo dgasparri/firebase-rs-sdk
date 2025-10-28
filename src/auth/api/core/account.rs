@@ -1,12 +1,11 @@
-use reqwest::{Client, StatusCode};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::{
-    GetAccountInfoResponse, ProviderUserInfo, SignInWithPasswordRequest, SignInWithPasswordResponse,
+    GetAccountInfoResponse, MfaEnrollmentInfo, ProviderUserInfo, SignInWithPasswordRequest,
+    SignInWithPasswordResponse,
 };
 use crate::auth::types::{ActionCodeOperation, ActionCodeSettings};
+use reqwest::{Client, StatusCode};
+use serde::{Deserialize, Serialize};
 
 fn identity_toolkit_url(base: &str, path: &str, api_key: &str) -> String {
     format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key)
@@ -101,22 +100,6 @@ pub struct ResetPasswordResponse {
     pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct MfaEnrollmentInfo {
-    #[serde(rename = "mfaEnrollmentId")]
-    pub mfa_enrollment_id: Option<String>,
-    #[serde(rename = "displayName")]
-    pub display_name: Option<String>,
-    #[serde(rename = "phoneInfo")]
-    pub phone_info: Option<String>,
-    #[serde(rename = "totpInfo")]
-    pub totp_info: Option<Value>,
-    #[serde(rename = "enrolledAt")]
-    pub enrolled_at: Option<Value>,
-    #[serde(rename = "factorId")]
-    pub factor_id: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 pub enum UpdateString {
     Set(String),
@@ -184,6 +167,8 @@ pub struct UpdateAccountResponse {
     pub photo_url: Option<String>,
     #[serde(rename = "providerUserInfo")]
     pub provider_user_info: Option<Vec<ProviderUserInfo>>,
+    #[serde(rename = "mfaInfo")]
+    pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
 }
 
 #[derive(Debug, Deserialize)]

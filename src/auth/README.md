@@ -34,6 +34,8 @@ Coverage Highlights
   token management pipeline, keeping parity with the JS strategies while remaining async/wasm-friendly.
   - Phone number authentication now mirrors the JS confirmation flow (`signInWithPhoneNumber`, linking, reauth), using an
   async `ConfirmationResult` that plugs into pluggable application verifiers for reCAPTCHA/Play Integrity tokens.
+  - Multi-factor enrollment for phone numbers reuses the same confirmation pipeline; `Auth::multi_factor()` exposes async
+  helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape.
   - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
   `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
   without rewriting REST plumbing.
@@ -46,8 +48,8 @@ Coverage Highlights
 
 Major Gaps
 
-  - Phone/SMS authentication, multi-factor enrollment & resolution, reCAPTCHA Enterprise / Play Integrity bridges, and
-  related error types remain to be ported from the JS SDK.
+  - Multi-factor step-up during sign-in (`MultiFactorResolver`) and TOTP assertions remain to be ported, along with richer
+  error surfaces for `mfaPendingCredential` flows.
   - Browser-specific popup/redirect resolvers, iframe messaging, and storage adapters are still stubbed out; wasm
   consumers must currently supply their own handlers.
   - Advanced features such as tenant-aware auth, localization helpers, emulator tooling, token revocation APIs, and rich
@@ -55,8 +57,8 @@ Major Gaps
 
 Next Steps
 
-  1. Bring over the multi-factor (MFA) enrollment and assertion flows, extending the existing phone traits to support
-  second-factor hand-offs.
+  1. Finish the multi-factor subsystem: implement TOTP enrollment/sign-in, surface `MultiFactorResolver`, and propagate
+  `mfaPendingCredential` errors so step-up challenges integrate with the primary sign-in APIs.
   2. Deliver browser bridge crates for popup/redirect and reCAPTCHA/Play Integrity so wasm builds can reuse the higher-
   level strategies without bespoke JS glue.
   3. Expand token/error mapping plus tenant and emulator support to mirror the JS SDK, adding integration coverage once
@@ -170,6 +172,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
   - Password reset, email verification, profile/email/password updates, user deletion, and provider linking are wired via
     the Firebase Auth REST endpoints, surfaced through new `Auth` helpers. Re-authentication helpers cover both password
     and OAuth credentials.
+- **Multi-factor APIs** (`api/core/mfa.rs`, `types.rs`)
+  - Phone-based second-factor enrollment reuses the confirmation pipeline; `Auth::multi_factor()` returns a
+    `MultiFactorUser` with async helpers for session creation, enrollment, factor inspection, and unenrollment.
 - **Models & types** (`model.rs`, `types.rs`)
   - User models (`User`, `UserCredential`), provider structs (`EmailAuthProvider`), action code types, token metadata.
 - **Errors & result handling** (`error.rs`)
@@ -192,7 +197,8 @@ token handling, enabling dependent modules to retrieve `Auth` instances across n
 The JavaScript implementation is significantly broader. Missing pieces include:
 
 1. **Multi-factor authentication (MFA)**
-   - `mfa/` flows, enrollment/finalization endpoints, and resolver abstractions remain unported.
+   - TOTP enrollment/sign-in, `MultiFactorResolver`, and richer error mapping for `mfaPendingCredential` flows are still
+     missing.
 2. **Federated provider ergonomics**
    - OAuth providers (Google, Facebook, GitHub, etc.) still require provider-specific helpers, popup/redirect orchestration,
      and PKCE/account-linking nuances from the JS SDK.
