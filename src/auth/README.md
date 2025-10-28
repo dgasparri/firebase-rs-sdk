@@ -32,6 +32,8 @@ Coverage Highlights
 
   - Email/password sign-in & sign-up, custom token exchange, anonymous sessions, and email link sign-in share the same
   token management pipeline, keeping parity with the JS strategies while remaining async/wasm-friendly.
+  - Phone number authentication now mirrors the JS confirmation flow (`signInWithPhoneNumber`, linking, reauth), using an
+  async `ConfirmationResult` that plugs into pluggable application verifiers for reCAPTCHA/Play Integrity tokens.
   - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
   `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
   without rewriting REST plumbing.
@@ -53,10 +55,10 @@ Major Gaps
 
 Next Steps
 
-  1. Port the phone/MFA REST endpoints and multi-factor resolver types, designing traits that work for both native and
-  wasm targets.
-  2. Deliver browser bridge crates for popup/redirect, reCAPTCHA, and storage so wasm builds can reuse the higher-level
-  strategies without bespoke JS glue.
+  1. Bring over the multi-factor (MFA) enrollment and assertion flows, extending the existing phone traits to support
+  second-factor hand-offs.
+  2. Deliver browser bridge crates for popup/redirect and reCAPTCHA/Play Integrity so wasm builds can reuse the higher-
+  level strategies without bespoke JS glue.
   3. Expand token/error mapping plus tenant and emulator support to mirror the JS SDK, adding integration coverage once
   mocks are insufficient.
 
@@ -182,55 +184,49 @@ async fn main() -> Result<(), Box<dyn Error>> {
     default to an in-memory driver, while WASM targets can enable the `wasm-web` feature to use local/session storage
     with multi-tab coordination through the new `WebStoragePersistence` adapter.
 
-This functionality allows email/password sign-in and basic user state handling, enabling dependent modules to retrieve
-`Auth` instances.
+This functionality now covers email/password, custom token, anonymous, email-link, and phone sign-in flows with shared
+token handling, enabling dependent modules to retrieve `Auth` instances across native and wasm targets.
 
 ## Gaps vs `packages/auth`
 
 The JavaScript implementation is significantly broader. Missing pieces include:
 
 1. **Multi-factor authentication (MFA)**
-   - `mfa/` flows, second-factor enrollment, and related error handling are absent.
-2. **Credential providers**
-   - OAuth providers (Google, Facebook, GitHub, etc.), phone auth, and custom token exchange are not ported.
-3. **Persistence & storage**
-   - IndexedDB persistence and native (non-web) durable adapters are still missing. Web builds rely on `WebStoragePersistence`
-     (local/session storage) when the `wasm-web` feature is enabled; additional backends and fallbacks are needed for full parity.
-   - Consumers can wire their own persistence via `Auth::builder().with_persistence(...)` and the `ClosurePersistence`
-     helper when the platform requires bespoke storage.
-4. **Token refresh & proactive refresh**
-   - Advanced refresh orchestration, emulator hooks, and `beforeAuthStateChanged` callbacks are still outstanding.
-5. **Platform-specific implementations**
-   - Cordova, React Native, and browser-specific glue (popup/redirect flows, OAuth helpers) are not implemented.
-6. **Linking/account management**
-   - APIs for linking providers, re-authenticating, password reset, email verification, etc.
-7. **Advanced REST endpoints**
-   - Secure token exchange, custom claims, STS, and emulator support require additional REST integrations.
-8. **Testing parity**
-   - Extensive JS unit/integration tests (core, API, provider flows) have not been translated.
+   - `mfa/` flows, enrollment/finalization endpoints, and resolver abstractions remain unported.
+2. **Federated provider ergonomics**
+   - OAuth providers (Google, Facebook, GitHub, etc.) still require provider-specific helpers, popup/redirect orchestration,
+     and PKCE/account-linking nuances from the JS SDK.
+3. **Browser & hybrid platform adapters**
+   - Cordova, React Native, and browser-specific glue (navigation messaging, reCAPTCHA/Play Integrity bootstrap,
+     IndexedDB-backed persistence) are still missing; consumers must currently wire their own handlers.
+4. **Advanced account & tenant tooling**
+   - Tenant management, localization, emulator hooks, and password-policy/project-configuration endpoints have not yet
+     been ported.
+5. **Secure token & policy endpoints**
+   - Token revocation, session cookie management, custom claims, and related REST surfaces still need Rust wrappers and
+     error translation.
+6. **Testing parity**
+   - Extensive JS unit/integration suites (providers, MFA, browser strategies) still need Rust equivalents.
 
 ## Next Steps
 
-1. **Persistence layer**
-   - Add IndexedDB persistence, storage selection policies, and native (desktop/server) durability options to complement
-     the existing in-memory and web storage adapters.
-2. **Token lifecycle**
-   - Flesh out refresh observers (`beforeAuthStateChanged`), emulator behaviour, and more granular backoff/queueing.
-3. **Provider expansion**
-   - Port OAuth provider infrastructure (credential building, popup/redirect flows) and phone auth scaffolding.
-4. **Account management APIs**
-   - Add action code handling (email verification completion, password reset lookup) and richer error mapping to
-     complement the password reset / verification / update / delete / re-auth flows now available.
-5. **MFA**
-   - Bring over the MFA subsystem (enrollment, challenge, resolver objects).
-6. **Platform adapters**
-   - Add browser/React Native/Cordova specific implementations for popup/redirect handlers and persistence quirks.
-   - Provide reference crates or documentation for hooking the new OAuth handler traits into common environments (WASM,
-     desktop webviews, native mobile shells).
-   - Ship example adapters exercising the handler traits end-to-end (WASM popup, desktop redirect) to validate the API
-     surface and ease consumer adoption.
-7. **Testing**
-   - Translate core JS tests to cover sign-in flows, persistence, provider behaviour, and token refresh.
+1. **MFA**
+   - Port the multi-factor subsystem (enrollment start/finalize, assertion resolvers, error codes) and wire it into the
+     new confirmation pipeline shared by phone flows.
+2. **Federated providers**
+   - Finish the OAuth provider implementations (Google/Facebook/GitHub/etc.), including popup/redirect orchestration,
+     PKCE support, and credential/linking helpers.
+3. **Browser & hybrid adapters**
+   - Provide concrete implementations for popup/redirect handlers, reCAPTCHA/Play Integrity bootstrap, and persistence
+     quirks across web, React Native, and Cordova environments.
+4. **Tenant/emulator & policy endpoints**
+   - Surface project configuration, password policy, token revocation, and emulator-friendly toggles with rustdoc'd APIs
+     and associated error mapping.
+5. **Persistence & lifecycle**
+   - Add IndexedDB/native durable storage backends and flesh out proactive refresh observers (`beforeAuthStateChanged`).
+6. **Testing**
+   - Translate the remaining JS suites (providers, MFA, browser flows) to Rust, reusing the `httpmock` harness across
+     modules.
 
 ## Immediate Porting Focus (authenticated consumers)
 
@@ -283,7 +279,7 @@ This section tracks the JavaScript test surface in `packages/auth` and maps it t
 
 ### Next Focus
 - **Account management completeness** – Port the remaining JS tests covering profile detail reads (`profile.test.ts`), email/password helpers (`email_and_password.test.ts`), and MFA enrollment/step-up flows (`mfa.test.ts`). Fill in any missing Rust helpers (e.g., `accounts:lookup` field parity, MFA endpoints) alongside new unit tests.
-- **Authentication endpoints** – Translate the remaining REST suites (`create_auth_uri`, `custom_token`, `idp`, `sms`, `recaptcha`, `token`) by extending the mock server assertions introduced for password and account flows.
+- **Authentication endpoints** – Translate the remaining REST suites (`create_auth_uri`, `idp`, `recaptcha`, `token`, `project_config`) by extending the mock server assertions introduced for password and account flows.
 - **Core strategies & util** – Begin mapping `src/core/auth/*.test.ts` and `src/core/strategies/*.test.ts` to Rust unit tests, using the new helpers to stub token providers and persistence as needed.
 - **Browser/Platform surfaces** – After core coverage stabilises, adapt the mock pattern for browser persistence/recaptcha tests (gated behind `wasm-web`) and outline any required feature flags or stubbed APIs.
 

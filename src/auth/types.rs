@@ -2,6 +2,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::app::FirebaseApp;
@@ -188,32 +190,76 @@ pub struct AdditionalUserInfo {
     pub username: Option<String>,
 }
 
-#[derive(Clone)]
+#[cfg(target_arch = "wasm32")]
+type ConfirmationFuture = Pin<Box<dyn Future<Output = AuthResult<UserCredential>> + 'static>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+type ConfirmationFuture =
+    Pin<Box<dyn Future<Output = AuthResult<UserCredential>> + Send + 'static>>;
+
+#[cfg(target_arch = "wasm32")]
+type ConfirmationHandler = Arc<dyn Fn(&str) -> ConfirmationFuture + 'static>;
+
+#[cfg(not(target_arch = "wasm32"))]
+type ConfirmationHandler = Arc<dyn Fn(&str) -> ConfirmationFuture + Send + Sync + 'static>;
+
 pub struct ConfirmationResult {
     verification_id: String,
-    confirm_handler: Arc<dyn Fn(&str) -> AuthResult<UserCredential> + Send + Sync + 'static>,
+    confirm_handler: ConfirmationHandler,
 }
 
 impl ConfirmationResult {
     /// Creates a confirmation result that can complete sign-in with the provided handler.
-    pub fn new<F>(verification_id: String, confirm_handler: F) -> Self
+    #[cfg(target_arch = "wasm32")]
+    pub fn new<F, Fut>(verification_id: String, confirm_handler: F) -> Self
     where
-        F: Fn(&str) -> AuthResult<UserCredential> + Send + Sync + 'static,
+        F: Fn(&str) -> Fut + 'static,
+        Fut: Future<Output = AuthResult<UserCredential>> + 'static,
     {
+        let handler = move |code: &str| -> ConfirmationFuture {
+            let fut = confirm_handler(code);
+            Box::pin(fut)
+        };
         Self {
             verification_id,
-            confirm_handler: Arc::new(confirm_handler),
+            confirm_handler: Arc::new(handler),
+        }
+    }
+
+    /// Creates a confirmation result that can complete sign-in with the provided handler.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new<F, Fut>(verification_id: String, confirm_handler: F) -> Self
+    where
+        F: Fn(&str) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = AuthResult<UserCredential>> + Send + 'static,
+    {
+        let handler = move |code: &str| -> ConfirmationFuture {
+            let fut = confirm_handler(code);
+            Box::pin(fut)
+        };
+        Self {
+            verification_id,
+            confirm_handler: Arc::new(handler),
         }
     }
 
     /// Finalizes authentication by providing the SMS verification code.
-    pub fn confirm(&self, verification_code: &str) -> AuthResult<UserCredential> {
-        (self.confirm_handler)(verification_code)
+    pub async fn confirm(&self, verification_code: &str) -> AuthResult<UserCredential> {
+        (self.confirm_handler)(verification_code).await
     }
 
     /// Returns the verification ID that should be paired with the SMS code.
     pub fn verification_id(&self) -> &str {
         &self.verification_id
+    }
+}
+
+impl Clone for ConfirmationResult {
+    fn clone(&self) -> Self {
+        Self {
+            verification_id: self.verification_id.clone(),
+            confirm_handler: self.confirm_handler.clone(),
+        }
     }
 }
 
@@ -348,12 +394,15 @@ mod tests {
     use super::*;
     use crate::auth::error::AuthError;
 
-    #[test]
-    fn confirmation_result_invokes_handler() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn confirmation_result_invokes_handler() {
         let result = ConfirmationResult::new("verification_id".into(), |code| {
-            assert_eq!(code, "123456");
-            Err(AuthError::NotImplemented("test"))
+            let code = code.to_string();
+            async move {
+                assert_eq!(code, "123456");
+                Err(AuthError::NotImplemented("test"))
+            }
         });
-        assert!(result.confirm("123456").is_err());
+        assert!(result.confirm("123456").await.is_err());
     }
 }

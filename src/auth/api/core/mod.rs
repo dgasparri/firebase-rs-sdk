@@ -10,6 +10,7 @@ use serde_json::Value;
 
 mod account;
 mod idp;
+mod phone;
 pub mod token;
 
 use crate::app::{AppError, FirebaseApp, LOGGER as APP_LOGGER};
@@ -36,7 +37,7 @@ use crate::auth::persistence::{
 };
 use crate::auth::types::{
     ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl,
-    MultiFactorInfo,
+    ApplicationVerifier, ConfirmationResult, MultiFactorInfo,
 };
 use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
@@ -54,19 +55,35 @@ use account::{
     UpdateAccountRequest, UpdateAccountResponse, UpdateString,
 };
 use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
+use phone::{
+    link_with_phone_number as api_link_with_phone_number, send_phone_verification_code,
+    sign_in_with_phone_number as api_sign_in_with_phone_number, verify_phone_number_for_existing,
+    PhoneSignInResponse, SendPhoneVerificationCodeRequest, SignInWithPhoneNumberRequest,
+};
 
 const DEFAULT_OAUTH_REQUEST_URI: &str = "http://localhost";
 const DEFAULT_IDENTITY_TOOLKIT_ENDPOINT: &str = "https://identitytoolkit.googleapis.com/v1";
+const PHONE_PROVIDER_ID: &str = "phone";
+const CLIENT_TYPE_WEB: &str = "CLIENT_TYPE_WEB";
+const RECAPTCHA_ENTERPRISE: &str = "RECAPTCHA_ENTERPRISE";
 
 struct SignInResponsePayload<'a> {
     local_id: &'a str,
     email: Option<&'a str>,
+    phone_number: Option<&'a str>,
     id_token: &'a str,
     refresh_token: &'a str,
     expires_in: Option<&'a str>,
     provider_id: Option<&'a str>,
     operation: &'a str,
     anonymous: bool,
+}
+
+#[derive(Clone)]
+enum PhoneFinalization {
+    SignIn,
+    Link { id_token: String },
+    Reauth { id_token: String },
 }
 
 pub struct Auth {
@@ -217,6 +234,7 @@ impl Auth {
         let payload = SignInResponsePayload {
             local_id: &response.local_id,
             email: Some(&response.email),
+            phone_number: None,
             id_token: &response.id_token,
             refresh_token: &response.refresh_token,
             expires_in: Some(&response.expires_in),
@@ -262,6 +280,7 @@ impl Auth {
         let payload = SignInResponsePayload {
             local_id,
             email: Some(response_email),
+            phone_number: None,
             id_token,
             refresh_token,
             expires_in,
@@ -314,6 +333,7 @@ impl Auth {
         let payload = SignInResponsePayload {
             local_id,
             email,
+            phone_number: None,
             id_token,
             refresh_token,
             expires_in,
@@ -368,6 +388,7 @@ impl Auth {
         let payload = SignInResponsePayload {
             local_id,
             email: None,
+            phone_number: None,
             id_token,
             refresh_token,
             expires_in,
@@ -377,6 +398,44 @@ impl Auth {
         };
 
         self.finalize_sign_in(payload)
+    }
+
+    /// Starts a phone number sign-in flow, returning a confirmation handle.
+    pub async fn sign_in_with_phone_number(
+        self: &Arc<Self>,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+    ) -> AuthResult<ConfirmationResult> {
+        self.start_phone_flow(phone_number, verifier, PhoneFinalization::SignIn)
+            .await
+    }
+
+    /// Links the currently signed-in account with the provided phone number.
+    pub async fn link_with_phone_number(
+        self: &Arc<Self>,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+    ) -> AuthResult<ConfirmationResult> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        self.start_phone_flow(phone_number, verifier, PhoneFinalization::Link { id_token })
+            .await
+    }
+
+    /// Reauthenticates the current user via an SMS verification code.
+    pub async fn reauthenticate_with_phone_number(
+        self: &Arc<Self>,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+    ) -> AuthResult<ConfirmationResult> {
+        let user = self.require_current_user()?;
+        let id_token = user.get_id_token(false)?;
+        self.start_phone_flow(
+            phone_number,
+            verifier,
+            PhoneFinalization::Reauth { id_token },
+        )
+        .await
     }
 
     /// Registers an observer that is invoked whenever auth state changes.
@@ -431,18 +490,95 @@ impl Auth {
             .map_err(|err| AuthError::Network(err.to_string()))
     }
 
+    async fn start_phone_flow(
+        self: &Arc<Self>,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+        flow: PhoneFinalization,
+    ) -> AuthResult<ConfirmationResult> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = self.build_phone_verification_request(phone_number, verifier)?;
+        let response =
+            send_phone_verification_code(&self.rest_client, &endpoint, &api_key, &request).await?;
+
+        let verification_id = response.session_info;
+        let session_info = Arc::new(verification_id.clone());
+        let auth = Arc::clone(self);
+        let flow_holder = Arc::new(flow);
+
+        Ok(ConfirmationResult::new(
+            verification_id,
+            move |code: &str| {
+                let auth = Arc::clone(&auth);
+                let session = Arc::clone(&session_info);
+                let flow = Arc::clone(&flow_holder);
+                let code = code.to_owned();
+                async move {
+                    Auth::finalize_phone_confirmation(
+                        auth,
+                        (*session).clone(),
+                        code,
+                        (*flow).clone(),
+                    )
+                    .await
+                }
+            },
+        ))
+    }
+
+    fn build_phone_verification_request(
+        &self,
+        phone_number: &str,
+        verifier: Arc<dyn ApplicationVerifier>,
+    ) -> AuthResult<SendPhoneVerificationCodeRequest> {
+        let token = verifier.verify()?;
+        let verifier_type = verifier.verifier_type().to_lowercase();
+        let mut request = SendPhoneVerificationCodeRequest {
+            phone_number: phone_number.to_string(),
+            ..Default::default()
+        };
+
+        match verifier_type.as_str() {
+            "recaptcha" | "recaptcha-v2" => {
+                request.recaptcha_token = Some(token);
+            }
+            "recaptcha-enterprise" => {
+                request.captcha_response = Some(token);
+                request.client_type = Some(CLIENT_TYPE_WEB.to_string());
+                request.recaptcha_version = Some(RECAPTCHA_ENTERPRISE.to_string());
+            }
+            other => {
+                request.captcha_response = Some(token);
+                request.client_type = Some(other.to_string());
+            }
+        }
+
+        if request.client_type.is_none() {
+            request.client_type = Some(CLIENT_TYPE_WEB.to_string());
+        }
+
+        Ok(request)
+    }
+
     fn endpoint_url(&self, path: &str, api_key: &str) -> AuthResult<Url> {
         let base = self.identity_toolkit_endpoint();
         let endpoint = format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key);
         Url::parse(&endpoint).map_err(|err| AuthError::Network(err.to_string()))
     }
 
-    fn build_user(&self, local_id: &str, email: Option<&str>, provider_id: Option<&str>) -> User {
+    fn build_user(
+        &self,
+        local_id: &str,
+        email: Option<&str>,
+        phone_number: Option<&str>,
+        provider_id: Option<&str>,
+    ) -> User {
         let info = UserInfo {
             uid: local_id.to_string(),
             display_name: None,
             email: email.map(|value| value.to_string()),
-            phone_number: None,
+            phone_number: phone_number.map(|value| value.to_string()),
             photo_url: None,
             provider_id: provider_id
                 .unwrap_or(EmailAuthProvider::PROVIDER_ID)
@@ -455,6 +591,7 @@ impl Auth {
         let SignInResponsePayload {
             local_id,
             email,
+            phone_number,
             id_token,
             refresh_token,
             expires_in,
@@ -463,7 +600,7 @@ impl Auth {
             anonymous,
         } = payload;
 
-        let mut user = self.build_user(local_id, email, provider_id);
+        let mut user = self.build_user(local_id, email, phone_number, provider_id);
         user.set_anonymous(anonymous);
         let expiration = expires_in
             .map(|value| self.parse_expires_in(value))
@@ -483,6 +620,82 @@ impl Auth {
             provider_id: provider_id.map(|id| id.to_string()),
             operation_type: Some(operation.to_string()),
         })
+    }
+
+    async fn finalize_phone_confirmation(
+        self: Arc<Self>,
+        session_info: String,
+        verification_code: String,
+        flow: PhoneFinalization,
+    ) -> AuthResult<UserCredential> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let mut request = SignInWithPhoneNumberRequest::default();
+        request.session_info = Some(session_info);
+        request.code = Some(verification_code);
+
+        let response = match &flow {
+            PhoneFinalization::SignIn => {
+                api_sign_in_with_phone_number(&self.rest_client, &endpoint, &api_key, &request)
+                    .await?
+            }
+            PhoneFinalization::Link { id_token } => {
+                request.id_token = Some(id_token.clone());
+                api_link_with_phone_number(&self.rest_client, &endpoint, &api_key, &request).await?
+            }
+            PhoneFinalization::Reauth { id_token } => {
+                request.id_token = Some(id_token.clone());
+                verify_phone_number_for_existing(&self.rest_client, &endpoint, &api_key, &request)
+                    .await?
+            }
+        };
+
+        self.handle_phone_response(response, flow)
+    }
+
+    fn handle_phone_response(
+        &self,
+        response: PhoneSignInResponse,
+        flow: PhoneFinalization,
+    ) -> AuthResult<UserCredential> {
+        let local_id = response
+            .local_id
+            .ok_or_else(|| AuthError::InvalidCredential("Missing localId".into()))?;
+        let id_token = response
+            .id_token
+            .ok_or_else(|| AuthError::InvalidCredential("Missing idToken".into()))?;
+        let refresh_token = response
+            .refresh_token
+            .ok_or_else(|| AuthError::InvalidCredential("Missing refreshToken".into()))?;
+        let expires_in = response.expires_in;
+        let phone_number = response.phone_number;
+        let is_new_user = response.is_new_user.unwrap_or(false);
+
+        let operation = match flow {
+            PhoneFinalization::SignIn => {
+                if is_new_user {
+                    "signUp"
+                } else {
+                    "signIn"
+                }
+            }
+            PhoneFinalization::Link { .. } => "link",
+            PhoneFinalization::Reauth { .. } => "reauthenticate",
+        };
+
+        let payload = SignInResponsePayload {
+            local_id: local_id.as_str(),
+            email: None,
+            phone_number: phone_number.as_deref(),
+            id_token: id_token.as_str(),
+            refresh_token: refresh_token.as_str(),
+            expires_in: expires_in.as_deref(),
+            provider_id: Some(PHONE_PROVIDER_ID),
+            operation,
+            anonymous: false,
+        };
+
+        self.finalize_sign_in(payload)
     }
 
     fn map_mfa_info(entries: &[MfaEnrollmentInfo]) -> Option<MultiFactorInfo> {
@@ -791,6 +1004,7 @@ impl Auth {
         let payload = SignInResponsePayload {
             local_id,
             email: Some(response_email),
+            phone_number: None,
             id_token,
             refresh_token,
             expires_in,
@@ -1074,6 +1288,7 @@ impl Auth {
         let mut user = self.build_user(
             &response.local_id,
             Some(&response.email),
+            None,
             Some(EmailAuthProvider::PROVIDER_ID),
         );
         user.set_anonymous(false);
@@ -1560,7 +1775,9 @@ pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::auth::types::{ActionCodeSettings, AndroidSettings, IosSettings};
+    use crate::auth::types::{
+        ActionCodeSettings, AndroidSettings, ApplicationVerifier, IosSettings,
+    };
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
     use httpmock::prelude::*;
     use serde_json::json;
@@ -1578,6 +1795,21 @@ mod tests {
     const GOOGLE_PROVIDER_ID: &str = "google.com";
     const UPDATED_ID_TOKEN: &str = "updated-id-token";
     const UPDATED_REFRESH_TOKEN: &str = "updated-refresh-token";
+
+    struct StaticVerifier {
+        token: &'static str,
+        kind: &'static str,
+    }
+
+    impl ApplicationVerifier for StaticVerifier {
+        fn verify(&self) -> AuthResult<String> {
+            Ok(self.token.to_string())
+        }
+
+        fn verifier_type(&self) -> &str {
+            self.kind
+        }
+    }
 
     fn build_auth(server: &MockServer) -> Arc<Auth> {
         Auth::builder(test_firebase_app_with_api_key(TEST_API_KEY))
@@ -1965,6 +2197,68 @@ mod tests {
 
         mock.assert();
         assert_eq!(email, TEST_EMAIL);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sign_in_with_phone_number_flow() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let verifier: Arc<dyn ApplicationVerifier> = Arc::new(StaticVerifier {
+            token: "recaptcha-token",
+            kind: "recaptcha",
+        });
+
+        let send_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:sendVerificationCode")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "phoneNumber": "+15551234567",
+                    "recaptchaToken": "recaptcha-token",
+                    "clientType": CLIENT_TYPE_WEB
+                }));
+            then.status(200)
+                .json_body(json!({ "sessionInfo": "session-info" }));
+        });
+
+        let confirmation = auth
+            .sign_in_with_phone_number("+15551234567", verifier.clone())
+            .await
+            .expect("send verification should succeed");
+        send_mock.assert();
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPhoneNumber")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "sessionInfo": "session-info",
+                    "code": "123456"
+                }));
+            then.status(200).json_body(json!({
+                "localId": "phone-uid",
+                "idToken": "phone-id-token",
+                "refreshToken": "phone-refresh-token",
+                "expiresIn": "3600",
+                "phoneNumber": "+15551234567",
+                "isNewUser": false
+            }));
+        });
+
+        let credential = confirmation
+            .confirm("123456")
+            .await
+            .expect("phone confirmation should succeed");
+        finalize_mock.assert();
+
+        assert_eq!(credential.user.uid(), "phone-uid");
+        assert_eq!(credential.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
+        assert_eq!(credential.operation_type.as_deref(), Some("signIn"));
+        assert_eq!(
+            credential.user.info().phone_number.as_deref(),
+            Some("+15551234567")
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
