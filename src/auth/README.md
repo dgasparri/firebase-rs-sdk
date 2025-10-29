@@ -190,6 +190,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
   - WebAuthn metadata (allow credentials, authenticator transports, attestation public keys) is exposed via typed
     accessors on `WebAuthnSignInChallenge`, `WebAuthnAssertionResponse`, and `WebAuthnAttestationResponse`, matching the
     modular JS surface.
+  - Multi-factor hints mirror the JS ordering by sorting enrolled factors by their `enrolledAt` timestamp while preserving
+    server display names for clearer resolver UX.
   - Helper methods such as `challenge.challenge_bytes()` and `response.with_signature(...)` simplify the bridge between
     browser WebAuthn APIs and `MultiFactorResolver::resolve_sign_in`. See `examples/auth_passkey_roundtrip.rs` for a
     complete passkey resolver round trip.

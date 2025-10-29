@@ -1,3 +1,4 @@
+use std::cmp::Ordering as CmpOrdering;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -1345,10 +1346,33 @@ impl Auth {
     }
 
     fn convert_mfa_entries(entries: &[MfaEnrollmentInfo]) -> Vec<MultiFactorInfo> {
-        entries
+        let mut indexed: Vec<_> = entries
             .iter()
-            .filter_map(MultiFactorInfo::from_enrollment)
+            .enumerate()
+            .map(|(index, entry)| (index, Self::enrollment_timestamp(entry), entry))
+            .collect();
+
+        indexed.sort_by(|(idx_a, ts_a, _), (idx_b, ts_b, _)| match (ts_a, ts_b) {
+            (Some(a), Some(b)) => match a.cmp(b) {
+                CmpOrdering::Equal => idx_a.cmp(idx_b),
+                other => other,
+            },
+            (Some(_), None) => CmpOrdering::Less,
+            (None, Some(_)) => CmpOrdering::Greater,
+            (None, None) => idx_a.cmp(idx_b),
+        });
+
+        indexed
+            .into_iter()
+            .filter_map(|(_, _, entry)| MultiFactorInfo::from_enrollment(entry))
             .collect()
+    }
+
+    fn enrollment_timestamp(entry: &MfaEnrollmentInfo) -> Option<String> {
+        entry.enrolled_at.as_ref().map(|value| match value {
+            serde_json::Value::String(text) => text.clone(),
+            other => other.to_string(),
+        })
     }
 
     fn build_multi_factor_error(
@@ -3215,6 +3239,63 @@ mod tests {
         assert_eq!(
             result.user.token_manager().refresh_token(),
             Some("passkey-refresh-token".to_string())
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn multi_factor_hints_sorted_by_enrollment_time() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let sign_in_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": TEST_EMAIL,
+                    "password": TEST_PASSWORD,
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "mfaPendingCredential": "PENDING_SORT",
+                "mfaInfo": [
+                    {
+                        "mfaEnrollmentId": "second",
+                        "displayName": "Security Key",
+                        "factorId": "webauthn",
+                        "webauthnInfo": { "displayName": "Security Key" },
+                        "enrolledAt": "2024-06-05T10:00:00Z"
+                    },
+                    {
+                        "mfaEnrollmentId": "first",
+                        "displayName": "Phone",
+                        "phoneInfo": "+15551234567",
+                        "enrolledAt": "2023-01-01T00:00:00Z"
+                    }
+                ]
+            }));
+        });
+
+        let error = auth
+            .sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD)
+            .await
+            .expect_err("expected multi-factor challenge");
+
+        sign_in_mock.assert();
+
+        let firebase_auth = FirebaseAuth::new(auth.clone());
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
+            .expect("resolver should be constructed");
+
+        assert_eq!(resolver.hints().len(), 2);
+        assert_eq!(resolver.hints()[0].uid, "first");
+        assert_eq!(resolver.hints()[0].display_name.as_deref(), Some("Phone"));
+        assert_eq!(resolver.hints()[1].uid, "second");
+        assert_eq!(
+            resolver.hints()[1].display_name.as_deref(),
+            Some("Security Key")
         );
     }
 
