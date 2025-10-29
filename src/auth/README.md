@@ -187,6 +187,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
   - Passkey/WebAuthn factors provide typed challenge retrieval (`WebAuthnSignInChallenge`) and assertion finalisation via
     `WebAuthnMultiFactorGenerator`, and now cover both sign-in and enrollment flows through
     `MultiFactorResolver::start_passkey_sign_in` and `MultiFactorUser::start_passkey_enrollment`.
+  - WebAuthn metadata (allow credentials, authenticator transports, attestation public keys) is exposed via typed
+    accessors on `WebAuthnSignInChallenge`, `WebAuthnAssertionResponse`, and `WebAuthnAttestationResponse`, matching the
+    modular JS surface.
   - TOTP enrollment/sign-in flows are supported via `TotpMultiFactorGenerator`, including secret generation helpers and
     resolver integration during multi-factor sign-in.
 - **Phone provider utilities** (`phone/`)
@@ -215,7 +218,8 @@ token handling, enabling dependent modules to retrieve `Auth` instances across n
 The JavaScript implementation is significantly broader. Missing pieces include:
 
 1. **Multi-factor authentication (MFA)**
-   - Extend support to additional factor types such as passkeys/WebAuthn and align metadata handling with the JS SDK.
+   - Expand passkey support with platform-specific ceremony helpers (popup/redirect, conditional UI) and extend TOTP/WebAuthn
+     error mapping.
 2. **Federated provider ergonomics**
    - OAuth providers (Google, Facebook, GitHub, etc.) still require provider-specific helpers, popup/redirect orchestration,
      and PKCE/account-linking nuances from the JS SDK.

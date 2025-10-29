@@ -2184,13 +2184,17 @@ IMPORTANT
   1. WebAuthn Metadata Parity – The JS SDK exposes full assertion/attestation payloads (authCredential.response,
   user handle, allowCredentials). We currently wrap them as raw JSON. Adding typed accessors (credentialPublicKey,
   transports, allowCredentials) would make the Rust API easier to consume and match the modular JS surface.
+
+
   2. Enrollment Display Names & Factor Ordering – In JS, MultiFactorInfo sorts factors by enrollment timestamp and
   consistently surfaces display names. We already pull WebAuthn display names; we could add the same ordering and ensure
   hints maintain the server ordering.
-  3. Docs & Examples – Provide a concise WebAuthn example in the auth README or an examples/auth_passkey.rs, showing
+  NO 3. Docs & Examples – Provide a concise WebAuthn example in the auth README or an examples/auth_passkey.rs, showing
   start_passkey_enrollment + assertion_for_enrollment usage, similar to the JS quick start.
+  
   4. Negative-path tests – Port the JS resolver tests that cover missing/invalid WebAuthn payloads (e.g. auth/missing-
   multi-factor-info) to ensure our typed error mapping holds up under failure modes.
+  
   5. Passkey Linking Flow – JS allows linking passkeys after sign-in. We can add linkWithMultiFactor coverage by reusing
   the new enrollment helpers so the factor attaches to the existing credential.
 
@@ -2220,3 +2224,30 @@ In the auth module, Finish WebAuthn Metadata Parity – The JS SDK exposes full 
 ▌ (credentialPublicKey,   transports, allowCredentials) would make the Rust API easier to consume and match the modular
 ▌ JS surface.
 
+
+
+Updated Plan
+  └ ✔ Inspect existing WebAuthn structures to identify missing metadata accessors and relevant JS references
+    ✔ Implement typed accessors for WebAuthn challenges and responses, with tests and docs
+    ✔ Run formatter/tests and update auth README to reflect metadata parity
+
+• Explored
+  └ Read types.rs, README.md
+
+> Thinking
+  I’m putting together a clear final response that highlights the new WebAuthn-related types and methods, with precise
+  file and line references. I’ll include the test command cargo test webauthn_ and note the README updates, referencing
+  specific lines to ensure thorough documentation for the user.
+
+> Key Changes
+
+  - Added WebAuthnTransport and WebAuthnCredentialDescriptor plus an allow_credentials() helper so sign-in challenges
+  surface typed credential metadata instead of raw JSON (src/auth/types.rs:728, src/auth/types.rs:876).
+  - Extended WebAuthn responses with accessor methods for authenticator data, signatures, credential public keys, and
+  declared transports to mirror the JS SDK surface (src/auth/types.rs:970, src/auth/types.rs:1018).
+  - Backed the new API with unit coverage to guard JSON parsing edge cases and keep metadata parity (src/auth/
+  types.rs:1505).
+  - Documented the richer WebAuthn support in the auth module README and narrowed the remaining MFA gap description
+  (src/auth/README.md:181, src/auth/README.md:220).
+
+  Tests

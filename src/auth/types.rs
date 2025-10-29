@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
@@ -16,7 +17,6 @@ use crate::auth::model::{MfaEnrollmentInfo, User, UserCredential};
 use crate::auth::phone::PhoneAuthCredential;
 use crate::auth::PHONE_PROVIDER_ID;
 use crate::util::PartialObserver;
-use std::fmt;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdTokenResult {
@@ -725,6 +725,115 @@ impl TotpMultiFactorGenerator {
 
 pub const WEBAUTHN_FACTOR_ID: &str = "webauthn";
 
+/// The transport mechanisms declared for a WebAuthn credential.
+///
+/// Mirrors the identifiers returned by the WebAuthn browser APIs and exposed by the Firebase
+/// JS SDK (`packages/auth/src/model/public_types.ts`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum WebAuthnTransport {
+    Usb,
+    Nfc,
+    Ble,
+    Internal,
+    Cable,
+    Hybrid,
+    /// A transport identifier that is not yet known to this SDK.
+    Unknown(String),
+}
+
+impl WebAuthnTransport {
+    fn from_raw(value: &str) -> Self {
+        match value {
+            "usb" => WebAuthnTransport::Usb,
+            "nfc" => WebAuthnTransport::Nfc,
+            "ble" => WebAuthnTransport::Ble,
+            "internal" => WebAuthnTransport::Internal,
+            "cable" => WebAuthnTransport::Cable,
+            "hybrid" => WebAuthnTransport::Hybrid,
+            other => WebAuthnTransport::Unknown(other.to_string()),
+        }
+    }
+
+    /// Returns the string identifier used by the underlying WebAuthn API.
+    pub fn as_str(&self) -> &str {
+        match self {
+            WebAuthnTransport::Usb => "usb",
+            WebAuthnTransport::Nfc => "nfc",
+            WebAuthnTransport::Ble => "ble",
+            WebAuthnTransport::Internal => "internal",
+            WebAuthnTransport::Cable => "cable",
+            WebAuthnTransport::Hybrid => "hybrid",
+            WebAuthnTransport::Unknown(value) => value.as_str(),
+        }
+    }
+}
+
+impl fmt::Display for WebAuthnTransport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+fn parse_transports(value: &Value) -> Vec<WebAuthnTransport> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|transport| transport.as_str())
+                .map(WebAuthnTransport::from_raw)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Descriptor describing a credential that can satisfy a WebAuthn challenge.
+///
+/// Follows the shape returned by the Identity Toolkit API and exposed by the modular JS SDK
+/// (`PublicKeyCredentialDescriptor` in
+/// `packages/auth/src/model/public_types.ts`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WebAuthnCredentialDescriptor {
+    id: String,
+    cred_type: String,
+    transports: Vec<WebAuthnTransport>,
+}
+
+impl WebAuthnCredentialDescriptor {
+    fn from_json(value: &Value) -> Option<Self> {
+        let id = value.get("id")?.as_str()?.to_string();
+        let cred_type = value
+            .get("type")
+            .and_then(|candidate| candidate.as_str())
+            .unwrap_or("public-key")
+            .to_string();
+        let transports = value
+            .get("transports")
+            .map(parse_transports)
+            .unwrap_or_default();
+        Some(Self {
+            id,
+            cred_type,
+            transports,
+        })
+    }
+
+    /// Returns the base64url encoded credential identifier.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Returns the credential type (usually `"public-key"`).
+    pub fn credential_type(&self) -> &str {
+        &self.cred_type
+    }
+
+    /// Returns the transports declared for this credential.
+    pub fn transports(&self) -> &[WebAuthnTransport] {
+        &self.transports
+    }
+}
+
 pub struct WebAuthnMultiFactorGenerator;
 
 impl WebAuthnMultiFactorGenerator {
@@ -762,6 +871,20 @@ impl WebAuthnSignInChallenge {
         self.payload
             .get("userHandle")
             .and_then(|value| value.as_str())
+    }
+
+    /// Returns the credential descriptors that can satisfy this challenge.
+    pub fn allow_credentials(&self) -> Vec<WebAuthnCredentialDescriptor> {
+        self.payload
+            .get("allowCredentials")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(WebAuthnCredentialDescriptor::from_json)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn as_raw(&self) -> &Value {
@@ -857,6 +980,27 @@ impl WebAuthnAssertionResponse {
             .and_then(|value| value.as_str())
     }
 
+    /// Returns the authenticator data associated with the assertion response.
+    pub fn authenticator_data(&self) -> Option<&str> {
+        self.payload
+            .get("authenticatorData")
+            .and_then(|value| value.as_str())
+    }
+
+    /// Returns the raw signature produced by the authenticator, base64url encoded.
+    pub fn signature(&self) -> Option<&str> {
+        self.payload
+            .get("signature")
+            .and_then(|value| value.as_str())
+    }
+
+    /// Returns the optional user handle provided by the authenticator.
+    pub fn user_handle(&self) -> Option<&str> {
+        self.payload
+            .get("userHandle")
+            .and_then(|value| value.as_str())
+    }
+
     pub fn as_raw(&self) -> &Value {
         &self.payload
     }
@@ -882,6 +1026,28 @@ impl WebAuthnAttestationResponse {
         self.payload
             .get("clientDataJSON")
             .and_then(|value| value.as_str())
+    }
+
+    /// Returns the attestation object emitted by the authenticator, base64url encoded.
+    pub fn attestation_object(&self) -> Option<&str> {
+        self.payload
+            .get("attestationObject")
+            .and_then(|value| value.as_str())
+    }
+
+    /// Returns the credential public key when provided by the platform authenticator.
+    pub fn credential_public_key(&self) -> Option<&str> {
+        self.payload
+            .get("credentialPublicKey")
+            .and_then(|value| value.as_str())
+    }
+
+    /// Returns the transports declared by the authenticator for the newly enrolled credential.
+    pub fn transports(&self) -> Vec<WebAuthnTransport> {
+        self.payload
+            .get("transports")
+            .map(parse_transports)
+            .unwrap_or_default()
     }
 
     pub fn as_raw(&self) -> &Value {
@@ -1340,6 +1506,7 @@ pub fn get_multi_factor_resolver(
 mod tests {
     use super::*;
     use crate::auth::error::AuthError;
+    use serde_json::json;
 
     #[tokio::test(flavor = "current_thread")]
     async fn confirmation_result_invokes_handler() {
@@ -1351,5 +1518,77 @@ mod tests {
             }
         });
         assert!(result.confirm("123456").await.is_err());
+    }
+
+    #[test]
+    fn webauthn_sign_in_challenge_accessors() {
+        let payload = json!({
+            "challenge": "ABC",
+            "rpId": "example.com",
+            "userHandle": "user-handle",
+            "allowCredentials": [
+                {
+                    "type": "public-key",
+                    "id": "cred-1",
+                    "transports": ["usb", "internal"]
+                },
+                {
+                    "type": "public-key",
+                    "id": "cred-2"
+                }
+            ]
+        });
+
+        let challenge = WebAuthnSignInChallenge::from_value(payload).expect("valid challenge");
+        let allow = challenge.allow_credentials();
+        assert_eq!(allow.len(), 2);
+        assert_eq!(allow[0].id(), "cred-1");
+        assert_eq!(allow[0].credential_type(), "public-key");
+        assert_eq!(
+            allow[0].transports(),
+            &[WebAuthnTransport::Usb, WebAuthnTransport::Internal]
+        );
+        assert_eq!(allow[1].id(), "cred-2");
+        assert!(allow[1].transports().is_empty());
+        assert_eq!(challenge.user_handle(), Some("user-handle"));
+    }
+
+    #[test]
+    fn webauthn_attestation_response_accessors() {
+        let payload = json!({
+            "credentialId": "cred-123",
+            "clientDataJSON": "BASE64CLIENT",
+            "attestationObject": "ATTEST",
+            "credentialPublicKey": "PUBKEY",
+            "transports": ["nfc", "unknown"]
+        });
+
+        let response = WebAuthnAttestationResponse::try_from(payload).expect("attestation");
+        assert_eq!(response.credential_id(), Some("cred-123"));
+        assert_eq!(response.client_data_json(), Some("BASE64CLIENT"));
+        assert_eq!(response.attestation_object(), Some("ATTEST"));
+        assert_eq!(response.credential_public_key(), Some("PUBKEY"));
+        let transports = response.transports();
+        assert_eq!(transports.len(), 2);
+        assert_eq!(transports[0], WebAuthnTransport::Nfc);
+        assert_eq!(transports[1].as_str(), "unknown");
+    }
+
+    #[test]
+    fn webauthn_assertion_response_accessors() {
+        let payload = json!({
+            "credentialId": "cred-abc",
+            "clientDataJSON": "CLIENT",
+            "authenticatorData": "AUTH_DATA",
+            "signature": "SIG",
+            "userHandle": "USER"
+        });
+
+        let response = WebAuthnAssertionResponse::try_from(payload).expect("assertion");
+        assert_eq!(response.credential_id(), Some("cred-abc"));
+        assert_eq!(response.client_data_json(), Some("CLIENT"));
+        assert_eq!(response.authenticator_data(), Some("AUTH_DATA"));
+        assert_eq!(response.signature(), Some("SIG"));
+        assert_eq!(response.user_handle(), Some("USER"));
     }
 }
