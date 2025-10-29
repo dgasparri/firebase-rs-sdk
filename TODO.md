@@ -1,5 +1,7 @@
 # Miscellaneous TODO
 
+Dump file, ignore it
+
 ## WASM and async
 
 WASM parity 
@@ -51,6 +53,8 @@ tokei src
 
 Mostra file, linguaggio, code/commenti/blank e rispetta in genere i pattern ignorati comuni.
 
+
+auth/README.md what's implemented
 
 
 ## Blocking

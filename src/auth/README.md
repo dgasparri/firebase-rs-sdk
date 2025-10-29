@@ -14,69 +14,14 @@ It includes error handling, configuration options, and integration with Firebase
 - Refresh and manage ID tokens, exposing them through the AuthTokenProvider bridge for other services.
 - Access provider helpers (e.g., EmailAuthProvider) and user profile updates, matching the JS API ergonomics.
 
-## Porting status
+## Porting Status
 
 - auth 82% `[########  ]`
 
-==As of October 21th, 2025== 
-
-Prompt: Compare the original JS/Typescript files in ./packages/auth and the ported files in Rust in ./src/auth, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
-
-Porting Estimate
-
-  - Roughly ~82% parity: Rust now covers email/password flows, custom-token and anonymous authentication, email link
-  actions, account management, persistence, Secure Token refresh, and the complete multi-factor surface (phone, TOTP,
-  passkey) including sign-in, link, and reauthentication flows. Outstanding work now focuses on browser ceremony helpers,
-  tenant/emulator tooling, and richer provider ergonomics (packages/auth/src/api/index.ts:56,
-  packages/auth/src/core/index.ts:292).
-
-Coverage Highlights
-
-  - Email/password sign-in & sign-up, custom token exchange, anonymous sessions, and email link sign-in share the same
-  token management pipeline, keeping parity with the JS strategies while remaining async/wasm-friendly.
-  - Phone number authentication now mirrors the JS confirmation flow (`signInWithPhoneNumber`, linking, reauth), using an
-  async `ConfirmationResult` that plugs into pluggable application verifiers for reCAPTCHA/Play Integrity tokens.
-  - Multi-factor enrollment for phone numbers reuses the same confirmation pipeline; `Auth::multi_factor()` exposes async
-  helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape. Passkey/WebAuthn
-  and TOTP enrollment/sign-in are parity-complete, including resolver-driven sign-in, linking, and reauthentication.
-  - Federated OAuth providers (Google, Facebook, GitHub, Twitter, Microsoft) include default scopes, PKCE support, and
-  helper methods for popup/redirect flows plus link/reauth coverage. WASM hosts can reuse the
-  `examples/auth_oauth_popup_wasm.rs` sample to wire popup handlers and conditional passkey UI through JS.
-  - `PhoneAuthProvider` mirrors the JS provider API, exposing verification helpers plus credential-based sign-in/link/reauth
-  flows for SMS codes alongside the `sign_in_with_phone_number` convenience wrappers.
-  - Phone and passkey MFA sign-in/link flows are covered end-to-end (`multi_factor_phone_enrollment_flow`,
-    `passkey_multi_factor_link_flow`, etc.), providing the building blocks needed for higher-level resolver UX.
-  - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
-  `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
-  without rewriting REST plumbing.
-  - Account mutation APIs (profile/email/password updates, deletion, provider unlinking, reauthentication) remain feature
-  complete relative to the JS REST surface, and listeners/persistence continue to mirror identity updates.
-  - Persistence, Secure Token refresh, and OAuth scaffolding stay platform-agnostic, with IndexedDB-backed storage
-  available behind the `wasm-web` feature for browser builds.
-  - Extensive httpmock-backed unit tests exercise request payloads and token refresh logic to guard against regressions
-  (requires loopback sockets when executed locally).
-
-Major Gaps
-
-  - Browser/Web ceremony helpers remain minimal: popup/redirect orchestration, conditional UI for passkeys, and
-    reCAPTCHA/Play Integrity bootstrap still require consumer-provided glue despite hooks in the core APIs.
-  - Advanced admin surfaces such as tenant-aware auth, emulator toggles, localization helpers, password-policy endpoints,
-    and token revocation/session cookie flows remain unported.
-  - Provider ergonomics beyond the REST primitives—credential serialization, full OAuth provider builders, and durable
-    redirect storage integrations—lag behind the JS SDK.
-
-Next Steps
-
-  1. **Browser bridge crates** – Deliver popup/redirect + conditional UI adapters for WASM targets so OAuth and passkey
-     flows operate with minimal consumer glue (including reCAPTCHA/Play Integrity bootstrapping).
-  2. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
-     emulator toggles with rustdoc’d APIs and examples, ensuring they interoperate with existing MFA resolvers.
-  3. **Provider ergonomics** – Finish porting provider helpers (Google/Facebook/etc.), credential serializers, and session
-     cookie utilities to reach the JS SDK developer experience across platforms.
-  4. **Testing/documentation sweep** – Port the remaining JS browser/resolver suites and expand docs to cover advanced
-     scenarios (emulators, multi-tenant usage, popup/redirect best practices).
-
-
+- Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth) for details)
+- Tests: httpmock-backed unit suite expanded (requires loopback binding when run locally)
+- Documentation: Most public functions are documented
+- Examples: 1 provided
 
 ## References to the Firebase JS SDK - firestore module
 
@@ -85,18 +30,10 @@ Next Steps
 - Github Repo - Module: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/auth>
 - Github Repo - API: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/firebase/auth>
 
-## Development status as of 14th October 2025
-
-- Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth) for details)
-- Tests: httpmock-backed unit suite expanded (requires loopback binding when run locally)
-- Documentation: Most public functions are documented
-- Examples: 1 provided
-
-DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that it has no bugs or that it will work as intended.
 
 ## Example Usage
 
-```rust
+```rust,no_run
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::auth::*;
 use std::error::Error;
@@ -221,60 +158,57 @@ async fn main() -> Result<(), Box<dyn Error>> {
     default to an in-memory driver, while WASM targets can enable the `wasm-web` feature to use local/session storage
     with multi-tab coordination through the new `WebStoragePersistence` adapter.
 
-This functionality now covers email/password, custom token, anonymous, email-link, and phone sign-in flows with shared
-token handling, enabling dependent modules to retrieve `Auth` instances across native and wasm targets.
+  - Email/password sign-in & sign-up, custom token exchange, anonymous sessions, and email link sign-in share the same
+  token management pipeline, keeping parity with the JS strategies while remaining async/wasm-friendly.
+  - Phone number authentication now mirrors the JS confirmation flow (`signInWithPhoneNumber`, linking, reauth), using an
+  async `ConfirmationResult` that plugs into pluggable application verifiers for reCAPTCHA/Play Integrity tokens.
+  - Multi-factor enrollment for phone numbers reuses the same confirmation pipeline; `Auth::multi_factor()` exposes async
+  helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape. Passkey/WebAuthn
+  and TOTP enrollment/sign-in are parity-complete, including resolver-driven sign-in, linking, and reauthentication.
+  - Federated OAuth providers (Google, Facebook, GitHub, Twitter, Microsoft, Apple, Yahoo) include default scopes, PKCE support, and
+  helper methods for popup/redirect flows plus link/reauth coverage. WASM hosts can reuse the
+  `examples/auth_oauth_popup_wasm.rs` sample to wire popup handlers and conditional passkey UI through JS.
+  - Credentials now expose `to_json`/`from_json` helpers so applications can persist and replay OAuth/email credentials in
+  the same format used by the Firebase JS SDK.
+  - `PhoneAuthProvider` mirrors the JS provider API, exposing verification helpers plus credential-based sign-in/link/reauth
+  flows for SMS codes alongside the `sign_in_with_phone_number` convenience wrappers.
+  - Phone and passkey MFA sign-in/link flows are covered end-to-end (`multi_factor_phone_enrollment_flow`,
+    `passkey_multi_factor_link_flow`, etc.), providing the building blocks needed for higher-level resolver UX.
+  - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
+  `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
+  without rewriting REST plumbing.
+  - Account mutation APIs (profile/email/password updates, deletion, provider unlinking, reauthentication) remain feature
+  complete relative to the JS REST surface, and listeners/persistence continue to mirror identity updates.
+  - Persistence, Secure Token refresh, and OAuth scaffolding stay platform-agnostic, with IndexedDB-backed storage
+  available behind the `wasm-web` feature for browser builds.
+  - Extensive httpmock-backed unit tests exercise request payloads and token refresh logic to guard against regressions
+  (requires loopback sockets when executed locally).
 
-## Gaps vs `packages/auth`
 
-The JavaScript implementation is significantly broader. Missing pieces include:
+### Remaining Gaps
 
-1. **Federated provider ergonomics**
-   - OAuth providers (Google, Facebook, GitHub, etc.) still require provider-specific helpers, popup/redirect orchestration,
-     and PKCE/account-linking nuances from the JS SDK.
-2. **Browser & hybrid platform adapters**
-   - Cordova, React Native, and browser-specific glue (navigation messaging, reCAPTCHA/Play Integrity bootstrap,
-     IndexedDB-backed persistence) are still missing; consumers must currently wire their own handlers.
-4. **Advanced account & tenant tooling**
-   - Tenant management, localization, emulator hooks, and password-policy/project-configuration endpoints have not yet
-     been ported.
-5. **Secure token & policy endpoints**
-   - Token revocation, session cookie management, custom claims, and related REST surfaces still need Rust wrappers and
-     error translation.
-6. **Testing parity**
-   - Extensive JS unit/integration suites (providers, MFA, browser strategies) still need Rust equivalents.
+1. **Browser ceremony adapters** – Ship first-party popup/redirect bridges (including conditional passkey UI and
+   reCAPTCHA/Play Integrity bootstrap) so WASM/browser consumers get turnkey flows.
+2. **Tenant & emulator tooling** – Port tenant-aware auth, localization hooks, password-policy/token-revocation/session cookie endpoints,
+   and emulator-friendly toggles.
+3. **Provider UX polish** – Add higher-level helpers for remaining providers (Apple/Yahoo variations, Apple nonce
+   management), credential serialization shortcuts for cross-process replay, and richer redirect persistence utilities.
+4. **Testing & docs parity** – Expand browser/resolver test coverage and documentation to mirror the JS SDK guidance.
 
-## Next Steps
+### Next Steps
 
-1. **Federated providers**
-    - Finish the OAuth provider implementations (Google/Facebook/GitHub/etc.), including popup/redirect orchestration,
-      PKCE support, and credential/linking helpers.
-2. **Browser & hybrid adapters**
-    - Provide concrete implementations for popup/redirect handlers, reCAPTCHA/Play Integrity bootstrap, and persistence
-      quirks across web, React Native, and Cordova environments.
-3. **Tenant/emulator & policy endpoints**
-    - Surface project configuration, password policy, token revocation, and emulator-friendly toggles with rustdoc'd APIs
-      and associated error mapping.
-4. **Persistence & lifecycle**
-    - Add IndexedDB/native durable storage backends and flesh out proactive refresh observers (`beforeAuthStateChanged`).
+1. **Browser bridge crates** – Deliver popup/redirect + conditional UI adapters for WASM targets so OAuth and passkey
+   flows operate with minimal consumer glue (including reCAPTCHA/Play Integrity bootstrapping).
+2. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
+   emulator toggles with rustdoc’d APIs and examples, ensuring they interoperate with existing MFA resolvers.
+3. **Provider ergonomics** – Finish porting provider helpers (Google/Facebook/etc.), credential serializers, and session
+   cookie utilities to reach the JS SDK developer experience across platforms.
+4. **Testing/documentation sweep** – Port the remaining JS browser/resolver suites and expand docs to cover advanced
+   scenarios (emulators, multi-tenant usage, popup/redirect best practices).
 5. **Testing**
     - Translate the remaining JS suites (providers, MFA, browser flows) to Rust, reusing the `httpmock` harness across
       modules.
 
-## Immediate Porting Focus (authenticated consumers)
-
-| Priority | Status | JS source | Target Rust module | Scope | Key dependencies |
-|----------|--------|-----------|--------------------|-------|------------------|
-| P0 | done | `packages/auth/src/core/user/token_manager.ts`, `core/user/id_token_listener.ts` | `src/auth/token_manager.rs`, `model.rs` | Port the STS token manager: track expiry, fire token-change listeners, and queue proactive refresh hooks. | Reuse `util::backoff`, add wall-clock helpers, persist expiry metadata. |
-| P0 | done | `packages/auth/src/api/authentication/token.ts`, `api/helpers.ts` | `src/auth/api/token.rs` | Implement secure token exchange (`grant_type=refresh_token`) so refresh tokens issue new ID/access tokens. | Shares REST client, needs detailed error mapping to `AuthErrorCode`. |
-| P0 | done | `packages/auth/src/core/auth/auth_impl.ts`, `core/credentials/auth_token_provider.ts` | `src/auth/token_provider.rs`, integrate with `firestore::remote::datastore::TokenProvider` | Expose an `AuthTokenProvider` that watches `Auth` state and hands out fresh tokens to dependent services (Firestore, Functions, etc.). | Depends on token manager + refresh API; requires component registration for cross-service injection. |
-| P0 | done | `packages/auth/src/core/persistence/**/*` | `src/auth/persistence/` | Base in-memory persistence with hydration plus WASM web storage adapters and multi-tab sync; extend to IndexedDB/native drivers next. | Needs storage abstraction; coordinate with app/platform modules. |
-| P1 | done | `packages/auth/src/api/account_management/*.ts`, `core/user/user_impl.ts` | `src/auth/api/account.rs` | Fill in user management flows (password reset, email verification, updates, delete, linking). | Builds on authenticated REST client and persistence. |
-| P1 | `packages/auth/src/core/strategies/*`, `api/idp/*.ts` | `src/auth/oauth/` | Port OAuth provider scaffolding to broaden sign-in options beyond email/password. | Requires platform adapters for popup/redirect flows. |
-
-Delivering the P0 items unlocks authenticated Firestore/Functions calls by providing an auto-refreshing token pipeline while laying the groundwork for broader auth parity.
-
-Completing these steps will move the Rust Auth module closer to feature parity with the JavaScript SDK and make it viable
-for a broader set of authentication scenarios.
 
 ## Test Porting Roadmap
 

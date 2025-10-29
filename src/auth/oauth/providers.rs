@@ -124,6 +124,76 @@ impl OAuthProviderFactory for MicrosoftAuthProvider {
     }
 }
 
+pub struct AppleAuthProvider;
+
+impl AppleAuthProvider {
+    /// Sets the requested locale shown in Apple's consent UI.
+    pub fn set_locale(provider: &mut OAuthProvider, locale: &str) {
+        let mut params = provider.custom_parameters().clone();
+        params.insert("locale".to_string(), locale.to_string());
+        provider.set_custom_parameters(params);
+    }
+}
+
+impl OAuthProviderFactory for AppleAuthProvider {
+    fn provider_id() -> &'static str {
+        "apple.com"
+    }
+
+    fn new() -> OAuthProvider {
+        let mut provider = OAuthProvider::new(
+            Self::provider_id(),
+            "https://appleid.apple.com/auth/authorize",
+        );
+        provider.add_scope("email");
+        provider.add_scope("name");
+        provider.enable_pkce();
+        provider.set_custom_parameters(
+            [
+                ("response_mode".to_string(), "form_post".to_string()),
+                ("response_type".to_string(), "code".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        provider
+    }
+}
+
+pub struct YahooAuthProvider;
+
+impl YahooAuthProvider {
+    /// Sets the Yahoo prompt value (e.g. `login`, `consent`).
+    pub fn set_prompt(provider: &mut OAuthProvider, prompt: &str) {
+        let mut params = provider.custom_parameters().clone();
+        params.insert("prompt".to_string(), prompt.to_string());
+        provider.set_custom_parameters(params);
+    }
+}
+
+impl OAuthProviderFactory for YahooAuthProvider {
+    fn provider_id() -> &'static str {
+        "yahoo.com"
+    }
+
+    fn new() -> OAuthProvider {
+        let mut provider = OAuthProvider::new(
+            Self::provider_id(),
+            "https://api.login.yahoo.com/oauth2/request_auth",
+        );
+        provider.add_scope("openid");
+        provider.add_scope("email");
+        provider.add_scope("profile");
+        provider.enable_pkce();
+        provider.set_custom_parameters(
+            [("prompt".to_string(), "login".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        provider
+    }
+}
+
 /// Builds a custom parameter map containing the given OAuth access token.
 pub fn oauth_access_token_map(token: &str) -> HashMap<String, String> {
     [("oauthAccessToken".to_string(), token.to_string())]
@@ -160,5 +230,28 @@ mod tests {
     fn oauth_access_token_helper() {
         let map = oauth_access_token_map("token");
         assert_eq!(map.get("oauthAccessToken"), Some(&"token".to_string()));
+    }
+
+    #[test]
+    fn apple_defaults_include_form_post() {
+        let provider = AppleAuthProvider::new();
+        assert_eq!(provider.provider_id(), "apple.com");
+        assert!(provider
+            .custom_parameters()
+            .get("response_mode")
+            .map(|value| value == "form_post")
+            .unwrap_or(false));
+        assert!(provider.pkce_enabled());
+    }
+
+    #[test]
+    fn yahoo_defaults_include_prompt_login() {
+        let provider = YahooAuthProvider::new();
+        assert_eq!(provider.provider_id(), "yahoo.com");
+        assert_eq!(
+            provider.custom_parameters().get("prompt"),
+            Some(&"login".to_string())
+        );
+        assert!(provider.pkce_enabled());
     }
 }

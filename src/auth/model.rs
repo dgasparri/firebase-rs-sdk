@@ -126,6 +126,60 @@ pub struct AuthCredential {
     pub token_response: serde_json::Value,
 }
 
+impl AuthCredential {
+    /// Serializes the credential into a JSON value matching the Firebase JS SDK shape.
+    pub fn to_json(&self) -> Value {
+        json!({
+            "providerId": self.provider_id,
+            "signInMethod": self.sign_in_method,
+            "tokenResponse": self.token_response,
+        })
+    }
+
+    /// Serializes the credential into a JSON string.
+    pub fn to_json_string(&self) -> AuthResult<String> {
+        serde_json::to_string(&self.to_json())
+            .map_err(|err| AuthError::InvalidCredential(err.to_string()))
+    }
+
+    /// Reconstructs a credential from a JSON value previously produced via [`to_json`].
+    pub fn from_json(value: Value) -> AuthResult<Self> {
+        let provider_id = value
+            .get("providerId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                AuthError::InvalidCredential("Credential JSON missing providerId".into())
+            })?
+            .to_string();
+
+        let sign_in_method = value
+            .get("signInMethod")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                AuthError::InvalidCredential("Credential JSON missing signInMethod".into())
+            })?
+            .to_string();
+
+        let token_response = value
+            .get("tokenResponse")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+
+        Ok(Self {
+            provider_id,
+            sign_in_method,
+            token_response,
+        })
+    }
+
+    /// Reconstructs a credential from its JSON string representation.
+    pub fn from_json_str(data: &str) -> AuthResult<Self> {
+        let value: Value = serde_json::from_str(data)
+            .map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
+        Self::from_json(value)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AuthConfig {
     pub api_key: Option<String>,
@@ -197,6 +251,31 @@ pub struct SignInWithPasswordResponse {
     pub mfa_pending_credential: Option<String>,
     #[serde(rename = "mfaInfo")]
     pub mfa_info: Option<Vec<MfaEnrollmentInfo>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_credential_json_roundtrip() {
+        let credential = AuthCredential {
+            provider_id: "custom-provider".into(),
+            sign_in_method: "custom-provider".into(),
+            token_response: json!({ "idToken": "abc" }),
+        };
+
+        let json_value = credential.to_json();
+        let restored = AuthCredential::from_json(json_value.clone()).unwrap();
+        assert_eq!(restored.provider_id, "custom-provider");
+        assert_eq!(restored.sign_in_method, "custom-provider");
+        assert_eq!(restored.token_response, json_value["tokenResponse"]);
+
+        let json_string = credential.to_json_string().unwrap();
+        let restored_from_str = AuthCredential::from_json_str(&json_string).unwrap();
+        assert_eq!(restored_from_str.provider_id, "custom-provider");
+        assert_eq!(restored_from_str.sign_in_method, "custom-provider");
+    }
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
