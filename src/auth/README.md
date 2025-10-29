@@ -16,7 +16,7 @@ It includes error handling, configuration options, and integration with Firebase
 
 ## Porting status
 
-- auth 70% `[#######   ]`
+- auth 82% `[########  ]`
 
 ==As of October 21th, 2025== 
 
@@ -24,9 +24,11 @@ Prompt: Compare the original JS/Typescript files in ./packages/auth and the port
 
 Porting Estimate
 
-  - Roughly ~70% parity: Rust now covers email/password flows, custom-token and anonymous authentication, email link
-  actions, account management, persistence, and Secure Token refresh. Outstanding work centers on phone/MFA, browser glue,
-  tenant/emulator tooling, and full error parity (packages/auth/src/api/index.ts:56, packages/auth/src/core/index.ts:292).
+  - Roughly ~82% parity: Rust now covers email/password flows, custom-token and anonymous authentication, email link
+  actions, account management, persistence, Secure Token refresh, and the complete multi-factor surface (phone, TOTP,
+  passkey) including sign-in, link, and reauthentication flows. Outstanding work now focuses on browser ceremony helpers,
+  tenant/emulator tooling, and richer provider ergonomics (packages/auth/src/api/index.ts:56,
+  packages/auth/src/core/index.ts:292).
 
 Coverage Highlights
 
@@ -35,11 +37,12 @@ Coverage Highlights
   - Phone number authentication now mirrors the JS confirmation flow (`signInWithPhoneNumber`, linking, reauth), using an
   async `ConfirmationResult` that plugs into pluggable application verifiers for reCAPTCHA/Play Integrity tokens.
   - Multi-factor enrollment for phone numbers reuses the same confirmation pipeline; `Auth::multi_factor()` exposes async
-  helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape.
+  helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape. Passkey/WebAuthn
+  and TOTP enrollment/sign-in are parity-complete, including resolver-driven sign-in, linking, and reauthentication.
   - `PhoneAuthProvider` mirrors the JS provider API, exposing verification helpers plus credential-based sign-in/link/reauth
   flows for SMS codes alongside the `sign_in_with_phone_number` convenience wrappers.
-  - Phone MFA sign-in flows are covered end-to-end (`sign_in_with_phone_number_flow`, `multi_factor_phone_enrollment_flow`
-    tests), providing the building blocks needed for the upcoming resolver work.
+  - Phone and passkey MFA sign-in/link flows are covered end-to-end (`multi_factor_phone_enrollment_flow`,
+    `passkey_multi_factor_link_flow`, etc.), providing the building blocks needed for higher-level resolver UX.
   - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
   `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
   without rewriting REST plumbing.
@@ -52,23 +55,23 @@ Coverage Highlights
 
 Major Gaps
 
-  - Resolver coverage for reauthentication/link flows and richer error surfaces for `mfaPendingCredential` responses
-    still need to be ported from the JS SDK.
-  - Browser-specific popup/redirect resolvers, iframe messaging, and storage adapters are still stubbed out; wasm
-  consumers must currently supply their own handlers.
-  - Advanced features such as tenant-aware auth, localization helpers, emulator tooling, token revocation APIs, and rich
-  error/code mapping have not yet been implemented.
+  - Browser/Web ceremony helpers remain minimal: popup/redirect orchestration, conditional UI for passkeys, and
+    reCAPTCHA/Play Integrity bootstrap still require consumer-provided glue despite hooks in the core APIs.
+  - Advanced admin surfaces such as tenant-aware auth, emulator toggles, localization helpers, password-policy endpoints,
+    and token revocation/session cookie flows remain unported.
+  - Provider ergonomics beyond the REST primitives—credential serialization, full OAuth provider builders, and durable
+    redirect storage integrations—lag behind the JS SDK.
 
 Next Steps
 
-  1. **Error mapping & public enums** – Map the MFA-specific error codes (`auth/multi-factor-auth-required`,
-     `auth/multi-factor-info-not-found`, etc.) to strongly-typed variants so libraries can branch on them cleanly.
-  2. **Browser bridge crates** – Deliver popup/redirect + reCAPTCHA/Play Integrity adapters for wasm targets so the phone
-     provider and MFA flows can run in the browser with minimal glue.
-  3. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
-     emulator toggles with rustdoc’d APIs, ensuring they interoperate with MFA resolvers.
-  4. **Testing/documentation sweep** – Port the remaining JS suites (resolver/browser flows) and expand the README
-     to document resolver usage and known platform differences.
+  1. **Browser bridge crates** – Deliver popup/redirect + conditional UI adapters for WASM targets so OAuth and passkey
+     flows operate with minimal consumer glue (including reCAPTCHA/Play Integrity bootstrapping).
+  2. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
+     emulator toggles with rustdoc’d APIs and examples, ensuring they interoperate with existing MFA resolvers.
+  3. **Provider ergonomics** – Finish porting provider helpers (Google/Facebook/etc.), credential serializers, and session
+     cookie utilities to reach the JS SDK developer experience across platforms.
+  4. **Testing/documentation sweep** – Port the remaining JS browser/resolver suites and expand docs to cover advanced
+     scenarios (emulators, multi-tenant usage, popup/redirect best practices).
 
 
 
