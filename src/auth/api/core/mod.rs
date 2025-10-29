@@ -40,8 +40,8 @@ use crate::auth::types::{
     ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl,
     ApplicationVerifier, ConfirmationResult, MultiFactorError, MultiFactorInfo,
     MultiFactorOperation, MultiFactorSession, MultiFactorSessionType, MultiFactorSignInContext,
-    MultiFactorUser, TotpSecret, WebAuthnAssertionResponse, WebAuthnSignInChallenge,
-    WEBAUTHN_FACTOR_ID,
+    MultiFactorUser, TotpSecret, WebAuthnAssertionResponse, WebAuthnAttestationResponse,
+    WebAuthnEnrollmentChallenge, WebAuthnSignInChallenge, WEBAUTHN_FACTOR_ID,
 };
 use crate::auth::{PhoneAuthCredential, PHONE_PROVIDER_ID};
 use crate::component::types::{
@@ -61,14 +61,17 @@ use account::{
 };
 use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
 use mfa::{
-    finalize_passkey_mfa_sign_in, finalize_phone_mfa_enrollment, finalize_phone_mfa_sign_in,
-    finalize_totp_mfa_enrollment, finalize_totp_mfa_sign_in, start_passkey_mfa_sign_in,
-    start_phone_mfa_enrollment, start_phone_mfa_sign_in, start_totp_mfa_enrollment, withdraw_mfa,
-    FinalizePasskeyMfaSignInRequest, FinalizePhoneMfaEnrollmentRequest,
-    FinalizePhoneMfaSignInRequest, FinalizeTotpMfaEnrollmentRequest, FinalizeTotpMfaSignInRequest,
-    PhoneEnrollmentInfo, PhoneSignInInfo, PhoneVerificationInfo, StartPasskeyMfaSignInRequest,
-    StartPhoneMfaEnrollmentRequest, StartPhoneMfaSignInRequest, StartTotpMfaEnrollmentRequest,
-    TotpSignInVerificationInfo, TotpVerificationInfo, WebAuthnVerificationInfo, WithdrawMfaRequest,
+    finalize_passkey_mfa_enrollment, finalize_passkey_mfa_sign_in, finalize_phone_mfa_enrollment,
+    finalize_phone_mfa_sign_in, finalize_totp_mfa_enrollment, finalize_totp_mfa_sign_in,
+    start_passkey_mfa_enrollment, start_passkey_mfa_sign_in, start_phone_mfa_enrollment,
+    start_phone_mfa_sign_in, start_totp_mfa_enrollment, withdraw_mfa,
+    FinalizePasskeyMfaEnrollmentRequest, FinalizePasskeyMfaSignInRequest,
+    FinalizePhoneMfaEnrollmentRequest, FinalizePhoneMfaSignInRequest,
+    FinalizeTotpMfaEnrollmentRequest, FinalizeTotpMfaSignInRequest, PhoneEnrollmentInfo,
+    PhoneSignInInfo, PhoneVerificationInfo, StartPasskeyMfaEnrollmentRequest,
+    StartPasskeyMfaSignInRequest, StartPhoneMfaEnrollmentRequest, StartPhoneMfaSignInRequest,
+    StartTotpMfaEnrollmentRequest, TotpSignInVerificationInfo, TotpVerificationInfo,
+    WebAuthnVerificationInfo, WithdrawMfaRequest,
 };
 use phone::{
     link_with_phone_number as api_link_with_phone_number, send_phone_verification_code,
@@ -856,6 +859,34 @@ impl Auth {
         ))
     }
 
+    pub(crate) async fn start_passkey_mfa_enrollment(
+        self: &Arc<Self>,
+        session: &MultiFactorSession,
+    ) -> AuthResult<WebAuthnEnrollmentChallenge> {
+        if session.session_type() != MultiFactorSessionType::Enrollment {
+            return Err(AuthError::InvalidCredential(
+                "Passkey enrollment requires an enrollment session".into(),
+            ));
+        }
+
+        let id_token = session.id_token().ok_or_else(|| {
+            AuthError::InvalidCredential("Missing ID token for enrollment".into())
+        })?;
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = StartPasskeyMfaEnrollmentRequest {
+            id_token: id_token.to_string(),
+            webauthn_enrollment_info: serde_json::json!({}),
+            display_name: None,
+            tenant_id: None,
+        };
+
+        let response =
+            start_passkey_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let challenge = WebAuthnEnrollmentChallenge::from_value(response.webauthn_enrollment_info)?;
+        Ok(challenge)
+    }
+
     pub(crate) async fn start_phone_multi_factor_sign_in(
         self: &Arc<Self>,
         pending_credential: &str,
@@ -893,7 +924,8 @@ impl Auth {
 
         let response =
             start_passkey_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
-        WebAuthnSignInChallenge::from_value(response.webauthn_sign_in_info)
+        let challenge = WebAuthnSignInChallenge::from_value(response.webauthn_sign_in_info)?;
+        Ok(challenge)
     }
 
     async fn complete_phone_mfa_enrollment(
@@ -962,6 +994,50 @@ impl Auth {
         Ok(UserCredential {
             user,
             provider_id: Some("totp".to_string()),
+            operation_type: Some("enroll".to_string()),
+        })
+    }
+
+    pub(crate) async fn complete_passkey_mfa_enrollment(
+        self: &Arc<Self>,
+        session: &MultiFactorSession,
+        attestation: WebAuthnAttestationResponse,
+        display_name: Option<&str>,
+    ) -> AuthResult<UserCredential> {
+        if session.session_type() != MultiFactorSessionType::Enrollment {
+            return Err(AuthError::InvalidCredential(
+                "Passkey enrollment requires an enrollment session".into(),
+            ));
+        }
+
+        let id_token = session.id_token().ok_or_else(|| {
+            AuthError::InvalidCredential("Missing ID token for enrollment".into())
+        })?;
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = FinalizePasskeyMfaEnrollmentRequest {
+            id_token: id_token.to_string(),
+            webauthn_verification_info: WebAuthnVerificationInfo {
+                payload: attestation.into_raw(),
+            },
+            display_name: display_name.map(|value| value.to_string()),
+            tenant_id: None,
+        };
+
+        let response =
+            finalize_passkey_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request)
+                .await?;
+
+        self.update_current_user_tokens(
+            response.id_token.clone(),
+            response.refresh_token.clone(),
+            None,
+        )?;
+        let user = self.refresh_current_user_profile().await?;
+
+        Ok(UserCredential {
+            user,
+            provider_id: Some(WEBAUTHN_FACTOR_ID.to_string()),
             operation_type: Some("enroll".to_string()),
         })
     }
@@ -2576,7 +2652,8 @@ mod tests {
     };
     use crate::auth::{
         get_multi_factor_resolver, FirebaseAuth, PhoneAuthProvider, PhoneMultiFactorGenerator,
-        TotpMultiFactorGenerator, WebAuthnAssertionResponse, WebAuthnMultiFactorGenerator,
+        TotpMultiFactorGenerator, WebAuthnAssertionResponse, WebAuthnAttestationResponse,
+        WebAuthnMultiFactorGenerator, WEBAUTHN_FACTOR_ID,
     };
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
     use httpmock::prelude::*;
@@ -3118,7 +3195,8 @@ mod tests {
 
         let assertion_response = WebAuthnAssertionResponse::try_from(verification_info)
             .expect("verification payload should be valid");
-        let assertion = WebAuthnMultiFactorGenerator::assertion("enroll1", assertion_response);
+        let assertion =
+            WebAuthnMultiFactorGenerator::assertion_for_sign_in("enroll1", assertion_response);
         let result = resolver
             .resolve_sign_in(assertion)
             .await
@@ -3130,6 +3208,104 @@ mod tests {
             result.provider_id.as_deref(),
             Some(EmailAuthProvider::PROVIDER_ID)
         );
+        assert_eq!(
+            result.user.token_manager().access_token(),
+            Some("passkey-id-token".to_string())
+        );
+        assert_eq!(
+            result.user.token_manager().refresh_token(),
+            Some("passkey-refresh-token".to_string())
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn passkey_multi_factor_enrollment_flow() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server).await;
+
+        let multi_factor = auth.multi_factor();
+        let session = multi_factor
+            .get_session()
+            .await
+            .expect("session should be created");
+
+        let start_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaEnrollment:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "webauthnEnrollmentInfo": {}
+                }));
+            then.status(200).json_body(json!({
+                "webauthnEnrollmentInfo": {
+                    "challenge": "ENROLL_CHALLENGE",
+                    "rpId": "example.com",
+                    "user": { "name": "alice@example.com" }
+                }
+            }));
+        });
+
+        let challenge = multi_factor
+            .start_passkey_enrollment(&session)
+            .await
+            .expect("passkey challenge should succeed");
+        start_mock.assert();
+        assert_eq!(challenge.challenge(), Some("ENROLL_CHALLENGE"));
+
+        let attestation_value = json!({
+            "credentialId": "cred-123",
+            "clientDataJSON": "BASE64CLIENT",
+            "attestationObject": "BASE64ATTEST"
+        });
+
+        let lookup_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:lookup")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({ "idToken": "passkey-id-token" }));
+            then.status(200).json_body(json!({
+                "users": [{
+                    "localId": TEST_UID,
+                    "email": TEST_EMAIL,
+                    "mfaInfo": [{
+                        "mfaEnrollmentId": "enroll1",
+                        "displayName": "Security Key",
+                        "factorId": "webauthn",
+                        "webauthnInfo": { "displayName": "Security Key" }
+                    }]
+                }]
+            }));
+        });
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaEnrollment:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "webauthnVerificationInfo": attestation_value,
+                    "displayName": "Security Key"
+                }));
+            then.status(200).json_body(json!({
+                "idToken": "passkey-id-token",
+                "refreshToken": "passkey-refresh-token"
+            }));
+        });
+
+        let attestation = WebAuthnAttestationResponse::try_from(attestation_value.clone())
+            .expect("attestation payload should be valid");
+        let assertion = WebAuthnMultiFactorGenerator::assertion_for_enrollment(attestation);
+        let result = multi_factor
+            .enroll(&session, assertion, Some("Security Key"))
+            .await
+            .expect("passkey enrollment should succeed");
+
+        start_mock.assert();
+        finalize_mock.assert();
+        lookup_mock.assert();
+        assert_eq!(result.provider_id.as_deref(), Some(WEBAUTHN_FACTOR_ID));
         assert_eq!(
             result.user.token_manager().access_token(),
             Some("passkey-id-token".to_string())

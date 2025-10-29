@@ -185,7 +185,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     resolver-driven completion for phone challenges raised via `mfaPendingCredential` responses across sign-in,
     reauthentication, and credential linking flows.
   - Passkey/WebAuthn factors provide typed challenge retrieval (`WebAuthnSignInChallenge`) and assertion finalisation via
-    `WebAuthnMultiFactorGenerator`, allowing apps to plug platform-specific WebAuthn payloads into the shared resolver.
+    `WebAuthnMultiFactorGenerator`, and now cover both sign-in and enrollment flows through
+    `MultiFactorResolver::start_passkey_sign_in` and `MultiFactorUser::start_passkey_enrollment`.
   - TOTP enrollment/sign-in flows are supported via `TotpMultiFactorGenerator`, including secret generation helpers and
     resolver integration during multi-factor sign-in.
 - **Phone provider utilities** (`phone/`)

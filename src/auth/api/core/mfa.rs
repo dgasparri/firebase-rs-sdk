@@ -191,6 +191,24 @@ pub struct StartPhoneMfaSignInResponse {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct StartPasskeyMfaEnrollmentRequest {
+    #[serde(rename = "idToken")]
+    pub id_token: String,
+    #[serde(rename = "webauthnEnrollmentInfo")]
+    pub webauthn_enrollment_info: Value,
+    #[serde(rename = "displayName", skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StartPasskeyMfaEnrollmentResponse {
+    #[serde(rename = "webauthnEnrollmentInfo")]
+    pub webauthn_enrollment_info: Value,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct StartPasskeyMfaSignInRequest {
     #[serde(rename = "mfaPendingCredential")]
     pub mfa_pending_credential: String,
@@ -259,6 +277,26 @@ pub struct FinalizeTotpMfaSignInResponse {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct FinalizePasskeyMfaEnrollmentRequest {
+    #[serde(rename = "idToken")]
+    pub id_token: String,
+    #[serde(rename = "webauthnVerificationInfo")]
+    pub webauthn_verification_info: WebAuthnVerificationInfo,
+    #[serde(rename = "displayName", skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FinalizePasskeyMfaEnrollmentResponse {
+    #[serde(rename = "idToken")]
+    pub id_token: String,
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct FinalizePasskeyMfaSignInRequest {
     #[serde(rename = "mfaPendingCredential")]
     pub mfa_pending_credential: String,
@@ -302,6 +340,22 @@ pub async fn start_totp_mfa_enrollment(
     .await
 }
 
+pub async fn start_passkey_mfa_enrollment(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    request: &StartPasskeyMfaEnrollmentRequest,
+) -> AuthResult<StartPasskeyMfaEnrollmentResponse> {
+    post_json(
+        client,
+        endpoint,
+        "accounts/mfaEnrollment:start",
+        api_key,
+        request,
+    )
+    .await
+}
+
 pub async fn finalize_phone_mfa_enrollment(
     client: &Client,
     endpoint: &str,
@@ -324,6 +378,22 @@ pub async fn finalize_totp_mfa_enrollment(
     api_key: &str,
     request: &FinalizeTotpMfaEnrollmentRequest,
 ) -> AuthResult<FinalizeTotpMfaEnrollmentResponse> {
+    post_json(
+        client,
+        endpoint,
+        "accounts/mfaEnrollment:finalize",
+        api_key,
+        request,
+    )
+    .await
+}
+
+pub async fn finalize_passkey_mfa_enrollment(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    request: &FinalizePasskeyMfaEnrollmentRequest,
+) -> AuthResult<FinalizePasskeyMfaEnrollmentResponse> {
     post_json(
         client,
         endpoint,

@@ -1,8 +1,8 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::convert::TryFrom;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
@@ -574,29 +574,76 @@ impl TotpMultiFactorAssertion {
 }
 
 #[derive(Clone, Debug)]
+pub enum WebAuthnAssertionKind {
+    SignIn {
+        enrollment_id: String,
+        response: WebAuthnAssertionResponse,
+    },
+    Enrollment {
+        attestation: WebAuthnAttestationResponse,
+    },
+}
+
+#[derive(Clone, Debug)]
 pub struct WebAuthnMultiFactorAssertion {
-    enrollment_id: String,
-    response: WebAuthnAssertionResponse,
+    kind: WebAuthnAssertionKind,
 }
 
 impl WebAuthnMultiFactorAssertion {
-    pub fn new(enrollment_id: impl Into<String>, response: WebAuthnAssertionResponse) -> Self {
+    pub fn for_sign_in(
+        enrollment_id: impl Into<String>,
+        response: WebAuthnAssertionResponse,
+    ) -> Self {
         Self {
-            enrollment_id: enrollment_id.into(),
-            response,
+            kind: WebAuthnAssertionKind::SignIn {
+                enrollment_id: enrollment_id.into(),
+                response,
+            },
         }
     }
 
-    pub fn enrollment_id(&self) -> &str {
-        &self.enrollment_id
+    pub fn for_enrollment(attestation: WebAuthnAttestationResponse) -> Self {
+        Self {
+            kind: WebAuthnAssertionKind::Enrollment { attestation },
+        }
     }
 
-    pub fn response(&self) -> &WebAuthnAssertionResponse {
-        &self.response
+    pub fn enrollment_id(&self) -> Option<&str> {
+        match &self.kind {
+            WebAuthnAssertionKind::SignIn { enrollment_id, .. } => Some(enrollment_id),
+            WebAuthnAssertionKind::Enrollment { .. } => None,
+        }
     }
 
-    pub fn into_response(self) -> WebAuthnAssertionResponse {
-        self.response
+    pub fn response(&self) -> Option<&WebAuthnAssertionResponse> {
+        match &self.kind {
+            WebAuthnAssertionKind::SignIn { response, .. } => Some(response),
+            WebAuthnAssertionKind::Enrollment { .. } => None,
+        }
+    }
+
+    pub fn into_sign_in(self) -> Option<(String, WebAuthnAssertionResponse)> {
+        match self.kind {
+            WebAuthnAssertionKind::SignIn {
+                enrollment_id,
+                response,
+            } => Some((enrollment_id, response)),
+            _ => None,
+        }
+    }
+
+    pub fn attestation(&self) -> Option<&WebAuthnAttestationResponse> {
+        match &self.kind {
+            WebAuthnAssertionKind::Enrollment { attestation } => Some(attestation),
+            _ => None,
+        }
+    }
+
+    pub fn into_attestation(self) -> Option<WebAuthnAttestationResponse> {
+        match self.kind {
+            WebAuthnAssertionKind::Enrollment { attestation } => Some(attestation),
+            _ => None,
+        }
     }
 }
 
@@ -640,7 +687,7 @@ impl MultiFactorAssertion {
         enrollment_id: impl Into<String>,
         response: WebAuthnAssertionResponse,
     ) -> Self {
-        MultiFactorAssertion::WebAuthn(WebAuthnMultiFactorAssertion::new(
+        MultiFactorAssertion::WebAuthn(WebAuthnMultiFactorAssertion::for_sign_in(
             enrollment_id,
             response,
         ))
@@ -681,11 +728,17 @@ pub const WEBAUTHN_FACTOR_ID: &str = "webauthn";
 pub struct WebAuthnMultiFactorGenerator;
 
 impl WebAuthnMultiFactorGenerator {
-    pub fn assertion(
+    pub fn assertion_for_sign_in(
         enrollment_id: impl Into<String>,
         response: WebAuthnAssertionResponse,
     ) -> MultiFactorAssertion {
         MultiFactorAssertion::from_passkey(enrollment_id, response)
+    }
+
+    pub fn assertion_for_enrollment(
+        attestation: WebAuthnAttestationResponse,
+    ) -> MultiFactorAssertion {
+        MultiFactorAssertion::WebAuthn(WebAuthnMultiFactorAssertion::for_enrollment(attestation))
     }
 }
 
@@ -696,7 +749,9 @@ pub struct WebAuthnSignInChallenge {
 
 impl WebAuthnSignInChallenge {
     pub fn challenge(&self) -> Option<&str> {
-        self.payload.get("challenge").and_then(|value| value.as_str())
+        self.payload
+            .get("challenge")
+            .and_then(|value| value.as_str())
     }
 
     pub fn rp_id(&self) -> Option<&str> {
@@ -704,7 +759,9 @@ impl WebAuthnSignInChallenge {
     }
 
     pub fn user_handle(&self) -> Option<&str> {
-        self.payload.get("userHandle").and_then(|value| value.as_str())
+        self.payload
+            .get("userHandle")
+            .and_then(|value| value.as_str())
     }
 
     pub fn as_raw(&self) -> &Value {
@@ -730,13 +787,68 @@ impl WebAuthnSignInChallenge {
 }
 
 #[derive(Clone, Debug)]
+pub struct WebAuthnEnrollmentChallenge {
+    payload: Value,
+}
+
+impl WebAuthnEnrollmentChallenge {
+    pub fn challenge(&self) -> Option<&str> {
+        self.payload
+            .get("challenge")
+            .and_then(|value| value.as_str())
+    }
+
+    pub fn rp_id(&self) -> Option<&str> {
+        self.payload.get("rpId").and_then(|value| value.as_str())
+    }
+
+    pub fn user_name(&self) -> Option<&str> {
+        self.payload
+            .get("user")
+            .and_then(|user| user.get("name"))
+            .and_then(|value| value.as_str())
+    }
+
+    pub fn user_id(&self) -> Option<&[u8]> {
+        self.payload
+            .get("user")
+            .and_then(|user| user.get("id"))
+            .and_then(|value| value.as_str())
+            .map(|encoded| encoded.as_bytes())
+    }
+
+    pub fn as_raw(&self) -> &Value {
+        &self.payload
+    }
+
+    pub fn into_raw(self) -> Value {
+        self.payload
+    }
+
+    pub fn from_value(value: Value) -> AuthResult<Self> {
+        if value
+            .get("challenge")
+            .and_then(|candidate| candidate.as_str())
+            .is_none()
+        {
+            return Err(AuthError::InvalidCredential(
+                "WebAuthn enrollment challenge is missing a challenge value".into(),
+            ));
+        }
+        Ok(Self { payload: value })
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct WebAuthnAssertionResponse {
     payload: Value,
 }
 
 impl WebAuthnAssertionResponse {
     pub fn credential_id(&self) -> Option<&str> {
-        self.payload.get("credentialId").and_then(|value| value.as_str())
+        self.payload
+            .get("credentialId")
+            .and_then(|value| value.as_str())
     }
 
     pub fn client_data_json(&self) -> Option<&str> {
@@ -751,6 +863,60 @@ impl WebAuthnAssertionResponse {
 
     pub fn into_raw(self) -> Value {
         self.payload
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct WebAuthnAttestationResponse {
+    payload: Value,
+}
+
+impl WebAuthnAttestationResponse {
+    pub fn credential_id(&self) -> Option<&str> {
+        self.payload
+            .get("credentialId")
+            .and_then(|value| value.as_str())
+    }
+
+    pub fn client_data_json(&self) -> Option<&str> {
+        self.payload
+            .get("clientDataJSON")
+            .and_then(|value| value.as_str())
+    }
+
+    pub fn as_raw(&self) -> &Value {
+        &self.payload
+    }
+
+    pub fn into_raw(self) -> Value {
+        self.payload
+    }
+}
+
+impl TryFrom<Value> for WebAuthnAttestationResponse {
+    type Error = AuthError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        let credential_present = value
+            .get("credentialId")
+            .and_then(|candidate| candidate.as_str())
+            .is_some();
+        let attestation_present = value
+            .get("attestationObject")
+            .and_then(|candidate| candidate.as_str())
+            .is_some();
+        let client_data_present = value
+            .get("clientDataJSON")
+            .and_then(|candidate| candidate.as_str())
+            .is_some();
+
+        if credential_present && attestation_present && client_data_present {
+            Ok(Self { payload: value })
+        } else {
+            Err(AuthError::InvalidCredential(
+                "WebAuthn registration payload missing required fields".into(),
+            ))
+        }
     }
 }
 
@@ -956,8 +1122,11 @@ impl MultiFactorResolver {
                     .await
             }
             MultiFactorAssertion::WebAuthn(assertion) => {
-                let enrollment_id = assertion.enrollment_id().to_string();
-                let response = assertion.into_response();
+                let (enrollment_id, response) = assertion.into_sign_in().ok_or_else(|| {
+                    AuthError::InvalidCredential(
+                        "WebAuthn assertion is not valid for sign-in".to_string(),
+                    )
+                })?;
                 self.auth
                     .finalize_passkey_multi_factor_sign_in(
                         pending,
@@ -1026,10 +1195,35 @@ impl MultiFactorUser {
                     .complete_totp_mfa_enrollment(id_token, secret, assertion.otp(), display_name)
                     .await
             }
+            MultiFactorAssertion::WebAuthn(assertion) => {
+                if session.session_type() != MultiFactorSessionType::Enrollment {
+                    return Err(AuthError::InvalidCredential(
+                        "WebAuthn enrollment requires an enrollment session".into(),
+                    ));
+                }
+
+                let attestation = assertion.into_attestation().ok_or_else(|| {
+                    AuthError::InvalidCredential(
+                        "WebAuthn enrollment assertions require an attestation payload".to_string(),
+                    )
+                })?;
+
+                self.auth
+                    .complete_passkey_mfa_enrollment(session, attestation, display_name)
+                    .await
+            }
             _ => Err(AuthError::NotImplemented(
-                "Only TOTP assertions are supported via MultiFactorUser::enroll",
+                "Only TOTP and WebAuthn assertions are supported via MultiFactorUser::enroll",
             )),
         }
+    }
+
+    /// Starts a WebAuthn/passkey enrollment challenge.
+    pub async fn start_passkey_enrollment(
+        &self,
+        session: &MultiFactorSession,
+    ) -> AuthResult<WebAuthnEnrollmentChallenge> {
+        self.auth.start_passkey_mfa_enrollment(session).await
     }
 
     /// Starts phone number enrollment by sending a verification SMS.
