@@ -25,6 +25,10 @@ called `Result::unwrap()` on an `Err` value: FunctionsError { code: Internal, me
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
 
+## examples ignored
+
+trasformarli in examples compiled-not run
+
 
 ## contare linee di codice
 

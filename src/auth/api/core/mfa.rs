@@ -2,10 +2,20 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::auth::error::{AuthError, AuthResult};
+use crate::auth::error::{map_mfa_error_code, AuthError, AuthResult};
 
 fn endpoint_url(base: &str, path: &str, api_key: &str) -> String {
     format!("{}/{}?key={}", base.trim_end_matches('/'), path, api_key)
+}
+
+#[derive(Debug, Deserialize)]
+struct ErrorResponse {
+    error: Option<ErrorInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ErrorInfo {
+    message: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -379,6 +389,16 @@ where
     } else {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        if let Ok(parsed) = serde_json::from_str::<ErrorResponse>(&body) {
+            if let Some(error) = parsed.error {
+                if let Some(message) = error.message {
+                    if let Some(mapped) = map_mfa_error_code(&message) {
+                        return Err(mapped);
+                    }
+                    return Err(AuthError::InvalidCredential(message));
+                }
+            }
+        }
         Err(AuthError::InvalidCredential(format!(
             "MFA request failed ({status}): {body}"
         )))

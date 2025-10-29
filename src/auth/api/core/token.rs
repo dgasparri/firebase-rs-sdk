@@ -1,7 +1,7 @@
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
-use crate::auth::error::{AuthError, AuthResult};
+use crate::auth::error::{map_mfa_error_code, AuthError, AuthResult};
 
 pub(crate) const DEFAULT_SECURE_TOKEN_ENDPOINT: &str =
     "https://securetoken.googleapis.com/v1/token";
@@ -85,6 +85,9 @@ fn map_refresh_error(status: StatusCode, body: &str) -> AuthError {
     if let Ok(parsed) = serde_json::from_str::<ErrorResponse>(body) {
         if let Some(error) = parsed.error {
             if let Some(message) = error.message {
+                if let Some(mapped) = map_mfa_error_code(&message) {
+                    return mapped;
+                }
                 return AuthError::InvalidCredential(message);
             }
         }
@@ -96,6 +99,7 @@ fn map_refresh_error(status: StatusCode, body: &str) -> AuthError {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use crate::auth::error::MultiFactorAuthErrorCode;
     use crate::test_support::start_mock_server;
     use httpmock::prelude::*;
     use serde_json::json;
@@ -166,5 +170,35 @@ mod tests {
             result,
             Err(AuthError::InvalidCredential(message)) if message == "TOKEN_EXPIRED"
         ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn refresh_id_token_maps_mfa_errors() {
+        let server = start_mock_server();
+        let client = make_client();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/token")
+                .query_param("key", "test-key");
+            then.status(400)
+                .body("{\"error\":{\"message\":\"MISSING_MFA_PENDING_CREDENTIAL\"}}");
+        });
+
+        let result = refresh_id_token_with_endpoint(
+            &client,
+            &server.url("/token"),
+            "test-key",
+            "test-refresh",
+        )
+        .await;
+
+        mock.assert();
+        match result {
+            Err(AuthError::MultiFactor(err)) => {
+                assert_eq!(err.code(), MultiFactorAuthErrorCode::MissingSession);
+            }
+            other => panic!("expected MFA error, got {other:?}"),
+        }
     }
 }

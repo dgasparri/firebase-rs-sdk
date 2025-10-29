@@ -192,7 +192,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 - **Models & types** (`model.rs`, `types.rs`)
   - User models (`User`, `UserCredential`), provider structs (`EmailAuthProvider`), action code types, token metadata.
 - **Errors & result handling** (`error.rs`)
-  - Auth-specific error enumeration and result aliases.
+  - Auth-specific error enumeration and result aliases, plus typed multi-factor error codes that surface
+    `missing-multi-factor-session`/`multi-factor-info-not-found` as structured Rust variants.
 - **Module wiring** (`mod.rs`)
   - Public re-exports and component registration entrypoints used by other services.
 - **Token refresh scaffolding** (`token_manager.rs`, `api/token.rs`, `token_provider.rs`)
@@ -211,8 +212,7 @@ token handling, enabling dependent modules to retrieve `Auth` instances across n
 The JavaScript implementation is significantly broader. Missing pieces include:
 
 1. **Multi-factor authentication (MFA)**
-   - Richer error mapping for `mfaPendingCredential` responses and parity for additional factor types (passkeys, webauthn)
-     still need to be ported from the JS SDK.
+   - Extend support to additional factor types such as passkeys/WebAuthn and align metadata handling with the JS SDK.
 2. **Federated provider ergonomics**
    - OAuth providers (Google, Facebook, GitHub, etc.) still require provider-specific helpers, popup/redirect orchestration,
      and PKCE/account-linking nuances from the JS SDK.
@@ -230,23 +230,20 @@ The JavaScript implementation is significantly broader. Missing pieces include:
 
 ## Next Steps
 
-1. **MFA error mapping & surfacing**
-   - Map MFA-specific error codes to typed variants and extend resolver metadata so callers can tailor UX for each
-     operation.
-2. **Federated providers**
-   - Finish the OAuth provider implementations (Google/Facebook/GitHub/etc.), including popup/redirect orchestration,
-     PKCE support, and credential/linking helpers.
-3. **Browser & hybrid adapters**
-   - Provide concrete implementations for popup/redirect handlers, reCAPTCHA/Play Integrity bootstrap, and persistence
-     quirks across web, React Native, and Cordova environments.
-4. **Tenant/emulator & policy endpoints**
-   - Surface project configuration, password policy, token revocation, and emulator-friendly toggles with rustdoc'd APIs
-     and associated error mapping.
-5. **Persistence & lifecycle**
-   - Add IndexedDB/native durable storage backends and flesh out proactive refresh observers (`beforeAuthStateChanged`).
-6. **Testing**
-   - Translate the remaining JS suites (providers, MFA, browser flows) to Rust, reusing the `httpmock` harness across
-     modules.
+1. **Federated providers**
+    - Finish the OAuth provider implementations (Google/Facebook/GitHub/etc.), including popup/redirect orchestration,
+      PKCE support, and credential/linking helpers.
+2. **Browser & hybrid adapters**
+    - Provide concrete implementations for popup/redirect handlers, reCAPTCHA/Play Integrity bootstrap, and persistence
+      quirks across web, React Native, and Cordova environments.
+3. **Tenant/emulator & policy endpoints**
+    - Surface project configuration, password policy, token revocation, and emulator-friendly toggles with rustdoc'd APIs
+      and associated error mapping.
+4. **Persistence & lifecycle**
+    - Add IndexedDB/native durable storage backends and flesh out proactive refresh observers (`beforeAuthStateChanged`).
+5. **Testing**
+    - Translate the remaining JS suites (providers, MFA, browser flows) to Rust, reusing the `httpmock` harness across
+      modules.
 
 ## Immediate Porting Focus (authenticated consumers)
 

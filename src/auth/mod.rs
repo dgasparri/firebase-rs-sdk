@@ -103,7 +103,7 @@ pub mod types;
 pub use api::{auth_for_app, register_auth_component, Auth, AuthBuilder};
 
 #[doc(inline)]
-pub use error::{AuthError, AuthResult};
+pub use error::{AuthError, AuthResult, MultiFactorAuthError, MultiFactorAuthErrorCode};
 
 #[doc(inline)]
 pub use model::{AuthConfig, AuthCredential, EmailAuthProvider, User, UserCredential};

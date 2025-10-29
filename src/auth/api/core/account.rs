@@ -1,4 +1,4 @@
-use crate::auth::error::{AuthError, AuthResult};
+use crate::auth::error::{map_mfa_error_code, AuthError, AuthResult};
 use crate::auth::model::{
     GetAccountInfoResponse, MfaEnrollmentInfo, ProviderUserInfo, SignInWithPasswordRequest,
     SignInWithPasswordResponse,
@@ -645,10 +645,44 @@ fn map_error(status: StatusCode, body: String) -> AuthError {
     if let Ok(parsed) = serde_json::from_str::<ErrorResponse>(&body) {
         if let Some(error) = parsed.error {
             if let Some(message) = error.message {
+                if let Some(mapped) = map_mfa_error_code(&message) {
+                    return mapped;
+                }
                 return AuthError::InvalidCredential(message);
             }
         }
     }
 
     AuthError::InvalidCredential(format!("Request failed with status {status}: {body}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::error::MultiFactorAuthErrorCode;
+
+    #[test]
+    fn map_error_converts_missing_mfa_session() {
+        let body = r#"{"error":{"message":"MISSING_MFA_PENDING_CREDENTIAL"}}"#;
+        let error = map_error(StatusCode::BAD_REQUEST, body.to_string());
+        match error {
+            AuthError::MultiFactor(err) => {
+                assert_eq!(err.code(), MultiFactorAuthErrorCode::MissingSession);
+                assert_eq!(err.server_message(), Some("MISSING_MFA_PENDING_CREDENTIAL"));
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_error_converts_info_not_found() {
+        let body = r#"{"error":{"message":"MFA_ENROLLMENT_NOT_FOUND"}}"#;
+        let error = map_error(StatusCode::BAD_REQUEST, body.to_string());
+        match error {
+            AuthError::MultiFactor(err) => {
+                assert_eq!(err.code(), MultiFactorAuthErrorCode::InfoNotFound);
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
 }

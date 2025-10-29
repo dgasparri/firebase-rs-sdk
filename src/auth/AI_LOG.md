@@ -1982,3 +1982,51 @@ work on porting the module auth ./src/auth until it's 70% complete. Remember tha
 
 
 work on porting the module auth ./src/auth. Remember that the code must have wasm-parity to be compiled with wasm32 and be async. In the last session we finished TOTP support. Build out resolver support for reauthentication/link flows▌ so MultiFactorResolver can finish those operations as well.
+
+
+
+
+all tests passed, what's next?
+
+> Great! With resolver parity in place, the next logical targets are:
+
+IMPORTANT:
+
+  - Map the MFA-specific error codes into typed variants so callers can distinguish info-not-found vs. second-factor-
+  required scenarios cleanly.
+  - Start plumbing the remaining OAuth provider flows (Google/Facebook/etc.) now that link/reauth resolvers won’t block
+  those experiences.
+  - Keep expanding the httpmock coverage—mirroring the JS resolver suites for TOTP and WebAuthn will give us confidence
+  as we add new factors.
+
+  Let me know which of those you’d like to tackle first.
+
+
+Updated Plan
+  └ ✔ Design MFA-specific error types and map server error codes to new typed variants.
+    ✔ Update REST error mapping helpers to emit typed MFA errors and add tests covering new mappings.
+    ✔ Document new error variants in README/api docs and run formatting/tests as needed.
+
+• Ran git status -sb
+
+• Explored
+  └ Read error.rs, account.rs, token.rs, mfa.rs, phone.rs
+
+• Ran git status -sb
+
+• Explored
+  └ Read mod.rs, README.md
+
+> - Added structured multi-factor error handling so AuthError now carries MultiFactorAuthError and a
+  MultiFactorAuthErrorCode that mirrors the JS SDK (src/auth/error.rs:10, src/auth/error.rs:53, src/auth/error.rs:123,
+  src/auth/mod.rs:106).
+  - Wired the Identity Toolkit clients to translate Firebase MFA responses into those typed errors instead of generic
+  InvalidCredential failures (src/auth/api/core/account.rs:644, src/auth/api/core/token.rs:84, src/auth/api/core/
+  mfa.rs:365, src/auth/api/core/phone.rs:63).
+  - Updated the module README and added focused unit/httpmock tests covering the new mappings so the behaviour is
+  documented and locked down (src/auth/README.md:194, src/auth/api/core/account.rs:659, src/auth/api/core/token.rs:99,
+  src/auth/error.rs:181).
+  - Tests: cargo test map_error_converts_missing_mfa_session, cargo test map_mfa_error_code_handles_pending_credential,
+  cargo test refresh_id_token_maps_mfa_errors (requires httpmock loopback; ran with elevated permissions).
+  - Next: build on the typed surface by tackling passkey/WebAuthn factor support and extending resolver metadata to
+  cover those flows.
