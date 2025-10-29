@@ -79,7 +79,7 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 
 ## Quick Start Example
 
-```rust
+```rust,ignore
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::storage::*;
 

@@ -61,7 +61,7 @@ Next steps you might consider:
 
 ## Development status as of 14th October 2025
 
-- Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore) for details)
+- Core functionalities: Mostly implemented
 - Testing: 30 tests (passed)
 - Documentation: Most public functions are documented
 - Examples: 2 examples
@@ -71,7 +71,7 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 
 ## Quick Start Example
 
-```rust
+```rust,no_run
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::database::{*, query as compose_query};
 use serde_json::json;

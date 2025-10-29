@@ -9,20 +9,20 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 
 | Module | % porting completed  | |
 |--------|----------------------|-|
-| [app](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app)                     | 60% | `[############        ]` |
-| [storage](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage)             | 60% | `[############        ]` |
-| [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) | 45% | `[#########           ]` |
-| [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         | 40% | `[########            ]` |
 | [ai](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/ai)                       | 30% | `[######              ]` |
+| [analytics](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/analytics)         | 20% | `[####                ]` |
+| [app](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app)                     | 60% | `[############        ]` |
 | [app_check](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check)         | 30% | `[######              ]` |
-| [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)                   | 30% | `[######              ]` |
+| [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)                   | 85% | `[#################   ]` |
+| [data_connect](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/data_connect)   | 5%  | `[#                   ]` |
 | [database](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/database)           | 30% | `[######              ]` |
 | [firestore](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore)         | 25% | `[#####               ]` |
 | [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)         | 25% | `[#####               ]` |
-| [remote-config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config) | 25% | `[#####               ]` |
-| [analytics](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/analytics)         | 20% | `[####                ]` |
-| [data-connect](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/data_connect)   | 5%  | `[#                   ]` |
-| [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     | 3%  | `[#                   ]` |
+| [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) | 45% | `[#########           ]` |
+| [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         | 40% | `[########            ]` |
+| [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     | 5%  | `[#                   ]` |
+| [remote_config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config) | 25% | `[#####               ]` |
+| [storage](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage)             | 60% | `[############        ]` |
 
 
 The following modules are used internally by the library and have no direct public API. Only the features required internally have been ported.
@@ -36,34 +36,34 @@ The following modules are used internally by the library and have no direct publ
 
 Note that this library is provided _as is__. Even the more developed modules have not yet been exhaustively tested. All the code published passes `cargo test` and the original tests of the JS SDK are being ported, but we are still verifying that all relevant tests from the JS SDK have been ported and that the test coverage is complete.
 
-If you want to contribute, donating your time and AI resources is the most valuable way to support this project. See the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) page on how to help.
 
 ## Feature Flags
 
-Some parts of the SDK are gated behind cargo features so you can opt in only when you need browser/WASM behaviour:
+This library is WASM compatible and offers the following cargo features:
 
 - `wasm-web`: enables the bindings required to compile the crate for `wasm32-unknown-unknown` (e.g. `wasm-bindgen`, `web-sys`, `gloo-timers`). Activate this when you target the web or run wasm-specific tests.
 - `experimental-indexed-db`: turns on IndexedDB-backed persistence for modules that support it (currently App Check). Without this flag, wasm builds fall back to in-memory storage while keeping the same API.
 
-### Enabling the features in `Cargo.toml`
+To enable those features in `Cargo.toml`:
 
 ```toml
 [dependencies]
-firebase-rs-sdk = { version = "0.11", features = ["wasm-web", "experimental-indexed-db"] }
+firebase-rs-sdk = { version = "X.XX", features = ["wasm-web", "experimental-indexed-db"] }
 ```
 
-### Running commands with the features
+To run commands with the features
 
 ```bash
 cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
-cargo test --target wasm32-unknown-unknown --features wasm-web wasm_smoke
+cargo test --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+cargo build --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
 ```
 
 If you only need the wasm bindings and not IndexedDB persistence, omit `experimental-indexed-db` from the list.
 
 ##  Why the JS SDK as a source?
 
-Firebase has several official SDKs. From an architectural standpoint, the C++ version might have been a better reference, but the JS SDK is one of the few that implements the services from scratch, without depending on external Java libraries. Moreover, it offers one of the most complete and well-documented APIs. 
+Firebase has several official SDKs. The JS SDK is one of the few that implements the services from scratch without depending on external Java libraries. Moreover, it offers one of the most complete and well-documented APIs. 
 
 Resources for the Firebase JS SDK:
 
@@ -74,6 +74,9 @@ Resources for the Firebase JS SDK:
 This material is from Google and the Community.
 
 There is an effort to match closely the structure and names of the JS SDK, so its documentation might be of help to understand the Rust porting library.
+
+If you want to contribute, donating your time and AI resources is the most valuable way to support this project. See the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) page on how to help.
+
 
 # Example
 
@@ -111,22 +114,23 @@ use std::error::Error;
 use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::firestore::*;
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     let firebase_config = FirebaseOptions {
         api_key: Some("demo-api-key".into()),
         project_id: Some("demo-project".into()),
         ..Default::default()
     };
-    
-    let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default()))?;
-    let firestore_arc = get_firestore(Some(app.clone()))?;
+
+    let app = initialize_app(firebase_config, Some(FirebaseAppSettings::default())).await?;
+    let firestore_arc = get_firestore(Some(app.clone())).await?;
     let firestore = Firestore::from_arc(firestore_arc);
-    
+
     // Talk to the hosted Firestore REST API. Configure credentials/tokens as needed.
     let client = FirestoreClient::with_http_datastore(firestore.clone())?;
-    
-    let cities = load_cities(&firestore, &client)?;
-    
+
+    let cities = load_cities(&firestore, &client).await?;
+
     println!("Loaded {} cities from Firestore:", cities.len());
     for city in cities {
         let name = field_as_string(&city, "name").unwrap_or_else(|| "Unknown".into());
@@ -141,13 +145,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 /// Mirrors the `getCities` helper in `JSEXAMPLE.ts`, issuing the equivalent modular query
 /// against the remote Firestore backend.
-fn load_cities(
+async fn load_cities(
     firestore: &Firestore,
     client: &FirestoreClient,
 ) -> FirestoreResult<Vec<BTreeMap<String, FirestoreValue>>> {
     // The modular JS quickstart queries the `cities` collection.
     let query = firestore.collection("cities")?.query();
-    let snapshot = client.get_docs(&query)?;
+    let snapshot = client.get_docs(&query).await?;
 
     let mut documents = Vec::new();
     for doc in snapshot.documents() {
@@ -174,7 +178,7 @@ fn field_as_i64(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<
 }
 ```
 
-As you can see, there are clear parallels between the TypeScript methods (initializeApp(), getFirestore(), collection(), getDocs()) and their Rust counterparts (initialize_app(), get_firestore(), collection(), get_docs()). 
+There are clear parallels between the TypeScript methods (initializeApp(), getFirestore(), collection(), getDocs()) and their Rust counterparts (initialize_app(), get_firestore(), collection(), get_docs()). 
 
 For further details, refer to the example [`./examples/firestore_select_documents.rs`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/examples/firestore_select_documents.rs) or run `cargo run --example firestore_select_documents`.
 

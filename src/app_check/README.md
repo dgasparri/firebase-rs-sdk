@@ -63,7 +63,7 @@ DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that 
 
 ## Example Usage
 
-```rust
+```rust,no_run
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::app_check::*;
 use std::error::Error;

@@ -16,12 +16,14 @@ It includes error handling, configuration options, and integration with Firebase
 
 ## Porting Status
 
-- auth 82% `[########  ]`
+- auth 85% `[######### ]`
 
-- Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth) for details)
+- Core functionalities: Mostly implemented
 - Tests: httpmock-backed unit suite expanded (requires loopback binding when run locally)
 - Documentation: Most public functions are documented
-- Examples: 1 provided
+- Examples: 4 provided
+
+Based on the current codebase, I’d put parity with the Firebase Auth JS SDK at roughly 85 %. All of the core sign-in flows (email/password, custom token, anonymous, phone, TOTP, passkey), multi-factor resolver/linking, OAuth scaffolding (with PKCE and built-in providers), persistence, and token refresh logic are in place. The remaining  gap is mostly around browser-specific ceremony glue (popup/redirect adapters, conditional UI), advanced admin/tenant tooling, and a handful of higher-level provider conveniences that the JS SDK ships out of the box.
 
 ## References to the Firebase JS SDK - firestore module
 
@@ -96,93 +98,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 > `wasm-bindgen-futures::spawn_local` or the surrounding host instead of `tokio`.
 
 
-## What’s Implemented
+## What's Implemented
 
-- **Auth service** (`api.rs`, `mod.rs`)
-  - Component registration and `Auth` factory so apps can resolve an `Auth` instance via `get_provider("auth")`.
-  - `Auth::builder` helper that lets consumers inject custom persistence implementations before initialization.
-- **OAuth scaffolding** (`oauth/`)
-  - Defines `OAuthRequest`, popup/redirect handler traits, and the new `OAuthProvider` builder (`sign_in_with_popup` /
-    `sign_in_with_redirect` / `get_redirect_result`). Apps register platform-specific implementations via
-    `Auth::builder().with_popup_handler(...)` / `.with_redirect_handler(...)`, keeping UI and JS glue outside the core crate.
-  - Reference adapters live in `examples/oauth_popup_wasm.rs` (WASM + JS) and `examples/oauth_redirect_desktop.rs`
-    (system browser) to demonstrate handler wiring end to end.
-  - Provider convenience builders (`GoogleAuthProvider`, `FacebookAuthProvider`, etc.) and redirect persistence helpers
-    mirror the JS SDK strategies while remaining platform agnostic.
-  - `Auth::builder().with_redirect_persistence(...)` allows apps to supply durable storage for pending redirect events.
-- **REST client scaffolding** (`api.rs`)
-  - Email/password, custom-token, anonymous, and email-link flows share the same token finalisation path, covering
-    `signInWithPassword`, `signUp`, `signInWithCustomToken`, and `signInWithEmailLink` while remaining async-friendly for
-    wasm builds.
-  - `signInWithIdp` REST exchange for OAuth credentials produced by popup/redirect handlers.
-  - Unified helper for out-of-band actions (`sendOobCode`, `resetPassword`, `applyActionCode`) keeps email resets,
-    verification, and email link flows consistent across platforms.
-- **Account management APIs** (`api/account.rs`)
-  - Password reset, email verification, profile/email/password updates, user deletion, and provider linking are wired via
-    the Firebase Auth REST endpoints, surfaced through new `Auth` helpers. Re-authentication helpers cover both password
-    and OAuth credentials.
-- **Multi-factor APIs** (`api/core/mfa.rs`, `types.rs`)
-  - Phone-based second-factor enrollment reuses the confirmation pipeline; `Auth::multi_factor()` returns a
-    `MultiFactorUser` with async helpers for session creation, enrollment, factor inspection, and unenrollment.
-  - Step-up sign-in surfaces `MultiFactorResolver`, exposing factor hints, captured sessions, verification helpers, and
-    resolver-driven completion for phone challenges raised via `mfaPendingCredential` responses across sign-in,
-    reauthentication, and credential linking flows.
-  - Passkey/WebAuthn factors provide typed challenge retrieval (`WebAuthnSignInChallenge`) and assertion finalisation via
-    `WebAuthnMultiFactorGenerator`, and now cover both sign-in and enrollment flows through
-    `MultiFactorResolver::start_passkey_sign_in` and `MultiFactorUser::start_passkey_enrollment`.
-  - WebAuthn metadata (allow credentials, authenticator transports, attestation public keys) is exposed via typed
-    accessors on `WebAuthnSignInChallenge`, `WebAuthnAssertionResponse`, and `WebAuthnAttestationResponse`, matching the
-    modular JS surface.
-  - Multi-factor hints mirror the JS ordering by sorting enrolled factors by their `enrolledAt` timestamp while preserving
-    server display names for clearer resolver UX.
-  - Helper methods such as `challenge.challenge_bytes()` and `response.with_signature(...)` simplify the bridge between
-    browser WebAuthn APIs and `MultiFactorResolver::resolve_sign_in`. See `examples/auth_passkey_roundtrip.rs` for a
-    complete passkey resolver round trip.
-  - TOTP enrollment/sign-in flows are supported via `TotpMultiFactorGenerator`, including secret generation helpers and
-    resolver integration during multi-factor sign-in.
-- **Phone provider utilities** (`phone/`)
-  - `PhoneAuthProvider` and `PhoneAuthCredential` offer low-level verification helpers alongside credential-based
-    sign-in/link/reauth flows, mirroring the Firebase JS provider ergonomics for SMS authentication.
-- **Models & types** (`model.rs`, `types.rs`)
-  - User models (`User`, `UserCredential`), provider structs (`EmailAuthProvider`), action code types, token metadata.
-- **Errors & result handling** (`error.rs`)
-  - Auth-specific error enumeration and result aliases, plus typed multi-factor error codes that surface
-    `missing-multi-factor-session`/`multi-factor-info-not-found` as structured Rust variants.
-- **Module wiring** (`mod.rs`)
-  - Public re-exports and component registration entrypoints used by other services.
-- **Token refresh scaffolding** (`token_manager.rs`, `api/token.rs`, `token_provider.rs`)
-  - Tracks ID/refresh tokens with expiry metadata, hits the Secure Token endpoint on demand, and exposes an
-    `AuthTokenProvider` that other services (Firestore, Functions) can plug in for authenticated requests.
-- **State persistence (in-memory + web storage)** (`persistence/`)
-  - Saves/restores the signed-in user and tokens across restarts via a pluggable persistence interface. Native builds
-    default to an in-memory driver, while WASM targets can enable the `wasm-web` feature to use local/session storage
-    with multi-tab coordination through the new `WebStoragePersistence` adapter.
-
-  - Email/password sign-in & sign-up, custom token exchange, anonymous sessions, and email link sign-in share the same
-  token management pipeline, keeping parity with the JS strategies while remaining async/wasm-friendly.
-  - Phone number authentication now mirrors the JS confirmation flow (`signInWithPhoneNumber`, linking, reauth), using an
-  async `ConfirmationResult` that plugs into pluggable application verifiers for reCAPTCHA/Play Integrity tokens.
-  - Multi-factor enrollment for phone numbers reuses the same confirmation pipeline; `Auth::multi_factor()` exposes async
-  helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape. Passkey/WebAuthn
-  and TOTP enrollment/sign-in are parity-complete, including resolver-driven sign-in, linking, and reauthentication.
-  - Federated OAuth providers (Google, Facebook, GitHub, Twitter, Microsoft, Apple, Yahoo) include default scopes, PKCE support, and
-  helper methods for popup/redirect flows plus link/reauth coverage. WASM hosts can reuse the
-  `examples/auth_oauth_popup_wasm.rs` sample to wire popup handlers and conditional passkey UI through JS.
-  - Credentials now expose `to_json`/`from_json` helpers so applications can persist and replay OAuth/email credentials in
-  the same format used by the Firebase JS SDK.
-  - `PhoneAuthProvider` mirrors the JS provider API, exposing verification helpers plus credential-based sign-in/link/reauth
-  flows for SMS codes alongside the `sign_in_with_phone_number` convenience wrappers.
-  - Phone and passkey MFA sign-in/link flows are covered end-to-end (`multi_factor_phone_enrollment_flow`,
-    `passkey_multi_factor_link_flow`, etc.), providing the building blocks needed for higher-level resolver UX.
-  - Out-of-band action helpers (`sendPasswordResetEmail`, `sendSignInLinkToEmail`, `applyActionCode`, `checkActionCode`,
-  `verifyPasswordResetCode`) reuse a central request builder so both native and wasm targets can trigger Firebase emails
-  without rewriting REST plumbing.
-  - Account mutation APIs (profile/email/password updates, deletion, provider unlinking, reauthentication) remain feature
-  complete relative to the JS REST surface, and listeners/persistence continue to mirror identity updates.
-  - Persistence, Secure Token refresh, and OAuth scaffolding stay platform-agnostic, with IndexedDB-backed storage
-  available behind the `wasm-web` feature for browser builds.
-  - Extensive httpmock-backed unit tests exercise request payloads and token refresh logic to guard against regressions
-  (requires loopback sockets when executed locally).
+- **Auth service core** (`api.rs`, `mod.rs`) provides component registration, `Auth::builder`, and integration with the app provider registry so callers can resolve `Auth` instances.
+- **OAuth scaffolding** (`oauth/`) defines `OAuthRequest`, popup/redirect handler traits, provider builders with PKCE support, and redirect persistence hooks alongside native/WASM examples.
+- **REST auth flows** (`api.rs`) unify email/password, custom token, anonymous, email link, and IdP exchanges and centralise out-of-band actions for password reset, email verification, and email link delivery.
+- **Account management** (`api/account.rs`) surfaces profile/email/password updates, provider link/unlink, reauthentication helpers, and user deletion endpoints via the Auth REST API.
+- **Multi-factor support** (`api/core/mfa.rs`, `types.rs`) covers phone, passkey/WebAuthn, and TOTP enrollment and sign-in with resolver utilities, typed challenges, and session helpers.
+- **Phone provider utilities** (`phone/`) supply `PhoneAuthProvider`, `PhoneAuthCredential`, and pluggable verifiers that mirror the JS confirmation flows for SMS authentication.
+- **Models & credential helpers** (`model.rs`, `types.rs`) expose `User`, `UserCredential`, provider structs, action code types, token metadata, and JSON serialization helpers for credentials.
+- **Error handling** (`error.rs`) defines auth-specific error enums, including multi-factor variants, and result aliases used throughout the module.
+- **Token management** (`token_manager.rs`, `api/token.rs`, `token_provider.rs`) tracks ID/refresh tokens, calls the Secure Token endpoint, and provides the `AuthTokenProvider` bridge for other services.
+- **State persistence** (`persistence/`) offers in-memory and web storage drivers, including `WebStoragePersistence` for WASM builds behind the `wasm-web` feature.
+- **Testing coverage** (unit tests under `src/auth`) uses `httpmock` to exercise REST payloads, persistence, and token refresh logic, guarding against regressions.
 
 
 ### Remaining Gaps
