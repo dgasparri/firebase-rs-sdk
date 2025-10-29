@@ -40,7 +40,8 @@ use crate::auth::types::{
     ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl,
     ApplicationVerifier, ConfirmationResult, MultiFactorError, MultiFactorInfo,
     MultiFactorOperation, MultiFactorSession, MultiFactorSessionType, MultiFactorSignInContext,
-    MultiFactorUser, TotpSecret, WEBAUTHN_FACTOR_ID,
+    MultiFactorUser, TotpSecret, WebAuthnAssertionResponse, WebAuthnSignInChallenge,
+    WEBAUTHN_FACTOR_ID,
 };
 use crate::auth::{PhoneAuthCredential, PHONE_PROVIDER_ID};
 use crate::component::types::{
@@ -880,7 +881,7 @@ impl Auth {
         self: &Arc<Self>,
         pending_credential: &str,
         enrollment_id: &str,
-    ) -> AuthResult<Value> {
+    ) -> AuthResult<WebAuthnSignInChallenge> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         let request = StartPasskeyMfaSignInRequest {
@@ -892,7 +893,7 @@ impl Auth {
 
         let response =
             start_passkey_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
-        Ok(response.webauthn_sign_in_info)
+        WebAuthnSignInChallenge::from_value(response.webauthn_sign_in_info)
     }
 
     async fn complete_phone_mfa_enrollment(
@@ -1053,7 +1054,7 @@ impl Auth {
         self: &Arc<Self>,
         pending_credential: &str,
         enrollment_id: &str,
-        verification_info: Value,
+        response: WebAuthnAssertionResponse,
         context: Arc<MultiFactorSignInContext>,
         operation: MultiFactorOperation,
     ) -> AuthResult<UserCredential> {
@@ -1063,7 +1064,7 @@ impl Auth {
             mfa_pending_credential: pending_credential.to_string(),
             mfa_enrollment_id: Some(enrollment_id.to_string()),
             webauthn_verification_info: WebAuthnVerificationInfo {
-                payload: verification_info,
+                payload: response.into_raw(),
             },
             tenant_id: None,
         };
@@ -2575,7 +2576,7 @@ mod tests {
     };
     use crate::auth::{
         get_multi_factor_resolver, FirebaseAuth, PhoneAuthProvider, PhoneMultiFactorGenerator,
-        TotpMultiFactorGenerator, WebAuthnMultiFactorGenerator,
+        TotpMultiFactorGenerator, WebAuthnAssertionResponse, WebAuthnMultiFactorGenerator,
     };
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
     use httpmock::prelude::*;
@@ -3090,7 +3091,7 @@ mod tests {
             .await
             .expect("passkey challenge should succeed");
         start_mock.assert();
-        assert_eq!(challenge["challenge"], "PASSKEY_CHALLENGE");
+        assert_eq!(challenge.challenge(), Some("PASSKEY_CHALLENGE"));
 
         let verification_info = json!({
             "credentialId": "cred-123",
@@ -3115,7 +3116,9 @@ mod tests {
             }));
         });
 
-        let assertion = WebAuthnMultiFactorGenerator::assertion("enroll1", verification_info);
+        let assertion_response = WebAuthnAssertionResponse::try_from(verification_info)
+            .expect("verification payload should be valid");
+        let assertion = WebAuthnMultiFactorGenerator::assertion("enroll1", assertion_response);
         let result = resolver
             .resolve_sign_in(assertion)
             .await

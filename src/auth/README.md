@@ -184,7 +184,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   - Step-up sign-in surfaces `MultiFactorResolver`, exposing factor hints, captured sessions, verification helpers, and
     resolver-driven completion for phone challenges raised via `mfaPendingCredential` responses across sign-in,
     reauthentication, and credential linking flows.
-  - Passkey/WebAuthn factors provide challenge retrieval and assertion finalisation via `start_passkey_sign_in` and
+  - Passkey/WebAuthn factors provide typed challenge retrieval (`WebAuthnSignInChallenge`) and assertion finalisation via
     `WebAuthnMultiFactorGenerator`, allowing apps to plug platform-specific WebAuthn payloads into the shared resolver.
   - TOTP enrollment/sign-in flows are supported via `TotpMultiFactorGenerator`, including secret generation helpers and
     resolver integration during multi-factor sign-in.

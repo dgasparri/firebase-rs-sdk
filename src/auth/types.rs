@@ -1,6 +1,7 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::convert::TryFrom;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -292,12 +293,30 @@ impl MultiFactorInfo {
         let factor_id = enrollment
             .factor_id
             .clone()
-            .or_else(|| enrollment.phone_info.as_ref().map(|_| "phone".to_string()))
+            .or_else(|| {
+                enrollment
+                    .phone_info
+                    .as_ref()
+                    .map(|_| PHONE_PROVIDER_ID.to_string())
+            })
             .unwrap_or_else(|| "unknown".to_string());
+
+        let display_name = if factor_id == WEBAUTHN_FACTOR_ID {
+            enrollment.display_name.clone().or_else(|| {
+                enrollment
+                    .webauthn_info
+                    .as_ref()
+                    .and_then(|info| info.get("displayName"))
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string())
+            })
+        } else {
+            enrollment.display_name.clone()
+        };
 
         Some(Self {
             uid,
-            display_name: enrollment.display_name.clone(),
+            display_name,
             enrollment_time: enrollment
                 .enrolled_at
                 .as_ref()
@@ -557,14 +576,14 @@ impl TotpMultiFactorAssertion {
 #[derive(Clone, Debug)]
 pub struct WebAuthnMultiFactorAssertion {
     enrollment_id: String,
-    verification_info: Value,
+    response: WebAuthnAssertionResponse,
 }
 
 impl WebAuthnMultiFactorAssertion {
-    pub fn new(enrollment_id: impl Into<String>, verification_info: Value) -> Self {
+    pub fn new(enrollment_id: impl Into<String>, response: WebAuthnAssertionResponse) -> Self {
         Self {
             enrollment_id: enrollment_id.into(),
-            verification_info,
+            response,
         }
     }
 
@@ -572,8 +591,12 @@ impl WebAuthnMultiFactorAssertion {
         &self.enrollment_id
     }
 
-    pub fn verification_info(&self) -> &Value {
-        &self.verification_info
+    pub fn response(&self) -> &WebAuthnAssertionResponse {
+        &self.response
+    }
+
+    pub fn into_response(self) -> WebAuthnAssertionResponse {
+        self.response
     }
 }
 
@@ -613,10 +636,13 @@ impl MultiFactorAssertion {
         MultiFactorAssertion::Totp(TotpMultiFactorAssertion::for_sign_in(enrollment_id, otp))
     }
 
-    pub(crate) fn from_passkey(enrollment_id: impl Into<String>, verification_info: Value) -> Self {
+    pub(crate) fn from_passkey(
+        enrollment_id: impl Into<String>,
+        response: WebAuthnAssertionResponse,
+    ) -> Self {
         MultiFactorAssertion::WebAuthn(WebAuthnMultiFactorAssertion::new(
             enrollment_id,
-            verification_info,
+            response,
         ))
     }
 }
@@ -657,9 +683,97 @@ pub struct WebAuthnMultiFactorGenerator;
 impl WebAuthnMultiFactorGenerator {
     pub fn assertion(
         enrollment_id: impl Into<String>,
-        verification_info: Value,
+        response: WebAuthnAssertionResponse,
     ) -> MultiFactorAssertion {
-        MultiFactorAssertion::from_passkey(enrollment_id, verification_info)
+        MultiFactorAssertion::from_passkey(enrollment_id, response)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct WebAuthnSignInChallenge {
+    payload: Value,
+}
+
+impl WebAuthnSignInChallenge {
+    pub fn challenge(&self) -> Option<&str> {
+        self.payload.get("challenge").and_then(|value| value.as_str())
+    }
+
+    pub fn rp_id(&self) -> Option<&str> {
+        self.payload.get("rpId").and_then(|value| value.as_str())
+    }
+
+    pub fn user_handle(&self) -> Option<&str> {
+        self.payload.get("userHandle").and_then(|value| value.as_str())
+    }
+
+    pub fn as_raw(&self) -> &Value {
+        &self.payload
+    }
+
+    pub fn into_raw(self) -> Value {
+        self.payload
+    }
+
+    pub fn from_value(value: Value) -> AuthResult<Self> {
+        if value
+            .get("challenge")
+            .and_then(|candidate| candidate.as_str())
+            .is_none()
+        {
+            return Err(AuthError::InvalidCredential(
+                "WebAuthn sign-in challenge is missing a challenge value".into(),
+            ));
+        }
+        Ok(Self { payload: value })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct WebAuthnAssertionResponse {
+    payload: Value,
+}
+
+impl WebAuthnAssertionResponse {
+    pub fn credential_id(&self) -> Option<&str> {
+        self.payload.get("credentialId").and_then(|value| value.as_str())
+    }
+
+    pub fn client_data_json(&self) -> Option<&str> {
+        self.payload
+            .get("clientDataJSON")
+            .and_then(|value| value.as_str())
+    }
+
+    pub fn as_raw(&self) -> &Value {
+        &self.payload
+    }
+
+    pub fn into_raw(self) -> Value {
+        self.payload
+    }
+}
+
+impl TryFrom<Value> for WebAuthnAssertionResponse {
+    type Error = AuthError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        let credential_present = value
+            .get("credentialId")
+            .and_then(|candidate| candidate.as_str())
+            .is_some();
+        let client_data_present = value
+            .get("clientDataJSON")
+            .and_then(|candidate| candidate.as_str())
+            .is_some();
+
+        if credential_present && client_data_present {
+            Ok(Self { payload: value })
+        } else {
+            Err(AuthError::InvalidCredential(
+                "WebAuthn verification payload missing credentialId or clientDataJSON".into(),
+            ))
+        }
     }
 }
 
@@ -777,7 +891,10 @@ impl MultiFactorResolver {
     }
 
     /// Initiates a passkey/WebAuthn challenge for the provided factor hint.
-    pub async fn start_passkey_sign_in(&self, hint: &MultiFactorInfo) -> AuthResult<Value> {
+    pub async fn start_passkey_sign_in(
+        &self,
+        hint: &MultiFactorInfo,
+    ) -> AuthResult<WebAuthnSignInChallenge> {
         if hint.factor_id != WEBAUTHN_FACTOR_ID {
             return Err(AuthError::InvalidCredential(
                 "Hint does not reference a WebAuthn factor".into(),
@@ -839,11 +956,13 @@ impl MultiFactorResolver {
                     .await
             }
             MultiFactorAssertion::WebAuthn(assertion) => {
+                let enrollment_id = assertion.enrollment_id().to_string();
+                let response = assertion.into_response();
                 self.auth
                     .finalize_passkey_multi_factor_sign_in(
                         pending,
-                        assertion.enrollment_id(),
-                        assertion.verification_info().clone(),
+                        &enrollment_id,
+                        response,
                         Arc::clone(&self.context),
                         self.operation,
                     )

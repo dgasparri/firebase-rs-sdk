@@ -329,6 +329,8 @@ pub struct MfaEnrollmentInfo {
     pub phone_info: Option<String>,
     #[serde(rename = "totpInfo")]
     pub totp_info: Option<Value>,
+    #[serde(rename = "webauthnInfo")]
+    pub webauthn_info: Option<Value>,
     #[serde(rename = "enrolledAt")]
     pub enrolled_at: Option<Value>,
     #[serde(rename = "factorId")]
