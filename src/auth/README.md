@@ -190,6 +190,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
   - WebAuthn metadata (allow credentials, authenticator transports, attestation public keys) is exposed via typed
     accessors on `WebAuthnSignInChallenge`, `WebAuthnAssertionResponse`, and `WebAuthnAttestationResponse`, matching the
     modular JS surface.
+  - Helper methods such as `challenge.challenge_bytes()` and `response.with_signature(...)` simplify the bridge between
+    browser WebAuthn APIs and `MultiFactorResolver::resolve_sign_in`. See `examples/auth_passkey_roundtrip.rs` for a
+    complete passkey resolver round trip.
   - TOTP enrollment/sign-in flows are supported via `TotpMultiFactorGenerator`, including secret generation helpers and
     resolver integration during multi-factor sign-in.
 - **Phone provider utilities** (`phone/`)

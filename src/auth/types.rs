@@ -16,6 +16,7 @@ use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::{MfaEnrollmentInfo, User, UserCredential};
 use crate::auth::phone::PhoneAuthCredential;
 use crate::auth::PHONE_PROVIDER_ID;
+use crate::util::base64::base64_decode_bytes;
 use crate::util::PartialObserver;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -857,6 +858,21 @@ pub struct WebAuthnSignInChallenge {
 }
 
 impl WebAuthnSignInChallenge {
+    /// Returns the base64url-encoded challenge exactly as sent by the backend.
+    pub fn challenge_b64(&self) -> Option<&str> {
+        self.challenge()
+    }
+
+    /// Decodes the challenge into raw bytes using the same URL-safe alphabet as the JS SDK.
+    pub fn challenge_bytes(&self) -> AuthResult<Vec<u8>> {
+        let challenge = self
+            .challenge()
+            .ok_or_else(|| AuthError::InvalidCredential("WebAuthn challenge is missing".into()))?;
+        base64_decode_bytes(challenge).map_err(|_| {
+            AuthError::InvalidCredential("WebAuthn challenge is not valid base64url".into())
+        })
+    }
+
     pub fn challenge(&self) -> Option<&str> {
         self.payload
             .get("challenge")
@@ -915,6 +931,21 @@ pub struct WebAuthnEnrollmentChallenge {
 }
 
 impl WebAuthnEnrollmentChallenge {
+    /// Returns the base64url-encoded challenge exactly as sent by the backend.
+    pub fn challenge_b64(&self) -> Option<&str> {
+        self.challenge()
+    }
+
+    /// Decodes the challenge into raw bytes using the same URL-safe alphabet as the JS SDK.
+    pub fn challenge_bytes(&self) -> AuthResult<Vec<u8>> {
+        let challenge = self
+            .challenge()
+            .ok_or_else(|| AuthError::InvalidCredential("WebAuthn challenge is missing".into()))?;
+        base64_decode_bytes(challenge).map_err(|_| {
+            AuthError::InvalidCredential("WebAuthn challenge is not valid base64url".into())
+        })
+    }
+
     pub fn challenge(&self) -> Option<&str> {
         self.payload
             .get("challenge")
@@ -968,6 +999,36 @@ pub struct WebAuthnAssertionResponse {
 }
 
 impl WebAuthnAssertionResponse {
+    /// Returns a new response with the provided authenticator data encoded as base64url.
+    ///
+    /// Mirrors the helpers on the JS `MultiFactorAssertionImpl` in
+    /// `packages/auth/src/mfa/mfa_assertion.ts` that expose mutators for the browser payload.
+    pub fn with_authenticator_data(mut self, data: impl Into<String>) -> Self {
+        self.set_field("authenticatorData", Value::String(data.into()));
+        self
+    }
+
+    /// Returns a new response with the provided signature encoded as base64url.
+    pub fn with_signature(mut self, signature: impl Into<String>) -> Self {
+        self.set_field("signature", Value::String(signature.into()));
+        self
+    }
+
+    /// Returns a new response with the provided optional user handle.
+    pub fn with_user_handle(mut self, user_handle: impl Into<Option<String>>) -> Self {
+        if let Value::Object(ref mut map) = self.payload {
+            match user_handle.into() {
+                Some(value) => {
+                    map.insert("userHandle".to_string(), Value::String(value));
+                }
+                None => {
+                    map.remove("userHandle");
+                }
+            }
+        }
+        self
+    }
+
     pub fn credential_id(&self) -> Option<&str> {
         self.payload
             .get("credentialId")
@@ -1001,6 +1062,12 @@ impl WebAuthnAssertionResponse {
             .and_then(|value| value.as_str())
     }
 
+    fn set_field(&mut self, key: &str, value: Value) {
+        if let Value::Object(ref mut map) = self.payload {
+            map.insert(key.to_string(), value);
+        }
+    }
+
     pub fn as_raw(&self) -> &Value {
         &self.payload
     }
@@ -1016,6 +1083,32 @@ pub struct WebAuthnAttestationResponse {
 }
 
 impl WebAuthnAttestationResponse {
+    /// Returns a new response with the provided attestation object encoded as base64url.
+    pub fn with_attestation_object(mut self, payload: impl Into<String>) -> Self {
+        self.set_field("attestationObject", Value::String(payload.into()));
+        self
+    }
+
+    /// Returns a new response with the provided credential public key.
+    pub fn with_credential_public_key(mut self, payload: impl Into<String>) -> Self {
+        self.set_field("credentialPublicKey", Value::String(payload.into()));
+        self
+    }
+
+    /// Returns a new response with the provided transports.
+    pub fn with_transports<I, T>(mut self, transports: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        let values = transports
+            .into_iter()
+            .map(|value| Value::String(value.into()))
+            .collect();
+        self.set_field("transports", Value::Array(values));
+        self
+    }
+
     pub fn credential_id(&self) -> Option<&str> {
         self.payload
             .get("credentialId")
@@ -1048,6 +1141,12 @@ impl WebAuthnAttestationResponse {
             .get("transports")
             .map(parse_transports)
             .unwrap_or_default()
+    }
+
+    fn set_field(&mut self, key: &str, value: Value) {
+        if let Value::Object(ref mut map) = self.payload {
+            map.insert(key.to_string(), value);
+        }
     }
 
     pub fn as_raw(&self) -> &Value {
@@ -1523,7 +1622,7 @@ mod tests {
     #[test]
     fn webauthn_sign_in_challenge_accessors() {
         let payload = json!({
-            "challenge": "ABC",
+            "challenge": "QUJD",
             "rpId": "example.com",
             "userHandle": "user-handle",
             "allowCredentials": [
@@ -1551,6 +1650,8 @@ mod tests {
         assert_eq!(allow[1].id(), "cred-2");
         assert!(allow[1].transports().is_empty());
         assert_eq!(challenge.user_handle(), Some("user-handle"));
+        let decoded = challenge.challenge_bytes().expect("decoded challenge");
+        assert_eq!(decoded, b"ABC");
     }
 
     #[test]
@@ -1572,6 +1673,18 @@ mod tests {
         assert_eq!(transports.len(), 2);
         assert_eq!(transports[0], WebAuthnTransport::Nfc);
         assert_eq!(transports[1].as_str(), "unknown");
+
+        let updated = response
+            .clone()
+            .with_attestation_object("UPDATED")
+            .with_transports(["internal", "usb"])
+            .with_credential_public_key("NEWKEY");
+        assert_eq!(updated.attestation_object(), Some("UPDATED"));
+        assert_eq!(updated.credential_public_key(), Some("NEWKEY"));
+        assert_eq!(
+            updated.transports(),
+            vec![WebAuthnTransport::Internal, WebAuthnTransport::Usb]
+        );
     }
 
     #[test]
@@ -1590,5 +1703,27 @@ mod tests {
         assert_eq!(response.authenticator_data(), Some("AUTH_DATA"));
         assert_eq!(response.signature(), Some("SIG"));
         assert_eq!(response.user_handle(), Some("USER"));
+
+        let updated = response
+            .clone()
+            .with_signature("NEW_SIG")
+            .with_authenticator_data("NEW_AUTH")
+            .with_user_handle(None)
+            .with_user_handle(Some("ALICE".to_string()));
+        assert_eq!(updated.signature(), Some("NEW_SIG"));
+        assert_eq!(updated.authenticator_data(), Some("NEW_AUTH"));
+        assert_eq!(updated.user_handle(), Some("ALICE"));
+    }
+
+    #[test]
+    fn webauthn_enrollment_challenge_decodes_bytes() {
+        let payload = json!({
+            "challenge": "QUJDRA",
+            "rpId": "example.com"
+        });
+
+        let challenge = WebAuthnEnrollmentChallenge::from_value(payload).expect("challenge");
+        let decoded = challenge.challenge_bytes().expect("decoded");
+        assert_eq!(decoded, b"ABCD");
     }
 }
