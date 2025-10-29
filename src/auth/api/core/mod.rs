@@ -3219,6 +3219,77 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn passkey_sign_in_invalid_challenge_error() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let sign_in_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": TEST_EMAIL,
+                    "password": TEST_PASSWORD,
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "mfaPendingCredential": "PASSKEY_PENDING",
+                "mfaInfo": [{
+                    "mfaEnrollmentId": "enroll1",
+                    "displayName": "Security Key",
+                    "factorId": "webauthn"
+                }]
+            }));
+        });
+
+        let error = auth
+            .sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD)
+            .await
+            .expect_err("expected multi-factor challenge");
+
+        sign_in_mock.assert();
+
+        let firebase_auth = FirebaseAuth::new(auth.clone());
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
+            .expect("resolver should be constructed");
+
+        let start_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "PASSKEY_PENDING",
+                    "mfaEnrollmentId": "enroll1"
+                }));
+            then.status(400).json_body(json!({
+                "error": {
+                    "code": 400,
+                    "message": "INVALID_CHALLENGE",
+                    "errors": [{
+                        "message": "INVALID_CHALLENGE"
+                    }]
+                }
+            }));
+        });
+
+        let err = resolver
+            .start_passkey_sign_in(&resolver.hints()[0])
+            .await
+            .expect_err("invalid challenge should propagate as error");
+
+        start_mock.assert();
+
+        match err {
+            AuthError::InvalidCredential(message) => {
+                assert!(message.contains("INVALID_CHALLENGE"));
+            }
+            _ => panic!("unexpected error variant: {err:?}"),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn passkey_multi_factor_enrollment_flow() {
         let server = start_mock_server();
         let auth = build_auth(&server);
@@ -3314,6 +3385,90 @@ mod tests {
             result.user.token_manager().refresh_token(),
             Some("passkey-refresh-token".to_string())
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn passkey_enrollment_missing_verification_error() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server).await;
+
+        let multi_factor = auth.multi_factor();
+        let session = multi_factor
+            .get_session()
+            .await
+            .expect("session should be created");
+
+        let start_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaEnrollment:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "webauthnEnrollmentInfo": {}
+                }));
+            then.status(200).json_body(json!({
+                "webauthnEnrollmentInfo": {
+                    "challenge": "ENROLL_CHALLENGE",
+                    "rpId": "example.com",
+                    "user": { "name": "alice@example.com" }
+                }
+            }));
+        });
+
+        let challenge = multi_factor
+            .start_passkey_enrollment(&session)
+            .await
+            .expect("challenge should succeed");
+        start_mock.assert();
+        assert_eq!(challenge.challenge(), Some("ENROLL_CHALLENGE"));
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaEnrollment:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "webauthnVerificationInfo": {
+                        "credentialId": "cred-123",
+                        "clientDataJSON": "BASE64CLIENT",
+                        "attestationObject": "BASE64ATTEST"
+                    },
+                    "displayName": "Security Key"
+                }));
+            then.status(400).json_body(json!({
+                "error": {
+                    "code": 400,
+                    "message": "MISSING_WEBAUTHN_VERIFICATION_INFO",
+                    "errors": [{
+                        "message": "MISSING_WEBAUTHN_VERIFICATION_INFO"
+                    }]
+                }
+            }));
+        });
+
+        let attestation = WebAuthnAttestationResponse::try_from(json!({
+            "credentialId": "cred-123",
+            "clientDataJSON": "BASE64CLIENT",
+            "attestationObject": "BASE64ATTEST"
+        }))
+        .expect("attestation should parse");
+
+        let assertion = WebAuthnMultiFactorGenerator::assertion_for_enrollment(attestation);
+
+        let err = multi_factor
+            .enroll(&session, assertion, Some("Security Key"))
+            .await
+            .expect_err("missing verification info should error");
+
+        finalize_mock.assert();
+
+        match err {
+            AuthError::InvalidCredential(message) => {
+                assert!(message.contains("MISSING_WEBAUTHN_VERIFICATION_INFO"));
+            }
+            _ => panic!("unexpected error variant: {err:?}"),
+        }
     }
 
     #[tokio::test(flavor = "current_thread")]
