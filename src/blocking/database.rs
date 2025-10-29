@@ -1,7 +1,17 @@
 use super::{RT, block_on, block_on_methods};
 
-//TODO
+// Sync API re-exports
 pub use crate::database::error;
+pub use crate::database::error::DatabaseResult;
+pub use crate::database::server_value::{increment, server_timestamp};
+pub use crate::database::api::{
+    end_at, end_at_with_key, end_before, end_before_with_key, equal_to, equal_to_with_key,
+     limit_to_first, limit_to_last,  order_by_child, order_by_key, order_by_priority, order_by_value, 
+     query, register_database_component,  
+     start_after, start_after_with_key, start_at, start_at_with_key, ChildEvent,
+    ChildEventType, DataSnapshot, ListenerRegistration,
+    QueryConstraint, TransactionResult,
+};
 
 
 
@@ -87,19 +97,6 @@ where
 
 
 
-// Database,
-// DatabaseQuery,
-// DatabaseReference,
-// Sync API re-exports
-pub use crate::database::api::{
-    end_at, end_at_with_key, end_before, end_before_with_key, equal_to, equal_to_with_key,
-     limit_to_first, limit_to_last,  order_by_child, order_by_key, order_by_priority, order_by_value, 
-     query, register_database_component,  
-     start_after, start_after_with_key, start_at, start_at_with_key, ChildEvent,
-    ChildEventType, DataSnapshot,    ListenerRegistration,
-    QueryConstraint, TransactionResult,
-};
-
 
 struct Database {
     inner: crate::database::api::Database,
@@ -126,93 +123,106 @@ impl Database {
     }
 }
 
+impl Deref for Database {
+    type Target = crate::database::api::Database;
 
-
-
-
-
-
-
-
-// TODO
-pub use crate::database::error::DatabaseResult;
-// TODO
-pub use crate::database::on_disconnect::OnDisconnect;
-// TODO
-pub use crate::database::server_value::{increment, server_timestamp};
-
-
-
-
-impl Database {
-
-    pub fn go_online(&self) -> DatabaseResult<()> {
-        block_on(self.go_online_async())
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
-
-    pub fn go_offline(&self) -> DatabaseResult<()> {
-        block_on(self.go_offline_async())
-    }
-
-
 }
 
 
-
-impl DatabaseReference {
-
-    pub fn get(&self) -> DatabaseResult<Value> {
-        block_on(self.get_async())
-    }
-
-    pub fn push(&self) -> DatabaseResult<DatabaseReference> {
-        block_on(self.push_async())
-    }
-
-    pub fn push_with_value<V>(&self, value: V) -> DatabaseResult<DatabaseReference>
-    where
-        V: Into<Value>,
-    {
-        block_on(self.push_with_value_async(value))
-    }
-
-    pub fn remove(&self) -> DatabaseResult<()> {
-        block_on(self.remove_async())
-    }
-
-
-    pub fn set(&self, value: Value) -> DatabaseResult<()> {
-        block_on(self.set_async(value))
-    }
-
-    pub fn set_priority<P>(&self, priority: P) -> DatabaseResult<()>
-    where
-        P: Into<Value>,
-    {
-        block_on(self.set_priority_async(priority))
-    }
-
-
-    pub fn set_with_priority<V, P>(&self, value: V, priority: P) -> DatabaseResult<()>
-    where
-        V: Into<Value>,
-        P: Into<Value>,
-    {
-        block_on(self.set_with_priority_async(value, priority))
-    }
-
-
-    pub fn update(&self, updates: serde_json::Map<String, Value>) -> DatabaseResult<()> {
-        block_on(self.update_async(updates))
-    }
-
-
+struct DatabaseQuery {
+    inner: crate::database::api::DatabaseQuery,
 }
 
 impl DatabaseQuery {
-
-    pub fn get(&self) -> DatabaseResult<Value> {
-        block_on(self.get_async())
+    fn new(inner: crate::database::api::DatabaseQuery) -> Self {
+        Self { inner }
     }
 
+    block_on_methods! {
+        fn get(&self) -> DatabaseResult<Value> ;
+        fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration> where F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static;
+    }
 }
+
+impl Deref for DatabaseQuery {
+    type Target = crate::database::api::DatabaseQuery;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+
+struct DatabaseReference {
+    inner: crate::database::api::DatabaseReference,
+}
+
+impl DatabaseReference {
+    // TODO: ma ha constructor???
+    fn new(inner: crate::database::api::DatabaseReference) -> Self {
+        Self { inner }
+    }
+
+    //pub(crate) async fn resolve_for_current_path(&self, value: Value) -> DatabaseResult<Value>
+    //pub(crate) async fn resolve_for_absolute_path(&self,path: &[String],value: Value,) -> DatabaseResult<Value>;
+
+    block_on_methods! {
+        fn set(&self, value: Value) -> DatabaseResult<()>;
+        fn on_value<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration> where F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static;
+        fn on_child_added<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration> where F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static;
+        fn on_child_changed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration> where F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static;
+        fn on_child_removed<F>(&self, callback: F) -> DatabaseResult<ListenerRegistration> where F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static;
+        fn run_transaction<F>(&self, mut update: F) -> DatabaseResult<TransactionResult> where F: FnMut(Value) -> Option<Value>;
+        fn update(&self, updates: serde_json::Map<String, Value>) -> DatabaseResult<()>;
+        fn get(&self) -> DatabaseResult<Value>;
+        fn remove(&self) -> DatabaseResult<()>;
+        fn set_with_priority<V, P>(&self, value: V, priority: P) -> DatabaseResult<()> where V: Into<Value>, P: Into<Value>;
+        fn push(&self) -> DatabaseResult<DatabaseReference> ;
+        fn set_priority<P>(&self, priority: P) -> DatabaseResult<()> where P: Into<Value>;
+        fn push_with_value<V>(&self, value: V) -> DatabaseResult<DatabaseReference> where V: Into<Value>;
+    }
+}
+
+impl Deref for DatabaseReference {
+    type Target = crate::database::api::DatabaseReference;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+
+struct OnDisconnect {
+    inner: crate::database::on_disconnect::OnDisconnect,
+}
+
+impl OnDisconnect {
+    fn new(inner: crate::database::on_disconnect::OnDisconnect) -> Self {
+        Self { inner }
+    }
+
+    block_on_methods! {
+        fn set<V>(&self, value: V) -> DatabaseResult<()> where V: Into<Value>;
+        fn set_with_priority<V, P>(&self, value: V, priority: P) -> DatabaseResult<()> where V: Into<Value>, P: Into<Value>;
+        fn update(&self, updates: serde_json::Map<String, Value>) -> DatabaseResult<()>;
+        fn remove(&self) -> DatabaseResult<()>;
+        fn cancel(&self) -> DatabaseResult<()>;
+    }
+}
+
+impl Deref for OnDisconnect {
+    type Target = crate::database::on_disconnect::OnDisconnect;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+
+
+
+
+
