@@ -61,15 +61,13 @@ Major Gaps
 
 Next Steps
 
-  1. **Resolver reauthentication support** – Allow `MultiFactorResolver` to drive reauthentication/link flows, carrying
-     the originating user context and updating token metadata after completion.
-  2. **Error mapping & public enums** – Map the MFA-specific error codes (`auth/multi-factor-auth-required`,
+  1. **Error mapping & public enums** – Map the MFA-specific error codes (`auth/multi-factor-auth-required`,
      `auth/multi-factor-info-not-found`, etc.) to strongly-typed variants so libraries can branch on them cleanly.
-  3. **Browser bridge crates** – Deliver popup/redirect + reCAPTCHA/Play Integrity adapters for wasm targets so the phone
+  2. **Browser bridge crates** – Deliver popup/redirect + reCAPTCHA/Play Integrity adapters for wasm targets so the phone
      provider and MFA flows can run in the browser with minimal glue.
-  4. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
+  3. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
      emulator toggles with rustdoc’d APIs, ensuring they interoperate with MFA resolvers.
-  5. **Testing/documentation sweep** – Port the remaining JS suites (resolver/browser flows) and expand the README
+  4. **Testing/documentation sweep** – Port the remaining JS suites (resolver/browser flows) and expand the README
      to document resolver usage and known platform differences.
 
 
@@ -184,7 +182,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
   - Phone-based second-factor enrollment reuses the confirmation pipeline; `Auth::multi_factor()` returns a
     `MultiFactorUser` with async helpers for session creation, enrollment, factor inspection, and unenrollment.
   - Step-up sign-in surfaces `MultiFactorResolver`, exposing factor hints, captured sessions, verification helpers, and
-    resolver-driven completion for phone challenges raised via `mfaPendingCredential` responses.
+    resolver-driven completion for phone challenges raised via `mfaPendingCredential` responses across sign-in,
+    reauthentication, and credential linking flows.
   - TOTP enrollment/sign-in flows are supported via `TotpMultiFactorGenerator`, including secret generation helpers and
     resolver integration during multi-factor sign-in.
 - **Phone provider utilities** (`phone/`)
@@ -212,8 +211,8 @@ token handling, enabling dependent modules to retrieve `Auth` instances across n
 The JavaScript implementation is significantly broader. Missing pieces include:
 
 1. **Multi-factor authentication (MFA)**
-   - TOTP enrollment/sign-in, resolver coverage for reauthentication/link flows, and richer error mapping for
-     `mfaPendingCredential` responses remain to be ported.
+   - Richer error mapping for `mfaPendingCredential` responses and parity for additional factor types (passkeys, webauthn)
+     still need to be ported from the JS SDK.
 2. **Federated provider ergonomics**
    - OAuth providers (Google, Facebook, GitHub, etc.) still require provider-specific helpers, popup/redirect orchestration,
      and PKCE/account-linking nuances from the JS SDK.
@@ -231,24 +230,21 @@ The JavaScript implementation is significantly broader. Missing pieces include:
 
 ## Next Steps
 
-1. **TOTP MFA support**
-   - Implement the TOTP enrollment and sign-in endpoints, extend the resolver to accept TOTP assertions, and persist
-     shared metadata so phone/TOTP factors align.
-2. **Resolver reauthentication/link flows**
-   - Extend `MultiFactorResolver` to drive reauthentication/link operations, propagating user context and refreshing
-     tokens after completion.
-3. **Federated providers**
+1. **MFA error mapping & surfacing**
+   - Map MFA-specific error codes to typed variants and extend resolver metadata so callers can tailor UX for each
+     operation.
+2. **Federated providers**
    - Finish the OAuth provider implementations (Google/Facebook/GitHub/etc.), including popup/redirect orchestration,
      PKCE support, and credential/linking helpers.
-4. **Browser & hybrid adapters**
+3. **Browser & hybrid adapters**
    - Provide concrete implementations for popup/redirect handlers, reCAPTCHA/Play Integrity bootstrap, and persistence
      quirks across web, React Native, and Cordova environments.
-5. **Tenant/emulator & policy endpoints**
+4. **Tenant/emulator & policy endpoints**
    - Surface project configuration, password policy, token revocation, and emulator-friendly toggles with rustdoc'd APIs
      and associated error mapping.
-6. **Persistence & lifecycle**
+5. **Persistence & lifecycle**
    - Add IndexedDB/native durable storage backends and flesh out proactive refresh observers (`beforeAuthStateChanged`).
-7. **Testing**
+6. **Testing**
    - Translate the remaining JS suites (providers, MFA, browser flows) to Rust, reusing the `httpmock` harness across
      modules.
 

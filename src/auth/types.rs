@@ -323,6 +323,8 @@ pub enum MultiFactorOperation {
     SignIn,
     /// Multi-factor is required while completing a reauthentication.
     Reauthenticate,
+    /// Multi-factor is required while completing a link operation.
+    Link,
 }
 
 #[derive(Clone, Debug)]
@@ -410,6 +412,7 @@ impl MultiFactorSignInContext {
                 }
             }
             MultiFactorOperation::Reauthenticate => "reauthenticate",
+            MultiFactorOperation::Link => "link",
         }
     }
 }
@@ -672,6 +675,9 @@ impl fmt::Display for MultiFactorError {
             MultiFactorOperation::Reauthenticate => {
                 write!(f, "Multi-factor reauthentication required")
             }
+            MultiFactorOperation::Link => {
+                write!(f, "Multi-factor linking required")
+            }
         }
     }
 }
@@ -714,14 +720,10 @@ impl MultiFactorResolver {
         hint: &MultiFactorInfo,
         verifier: Arc<dyn ApplicationVerifier>,
     ) -> AuthResult<String> {
-        if self.operation != MultiFactorOperation::SignIn {
-            return Err(AuthError::InvalidCredential(
-                "Phone-based challenges are only supported for sign-in".into(),
-            ));
-        }
-
         let pending = self.session.pending_credential().ok_or_else(|| {
-            AuthError::InvalidCredential("Multi-factor session is not valid for sign-in".into())
+            AuthError::InvalidCredential(
+                "Multi-factor session is not valid for challenge resolution".into(),
+            )
         })?;
 
         self.auth
@@ -734,20 +736,14 @@ impl MultiFactorResolver {
         &self,
         assertion: MultiFactorAssertion,
     ) -> AuthResult<UserCredential> {
+        let pending = self.session.pending_credential().ok_or_else(|| {
+            AuthError::InvalidCredential(
+                "Multi-factor session is not valid for challenge resolution".into(),
+            )
+        })?;
+
         match assertion {
             MultiFactorAssertion::Phone(assertion) => {
-                if self.operation != MultiFactorOperation::SignIn {
-                    return Err(AuthError::NotImplemented(
-                        "Multi-factor reauthentication is not yet supported",
-                    ));
-                }
-
-                let pending = self.session.pending_credential().ok_or_else(|| {
-                    AuthError::InvalidCredential(
-                        "Multi-factor session is not valid for sign-in".into(),
-                    )
-                })?;
-
                 let verification_id = assertion.credential().verification_id();
                 let verification_code = assertion.credential().verification_code();
 
@@ -757,22 +753,11 @@ impl MultiFactorResolver {
                         verification_id,
                         verification_code,
                         Arc::clone(&self.context),
+                        self.operation,
                     )
                     .await
             }
             MultiFactorAssertion::Totp(assertion) => {
-                if self.operation != MultiFactorOperation::SignIn {
-                    return Err(AuthError::NotImplemented(
-                        "Multi-factor reauthentication is not yet supported",
-                    ));
-                }
-
-                let pending = self.session.pending_credential().ok_or_else(|| {
-                    AuthError::InvalidCredential(
-                        "Multi-factor session is not valid for sign-in".into(),
-                    )
-                })?;
-
                 let enrollment_id = assertion.enrollment_id().ok_or_else(|| {
                     AuthError::InvalidCredential(
                         "TOTP assertions require an enrollment identifier".into(),
@@ -785,6 +770,7 @@ impl MultiFactorResolver {
                         enrollment_id,
                         assertion.otp(),
                         Arc::clone(&self.context),
+                        self.operation,
                     )
                     .await
             }

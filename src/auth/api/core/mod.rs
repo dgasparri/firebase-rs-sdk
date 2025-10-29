@@ -951,6 +951,7 @@ impl Auth {
         session_info: &str,
         verification_code: &str,
         context: Arc<MultiFactorSignInContext>,
+        operation: MultiFactorOperation,
     ) -> AuthResult<UserCredential> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
@@ -979,7 +980,7 @@ impl Auth {
             refresh_token: response.refresh_token.as_str(),
             expires_in: None,
             provider_id: context.provider_id.as_deref(),
-            operation: context.operation_label(MultiFactorOperation::SignIn),
+            operation: context.operation_label(operation),
             anonymous: context.anonymous,
         };
 
@@ -992,6 +993,7 @@ impl Auth {
         enrollment_id: &str,
         otp: &str,
         context: Arc<MultiFactorSignInContext>,
+        operation: MultiFactorOperation,
     ) -> AuthResult<UserCredential> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
@@ -1020,7 +1022,7 @@ impl Auth {
             refresh_token: response.refresh_token.as_str(),
             expires_in: None,
             provider_id: context.provider_id.as_deref(),
-            operation: context.operation_label(MultiFactorOperation::SignIn),
+            operation: context.operation_label(operation),
             anonymous: context.anonymous,
         };
 
@@ -1286,29 +1288,41 @@ impl Auth {
         } = response;
 
         if let Some(pending) = mfa_pending_credential {
-            match flow {
-                PhoneFinalization::SignIn => {
-                    let mut context = MultiFactorSignInContext::default();
-                    context.local_id = local_id.clone();
-                    context.phone_number = phone_number.clone();
-                    context.provider_id = Some(PHONE_PROVIDER_ID.to_string());
-                    context.is_new_user = is_new_user;
-                    context.anonymous = false;
+            let mut context = MultiFactorSignInContext::default();
+            context.local_id = local_id.clone();
+            context.phone_number = phone_number.clone();
+            context.provider_id = Some(PHONE_PROVIDER_ID.to_string());
+            context.is_new_user = is_new_user;
 
-                    return Err(self.build_multi_factor_error(
-                        MultiFactorOperation::SignIn,
-                        pending,
-                        mfa_info,
-                        context,
-                        None,
-                    ));
+            let current_user = self.current_user();
+            let (operation, user_for_error) = match flow {
+                PhoneFinalization::SignIn => (MultiFactorOperation::SignIn, None),
+                PhoneFinalization::Link { .. } => {
+                    context.is_new_user = Some(false);
+                    (MultiFactorOperation::Link, current_user.clone())
                 }
-                _ => {
-                    return Err(AuthError::NotImplemented(
-                        "Multi-factor phone challenges are not yet supported for this flow",
-                    ));
+                PhoneFinalization::Reauth { .. } => {
+                    context.is_new_user = Some(false);
+                    (MultiFactorOperation::Reauthenticate, current_user.clone())
                 }
+            };
+
+            if let Some(user) = user_for_error.as_ref() {
+                context.anonymous = user.is_anonymous();
+                if context.email.is_none() {
+                    context.email = user.info().email.clone();
+                }
+            } else {
+                context.anonymous = false;
             }
+
+            return Err(self.build_multi_factor_error(
+                operation,
+                pending,
+                mfa_info,
+                context,
+                user_for_error,
+            ));
         }
 
         let local_id =
@@ -1502,7 +1516,8 @@ impl Auth {
         &self,
         credential: AuthCredential,
     ) -> AuthResult<UserCredential> {
-        self.exchange_oauth_credential(credential, None).await
+        self.exchange_oauth_credential(credential, MultiFactorOperation::SignIn, None)
+            .await
     }
 
     /// Sends a password reset email to the specified address.
@@ -1809,7 +1824,7 @@ impl Auth {
     ) -> AuthResult<UserCredential> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
-        self.exchange_oauth_credential(credential, Some(id_token))
+        self.exchange_oauth_credential(credential, MultiFactorOperation::Link, Some(id_token))
             .await
     }
 
@@ -1838,7 +1853,11 @@ impl Auth {
     ) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let result = self
-            .exchange_oauth_credential(credential, Some(user.get_id_token(false)?))
+            .exchange_oauth_credential(
+                credential,
+                MultiFactorOperation::Reauthenticate,
+                Some(user.get_id_token(false)?),
+            )
             .await?;
         Ok(result.user)
     }
@@ -1846,6 +1865,7 @@ impl Auth {
     async fn exchange_oauth_credential(
         &self,
         credential: AuthCredential,
+        operation: MultiFactorOperation,
         id_token: Option<String>,
     ) -> AuthResult<UserCredential> {
         let oauth_credential = OAuthCredential::try_from(credential)?;
@@ -1868,15 +1888,30 @@ impl Auth {
                 .provider_id
                 .clone()
                 .or_else(|| Some(oauth_credential.provider_id().to_string()));
-            context.is_new_user = response.is_new_user;
-            context.anonymous = false;
+            context.is_new_user = match operation {
+                MultiFactorOperation::SignIn => response.is_new_user,
+                _ => Some(false),
+            };
+
+            let user_for_error = if operation == MultiFactorOperation::SignIn {
+                None
+            } else {
+                self.current_user()
+            };
+
+            if let Some(user) = user_for_error.as_ref() {
+                context.anonymous = user.is_anonymous();
+                if context.email.is_none() {
+                    context.email = user.info().email.clone();
+                }
+            }
 
             return Err(self.build_multi_factor_error(
-                MultiFactorOperation::SignIn,
+                operation,
                 pending,
                 response.mfa_info.clone(),
                 context,
-                None,
+                user_for_error,
             ));
         }
         let user_arc = self.upsert_user_from_idp_response(&response, &oauth_credential)?;
@@ -2694,6 +2729,236 @@ mod tests {
         assert_eq!(
             result.user.token_manager().refresh_token(),
             Some("mfa-refresh-token".to_string())
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn multi_factor_reauthentication_flow() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server).await;
+
+        let reauth_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": REAUTH_EMAIL,
+                    "password": TEST_PASSWORD,
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": TEST_UID,
+                "email": REAUTH_EMAIL,
+                "mfaPendingCredential": "REAUTH_PENDING",
+                "mfaInfo": [{
+                    "mfaEnrollmentId": "enroll1",
+                    "displayName": "Work phone",
+                    "phoneInfo": "+15558675309"
+                }]
+            }));
+        });
+
+        let error = auth
+            .reauthenticate_with_password(REAUTH_EMAIL, TEST_PASSWORD)
+            .await
+            .expect_err("expected multi-factor challenge during reauth");
+
+        reauth_mock.assert();
+
+        let firebase_auth = FirebaseAuth::new(auth.clone());
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
+            .expect("resolver should be constructed");
+
+        assert_eq!(resolver.hints().len(), 1);
+        assert_eq!(resolver.hints()[0].uid, "enroll1");
+        assert_eq!(
+            resolver.session().pending_credential(),
+            Some("REAUTH_PENDING")
+        );
+
+        let verifier = Arc::new(StaticVerifier {
+            token: "recaptcha-token",
+            kind: "recaptcha",
+        });
+
+        let start_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "REAUTH_PENDING",
+                    "mfaEnrollmentId": "enroll1",
+                    "phoneSignInInfo": {
+                        "recaptchaToken": "recaptcha-token",
+                        "clientType": CLIENT_TYPE_WEB
+                    }
+                }));
+            then.status(200).json_body(json!({
+                "phoneResponseInfo": { "sessionInfo": "SESSION_INFO" }
+            }));
+        });
+
+        let verification_id = resolver
+            .send_phone_sign_in_code(&resolver.hints()[0], verifier)
+            .await
+            .expect("start MFA reauth should succeed");
+        start_mock.assert();
+        assert_eq!(verification_id, "SESSION_INFO");
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "REAUTH_PENDING",
+                    "phoneVerificationInfo": {
+                        "sessionInfo": "SESSION_INFO",
+                        "code": "123456"
+                    }
+                }));
+            then.status(200).json_body(json!({
+                "idToken": "reauth-mfa-id-token",
+                "refreshToken": "reauth-mfa-refresh-token"
+            }));
+        });
+
+        let credential = PhoneAuthProvider::credential(verification_id, "123456");
+        let assertion = PhoneMultiFactorGenerator::assertion(credential);
+        let result = resolver
+            .resolve_sign_in(assertion)
+            .await
+            .expect("multi-factor reauth should succeed");
+
+        finalize_mock.assert();
+        assert_eq!(result.operation_type.as_deref(), Some("reauthenticate"));
+        assert_eq!(
+            result.provider_id.as_deref(),
+            Some(EmailAuthProvider::PROVIDER_ID)
+        );
+        assert_eq!(
+            result.user.token_manager().access_token(),
+            Some("reauth-mfa-id-token".to_string())
+        );
+        assert_eq!(
+            result.user.token_manager().refresh_token(),
+            Some("reauth-mfa-refresh-token".to_string())
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn multi_factor_link_flow() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server).await;
+
+        let link_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPhoneNumber")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "sessionInfo": "LINK_SESSION",
+                    "code": "000000",
+                    "idToken": TEST_ID_TOKEN
+                }));
+            then.status(200).json_body(json!({
+                "localId": TEST_UID,
+                "phoneNumber": "+15551234567",
+                "mfaPendingCredential": "LINK_PENDING",
+                "mfaInfo": [{
+                    "mfaEnrollmentId": "enroll1",
+                    "displayName": "Work phone",
+                    "phoneInfo": "+15558675309"
+                }]
+            }));
+        });
+
+        let initial_credential = PhoneAuthProvider::credential("LINK_SESSION", "000000");
+        let error = auth
+            .link_with_phone_credential(initial_credential)
+            .await
+            .expect_err("expected multi-factor requirement during link");
+
+        link_mock.assert();
+
+        let firebase_auth = FirebaseAuth::new(auth.clone());
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
+            .expect("resolver should be constructed");
+
+        assert_eq!(resolver.hints().len(), 1);
+        assert_eq!(resolver.hints()[0].uid, "enroll1");
+        assert_eq!(
+            resolver.session().pending_credential(),
+            Some("LINK_PENDING")
+        );
+
+        let verifier = Arc::new(StaticVerifier {
+            token: "recaptcha-token",
+            kind: "recaptcha",
+        });
+
+        let start_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "LINK_PENDING",
+                    "mfaEnrollmentId": "enroll1",
+                    "phoneSignInInfo": {
+                        "recaptchaToken": "recaptcha-token",
+                        "clientType": CLIENT_TYPE_WEB
+                    }
+                }));
+            then.status(200).json_body(json!({
+                "phoneResponseInfo": { "sessionInfo": "SESSION_INFO" }
+            }));
+        });
+
+        let verification_id = resolver
+            .send_phone_sign_in_code(&resolver.hints()[0], verifier)
+            .await
+            .expect("start MFA link should succeed");
+        start_mock.assert();
+        assert_eq!(verification_id, "SESSION_INFO");
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "LINK_PENDING",
+                    "phoneVerificationInfo": {
+                        "sessionInfo": "SESSION_INFO",
+                        "code": "123456"
+                    }
+                }));
+            then.status(200).json_body(json!({
+                "idToken": "link-mfa-id-token",
+                "refreshToken": "link-mfa-refresh-token"
+            }));
+        });
+
+        let credential = PhoneAuthProvider::credential(verification_id, "123456");
+        let assertion = PhoneMultiFactorGenerator::assertion(credential);
+        let result = resolver
+            .resolve_sign_in(assertion)
+            .await
+            .expect("multi-factor link should succeed");
+
+        finalize_mock.assert();
+        assert_eq!(result.operation_type.as_deref(), Some("link"));
+        assert_eq!(result.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
+        assert_eq!(
+            result.user.token_manager().access_token(),
+            Some("link-mfa-id-token".to_string())
+        );
+        assert_eq!(
+            result.user.token_manager().refresh_token(),
+            Some("link-mfa-refresh-token".to_string())
+        );
+        assert_eq!(
+            result.user.info().phone_number.as_deref(),
+            Some("+15551234567")
         );
     }
 
