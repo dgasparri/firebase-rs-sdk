@@ -40,7 +40,8 @@ Coverage Highlights
   helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape. Passkey/WebAuthn
   and TOTP enrollment/sign-in are parity-complete, including resolver-driven sign-in, linking, and reauthentication.
   - Federated OAuth providers (Google, Facebook, GitHub, Twitter, Microsoft) include default scopes, PKCE support, and
-  helper methods for popup/redirect flows plus link/reauth coverage.
+  helper methods for popup/redirect flows plus link/reauth coverage. WASM hosts can reuse the
+  `examples/auth_oauth_popup_wasm.rs` sample to wire popup handlers and conditional passkey UI through JS.
   - `PhoneAuthProvider` mirrors the JS provider API, exposing verification helpers plus credential-based sign-in/link/reauth
   flows for SMS codes alongside the `sign_in_with_phone_number` convenience wrappers.
   - Phone and passkey MFA sign-in/link flows are covered end-to-end (`multi_factor_phone_enrollment_flow`,
