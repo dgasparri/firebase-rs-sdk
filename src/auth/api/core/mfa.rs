@@ -191,6 +191,24 @@ pub struct StartPhoneMfaSignInResponse {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct StartPasskeyMfaSignInRequest {
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: String,
+    #[serde(rename = "mfaEnrollmentId")]
+    pub mfa_enrollment_id: String,
+    #[serde(rename = "webauthnSignInInfo", skip_serializing_if = "Option::is_none")]
+    pub webauthn_sign_in_info: Option<Value>,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StartPasskeyMfaSignInResponse {
+    #[serde(rename = "webauthnSignInInfo")]
+    pub webauthn_sign_in_info: Value,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct FinalizePhoneMfaSignInRequest {
     #[serde(rename = "mfaPendingCredential")]
     pub mfa_pending_credential: String,
@@ -206,6 +224,12 @@ pub struct FinalizeMfaSignInResponse {
     pub id_token: String,
     #[serde(rename = "refreshToken")]
     pub refresh_token: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct WebAuthnVerificationInfo {
+    #[serde(flatten)]
+    pub payload: Value,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -232,6 +256,18 @@ pub struct FinalizeTotpMfaSignInResponse {
     pub id_token: String,
     #[serde(rename = "refreshToken")]
     pub refresh_token: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FinalizePasskeyMfaSignInRequest {
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: String,
+    #[serde(rename = "mfaEnrollmentId", skip_serializing_if = "Option::is_none")]
+    pub mfa_enrollment_id: Option<String>,
+    #[serde(rename = "webauthnVerificationInfo")]
+    pub webauthn_verification_info: WebAuthnVerificationInfo,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
 }
 
 pub async fn start_phone_mfa_enrollment(
@@ -330,6 +366,22 @@ pub async fn start_phone_mfa_sign_in(
     .await
 }
 
+pub async fn start_passkey_mfa_sign_in(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    request: &StartPasskeyMfaSignInRequest,
+) -> AuthResult<StartPasskeyMfaSignInResponse> {
+    post_json(
+        client,
+        endpoint,
+        "accounts/mfaSignIn:start",
+        api_key,
+        request,
+    )
+    .await
+}
+
 pub async fn finalize_phone_mfa_sign_in(
     client: &Client,
     endpoint: &str,
@@ -352,6 +404,22 @@ pub async fn finalize_totp_mfa_sign_in(
     api_key: &str,
     request: &FinalizeTotpMfaSignInRequest,
 ) -> AuthResult<FinalizeTotpMfaSignInResponse> {
+    post_json(
+        client,
+        endpoint,
+        "accounts/mfaSignIn:finalize",
+        api_key,
+        request,
+    )
+    .await
+}
+
+pub async fn finalize_passkey_mfa_sign_in(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    request: &FinalizePasskeyMfaSignInRequest,
+) -> AuthResult<FinalizeMfaSignInResponse> {
     post_json(
         client,
         endpoint,

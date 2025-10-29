@@ -59,6 +59,8 @@ pub enum MultiFactorAuthErrorCode {
     MissingInfo,
     /// The requested multi-factor enrollment could not be found for the current user.
     InfoNotFound,
+    /// A multi-factor challenge must be completed before the operation can continue.
+    ChallengeRequired,
 }
 
 impl MultiFactorAuthErrorCode {
@@ -75,6 +77,9 @@ impl MultiFactorAuthErrorCode {
             }
             MultiFactorAuthErrorCode::InfoNotFound => {
                 "The requested multi-factor enrollment could not be found"
+            }
+            MultiFactorAuthErrorCode::ChallengeRequired => {
+                "Multi-factor challenge required to complete the operation"
             }
         }
     }
@@ -141,6 +146,9 @@ pub(crate) fn map_mfa_error_code(message: &str) -> Option<AuthError> {
         | "MFA_ENROLLMENT_NOT_FOUND"
         | "MULTI_FACTOR_INFO_NOT_FOUND"
         | "MULTI_FACTOR_ENROLLMENT_NOT_FOUND" => MultiFactorAuthErrorCode::InfoNotFound,
+        "MFA_REQUIRED" | "MULTI_FACTOR_AUTH_REQUIRED" | "AUTH/MULTI-FACTOR-AUTH-REQUIRED" => {
+            MultiFactorAuthErrorCode::ChallengeRequired
+        }
         _ => return None,
     };
 
@@ -216,5 +224,16 @@ mod tests {
     #[test]
     fn map_mfa_error_code_returns_none_for_unknown_codes() {
         assert!(map_mfa_error_code("SOME_OTHER_ERROR").is_none());
+    }
+
+    #[test]
+    fn map_mfa_error_code_handles_challenge_required() {
+        let error = map_mfa_error_code("auth/multi-factor-auth-required");
+        match error {
+            Some(AuthError::MultiFactor(err)) => {
+                assert_eq!(err.code(), MultiFactorAuthErrorCode::ChallengeRequired);
+            }
+            other => panic!("unexpected mapping result: {other:?}"),
+        }
     }
 }

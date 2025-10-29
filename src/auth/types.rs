@@ -519,25 +519,25 @@ impl TotpSecret {
 
 #[derive(Clone, Debug)]
 pub struct TotpMultiFactorAssertion {
-    otp: String,
     secret: Option<TotpSecret>,
     enrollment_id: Option<String>,
+    otp: String,
 }
 
 impl TotpMultiFactorAssertion {
     pub(crate) fn for_enrollment(secret: TotpSecret, otp: impl Into<String>) -> Self {
         Self {
-            otp: otp.into(),
             secret: Some(secret),
             enrollment_id: None,
+            otp: otp.into(),
         }
     }
 
     pub(crate) fn for_sign_in(enrollment_id: impl Into<String>, otp: impl Into<String>) -> Self {
         Self {
-            otp: otp.into(),
             secret: None,
             enrollment_id: Some(enrollment_id.into()),
+            otp: otp.into(),
         }
     }
 
@@ -554,6 +554,29 @@ impl TotpMultiFactorAssertion {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct WebAuthnMultiFactorAssertion {
+    enrollment_id: String,
+    verification_info: Value,
+}
+
+impl WebAuthnMultiFactorAssertion {
+    pub fn new(enrollment_id: impl Into<String>, verification_info: Value) -> Self {
+        Self {
+            enrollment_id: enrollment_id.into(),
+            verification_info,
+        }
+    }
+
+    pub fn enrollment_id(&self) -> &str {
+        &self.enrollment_id
+    }
+
+    pub fn verification_info(&self) -> &Value {
+        &self.verification_info
+    }
+}
+
 /// A multi-factor assertion that can be resolved to complete sign-in.
 ///
 /// Mirrors the behaviour of the JavaScript `MultiFactorAssertion` found in
@@ -562,6 +585,7 @@ impl TotpMultiFactorAssertion {
 pub enum MultiFactorAssertion {
     Phone(PhoneMultiFactorAssertion),
     Totp(TotpMultiFactorAssertion),
+    WebAuthn(WebAuthnMultiFactorAssertion),
 }
 
 impl MultiFactorAssertion {
@@ -570,6 +594,7 @@ impl MultiFactorAssertion {
         match self {
             MultiFactorAssertion::Phone(_) => PHONE_PROVIDER_ID,
             MultiFactorAssertion::Totp(_) => "totp",
+            MultiFactorAssertion::WebAuthn(_) => WEBAUTHN_FACTOR_ID,
         }
     }
 
@@ -586,6 +611,13 @@ impl MultiFactorAssertion {
         otp: impl Into<String>,
     ) -> Self {
         MultiFactorAssertion::Totp(TotpMultiFactorAssertion::for_sign_in(enrollment_id, otp))
+    }
+
+    pub(crate) fn from_passkey(enrollment_id: impl Into<String>, verification_info: Value) -> Self {
+        MultiFactorAssertion::WebAuthn(WebAuthnMultiFactorAssertion::new(
+            enrollment_id,
+            verification_info,
+        ))
     }
 }
 
@@ -616,6 +648,19 @@ impl TotpMultiFactorGenerator {
     }
 
     pub const FACTOR_ID: &'static str = "totp";
+}
+
+pub const WEBAUTHN_FACTOR_ID: &str = "webauthn";
+
+pub struct WebAuthnMultiFactorGenerator;
+
+impl WebAuthnMultiFactorGenerator {
+    pub fn assertion(
+        enrollment_id: impl Into<String>,
+        verification_info: Value,
+    ) -> MultiFactorAssertion {
+        MultiFactorAssertion::from_passkey(enrollment_id, verification_info)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -731,6 +776,25 @@ impl MultiFactorResolver {
             .await
     }
 
+    /// Initiates a passkey/WebAuthn challenge for the provided factor hint.
+    pub async fn start_passkey_sign_in(&self, hint: &MultiFactorInfo) -> AuthResult<Value> {
+        if hint.factor_id != WEBAUTHN_FACTOR_ID {
+            return Err(AuthError::InvalidCredential(
+                "Hint does not reference a WebAuthn factor".into(),
+            ));
+        }
+
+        let pending = self.session.pending_credential().ok_or_else(|| {
+            AuthError::InvalidCredential(
+                "Multi-factor session is not valid for challenge resolution".into(),
+            )
+        })?;
+
+        self.auth
+            .start_passkey_multi_factor_sign_in(pending, &hint.uid)
+            .await
+    }
+
     /// Resolves the pending multi-factor challenge using the supplied assertion.
     pub async fn resolve_sign_in(
         &self,
@@ -769,6 +833,17 @@ impl MultiFactorResolver {
                         pending,
                         enrollment_id,
                         assertion.otp(),
+                        Arc::clone(&self.context),
+                        self.operation,
+                    )
+                    .await
+            }
+            MultiFactorAssertion::WebAuthn(assertion) => {
+                self.auth
+                    .finalize_passkey_multi_factor_sign_in(
+                        pending,
+                        assertion.enrollment_id(),
+                        assertion.verification_info().clone(),
                         Arc::clone(&self.context),
                         self.operation,
                     )
