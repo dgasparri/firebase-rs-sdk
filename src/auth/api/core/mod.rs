@@ -2671,6 +2671,7 @@ pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use crate::auth::error::MultiFactorAuthErrorCode;
     use crate::auth::types::{
         ActionCodeSettings, AndroidSettings, ApplicationVerifier, IosSettings,
     };
@@ -3135,6 +3136,130 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn passkey_multi_factor_link_flow() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server).await;
+
+        let link_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPhoneNumber")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "sessionInfo": "LINK_SESSION",
+                    "code": "000000",
+                    "idToken": TEST_ID_TOKEN
+                }));
+            then.status(200).json_body(json!({
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "mfaPendingCredential": "LINK_PENDING",
+                "mfaInfo": [{
+                    "mfaEnrollmentId": "passkey-enroll",
+                    "displayName": "Security Key",
+                    "factorId": "webauthn",
+                    "webauthnInfo": { "displayName": "Security Key" },
+                    "enrolledAt": "2024-02-01T10:00:00Z"
+                }]
+            }));
+        });
+
+        let initial_credential = PhoneAuthProvider::credential("LINK_SESSION", "000000");
+        let error = auth
+            .link_with_phone_credential(initial_credential)
+            .await
+            .expect_err("expected multi-factor requirement during passkey link");
+
+        link_mock.assert();
+
+        let firebase_auth = FirebaseAuth::new(auth.clone());
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
+            .expect("resolver should be constructed");
+
+        assert_eq!(resolver.hints().len(), 1);
+        assert_eq!(resolver.hints()[0].uid, "passkey-enroll");
+        assert_eq!(
+            resolver.session().pending_credential(),
+            Some("LINK_PENDING")
+        );
+
+        let start_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "LINK_PENDING",
+                    "mfaEnrollmentId": "passkey-enroll"
+                }));
+            then.status(200).json_body(json!({
+                "webauthnSignInInfo": {
+                    "challenge": "LINK_PASSKEY_CHALLENGE",
+                    "rpId": "example.com"
+                }
+            }));
+        });
+
+        let challenge = resolver
+            .start_passkey_sign_in(&resolver.hints()[0])
+            .await
+            .expect("passkey challenge should succeed");
+        start_mock.assert();
+        assert_eq!(challenge.challenge(), Some("LINK_PASSKEY_CHALLENGE"));
+
+        let verification_payload = json!({
+            "credentialId": "cred-123",
+            "clientDataJSON": "CLIENT",
+            "authenticatorData": "AUTH",
+            "signature": "SIG"
+        });
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "LINK_PENDING",
+                    "mfaEnrollmentId": "passkey-enroll",
+                    "webauthnVerificationInfo": verification_payload
+                }));
+            then.status(200).json_body(json!({
+                "idToken": "link-passkey-id-token",
+                "refreshToken": "link-passkey-refresh-token"
+            }));
+        });
+
+        let assertion_response = WebAuthnAssertionResponse::try_from(json!({
+            "credentialId": "cred-123",
+            "clientDataJSON": "CLIENT",
+            "authenticatorData": "AUTH",
+            "signature": "SIG"
+        }))
+        .expect("verification payload should be valid");
+
+        let assertion = WebAuthnMultiFactorGenerator::assertion_for_sign_in(
+            "passkey-enroll",
+            assertion_response,
+        );
+
+        let result = resolver
+            .resolve_sign_in(assertion)
+            .await
+            .expect("passkey link should succeed");
+
+        finalize_mock.assert();
+        assert_eq!(result.operation_type.as_deref(), Some("link"));
+        assert_eq!(result.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
+        assert_eq!(
+            result.user.token_manager().access_token(),
+            Some("link-passkey-id-token".to_string())
+        );
+        assert_eq!(
+            result.user.token_manager().refresh_token(),
+            Some("link-passkey-refresh-token".to_string())
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn passkey_multi_factor_sign_in_flow() {
         let server = start_mock_server();
         let auth = build_auth(&server);
@@ -3549,6 +3674,117 @@ mod tests {
                 assert!(message.contains("MISSING_WEBAUTHN_VERIFICATION_INFO"));
             }
             _ => panic!("unexpected error variant: {err:?}"),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn passkey_sign_in_missing_mfa_info_error() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let sign_in_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": TEST_EMAIL,
+                    "password": TEST_PASSWORD,
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "mfaPendingCredential": "PASSKEY_PENDING",
+                "mfaInfo": [{
+                    "mfaEnrollmentId": "enroll1",
+                    "displayName": "Security Key",
+                    "factorId": "webauthn"
+                }]
+            }));
+        });
+
+        let error = auth
+            .sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD)
+            .await
+            .expect_err("expected multi-factor challenge");
+
+        sign_in_mock.assert();
+
+        let firebase_auth = FirebaseAuth::new(auth.clone());
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
+            .expect("resolver should be constructed");
+
+        let start_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "PASSKEY_PENDING",
+                    "mfaEnrollmentId": "enroll1"
+                }));
+            then.status(200).json_body(json!({
+                "webauthnSignInInfo": {
+                    "challenge": "PASSKEY_CHALLENGE",
+                    "rpId": "example.com"
+                }
+            }));
+        });
+
+        let challenge = resolver
+            .start_passkey_sign_in(&resolver.hints()[0])
+            .await
+            .expect("challenge should succeed");
+        start_mock.assert();
+        assert_eq!(challenge.challenge(), Some("PASSKEY_CHALLENGE"));
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "PASSKEY_PENDING",
+                    "mfaEnrollmentId": "enroll1",
+                    "webauthnVerificationInfo": {
+                        "credentialId": "cred-123",
+                        "clientDataJSON": "CLIENT",
+                        "authenticatorData": "AUTH",
+                        "signature": "SIG"
+                    }
+                }));
+            then.status(400).json_body(json!({
+                "error": {
+                    "code": 400,
+                    "message": "MISSING_MULTI_FACTOR_INFO",
+                    "errors": [{
+                        "message": "MISSING_MULTI_FACTOR_INFO"
+                    }]
+                }
+            }));
+        });
+
+        let response = WebAuthnAssertionResponse::try_from(json!({
+            "credentialId": "cred-123",
+            "clientDataJSON": "CLIENT",
+            "authenticatorData": "AUTH",
+            "signature": "SIG"
+        }))
+        .expect("assertion payload should parse");
+
+        let assertion = WebAuthnMultiFactorGenerator::assertion_for_sign_in("enroll1", response);
+
+        let err = resolver
+            .resolve_sign_in(assertion)
+            .await
+            .expect_err("missing MFA info should error");
+
+        finalize_mock.assert();
+
+        match err {
+            AuthError::MultiFactor(mfa_err) => {
+                assert_eq!(mfa_err.code(), MultiFactorAuthErrorCode::MissingInfo);
+                assert_eq!(mfa_err.server_message(), Some("MISSING_MULTI_FACTOR_INFO"));
+            }
+            other => panic!("unexpected error variant: {other:?}"),
         }
     }
 
