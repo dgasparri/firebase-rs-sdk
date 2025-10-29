@@ -2127,10 +2127,12 @@ impl Auth {
         &self,
         provider_id: &str,
         operation: RedirectOperation,
+        pkce_verifier: Option<String>,
     ) -> AuthResult<()> {
         let event = PendingRedirectEvent {
             provider_id: provider_id.to_string(),
             operation,
+            pkce_verifier,
         };
         self.redirect_persistence().set(Some(event))
     }

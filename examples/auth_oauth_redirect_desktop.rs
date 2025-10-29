@@ -10,6 +10,13 @@ struct DesktopRedirectHandler;
 impl OAuthRedirectHandler for DesktopRedirectHandler {
     fn initiate_redirect(&self, request: OAuthRequest) -> AuthResult<()> {
         println!("Opening system browser for {}", request.provider_id);
+        if let Some(pkce) = request.pkce() {
+            println!(
+                "PKCE challenge generated (method {}): {}",
+                pkce.method(),
+                pkce.code_challenge()
+            );
+        }
         webbrowser::open(&request.auth_url).map_err(|err| AuthError::Network(err.to_string()))?;
         Ok(())
     }
@@ -41,6 +48,7 @@ impl OAuthRedirectHandler for DesktopRedirectHandler {
 fn configure_provider() -> OAuthProvider {
     let mut provider = OAuthProvider::new("github.com", "https://github.com/login/oauth/authorize");
     provider.add_scope("read:user");
+    provider.enable_pkce();
     provider
 }
 

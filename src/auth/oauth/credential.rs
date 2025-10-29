@@ -85,6 +85,14 @@ impl OAuthCredential {
             has_credential = true;
         }
 
+        if let Some(verifier) = self
+            .token_response
+            .get("codeVerifier")
+            .and_then(Value::as_str)
+        {
+            serializer.append_pair("codeVerifier", verifier);
+        }
+
         if !has_credential {
             return Err(AuthError::InvalidCredential(
                 "OAuth token response missing id_token/access_token/code".into(),
@@ -164,5 +172,22 @@ mod tests {
         let oauth = OAuthCredential::try_from(credential).unwrap();
         let err = oauth.build_post_body().unwrap_err();
         assert!(matches!(err, AuthError::InvalidCredential(_)));
+    }
+
+    #[test]
+    fn post_body_includes_code_verifier() {
+        let credential = AuthCredential {
+            provider_id: "twitter.com".into(),
+            sign_in_method: "twitter.com".into(),
+            token_response: json!({
+                "code": "auth-code",
+                "codeVerifier": "verifier"
+            }),
+        };
+
+        let oauth = OAuthCredential::try_from(credential).unwrap();
+        let result = oauth.build_post_body().unwrap();
+        assert!(result.contains("code=auth-code"));
+        assert!(result.contains("codeVerifier=verifier"));
     }
 }

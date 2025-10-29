@@ -20,6 +20,8 @@ pub struct OAuthRequest {
     pub language_code: Option<String>,
     /// Additional query parameters to include when opening the provider.
     pub custom_parameters: HashMap<String, String>,
+    /// Optional PKCE verifier/challenge pair for this request.
+    pub pkce: Option<PkcePair>,
 }
 
 impl OAuthRequest {
@@ -30,6 +32,7 @@ impl OAuthRequest {
             display_name: None,
             language_code: None,
             custom_parameters: HashMap::new(),
+            pkce: None,
         }
     }
 
@@ -46,6 +49,15 @@ impl OAuthRequest {
     pub fn with_custom_parameters(mut self, parameters: HashMap<String, String>) -> Self {
         self.custom_parameters = parameters;
         self
+    }
+
+    pub fn with_pkce(mut self, pkce: Option<PkcePair>) -> Self {
+        self.pkce = pkce;
+        self
+    }
+
+    pub fn pkce(&self) -> Option<&PkcePair> {
+        self.pkce.as_ref()
     }
 }
 
@@ -71,11 +83,13 @@ pub trait OAuthRedirectHandler: Send + Sync {
 }
 
 pub mod credential;
+pub mod pkce;
 pub mod provider;
 pub mod providers;
 pub mod redirect;
 
 pub use credential::OAuthCredential;
+pub use pkce::PkcePair;
 pub use provider::OAuthProvider;
 pub use providers::*;
 pub use redirect::{

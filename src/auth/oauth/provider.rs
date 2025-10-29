@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use serde_json::Value as JsonValue;
 use url::Url;
 
 use super::OAuthRequest;
@@ -21,6 +22,7 @@ pub struct OAuthProvider {
     custom_parameters: HashMap<String, String>,
     display_name: Option<String>,
     language_code: Option<String>,
+    pkce_enabled: bool,
 }
 
 impl OAuthProvider {
@@ -33,6 +35,7 @@ impl OAuthProvider {
             custom_parameters: HashMap::new(),
             display_name: None,
             language_code: None,
+            pkce_enabled: false,
         }
     }
 
@@ -102,6 +105,23 @@ impl OAuthProvider {
         self
     }
 
+    /// Enables PKCE (S256) for authorization code flows using this provider.
+    pub fn enable_pkce(&mut self) -> &mut Self {
+        self.pkce_enabled = true;
+        self
+    }
+
+    /// Disables PKCE support for authorization flows.
+    pub fn disable_pkce(&mut self) -> &mut Self {
+        self.pkce_enabled = false;
+        self
+    }
+
+    /// Returns whether PKCE is enabled for this provider.
+    pub fn pkce_enabled(&self) -> bool {
+        self.pkce_enabled
+    }
+
     /// Builds the `OAuthRequest` that will be passed to popup/redirect handlers.
     pub fn build_request(&self, auth: &Auth) -> AuthResult<OAuthRequest> {
         let mut url = Url::parse(&self.authorization_endpoint).map_err(|err| {
@@ -110,6 +130,8 @@ impl OAuthProvider {
                 self.provider_id
             ))
         })?;
+
+        let mut pkce_pair = None;
 
         {
             let mut pairs = url.query_pairs_mut();
@@ -128,6 +150,13 @@ impl OAuthProvider {
             for (key, value) in &self.custom_parameters {
                 pairs.append_pair(key, value);
             }
+
+            if self.pkce_enabled {
+                let generated = super::pkce::PkcePair::generate();
+                pairs.append_pair("code_challenge", generated.code_challenge());
+                pairs.append_pair("code_challenge_method", generated.method());
+                pkce_pair = Some(generated);
+            }
         }
 
         let auth_url: String = url.into();
@@ -139,6 +168,7 @@ impl OAuthProvider {
             request = request.with_language_code(lang.clone());
         }
         request = request.with_custom_parameters(self.custom_parameters.clone());
+        request = request.with_pkce(pkce_pair);
         Ok(request)
     }
 
@@ -168,8 +198,13 @@ impl OAuthProvider {
         let handler = auth.redirect_handler().ok_or(AuthError::NotImplemented(
             "OAuth redirect handler not registered",
         ))?;
-        auth.set_pending_redirect_event(&self.provider_id, RedirectOperation::SignIn)?;
         let request = self.build_request(auth)?;
+        let pkce_verifier = request.pkce().map(|pair| pair.code_verifier().to_string());
+        auth.set_pending_redirect_event(
+            &self.provider_id,
+            RedirectOperation::SignIn,
+            pkce_verifier,
+        )?;
         if let Err(err) = handler.initiate_redirect(request) {
             auth.clear_pending_redirect_event()?;
             return Err(err);
@@ -182,8 +217,9 @@ impl OAuthProvider {
         let handler = auth.redirect_handler().ok_or(AuthError::NotImplemented(
             "OAuth redirect handler not registered",
         ))?;
-        auth.set_pending_redirect_event(&self.provider_id, RedirectOperation::Link)?;
         let request = self.build_request(auth)?;
+        let pkce_verifier = request.pkce().map(|pair| pair.code_verifier().to_string());
+        auth.set_pending_redirect_event(&self.provider_id, RedirectOperation::Link, pkce_verifier)?;
         if let Err(err) = handler.initiate_redirect(request) {
             auth.clear_pending_redirect_event()?;
             return Err(err);
@@ -205,17 +241,26 @@ impl OAuthProvider {
             return Ok(None);
         }
         let pending = pending.unwrap();
+        let pkce_verifier = pending.pkce_verifier.clone();
 
         match handler.complete_redirect()? {
-            Some(credential) => match pending.operation {
-                RedirectOperation::Link => {
-                    auth.link_with_oauth_credential(credential).await.map(Some)
+            Some(mut credential) => {
+                if let Some(verifier) = pkce_verifier {
+                    if let Some(map) = credential.token_response.as_object_mut() {
+                        map.entry("codeVerifier".to_string())
+                            .or_insert_with(|| JsonValue::String(verifier.clone()));
+                    }
                 }
-                RedirectOperation::SignIn => auth
-                    .sign_in_with_oauth_credential(credential)
-                    .await
-                    .map(Some),
-            },
+                match pending.operation {
+                    RedirectOperation::Link => {
+                        auth.link_with_oauth_credential(credential).await.map(Some)
+                    }
+                    RedirectOperation::SignIn => auth
+                        .sign_in_with_oauth_credential(credential)
+                        .await
+                        .map(Some),
+                }
+            }
             None => Ok(None),
         }
     }
@@ -265,6 +310,18 @@ mod tests {
         assert_eq!(request.provider_id, "google.com");
     }
 
+    #[test]
+    fn build_request_generates_pkce_when_enabled() {
+        let auth = build_test_auth();
+        let mut provider = OAuthProvider::new("google.com", "https://example.com/oauth");
+        provider.enable_pkce();
+        let request = provider.build_request(&auth).unwrap();
+        assert!(request.auth_url.contains("code_challenge="));
+        let pkce = request.pkce().expect("pkce should be present");
+        assert_eq!(pkce.method(), "S256");
+        assert!(pkce.code_verifier().len() >= 43);
+    }
+
     struct RecordingRedirectHandler {
         fail: bool,
         initiated: Arc<Mutex<bool>>,
@@ -301,6 +358,7 @@ mod tests {
         let event = event.unwrap();
         assert_eq!(event.provider_id, "google.com");
         assert_eq!(event.operation, RedirectOperation::Link);
+        assert!(event.pkce_verifier.is_none());
     }
 
     #[test]

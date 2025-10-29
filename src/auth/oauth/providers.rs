@@ -35,6 +35,7 @@ impl OAuthProviderFactory for GoogleAuthProvider {
                 .into_iter()
                 .collect(),
         );
+        provider.enable_pkce();
         provider
     }
 }
@@ -52,6 +53,7 @@ impl OAuthProviderFactory for FacebookAuthProvider {
             "https://www.facebook.com/v12.0/dialog/oauth",
         );
         provider.add_scope("email");
+        provider.enable_pkce();
         provider
     }
 }
@@ -78,6 +80,7 @@ impl OAuthProviderFactory for GithubAuthProvider {
             "https://github.com/login/oauth/authorize",
         );
         provider.add_scope("read:user");
+        provider.enable_pkce();
         provider
     }
 }
@@ -96,6 +99,7 @@ impl OAuthProviderFactory for TwitterAuthProvider {
         );
         provider.add_scope("tweet.read");
         provider.add_scope("users.read");
+        provider.enable_pkce();
         provider
     }
 }
@@ -115,6 +119,7 @@ impl OAuthProviderFactory for MicrosoftAuthProvider {
         provider.add_scope("openid");
         provider.add_scope("profile");
         provider.add_scope("email");
+        provider.enable_pkce();
         provider
     }
 }

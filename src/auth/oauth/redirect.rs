@@ -8,6 +8,7 @@ use crate::auth::error::AuthResult;
 pub struct PendingRedirectEvent {
     pub provider_id: String,
     pub operation: RedirectOperation,
+    pub pkce_verifier: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -54,6 +55,7 @@ mod tests {
         let event = PendingRedirectEvent {
             provider_id: "google.com".into(),
             operation: RedirectOperation::Link,
+            pkce_verifier: None,
         };
 
         persistence.set(Some(event.clone())).unwrap();

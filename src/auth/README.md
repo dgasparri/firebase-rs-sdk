@@ -39,6 +39,8 @@ Coverage Highlights
   - Multi-factor enrollment for phone numbers reuses the same confirmation pipeline; `Auth::multi_factor()` exposes async
   helpers for creating sessions, enrolling factors, and unenrolling, matching the modular JS API shape. Passkey/WebAuthn
   and TOTP enrollment/sign-in are parity-complete, including resolver-driven sign-in, linking, and reauthentication.
+  - Federated OAuth providers (Google, Facebook, GitHub, Twitter, Microsoft) include default scopes, PKCE support, and
+  helper methods for popup/redirect flows plus link/reauth coverage.
   - `PhoneAuthProvider` mirrors the JS provider API, exposing verification helpers plus credential-based sign-in/link/reauth
   flows for SMS codes alongside the `sign_in_with_phone_number` convenience wrappers.
   - Phone and passkey MFA sign-in/link flows are covered end-to-end (`multi_factor_phone_enrollment_flow`,
@@ -225,13 +227,10 @@ token handling, enabling dependent modules to retrieve `Auth` instances across n
 
 The JavaScript implementation is significantly broader. Missing pieces include:
 
-1. **Multi-factor authentication (MFA)**
-   - Expand passkey support with platform-specific ceremony helpers (popup/redirect, conditional UI) and extend TOTP/WebAuthn
-     error mapping.
-2. **Federated provider ergonomics**
+1. **Federated provider ergonomics**
    - OAuth providers (Google, Facebook, GitHub, etc.) still require provider-specific helpers, popup/redirect orchestration,
      and PKCE/account-linking nuances from the JS SDK.
-3. **Browser & hybrid platform adapters**
+2. **Browser & hybrid platform adapters**
    - Cordova, React Native, and browser-specific glue (navigation messaging, reCAPTCHA/Play Integrity bootstrap,
      IndexedDB-backed persistence) are still missing; consumers must currently wire their own handlers.
 4. **Advanced account & tenant tooling**
