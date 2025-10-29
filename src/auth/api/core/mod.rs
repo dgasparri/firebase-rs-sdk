@@ -895,7 +895,7 @@ impl Auth {
             id_token: response.id_token.as_str(),
             refresh_token: response.refresh_token.as_str(),
             expires_in: None,
-            provider_id: context.provider_id.as_deref(),
+            provider_id: Some(PHONE_PROVIDER_ID),
             operation: context.operation_label(MultiFactorOperation::SignIn),
             anonymous: context.anonymous,
         };
