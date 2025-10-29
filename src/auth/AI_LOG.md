@@ -1416,7 +1416,8 @@ Read the instructions in ./AGENTS.md . I need the module auth to be 100% compati
 > PROMPT:  cargo check with --target wasm32 returned an error:
 
 error: the wasm*-unknown-unknown targets are not supported by default, you may need to enable the "js" feature. For more information see: https://docs.rs/getrandom/#webassembly-support
-   --> C:\Users\dmg\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.16\src\lib.rs:346:9
+   --> C:\Users\
+   cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.16\src\lib.rs:346:9
     |
 346 | /         compile_error!("the wasm*-unknown-unknown targets are not supported by \
 347 | |                         default, you may need to enable the \"js\" feature. \
@@ -1428,7 +1429,8 @@ error: the wasm*-unknown-unknown targets are not supported by default, you may n
     Checking ryu v1.0.20
    Compiling serde_json v1.0.145
 error[E0433]: failed to resolve: use of unresolved module or unlinked crate `imp`
-   --> C:\Users\dmg\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.16\src\lib.rs:402:9
+   --> C:\Users\
+   .cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.16\src\lib.rs:402:9
     |
 402 |         imp::getrandom_inner(dest)?;
     |         ^^^ use of unresolved module or unlinked crate `imp`

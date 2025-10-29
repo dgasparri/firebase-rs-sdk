@@ -133,7 +133,7 @@ Thinking
 
 ---- installations::api::tests::get_id_registers_installation_once stdout ----
 
-thread 'installations::api::tests::get_id_registers_installation_once' panicked at C:\Users\dmg\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\httpmock-0.7.0\src\api\mock.rs:523:17:
+thread 'installations::api::tests::get_id_registers_installation_once' panicked at C:\Users\.\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\httpmock-0.7.0\src\api\mock.rs:523:17:
 No request has been received by the mock server.
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
