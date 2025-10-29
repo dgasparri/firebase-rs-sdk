@@ -52,8 +52,8 @@ Coverage Highlights
 
 Major Gaps
 
-  - TOTP-based multi-factor enrollment/sign-in, resolver coverage for reauthentication/link flows, and richer error
-  surfaces for `mfaPendingCredential` responses still need to be ported from the JS SDK.
+  - Resolver coverage for reauthentication/link flows and richer error surfaces for `mfaPendingCredential` responses
+    still need to be ported from the JS SDK.
   - Browser-specific popup/redirect resolvers, iframe messaging, and storage adapters are still stubbed out; wasm
   consumers must currently supply their own handlers.
   - Advanced features such as tenant-aware auth, localization helpers, emulator tooling, token revocation APIs, and rich
@@ -61,17 +61,15 @@ Major Gaps
 
 Next Steps
 
-  1. **TOTP support** – Add the TOTP enrollment/sign-in endpoints, extend the resolver to handle TOTP assertions, and
-     persist TOTP metadata alongside the phone factors. Include doc updates and wasm-native verifier guidance.
-  2. **Resolver reauthentication support** – Allow `MultiFactorResolver` to drive reauthentication/link flows, carrying
+  1. **Resolver reauthentication support** – Allow `MultiFactorResolver` to drive reauthentication/link flows, carrying
      the originating user context and updating token metadata after completion.
-  3. **Error mapping & public enums** – Map the MFA-specific error codes (`auth/multi-factor-auth-required`,
+  2. **Error mapping & public enums** – Map the MFA-specific error codes (`auth/multi-factor-auth-required`,
      `auth/multi-factor-info-not-found`, etc.) to strongly-typed variants so libraries can branch on them cleanly.
-  4. **Browser bridge crates** – Deliver popup/redirect + reCAPTCHA/Play Integrity adapters for wasm targets so the phone
+  3. **Browser bridge crates** – Deliver popup/redirect + reCAPTCHA/Play Integrity adapters for wasm targets so the phone
      provider and MFA flows can run in the browser with minimal glue.
-  5. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
+  4. **Tenant/emulator & policy endpoints** – Surface project configuration, password policy, token revocation, and
      emulator toggles with rustdoc’d APIs, ensuring they interoperate with MFA resolvers.
-  6. **Testing/documentation sweep** – Port the remaining JS suites (resolver/TOTP/browser flows) and expand the README
+  5. **Testing/documentation sweep** – Port the remaining JS suites (resolver/browser flows) and expand the README
      to document resolver usage and known platform differences.
 
 
@@ -187,6 +185,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     `MultiFactorUser` with async helpers for session creation, enrollment, factor inspection, and unenrollment.
   - Step-up sign-in surfaces `MultiFactorResolver`, exposing factor hints, captured sessions, verification helpers, and
     resolver-driven completion for phone challenges raised via `mfaPendingCredential` responses.
+  - TOTP enrollment/sign-in flows are supported via `TotpMultiFactorGenerator`, including secret generation helpers and
+    resolver integration during multi-factor sign-in.
 - **Phone provider utilities** (`phone/`)
   - `PhoneAuthProvider` and `PhoneAuthCredential` offer low-level verification helpers alongside credential-based
     sign-in/link/reauth flows, mirroring the Firebase JS provider ergonomics for SMS authentication.

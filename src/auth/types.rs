@@ -4,7 +4,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
+use std::time::SystemTime;
+use url::form_urlencoded::byte_serialize;
 
 use crate::app::FirebaseApp;
 use crate::auth::api::Auth;
@@ -427,6 +429,128 @@ impl PhoneMultiFactorAssertion {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct TotpSecret {
+    secret_key: String,
+    hashing_algorithm: String,
+    code_length: u32,
+    code_interval_seconds: u32,
+    enrollment_deadline: SystemTime,
+    session_info: String,
+    auth: Weak<Auth>,
+}
+
+impl TotpSecret {
+    pub(crate) fn new(
+        auth: &Arc<Auth>,
+        secret_key: String,
+        hashing_algorithm: String,
+        code_length: u32,
+        code_interval_seconds: u32,
+        enrollment_deadline: SystemTime,
+        session_info: String,
+    ) -> Self {
+        Self {
+            secret_key,
+            hashing_algorithm,
+            code_length,
+            code_interval_seconds,
+            enrollment_deadline,
+            session_info,
+            auth: Arc::downgrade(auth),
+        }
+    }
+
+    pub fn secret_key(&self) -> &str {
+        &self.secret_key
+    }
+
+    pub fn hashing_algorithm(&self) -> &str {
+        &self.hashing_algorithm
+    }
+
+    pub fn code_length(&self) -> u32 {
+        self.code_length
+    }
+
+    pub fn code_interval_seconds(&self) -> u32 {
+        self.code_interval_seconds
+    }
+
+    pub fn enrollment_deadline(&self) -> SystemTime {
+        self.enrollment_deadline
+    }
+
+    pub fn qr_code_url(&self, account_name: Option<&str>, issuer: Option<&str>) -> String {
+        let auth = self.auth.upgrade();
+        let default_account = account_name
+            .filter(|name| !name.is_empty())
+            .map(|value| value.to_string())
+            .or_else(|| {
+                auth.as_ref()
+                    .and_then(|auth| auth.current_user())
+                    .and_then(|user| user.info().email.clone())
+            })
+            .unwrap_or_else(|| "unknownuser".into());
+        let default_issuer = issuer
+            .filter(|name| !name.is_empty())
+            .map(|value| value.to_string())
+            .or_else(|| auth.as_ref().map(|auth| auth.app().name().to_string()))
+            .unwrap_or_else(|| "firebase".into());
+        let encoded_issuer: String = byte_serialize(default_issuer.as_bytes()).collect();
+        format!(
+            "otpauth://totp/{}:{}?secret={}&issuer={}&algorithm={}&digits={}",
+            default_issuer,
+            default_account,
+            self.secret_key,
+            encoded_issuer,
+            self.hashing_algorithm,
+            self.code_length
+        )
+    }
+
+    pub(crate) fn session_info(&self) -> &str {
+        &self.session_info
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TotpMultiFactorAssertion {
+    otp: String,
+    secret: Option<TotpSecret>,
+    enrollment_id: Option<String>,
+}
+
+impl TotpMultiFactorAssertion {
+    pub(crate) fn for_enrollment(secret: TotpSecret, otp: impl Into<String>) -> Self {
+        Self {
+            otp: otp.into(),
+            secret: Some(secret),
+            enrollment_id: None,
+        }
+    }
+
+    pub(crate) fn for_sign_in(enrollment_id: impl Into<String>, otp: impl Into<String>) -> Self {
+        Self {
+            otp: otp.into(),
+            secret: None,
+            enrollment_id: Some(enrollment_id.into()),
+        }
+    }
+
+    pub(crate) fn otp(&self) -> &str {
+        &self.otp
+    }
+
+    pub(crate) fn secret(&self) -> Option<&TotpSecret> {
+        self.secret.as_ref()
+    }
+
+    pub(crate) fn enrollment_id(&self) -> Option<&str> {
+        self.enrollment_id.as_deref()
+    }
+}
+
 /// A multi-factor assertion that can be resolved to complete sign-in.
 ///
 /// Mirrors the behaviour of the JavaScript `MultiFactorAssertion` found in
@@ -434,6 +558,7 @@ impl PhoneMultiFactorAssertion {
 #[derive(Clone, Debug)]
 pub enum MultiFactorAssertion {
     Phone(PhoneMultiFactorAssertion),
+    Totp(TotpMultiFactorAssertion),
 }
 
 impl MultiFactorAssertion {
@@ -441,12 +566,53 @@ impl MultiFactorAssertion {
     pub fn factor_id(&self) -> &'static str {
         match self {
             MultiFactorAssertion::Phone(_) => PHONE_PROVIDER_ID,
+            MultiFactorAssertion::Totp(_) => "totp",
         }
     }
 
     pub(crate) fn from_phone_credential(credential: PhoneAuthCredential) -> Self {
         MultiFactorAssertion::Phone(PhoneMultiFactorAssertion::new(credential))
     }
+
+    pub(crate) fn from_totp_enrollment(secret: TotpSecret, otp: impl Into<String>) -> Self {
+        MultiFactorAssertion::Totp(TotpMultiFactorAssertion::for_enrollment(secret, otp))
+    }
+
+    pub(crate) fn from_totp_sign_in(
+        enrollment_id: impl Into<String>,
+        otp: impl Into<String>,
+    ) -> Self {
+        MultiFactorAssertion::Totp(TotpMultiFactorAssertion::for_sign_in(enrollment_id, otp))
+    }
+}
+
+/// Builder for time-based one-time password multi-factor assertions.
+pub struct TotpMultiFactorGenerator;
+
+impl TotpMultiFactorGenerator {
+    pub fn assertion_for_enrollment(
+        secret: TotpSecret,
+        otp: impl Into<String>,
+    ) -> MultiFactorAssertion {
+        MultiFactorAssertion::from_totp_enrollment(secret, otp)
+    }
+
+    pub fn assertion_for_sign_in(
+        enrollment_id: impl Into<String>,
+        otp: impl Into<String>,
+    ) -> MultiFactorAssertion {
+        MultiFactorAssertion::from_totp_sign_in(enrollment_id, otp)
+    }
+
+    pub async fn generate_secret(
+        auth: &FirebaseAuth,
+        session: &MultiFactorSession,
+    ) -> AuthResult<TotpSecret> {
+        let inner = auth.inner_arc();
+        inner.start_totp_mfa_enrollment(session).await
+    }
+
+    pub const FACTOR_ID: &'static str = "totp";
 }
 
 #[derive(Clone, Debug)]
@@ -594,6 +760,34 @@ impl MultiFactorResolver {
                     )
                     .await
             }
+            MultiFactorAssertion::Totp(assertion) => {
+                if self.operation != MultiFactorOperation::SignIn {
+                    return Err(AuthError::NotImplemented(
+                        "Multi-factor reauthentication is not yet supported",
+                    ));
+                }
+
+                let pending = self.session.pending_credential().ok_or_else(|| {
+                    AuthError::InvalidCredential(
+                        "Multi-factor session is not valid for sign-in".into(),
+                    )
+                })?;
+
+                let enrollment_id = assertion.enrollment_id().ok_or_else(|| {
+                    AuthError::InvalidCredential(
+                        "TOTP assertions require an enrollment identifier".into(),
+                    )
+                })?;
+
+                self.auth
+                    .finalize_totp_multi_factor_sign_in(
+                        pending,
+                        enrollment_id,
+                        assertion.otp(),
+                        Arc::clone(&self.context),
+                    )
+                    .await
+            }
         }
     }
 }
@@ -616,6 +810,46 @@ impl MultiFactorUser {
     /// Requests a multi-factor session for subsequent operations.
     pub async fn get_session(&self) -> AuthResult<MultiFactorSession> {
         self.auth.multi_factor_session().await
+    }
+
+    /// Generates a TOTP enrollment secret for the provided session.
+    pub async fn generate_totp_secret(
+        &self,
+        session: &MultiFactorSession,
+    ) -> AuthResult<TotpSecret> {
+        self.auth.start_totp_mfa_enrollment(session).await
+    }
+
+    /// Completes enrollment using a multi-factor assertion (e.g. TOTP).
+    pub async fn enroll(
+        &self,
+        session: &MultiFactorSession,
+        assertion: MultiFactorAssertion,
+        display_name: Option<&str>,
+    ) -> AuthResult<UserCredential> {
+        match assertion {
+            MultiFactorAssertion::Totp(assertion) => {
+                if session.session_type() != MultiFactorSessionType::Enrollment {
+                    return Err(AuthError::InvalidCredential(
+                        "TOTP enrollment requires an enrollment session".into(),
+                    ));
+                }
+                let id_token = session.id_token().ok_or_else(|| {
+                    AuthError::InvalidCredential("Missing ID token for enrollment".into())
+                })?;
+                let secret = assertion.secret().ok_or_else(|| {
+                    AuthError::InvalidCredential(
+                        "TOTP enrollment assertions require a generated secret".into(),
+                    )
+                })?;
+                self.auth
+                    .complete_totp_mfa_enrollment(id_token, secret, assertion.otp(), display_name)
+                    .await
+            }
+            _ => Err(AuthError::NotImplemented(
+                "Only TOTP assertions are supported via MultiFactorUser::enroll",
+            )),
+        }
     }
 
     /// Starts phone number enrollment by sending a verification SMS.

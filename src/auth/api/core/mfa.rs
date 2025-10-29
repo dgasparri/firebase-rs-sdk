@@ -1,5 +1,6 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::auth::error::{AuthError, AuthResult};
 
@@ -44,6 +45,38 @@ pub struct PhoneSessionInfo {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct StartTotpMfaEnrollmentRequest {
+    #[serde(rename = "idToken")]
+    pub id_token: String,
+    #[serde(rename = "totpEnrollmentInfo")]
+    pub totp_enrollment_info: Value,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TotpSessionInfo {
+    #[serde(rename = "sharedSecretKey")]
+    pub shared_secret_key: String,
+    #[serde(rename = "verificationCodeLength")]
+    pub verification_code_length: u32,
+    #[serde(rename = "hashingAlgorithm")]
+    pub hashing_algorithm: String,
+    #[serde(rename = "periodSec")]
+    pub period_sec: u32,
+    #[serde(rename = "sessionInfo")]
+    pub session_info: String,
+    #[serde(rename = "finalizeEnrollmentTime")]
+    pub finalize_enrollment_time: i64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StartTotpMfaEnrollmentResponse {
+    #[serde(rename = "totpSessionInfo")]
+    pub totp_session_info: TotpSessionInfo,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct FinalizePhoneMfaEnrollmentRequest {
     #[serde(rename = "idToken")]
     pub id_token: String,
@@ -65,6 +98,34 @@ pub struct PhoneVerificationInfo {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct FinalizeMfaEnrollmentResponse {
+    #[serde(rename = "idToken")]
+    pub id_token: String,
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct TotpVerificationInfo {
+    #[serde(rename = "sessionInfo")]
+    pub session_info: String,
+    #[serde(rename = "verificationCode")]
+    pub verification_code: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FinalizeTotpMfaEnrollmentRequest {
+    #[serde(rename = "idToken")]
+    pub id_token: String,
+    #[serde(rename = "totpVerificationInfo")]
+    pub totp_verification_info: TotpVerificationInfo,
+    #[serde(rename = "displayName", skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FinalizeTotpMfaEnrollmentResponse {
     #[serde(rename = "idToken")]
     pub id_token: String,
     #[serde(rename = "refreshToken")]
@@ -137,6 +198,32 @@ pub struct FinalizeMfaSignInResponse {
     pub refresh_token: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct TotpSignInVerificationInfo {
+    #[serde(rename = "verificationCode")]
+    pub verification_code: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FinalizeTotpMfaSignInRequest {
+    #[serde(rename = "mfaPendingCredential")]
+    pub mfa_pending_credential: String,
+    #[serde(rename = "mfaEnrollmentId")]
+    pub mfa_enrollment_id: String,
+    #[serde(rename = "totpVerificationInfo")]
+    pub totp_verification_info: TotpSignInVerificationInfo,
+    #[serde(rename = "tenantId", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FinalizeTotpMfaSignInResponse {
+    #[serde(rename = "idToken")]
+    pub id_token: String,
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: String,
+}
+
 pub async fn start_phone_mfa_enrollment(
     client: &Client,
     endpoint: &str,
@@ -153,12 +240,44 @@ pub async fn start_phone_mfa_enrollment(
     .await
 }
 
+pub async fn start_totp_mfa_enrollment(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    request: &StartTotpMfaEnrollmentRequest,
+) -> AuthResult<StartTotpMfaEnrollmentResponse> {
+    post_json(
+        client,
+        endpoint,
+        "accounts/mfaEnrollment:start",
+        api_key,
+        request,
+    )
+    .await
+}
+
 pub async fn finalize_phone_mfa_enrollment(
     client: &Client,
     endpoint: &str,
     api_key: &str,
     request: &FinalizePhoneMfaEnrollmentRequest,
 ) -> AuthResult<FinalizeMfaEnrollmentResponse> {
+    post_json(
+        client,
+        endpoint,
+        "accounts/mfaEnrollment:finalize",
+        api_key,
+        request,
+    )
+    .await
+}
+
+pub async fn finalize_totp_mfa_enrollment(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    request: &FinalizeTotpMfaEnrollmentRequest,
+) -> AuthResult<FinalizeTotpMfaEnrollmentResponse> {
     post_json(
         client,
         endpoint,
@@ -207,6 +326,22 @@ pub async fn finalize_phone_mfa_sign_in(
     api_key: &str,
     request: &FinalizePhoneMfaSignInRequest,
 ) -> AuthResult<FinalizeMfaSignInResponse> {
+    post_json(
+        client,
+        endpoint,
+        "accounts/mfaSignIn:finalize",
+        api_key,
+        request,
+    )
+    .await
+}
+
+pub async fn finalize_totp_mfa_sign_in(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    request: &FinalizeTotpMfaSignInRequest,
+) -> AuthResult<FinalizeTotpMfaSignInResponse> {
     post_json(
         client,
         endpoint,

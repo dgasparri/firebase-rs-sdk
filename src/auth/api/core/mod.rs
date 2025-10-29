@@ -40,7 +40,8 @@ use crate::auth::persistence::{
 use crate::auth::types::{
     ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl,
     ApplicationVerifier, ConfirmationResult, MultiFactorError, MultiFactorInfo,
-    MultiFactorOperation, MultiFactorSession, MultiFactorSignInContext, MultiFactorUser,
+    MultiFactorOperation, MultiFactorSession, MultiFactorSessionType, MultiFactorSignInContext,
+    MultiFactorUser, TotpSecret,
 };
 use crate::auth::{PhoneAuthCredential, PHONE_PROVIDER_ID};
 use crate::component::types::{
@@ -60,10 +61,13 @@ use account::{
 };
 use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
 use mfa::{
-    finalize_phone_mfa_enrollment, finalize_phone_mfa_sign_in, start_phone_mfa_enrollment,
-    start_phone_mfa_sign_in, withdraw_mfa, FinalizePhoneMfaEnrollmentRequest,
-    FinalizePhoneMfaSignInRequest, PhoneEnrollmentInfo, PhoneSignInInfo, PhoneVerificationInfo,
-    StartPhoneMfaEnrollmentRequest, StartPhoneMfaSignInRequest, WithdrawMfaRequest,
+    finalize_phone_mfa_enrollment, finalize_phone_mfa_sign_in, finalize_totp_mfa_enrollment,
+    finalize_totp_mfa_sign_in, start_phone_mfa_enrollment, start_phone_mfa_sign_in,
+    start_totp_mfa_enrollment, withdraw_mfa, FinalizePhoneMfaEnrollmentRequest,
+    FinalizePhoneMfaSignInRequest, FinalizeTotpMfaEnrollmentRequest, FinalizeTotpMfaSignInRequest,
+    PhoneEnrollmentInfo, PhoneSignInInfo, PhoneVerificationInfo, StartPhoneMfaEnrollmentRequest,
+    StartPhoneMfaSignInRequest, StartTotpMfaEnrollmentRequest, TotpSignInVerificationInfo,
+    TotpVerificationInfo, WithdrawMfaRequest,
 };
 use phone::{
     link_with_phone_number as api_link_with_phone_number, send_phone_verification_code,
@@ -807,6 +811,49 @@ impl Auth {
         ))
     }
 
+    pub(crate) async fn start_totp_mfa_enrollment(
+        self: &Arc<Self>,
+        session: &MultiFactorSession,
+    ) -> AuthResult<TotpSecret> {
+        if session.session_type() != MultiFactorSessionType::Enrollment {
+            return Err(AuthError::InvalidCredential(
+                "TOTP enrollment requires an enrollment session".into(),
+            ));
+        }
+
+        let id_token = session.id_token().ok_or_else(|| {
+            AuthError::InvalidCredential("Missing ID token for TOTP enrollment".into())
+        })?;
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = StartTotpMfaEnrollmentRequest {
+            id_token: id_token.to_string(),
+            totp_enrollment_info: serde_json::json!({}),
+            tenant_id: None,
+        };
+
+        let response =
+            start_totp_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let info = response.totp_session_info;
+        let deadline = if info.finalize_enrollment_time <= 0 {
+            UNIX_EPOCH
+        } else {
+            UNIX_EPOCH
+                .checked_add(Duration::from_millis(info.finalize_enrollment_time as u64))
+                .unwrap_or(UNIX_EPOCH)
+        };
+
+        Ok(TotpSecret::new(
+            self,
+            info.shared_secret_key,
+            info.hashing_algorithm,
+            info.verification_code_length,
+            info.period_sec,
+            deadline,
+            info.session_info,
+        ))
+    }
+
     pub(crate) async fn start_phone_multi_factor_sign_in(
         self: &Arc<Self>,
         pending_credential: &str,
@@ -862,6 +909,42 @@ impl Auth {
         })
     }
 
+    pub(crate) async fn complete_totp_mfa_enrollment(
+        self: &Arc<Self>,
+        id_token: &str,
+        secret: &TotpSecret,
+        otp: &str,
+        display_name: Option<&str>,
+    ) -> AuthResult<UserCredential> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = FinalizeTotpMfaEnrollmentRequest {
+            id_token: id_token.to_string(),
+            totp_verification_info: TotpVerificationInfo {
+                session_info: secret.session_info().to_string(),
+                verification_code: otp.to_string(),
+            },
+            display_name: display_name.map(|value| value.to_string()),
+            tenant_id: None,
+        };
+
+        let response =
+            finalize_totp_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+
+        self.update_current_user_tokens(
+            response.id_token.clone(),
+            response.refresh_token.clone(),
+            None,
+        )?;
+        let user = self.refresh_current_user_profile().await?;
+
+        Ok(UserCredential {
+            user,
+            provider_id: Some("totp".to_string()),
+            operation_type: Some("enroll".to_string()),
+        })
+    }
+
     pub(crate) async fn finalize_phone_multi_factor_sign_in(
         self: &Arc<Self>,
         pending_credential: &str,
@@ -895,7 +978,48 @@ impl Auth {
             id_token: response.id_token.as_str(),
             refresh_token: response.refresh_token.as_str(),
             expires_in: None,
-            provider_id: Some(PHONE_PROVIDER_ID),
+            provider_id: context.provider_id.as_deref(),
+            operation: context.operation_label(MultiFactorOperation::SignIn),
+            anonymous: context.anonymous,
+        };
+
+        self.finalize_sign_in(payload)
+    }
+
+    pub(crate) async fn finalize_totp_multi_factor_sign_in(
+        self: &Arc<Self>,
+        pending_credential: &str,
+        enrollment_id: &str,
+        otp: &str,
+        context: Arc<MultiFactorSignInContext>,
+    ) -> AuthResult<UserCredential> {
+        let api_key = self.api_key()?;
+        let endpoint = self.identity_toolkit_endpoint();
+        let request = FinalizeTotpMfaSignInRequest {
+            mfa_pending_credential: pending_credential.to_string(),
+            mfa_enrollment_id: enrollment_id.to_string(),
+            totp_verification_info: TotpSignInVerificationInfo {
+                verification_code: otp.to_string(),
+            },
+            tenant_id: None,
+        };
+
+        let response =
+            finalize_totp_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
+
+        let context = context.as_ref();
+        let local_id = context.local_id.as_deref().ok_or_else(|| {
+            AuthError::InvalidCredential("Missing localId for multi-factor sign-in".into())
+        })?;
+
+        let payload = SignInResponsePayload {
+            local_id,
+            email: context.email.as_deref(),
+            phone_number: context.phone_number.as_deref(),
+            id_token: response.id_token.as_str(),
+            refresh_token: response.refresh_token.as_str(),
+            expires_in: None,
+            provider_id: context.provider_id.as_deref(),
             operation: context.operation_label(MultiFactorOperation::SignIn),
             anonymous: context.anonymous,
         };
@@ -2346,6 +2470,7 @@ mod tests {
     };
     use crate::auth::{
         get_multi_factor_resolver, FirebaseAuth, PhoneAuthProvider, PhoneMultiFactorGenerator,
+        TotpMultiFactorGenerator,
     };
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
     use httpmock::prelude::*;
@@ -2558,7 +2683,10 @@ mod tests {
 
         finalize_mock.assert();
         assert_eq!(result.user.uid(), TEST_UID);
-        assert_eq!(result.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
+        assert_eq!(
+            result.provider_id.as_deref(),
+            Some(EmailAuthProvider::PROVIDER_ID)
+        );
         assert_eq!(
             result.user.token_manager().access_token(),
             Some("mfa-id-token".to_string())
@@ -2566,6 +2694,175 @@ mod tests {
         assert_eq!(
             result.user.token_manager().refresh_token(),
             Some("mfa-refresh-token".to_string())
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn totp_enrollment_flow() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+        sign_in_user(&auth, &server).await;
+
+        let multi_factor = auth.multi_factor();
+        let session = multi_factor
+            .get_session()
+            .await
+            .expect("session should be created");
+
+        let start_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaEnrollment:start")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "totpEnrollmentInfo": {}
+                }));
+            then.status(200).json_body(json!({
+                "totpSessionInfo": {
+                    "sharedSecretKey": "SECRETKEY",
+                    "verificationCodeLength": 6,
+                    "hashingAlgorithm": "SHA1",
+                    "periodSec": 30,
+                    "sessionInfo": "TOTP_SESSION",
+                    "finalizeEnrollmentTime": 1_000
+                }
+            }));
+        });
+
+        let secret = multi_factor
+            .generate_totp_secret(&session)
+            .await
+            .expect("secret generation should succeed");
+        start_mock.assert();
+        assert_eq!(secret.secret_key(), "SECRETKEY");
+        assert_eq!(secret.code_length(), 6);
+
+        let qr_url = secret.qr_code_url(None, None);
+        assert!(qr_url.contains("secret=SECRETKEY"));
+
+        let lookup_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:lookup")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({ "idToken": "totp-id-token" }));
+            then.status(200).json_body(json!({
+                "users": [{
+                    "localId": TEST_UID,
+                    "email": TEST_EMAIL,
+                    "mfaInfo": [{
+                        "mfaEnrollmentId": "totp1",
+                        "displayName": "Authenticator",
+                        "factorId": "totp"
+                    }]
+                }]
+            }));
+        });
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaEnrollment:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "idToken": TEST_ID_TOKEN,
+                    "totpVerificationInfo": {
+                        "sessionInfo": "TOTP_SESSION",
+                        "verificationCode": "654321"
+                    },
+                    "displayName": "Authenticator"
+                }));
+            then.status(200).json_body(json!({
+                "idToken": "totp-id-token",
+                "refreshToken": "totp-refresh-token"
+            }));
+        });
+
+        let assertion =
+            TotpMultiFactorGenerator::assertion_for_enrollment(secret.clone(), "654321");
+        let result = multi_factor
+            .enroll(&session, assertion, Some("Authenticator"))
+            .await
+            .expect("TOTP enrollment should succeed");
+
+        finalize_mock.assert();
+        lookup_mock.assert();
+        assert_eq!(result.provider_id.as_deref(), Some("totp"));
+        assert_eq!(result.operation_type.as_deref(), Some("enroll"));
+        assert_eq!(
+            result.user.token_manager().access_token(),
+            Some("totp-id-token".to_string())
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn totp_multi_factor_sign_in_flow() {
+        let server = start_mock_server();
+        let auth = build_auth(&server);
+
+        let sign_in_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts:signInWithPassword")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "email": TEST_EMAIL,
+                    "password": TEST_PASSWORD,
+                    "returnSecureToken": true
+                }));
+            then.status(200).json_body(json!({
+                "localId": TEST_UID,
+                "email": TEST_EMAIL,
+                "mfaPendingCredential": "PENDING_TOTP",
+                "mfaInfo": [{
+                    "mfaEnrollmentId": "totp1",
+                    "displayName": "Authenticator",
+                    "factorId": "totp",
+                    "totpInfo": {}
+                }]
+            }));
+        });
+
+        let error = auth
+            .sign_in_with_email_and_password(TEST_EMAIL, TEST_PASSWORD)
+            .await
+            .expect_err("expected multi-factor challenge");
+        sign_in_mock.assert();
+
+        let firebase_auth = FirebaseAuth::new(auth.clone());
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
+            .expect("resolver should be constructed");
+        assert_eq!(resolver.hints()[0].factor_id, "totp");
+
+        let finalize_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/accounts/mfaSignIn:finalize")
+                .query_param("key", TEST_API_KEY)
+                .json_body(json!({
+                    "mfaPendingCredential": "PENDING_TOTP",
+                    "mfaEnrollmentId": "totp1",
+                    "totpVerificationInfo": {
+                        "verificationCode": "123456"
+                    }
+                }));
+            then.status(200).json_body(json!({
+                "idToken": "totp-signin-token",
+                "refreshToken": "totp-signin-refresh"
+            }));
+        });
+
+        let assertion = TotpMultiFactorGenerator::assertion_for_sign_in("totp1", "123456");
+        let result = resolver
+            .resolve_sign_in(assertion)
+            .await
+            .expect("multi-factor sign-in should succeed");
+
+        finalize_mock.assert();
+        assert_eq!(result.user.uid(), TEST_UID);
+        assert_eq!(
+            result.provider_id.as_deref(),
+            Some(EmailAuthProvider::PROVIDER_ID)
+        );
+        assert_eq!(
+            result.user.token_manager().access_token(),
+            Some("totp-signin-token".to_string())
         );
     }
 
