@@ -185,14 +185,14 @@ pub struct SignInWithPasswordRequest {
 #[derive(Debug, Deserialize, Clone)]
 pub struct SignInWithPasswordResponse {
     #[serde(rename = "idToken")]
-    pub id_token: String,
+    pub id_token: Option<String>,
     #[serde(rename = "refreshToken")]
-    pub refresh_token: String,
+    pub refresh_token: Option<String>,
     #[serde(rename = "localId")]
     pub local_id: String,
     pub email: String,
     #[serde(rename = "expiresIn")]
-    pub expires_in: String,
+    pub expires_in: Option<String>,
     #[serde(rename = "mfaPendingCredential")]
     pub mfa_pending_credential: Option<String>,
     #[serde(rename = "mfaInfo")]

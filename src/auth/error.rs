@@ -1,4 +1,5 @@
 use crate::app::AppError;
+use crate::auth::types::MultiFactorError;
 use crate::util::FirebaseError;
 use std::fmt;
 
@@ -11,6 +12,7 @@ pub enum AuthError {
     Network(String),
     InvalidCredential(String),
     NotImplemented(&'static str),
+    MultiFactorRequired(MultiFactorError),
 }
 
 impl fmt::Display for AuthError {
@@ -21,6 +23,7 @@ impl fmt::Display for AuthError {
             AuthError::Network(message) => write!(f, "Network error: {message}"),
             AuthError::InvalidCredential(message) => write!(f, "Invalid credential: {message}"),
             AuthError::NotImplemented(feature) => write!(f, "{feature} is not implemented"),
+            AuthError::MultiFactorRequired(err) => write!(f, "{err}"),
         }
     }
 }

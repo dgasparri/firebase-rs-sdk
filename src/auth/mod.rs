@@ -109,7 +109,9 @@ pub use error::{AuthError, AuthResult};
 pub use model::{AuthConfig, AuthCredential, EmailAuthProvider, User, UserCredential};
 
 #[doc(inline)]
-pub use phone::{PhoneAuthCredential, PhoneAuthProvider, PHONE_PROVIDER_ID};
+pub use phone::{
+    PhoneAuthCredential, PhoneAuthProvider, PhoneMultiFactorGenerator, PHONE_PROVIDER_ID,
+};
 
 #[doc(inline)]
 pub use oauth::{

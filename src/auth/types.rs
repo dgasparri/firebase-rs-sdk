@@ -8,9 +8,12 @@ use std::sync::Arc;
 
 use crate::app::FirebaseApp;
 use crate::auth::api::Auth;
-use crate::auth::error::AuthResult;
+use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::{MfaEnrollmentInfo, User, UserCredential};
+use crate::auth::phone::PhoneAuthCredential;
+use crate::auth::PHONE_PROVIDER_ID;
 use crate::util::PartialObserver;
+use std::fmt;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdTokenResult {
@@ -302,23 +305,298 @@ impl MultiFactorInfo {
     }
 }
 
+/// Distinguishes between enrollment and sign-in multi-factor sessions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MultiFactorSessionType {
+    /// A session captured during enrollment flows (contains an ID token).
+    Enrollment,
+    /// A session captured during sign-in flows (contains an MFA pending credential).
+    SignIn,
+}
+
+/// Indicates which primary flow triggered a multi-factor requirement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MultiFactorOperation {
+    /// Multi-factor is required while completing a sign-in.
+    SignIn,
+    /// Multi-factor is required while completing a reauthentication.
+    Reauthenticate,
+}
+
 #[derive(Clone, Debug)]
 pub struct MultiFactorSession {
-    pub(crate) id_token: String,
+    kind: MultiFactorSessionType,
+    credential: String,
 }
 
 impl MultiFactorSession {
-    /// Returns the ID token captured for this session.
+    pub(crate) fn enrollment(id_token: String) -> Self {
+        Self {
+            kind: MultiFactorSessionType::Enrollment,
+            credential: id_token,
+        }
+    }
+
+    pub(crate) fn sign_in(pending_credential: String) -> Self {
+        Self {
+            kind: MultiFactorSessionType::SignIn,
+            credential: pending_credential,
+        }
+    }
+
+    /// Returns the raw credential captured for this session.
+    ///
+    /// For enrollment sessions this is the user's ID token, while for sign-in sessions it represents
+    /// the `mfaPendingCredential` returned by the server.
     pub fn credential(&self) -> &str {
-        &self.id_token
+        &self.credential
+    }
+
+    /// Returns the type of multi-factor session that was established.
+    pub fn session_type(&self) -> MultiFactorSessionType {
+        self.kind
+    }
+
+    /// Returns the ID token captured for enrollment sessions.
+    pub fn id_token(&self) -> Option<&str> {
+        match self.kind {
+            MultiFactorSessionType::Enrollment => Some(&self.credential),
+            MultiFactorSessionType::SignIn => None,
+        }
+    }
+
+    /// Returns the pending credential captured for sign-in sessions.
+    pub fn pending_credential(&self) -> Option<&str> {
+        match self.kind {
+            MultiFactorSessionType::SignIn => Some(&self.credential),
+            MultiFactorSessionType::Enrollment => None,
+        }
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MultiFactorAssertion;
+#[derive(Clone, Debug)]
+pub(crate) struct MultiFactorSignInContext {
+    pub local_id: Option<String>,
+    pub email: Option<String>,
+    pub phone_number: Option<String>,
+    pub provider_id: Option<String>,
+    pub is_new_user: Option<bool>,
+    pub anonymous: bool,
+}
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MultiFactorResolver;
+impl Default for MultiFactorSignInContext {
+    fn default() -> Self {
+        Self {
+            local_id: None,
+            email: None,
+            phone_number: None,
+            provider_id: None,
+            is_new_user: None,
+            anonymous: false,
+        }
+    }
+}
+
+impl MultiFactorSignInContext {
+    pub(crate) fn operation_label(&self, operation: MultiFactorOperation) -> &'static str {
+        match operation {
+            MultiFactorOperation::SignIn => {
+                if self.is_new_user.unwrap_or(false) {
+                    "signUp"
+                } else {
+                    "signIn"
+                }
+            }
+            MultiFactorOperation::Reauthenticate => "reauthenticate",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PhoneMultiFactorAssertion {
+    credential: PhoneAuthCredential,
+}
+
+impl PhoneMultiFactorAssertion {
+    pub(crate) fn new(credential: PhoneAuthCredential) -> Self {
+        Self { credential }
+    }
+
+    pub(crate) fn credential(&self) -> &PhoneAuthCredential {
+        &self.credential
+    }
+}
+
+/// A multi-factor assertion that can be resolved to complete sign-in.
+///
+/// Mirrors the behaviour of the JavaScript `MultiFactorAssertion` found in
+/// `packages/auth/src/mfa/mfa_assertion.ts`.
+#[derive(Clone, Debug)]
+pub enum MultiFactorAssertion {
+    Phone(PhoneMultiFactorAssertion),
+}
+
+impl MultiFactorAssertion {
+    /// Returns the identifier of the underlying second factor.
+    pub fn factor_id(&self) -> &'static str {
+        match self {
+            MultiFactorAssertion::Phone(_) => PHONE_PROVIDER_ID,
+        }
+    }
+
+    pub(crate) fn from_phone_credential(credential: PhoneAuthCredential) -> Self {
+        MultiFactorAssertion::Phone(PhoneMultiFactorAssertion::new(credential))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MultiFactorError {
+    operation: MultiFactorOperation,
+    hints: Vec<MultiFactorInfo>,
+    session: MultiFactorSession,
+    context: Arc<MultiFactorSignInContext>,
+    user: Option<Arc<User>>,
+}
+
+impl MultiFactorError {
+    pub(crate) fn new(
+        operation: MultiFactorOperation,
+        session: MultiFactorSession,
+        hints: Vec<MultiFactorInfo>,
+        context: MultiFactorSignInContext,
+        user: Option<Arc<User>>,
+    ) -> Self {
+        Self {
+            operation,
+            hints,
+            session,
+            context: Arc::new(context),
+            user,
+        }
+    }
+
+    /// Returns the factors that can satisfy the pending challenge.
+    pub fn hints(&self) -> &[MultiFactorInfo] {
+        &self.hints
+    }
+
+    /// Returns the captured multi-factor session information.
+    pub fn session(&self) -> &MultiFactorSession {
+        &self.session
+    }
+
+    /// Returns the operation that triggered the multi-factor requirement.
+    pub fn operation(&self) -> MultiFactorOperation {
+        self.operation
+    }
+
+    pub(crate) fn context(&self) -> Arc<MultiFactorSignInContext> {
+        Arc::clone(&self.context)
+    }
+
+    pub(crate) fn user(&self) -> Option<Arc<User>> {
+        self.user.clone()
+    }
+}
+
+impl fmt::Display for MultiFactorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.operation {
+            MultiFactorOperation::SignIn => write!(f, "Multi-factor sign-in required"),
+            MultiFactorOperation::Reauthenticate => {
+                write!(f, "Multi-factor reauthentication required")
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct MultiFactorResolver {
+    auth: Arc<Auth>,
+    hints: Vec<MultiFactorInfo>,
+    session: MultiFactorSession,
+    operation: MultiFactorOperation,
+    context: Arc<MultiFactorSignInContext>,
+    _user: Option<Arc<User>>,
+}
+
+impl MultiFactorResolver {
+    pub(crate) fn from_error(auth: Arc<Auth>, error: MultiFactorError) -> Self {
+        Self {
+            hints: error.hints.clone(),
+            session: error.session.clone(),
+            operation: error.operation(),
+            context: error.context(),
+            _user: error.user(),
+            auth,
+        }
+    }
+
+    /// Returns the list of factor hints that can satisfy the pending challenge.
+    pub fn hints(&self) -> &[MultiFactorInfo] {
+        &self.hints
+    }
+
+    /// Returns the session associated with the pending multi-factor challenge.
+    pub fn session(&self) -> &MultiFactorSession {
+        &self.session
+    }
+
+    /// Initiates a phone-based multi-factor challenge for the provided hint.
+    pub async fn send_phone_sign_in_code(
+        &self,
+        hint: &MultiFactorInfo,
+        verifier: Arc<dyn ApplicationVerifier>,
+    ) -> AuthResult<String> {
+        if self.operation != MultiFactorOperation::SignIn {
+            return Err(AuthError::InvalidCredential(
+                "Phone-based challenges are only supported for sign-in".into(),
+            ));
+        }
+
+        let pending = self.session.pending_credential().ok_or_else(|| {
+            AuthError::InvalidCredential("Multi-factor session is not valid for sign-in".into())
+        })?;
+
+        self.auth
+            .start_phone_multi_factor_sign_in(pending, &hint.uid, verifier)
+            .await
+    }
+
+    /// Resolves the pending multi-factor challenge using the supplied assertion.
+    pub async fn resolve_sign_in(
+        &self,
+        assertion: MultiFactorAssertion,
+    ) -> AuthResult<UserCredential> {
+        match assertion {
+            MultiFactorAssertion::Phone(assertion) => {
+                if self.operation != MultiFactorOperation::SignIn {
+                    return Err(AuthError::NotImplemented(
+                        "Multi-factor reauthentication is not yet supported",
+                    ));
+                }
+
+                let pending = self.session.pending_credential().ok_or_else(|| {
+                    AuthError::InvalidCredential(
+                        "Multi-factor session is not valid for sign-in".into(),
+                    )
+                })?;
+
+                let verification_id = assertion.credential().verification_id();
+                let verification_code = assertion.credential().verification_code();
+
+                self.auth
+                    .finalize_phone_multi_factor_sign_in(
+                        pending,
+                        verification_id,
+                        verification_code,
+                        Arc::clone(&self.context),
+                    )
+                    .await
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct MultiFactorUser {
@@ -398,6 +676,10 @@ impl FirebaseAuth {
         self.inner.sign_out();
     }
 
+    pub(crate) fn inner_arc(&self) -> Arc<Auth> {
+        self.inner.clone()
+    }
+
     /// Signs a user in with an email and password.
     pub async fn sign_in_with_email_and_password(
         &self,
@@ -426,6 +708,24 @@ impl FirebaseAuth {
         observer: PartialObserver<Arc<User>>,
     ) -> impl FnOnce() + Send + 'static {
         self.inner.on_auth_state_changed(observer)
+    }
+}
+
+/// Returns a [`MultiFactorResolver`] that can be used to complete a pending multi-factor flow.
+///
+/// Mirrors the JavaScript helper exported from `packages/auth/src/mfa/mfa_resolver.ts`.
+pub fn get_multi_factor_resolver(
+    auth: &FirebaseAuth,
+    error: &AuthError,
+) -> AuthResult<MultiFactorResolver> {
+    match error {
+        AuthError::MultiFactorRequired(mfa_error) => Ok(MultiFactorResolver::from_error(
+            auth.inner_arc(),
+            mfa_error.clone(),
+        )),
+        _ => Err(AuthError::InvalidCredential(
+            "The supplied error does not contain multi-factor context".into(),
+        )),
     }
 }
 #[cfg(test)]

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::auth::api::Auth;
 use crate::auth::error::AuthResult;
-use crate::auth::types::{ApplicationVerifier, ConfirmationResult};
+use crate::auth::types::{ApplicationVerifier, ConfirmationResult, MultiFactorAssertion};
 
 /// Provider ID for phone authentication.
 pub const PHONE_PROVIDER_ID: &str = "phone";
@@ -101,4 +101,20 @@ impl PhoneAuthProvider {
             .reauthenticate_with_phone_credential(credential)
             .await
     }
+}
+
+/// Provides helpers for creating phone-based multi-factor assertions.
+///
+/// Mirrors the JavaScript implementation in
+/// `packages/auth/src/platform_browser/mfa/assertions/phone.ts`.
+pub struct PhoneMultiFactorGenerator;
+
+impl PhoneMultiFactorGenerator {
+    /// Builds a multi-factor assertion from a [`PhoneAuthCredential`].
+    pub fn assertion(credential: PhoneAuthCredential) -> MultiFactorAssertion {
+        MultiFactorAssertion::from_phone_credential(credential)
+    }
+
+    /// The identifier of the phone second factor (`"phone"`).
+    pub const FACTOR_ID: &'static str = PHONE_PROVIDER_ID;
 }
