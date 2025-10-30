@@ -1,12 +1,12 @@
 pub const MESSAGING_COMPONENT_NAME: &str = "messaging";
 
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub const DEFAULT_SW_PATH: &str = "/firebase-messaging-sw.js";
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub const DEFAULT_SW_SCOPE: &str = "/firebase-cloud-messaging-push-scope";
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub const DEFAULT_REGISTRATION_TIMEOUT_MS: i32 = 10_000;
-#[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub const REGISTRATION_POLL_INTERVAL_MS: i32 = 100;
 #[cfg(all(
     feature = "wasm-web",

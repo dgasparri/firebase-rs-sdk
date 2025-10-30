@@ -313,13 +313,13 @@ pub async fn initialize_server_app(
         server_apps_guard().insert(name.clone(), server_app.clone());
     }
 
-    register_version("@firebase/app", SDK_VERSION, Some("serverapp")).await;
+    register_version("@firebase/app", SDK_VERSION, Some("serverapp"));
 
     Ok(server_app)
 }
 
 /// Registers a library version component so it can be queried by other Firebase services.
-pub async fn register_version(library: &str, version: &str, variant: Option<&str>) {
+pub fn register_version(library: &str, version: &str, variant: Option<&str>) {
     let _guard = global_app_guard();
     let mut library_key = PLATFORM_LOG_STRING
         .get(library)
@@ -594,7 +594,7 @@ mod tests {
     async fn register_version_registers_component() {
         with_serialized_test(|| async {
             let library = next_name("lib");
-            super::register_version(&library, "1.0.0", None).await;
+            super::register_version(&library, "1.0.0", None);
             let components = registry::registered_components_guard();
             let expected = format!("{}-version", library);
             assert!(components.keys().any(|key| key.as_ref() == expected));

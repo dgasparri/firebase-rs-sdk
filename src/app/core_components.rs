@@ -17,8 +17,8 @@ pub async fn ensure_registered() {
         .get_or_init(|| async {
             register_platform_logger_component();
             register_heartbeat_component();
-            api::register_version("@firebase/app", SDK_VERSION, None).await;
-            api::register_version("fire-js", "", None).await;
+            api::register_version("@firebase/app", SDK_VERSION, None);
+            api::register_version("fire-js", "", None);
         })
         .await;
 }

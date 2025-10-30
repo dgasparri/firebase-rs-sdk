@@ -19,7 +19,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::remote_config::constants::RC_CUSTOM_SIGNAL_MAX_ALLOWED_SIGNALS;
-use crate::remote_config::error::{internal_error, invalid_argument, RemoteConfigResult};
+
+#[allow(unused_imports)]
+use crate::remote_config::error::internal_error;
+use crate::remote_config::error::{invalid_argument, RemoteConfigResult};
+
 #[cfg(all(
     feature = "wasm-web",
     target_arch = "wasm32",

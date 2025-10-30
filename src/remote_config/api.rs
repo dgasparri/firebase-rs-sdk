@@ -85,6 +85,7 @@ impl RemoteConfig {
                 Arc::new(IndexedDbRemoteConfigStorage::new());
             return Self::with_storage(app, storage);
         }
+        #[allow(unreachable_code)]
         Self::with_storage(app, Arc::new(InMemoryRemoteConfigStorage::default()))
     }
 
@@ -660,10 +661,12 @@ mod tests {
     };
     #[cfg(not(target_arch = "wasm32"))]
     use crate::remote_config::storage::FileRemoteConfigStorage;
-    use crate::remote_config::storage::{CustomSignals, FetchStatus, RemoteConfigStorage};
+    use crate::remote_config::storage::{CustomSignals, FetchStatus};
     use serde_json::{json, Value as JsonValue};
+    #[cfg(not(target_arch = "wasm32"))]
     use std::fs;
     use std::future::Future;
+    #[cfg(not(target_arch = "wasm32"))]
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex as StdMutex;
     use tokio::runtime::Builder;
@@ -690,6 +693,8 @@ mod tests {
         block_on_future(async move { rc_clone.activate().await })
     }
 
+    // Dead code warning on target wasm32
+    #[allow(dead_code)]
     fn run_ensure_initialized(rc: &RemoteConfig) -> RemoteConfigResult<()> {
         let rc_clone = rc.clone();
         block_on_future(async move { rc_clone.ensure_initialized().await })

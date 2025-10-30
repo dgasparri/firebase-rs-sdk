@@ -30,7 +30,7 @@ impl FirebaseNamespace {
 
     /// Registers an additional library version for platform logging.
     pub async fn register_version(library: &str, version: &str, variant: Option<&str>) {
-        api::register_version(library, version, variant).await
+        api::register_version(library, version, variant)
     }
 
     /// Updates the global log verbosity for Firebase.

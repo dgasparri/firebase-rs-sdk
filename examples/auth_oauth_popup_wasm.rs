@@ -62,8 +62,9 @@ mod wasm_demo {
     }
 
     fn initialize_auth() -> AuthResult<Arc<Auth>> {
-        let app: FirebaseApp = todo!("Initialize Firebase app in WASM host (call initialize_app)");
-        Auth::builder(app)
+        let _app: FirebaseApp = todo!("Initialize Firebase app in WASM host (call initialize_app)");
+        #[allow(unreachable_code)]
+        Auth::builder(_app)
             .with_popup_handler(Arc::new(JsPopupHandler))
             .with_oauth_request_uri("http://localhost")
             .build()

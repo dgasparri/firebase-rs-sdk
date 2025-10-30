@@ -7,14 +7,12 @@ use std::sync::{Arc, LazyLock};
 
 #[cfg(not(all(
     feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
+    target_arch = "wasm32"
 )))]
 use rand::distributions::Alphanumeric;
 #[cfg(not(all(
     feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
+    target_arch = "wasm32"
 )))]
 use rand::{thread_rng, Rng};
 
@@ -102,6 +100,7 @@ struct MessagingInner {
 #[derive(Clone)]
 struct HandlerEntry {
     id: usize,
+    #[allow(dead_code)]
     handler: MessageHandler,
 }
 
@@ -165,8 +164,10 @@ impl Messaging {
         delete_token_impl(self).await
     }
 
+
     #[cfg_attr(not(test), allow(dead_code))]
     #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    #[allow(dead_code)]
     pub(crate) fn dispatch_on_message(&self, payload: MessagePayload) {
         let handler = {
             self.inner
@@ -183,6 +184,7 @@ impl Messaging {
 
     #[cfg_attr(not(test), allow(dead_code))]
     #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
+    #[allow(dead_code)]
     pub(crate) fn dispatch_on_background_message(&self, payload: MessagePayload) {
         let handler = {
             self.inner
@@ -198,11 +200,12 @@ impl Messaging {
     }
 }
 
-#[cfg(not(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-)))]
+//#[cfg(not(all(
+//    feature = "wasm-web",
+//    target_arch = "wasm32",
+//    feature = "experimental-indexed-db"
+//)))]
+#[cfg(not(target_arch = "wasm32"))]
 fn generate_token() -> String {
     thread_rng()
         .sample_iter(&Alphanumeric)
@@ -359,6 +362,7 @@ async fn get_token_impl(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
     }
 }
 
+#[allow(dead_code)]
 fn app_store_key(messaging: &Messaging) -> String {
     messaging.inner.app.name().to_string()
 }
@@ -727,6 +731,7 @@ fn system_time_to_millis(time: SystemTime) -> MessagingResult<u64> {
         .map_err(|_| internal_error("Installation token expiration precedes UNIX epoch"))
 }
 
+#[allow(dead_code)]
 fn current_timestamp_ms() -> u64 {
     #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
     {
@@ -743,6 +748,8 @@ fn current_timestamp_ms() -> u64 {
             .as_millis() as u64
     }
 }
+
+#[allow(dead_code)]
 const TOKEN_EXPIRATION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
