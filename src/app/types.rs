@@ -6,6 +6,8 @@ use crate::app::errors::{AppError, AppResult};
 use crate::component::constants::DEFAULT_ENTRY_NAME;
 use crate::component::types::DynService;
 use crate::component::{Component, ComponentContainer};
+use crate::platform::environment;
+use crate::platform::runtime::spawn_detached;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -226,16 +228,22 @@ struct FirebaseServerAppInner {
     base: FirebaseApp,
     settings: FirebaseServerAppSettings,
     ref_count: AtomicUsize,
+    release_on_drop: AtomicBool,
 }
 
 impl FirebaseServerApp {
     /// Wraps a `FirebaseApp` with server-specific settings and reference counting.
-    pub fn new(base: FirebaseApp, settings: FirebaseServerAppSettings) -> Self {
+    pub fn new(base: FirebaseApp, mut settings: FirebaseServerAppSettings) -> Self {
+        let release_on_drop = settings.release_on_deref.unwrap_or(false);
+        settings.release_on_deref = None;
+        base.set_is_deleted(false);
+
         Self {
             inner: Arc::new(FirebaseServerAppInner {
                 base,
                 settings,
                 ref_count: AtomicUsize::new(1),
+                release_on_drop: AtomicBool::new(release_on_drop),
             }),
         }
     }
@@ -264,23 +272,32 @@ impl FirebaseServerApp {
     pub fn dec_ref_count(&self) -> usize {
         self.inner.ref_count.fetch_sub(1, Ordering::SeqCst) - 1
     }
+
+    /// Enables automatic cleanup when the server app is dropped.
+    pub fn set_release_on_drop(&self, enabled: bool) {
+        self.inner.release_on_drop.store(enabled, Ordering::SeqCst);
+    }
+
+    /// Indicates whether automatic cleanup is currently configured.
+    pub fn release_on_drop(&self) -> bool {
+        self.inner.release_on_drop.load(Ordering::SeqCst)
+    }
 }
 
-#[allow(dead_code)]
 /// Returns `true` when the current target behaves like a browser environment.
 pub fn is_browser() -> bool {
-    false
+    environment::is_browser()
 }
 
-#[allow(dead_code)]
 /// Returns `true` when the current target is a web worker environment.
 pub fn is_web_worker() -> bool {
-    false
+    environment::is_web_worker()
 }
 
-/// Provides compile-time default app options when available.
+/// Provides default app options sourced from environment configuration when available.
 pub fn get_default_app_config() -> Option<FirebaseOptions> {
-    None
+    let map = environment::default_app_config_json()?;
+    map_to_options(&map)
 }
 
 /// Compares two `FirebaseOptions` instances for structural equality.
@@ -345,4 +362,98 @@ pub fn deep_equal_config(a: &FirebaseAppConfig, b: &FirebaseAppConfig) -> bool {
 
 fn to_arc_str(value: impl Into<String>) -> Arc<str> {
     Arc::from(value.into().into_boxed_str())
+}
+
+fn map_to_options(map: &serde_json::Map<String, serde_json::Value>) -> Option<FirebaseOptions> {
+    let mut options = FirebaseOptions::default();
+
+    options.api_key = string_value(map, "apiKey");
+    options.auth_domain = string_value(map, "authDomain");
+    options.database_url = string_value(map, "databaseURL");
+    options.project_id = string_value(map, "projectId");
+    options.storage_bucket = string_value(map, "storageBucket");
+    options.messaging_sender_id = string_value(map, "messagingSenderId");
+    options.app_id = string_value(map, "appId");
+    options.measurement_id = string_value(map, "measurementId");
+
+    if options.api_key.is_some()
+        || options.project_id.is_some()
+        || options.app_id.is_some()
+        || options.database_url.is_some()
+        || options.storage_bucket.is_some()
+        || options.messaging_sender_id.is_some()
+        || options.measurement_id.is_some()
+        || options.auth_domain.is_some()
+    {
+        Some(options)
+    } else {
+        None
+    }
+}
+
+fn string_value(map: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
+    map.get(key)
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+
+impl Drop for FirebaseServerApp {
+    fn drop(&mut self) {
+        if !self.release_on_drop() {
+            return;
+        }
+
+        if self.base().is_deleted() {
+            return;
+        }
+
+        let was_enabled = self.inner.release_on_drop.swap(false, Ordering::SeqCst);
+        if !was_enabled {
+            return;
+        }
+
+        let app = self.inner.base.clone();
+        spawn_detached(async move {
+            let _ = crate::app::api::delete_app(&app).await;
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{LazyLock, Mutex};
+
+    static ENV_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    #[test]
+    fn map_to_options_returns_some_when_fields_present() {
+        let mut map = serde_json::Map::new();
+        map.insert("apiKey".into(), serde_json::Value::String("foo".into()));
+        let options = map_to_options(&map).expect("options");
+        assert_eq!(options.api_key.as_deref(), Some("foo"));
+    }
+
+    #[test]
+    fn map_to_options_returns_none_for_empty_map() {
+        let map = serde_json::Map::new();
+        assert!(map_to_options(&map).is_none());
+    }
+
+    #[test]
+    fn get_default_app_config_reads_environment() {
+        let _guard = ENV_GUARD.lock().unwrap();
+
+        let key = "FIREBASE_CONFIG";
+        let previous = std::env::var(key).ok();
+        std::env::set_var(key, "{\"apiKey\":\"env-key\"}");
+
+        let options = get_default_app_config().expect("config");
+        assert_eq!(options.api_key.as_deref(), Some("env-key"));
+
+        match previous {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
 }

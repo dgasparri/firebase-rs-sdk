@@ -58,6 +58,7 @@ version = "0.3"
 optional = true
 features = [
     "Window",
+    "WorkerGlobalScope",
     "Storage",
     "StorageEvent",
     "EventTarget",

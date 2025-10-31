@@ -124,7 +124,7 @@ fn validate_token_ttl(token: Option<&str>, token_name: &str) {
 }
 
 fn supports_finalization_registry() -> bool {
-    false
+    true
 }
 
 fn server_app_hash(options: &FirebaseOptions, settings: &FirebaseServerAppSettings) -> String {
@@ -238,14 +238,34 @@ pub async fn get_apps() -> Vec<FirebaseApp> {
 pub async fn delete_app(app: &FirebaseApp) -> AppResult<()> {
     let _guard = global_app_guard();
     let name = app.name().to_string();
-    let removed = apps_guard().remove(&name);
+    let mut cleanup = false;
+    let mut server_app_removed: Option<FirebaseServerApp> = None;
 
-    if removed.is_some() {
+    if apps_guard().remove(&name).is_some() {
+        cleanup = true;
+    } else {
+        let mut server_apps = server_apps_guard();
+        if let Some(existing) = server_apps.get(&name) {
+            let remaining = existing.dec_ref_count();
+            if remaining == 0 {
+                if let Some(removed) = server_apps.remove(&name) {
+                    removed.set_release_on_drop(false);
+                    server_app_removed = Some(removed);
+                    cleanup = true;
+                }
+            }
+        }
+        drop(server_apps);
+    }
+
+    if cleanup {
         for provider in app.container().get_providers() {
             let _ = provider.delete();
         }
         app.set_is_deleted(true);
     }
+
+    drop(server_app_removed);
 
     Ok(())
 }
@@ -279,6 +299,19 @@ pub async fn initialize_server_app(
     }
 
     let name = server_app_hash(&app_options, &server_settings);
+    let release_on_deref = server_settings.release_on_deref.unwrap_or(false);
+    server_settings.release_on_deref = Some(release_on_deref);
+
+    {
+        let _guard = global_app_guard();
+        if let Some(existing) = server_apps_guard().get(&name) {
+            existing.inc_ref_count();
+            if release_on_deref {
+                existing.set_release_on_drop(true);
+            }
+            return Ok(existing.clone());
+        }
+    }
 
     let container = ComponentContainer::new(name.clone());
     for component in registered_components_guard().values() {
@@ -307,10 +340,17 @@ pub async fn initialize_server_app(
         let _guard = global_app_guard();
         if let Some(existing) = server_apps_guard().get(&name) {
             existing.inc_ref_count();
+            if release_on_deref {
+                existing.set_release_on_drop(true);
+            }
             return Ok(existing.clone());
         }
 
         server_apps_guard().insert(name.clone(), server_app.clone());
+    }
+
+    if release_on_deref {
+        server_app.set_release_on_drop(true);
     }
 
     register_version("@firebase/app", SDK_VERSION, Some("serverapp"));
@@ -385,10 +425,12 @@ mod tests {
     use crate::app::registry;
     use crate::component::types::{ComponentType, DynService, InstanceFactory, InstantiationMode};
     use crate::component::Component;
+    use crate::platform::runtime;
     use futures::lock::Mutex as AsyncMutex;
     use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, LazyLock};
+    use std::time::Duration;
 
     static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
     static TEST_SERIAL: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
@@ -586,6 +628,47 @@ mod tests {
                 let apps = registry::apps_guard();
                 assert!(!apps.contains_key(&name));
             }
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn delete_app_handles_server_apps() {
+        with_serialized_test(|| async {
+            let options = test_options();
+            let server_app = super::initialize_server_app(Some(options), None)
+                .await
+                .expect("init server app");
+
+            assert!(registry::server_apps_guard().contains_key(server_app.name()));
+
+            super::delete_app(server_app.base()).await.expect("delete");
+            assert!(server_app.base().is_deleted());
+            assert!(!registry::server_apps_guard().contains_key(server_app.name()));
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn server_app_release_on_drop_triggers_cleanup() {
+        with_serialized_test(|| async {
+            let options = test_options();
+            let settings = FirebaseServerAppSettings {
+                automatic_data_collection_enabled: None,
+                auth_id_token: None,
+                app_check_token: None,
+                release_on_deref: Some(true),
+            };
+
+            let server_app = super::initialize_server_app(Some(options), Some(settings))
+                .await
+                .expect("init server app");
+            let name = server_app.name().to_string();
+
+            drop(server_app);
+            runtime::sleep(Duration::from_millis(25)).await;
+
+            assert!(!registry::server_apps_guard().contains_key(&name));
         })
         .await;
     }

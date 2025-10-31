@@ -5,15 +5,9 @@ use std::sync::{
 };
 use std::sync::{Arc, LazyLock};
 
-#[cfg(not(all(
-    feature = "wasm-web",
-    target_arch = "wasm32"
-)))]
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use rand::distributions::Alphanumeric;
-#[cfg(not(all(
-    feature = "wasm-web",
-    target_arch = "wasm32"
-)))]
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use rand::{thread_rng, Rng};
 
 use crate::app;
@@ -163,7 +157,6 @@ impl Messaging {
     pub async fn delete_token(&self) -> MessagingResult<bool> {
         delete_token_impl(self).await
     }
-
 
     #[cfg_attr(not(test), allow(dead_code))]
     #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
