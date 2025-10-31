@@ -21,24 +21,40 @@ pub trait PlatformLoggerService: Send + Sync {
     fn platform_info_string(&self) -> String;
 }
 
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
 pub trait HeartbeatService: Send + Sync {
-    fn trigger_heartbeat(&self) -> AppResult<()>;
+    async fn trigger_heartbeat(&self) -> AppResult<()>;
     #[allow(dead_code)]
-    fn heartbeats_header(&self) -> AppResult<Option<String>>;
+    async fn heartbeats_header(&self) -> AppResult<Option<String>>;
 }
 
+#[cfg_attr(
+    all(feature = "wasm-web", target_arch = "wasm32"),
+    async_trait::async_trait(?Send)
+)]
+#[cfg_attr(
+    not(all(feature = "wasm-web", target_arch = "wasm32")),
+    async_trait::async_trait
+)]
 pub trait HeartbeatStorage: Send + Sync {
-    fn read(&self) -> AppResult<HeartbeatsInStorage>;
-    fn overwrite(&self, value: &HeartbeatsInStorage) -> AppResult<()>;
+    async fn read(&self) -> AppResult<HeartbeatsInStorage>;
+    async fn overwrite(&self, value: &HeartbeatsInStorage) -> AppResult<()>;
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HeartbeatsInStorage {
     pub last_sent_heartbeat_date: Option<String>,
     pub heartbeats: Vec<SingleDateHeartbeat>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SingleDateHeartbeat {
     pub agent: String,
     pub date: String,

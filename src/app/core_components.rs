@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::app::api::{self, SDK_VERSION};
-use crate::app::heartbeat::{HeartbeatServiceImpl, InMemoryHeartbeatStorage};
+use crate::app::heartbeat::{storage_for_app, HeartbeatServiceImpl};
 use crate::app::platform_logger::PlatformLoggerServiceImpl;
 use crate::app::registry;
 use crate::app::types::{FirebaseApp, HeartbeatStorage};
@@ -46,7 +46,7 @@ fn register_heartbeat_component() {
                 reason: "App provider unavailable".to_string(),
             })?;
         let app = (*app).clone();
-        let storage: Arc<dyn HeartbeatStorage> = Arc::new(InMemoryHeartbeatStorage::new(&app));
+        let storage: Arc<dyn HeartbeatStorage> = storage_for_app(&app);
         let service: DynService = Arc::new(HeartbeatServiceImpl::new(app, storage));
         Ok(service)
     });

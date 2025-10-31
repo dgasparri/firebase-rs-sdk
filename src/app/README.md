@@ -121,6 +121,9 @@ async fn main() -> AppResult<()> {
   - `_addComponent`, `_addOrOverwriteComponent`, `_clearComponents`, `_getProvider`, `_removeServiceInstance`, and
     `_registerComponent` equivalents are exposed so other modules can mirror the JS internal API without duplicating
     registry logic.
+- **Heartbeat service** (`heartbeat.rs`, `platform/browser/indexed_db.rs`)
+  - Heartbeats persist to IndexedDB on WASM targets (with `wasm-web` + `experimental-indexed-db`) and fall back to an
+    in-memory store elsewhere, while building the v2 heartbeat header payload consumers attach to outgoing requests.
 
 These pieces are enough for other Rust modules (Auth, Storage, Firestore) to register components and resolve `FirebaseApp`
 instances.
@@ -129,19 +132,16 @@ instances.
 
 The TypeScript module still includes functionality that is only partially or not yet ported:
 
-1. **IndexedDB-backed heartbeat persistence & headers**
-   - `heartbeat.rs` still stores events in memory; we need the IndexedDB quota logic, pruning, and header construction
-     from `packages/app/src/indexeddb.ts` and `heartbeatService.ts` to align with browser behaviour.
-2. **Platform logger enrichment**
+1. **Platform logger enrichment**
    - `PlatformLoggerServiceImpl` currently concatenates version components but omits the richer SDK metadata and user
      agent strings produced in `platformLoggerService.ts`.
-3. **Browser auto-configuration**
+2. **Browser auto-configuration**
    - While environment detection is in place, parsing config from script tags/cookies, measurement ID normalization,
      and whitespace trimming from `getDefaultAppConfig` remain unported.
-4. **Server app advanced APIs**
+3. **Server app advanced APIs**
    - `initialize_server_app` still lacks the overload that accepts an existing `FirebaseApp`, the `toJSON` stub, and
      finer-grained release controls covered in `firebaseServerApp.ts`.
-5. **Testing parity**
+4. **Testing parity**
    - The JS suite includes extensive coverage (heartbeat, platform logger, indexedDB failure modes) that still needs
      to be reflected in Rust unit and integration tests.
 
@@ -149,25 +149,21 @@ The TypeScript module still includes functionality that is only partially or not
 
 ### Detailed Completion Plan
 
-1. **Heartbeat persistence & headers**
-   - Port the IndexedDB storage, payload trimming, and header serialization from `heartbeatService.ts`, exposing a
-     public API for consumers while keeping native fallbacks compatible.
-
-2. **Platform logger enrichment**
+1. **Platform logger enrichment**
    - Extend `PlatformLoggerServiceImpl` to build the Firebase user-agent string (bundling SDK identifiers, platform
      hints, and variants) and ensure eager registration mirrors `registerCoreComponents.ts`.
 
-3. **Browser auto-bootstrap**
+2. **Browser auto-bootstrap**
    - Parse config from script tags and cookies, normalize measurement IDs, and port whitespace/undefined guards so
      `get_default_app_config` matches the JS heuristics.
 
-4. **Server app API parity**
+3. **Server app API parity**
    - Add the overload that accepts an existing `FirebaseApp`, port the `toJSON` behaviour, and expose ergonomic
      wrappers for explicit release so server environments behave exactly like `firebaseServerApp.ts`.
 
-5. **Testing & documentation**
-   - Port the remaining JS tests (heartbeat/indexedDB/platform logger/server app) and expand module docs/examples to
-     cover the new configuration and server-side flows.
+4. **Testing & documentation**
+   - Port the remaining JS tests (platform logger/server app/browser auto-config) and expand module docs/examples to
+     cover heartbeat header consumption and browser persistence behaviour.
 
 ### Recent Progress
 - Hooked `get_default_app_config`, `is_browser`, and `is_web_worker` into the build so native and WASM targets reuse

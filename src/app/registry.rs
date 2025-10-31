@@ -5,6 +5,7 @@ use crate::app::component::{self, Component, Provider};
 use crate::app::heartbeat::HeartbeatServiceImpl;
 use crate::app::logger::LOGGER;
 use crate::app::types::{FirebaseApp, FirebaseServerApp, HeartbeatService};
+use crate::platform::runtime;
 
 pub static APPS: LazyLock<Mutex<HashMap<String, FirebaseApp>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -75,13 +76,16 @@ pub fn get_provider(app: &FirebaseApp, name: &str) -> Provider {
         .get_provider("heartbeat")
         .get_immediate::<HeartbeatServiceImpl>()
     {
-        if let Err(err) = service.trigger_heartbeat() {
-            LOGGER.debug(format!(
-                "Failed to trigger heartbeat for app {}: {}",
-                app.name(),
-                err
-            ));
-        }
+        let app_name = app.name().to_string();
+        let service_clone = service.clone();
+        runtime::spawn_detached(async move {
+            if let Err(err) = service_clone.trigger_heartbeat().await {
+                LOGGER.debug(format!(
+                    "Failed to trigger heartbeat for app {}: {}",
+                    app_name, err
+                ));
+            }
+        });
     }
     container.get_provider(name)
 }
