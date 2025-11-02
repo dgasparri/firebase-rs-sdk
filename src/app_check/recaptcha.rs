@@ -1,9 +1,9 @@
 use std::sync::{Arc, LazyLock, Mutex};
 
-use async_trait::async_trait;
-
 use crate::app::FirebaseApp;
-use crate::app_check::errors::{AppCheckError, AppCheckResult};
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+use crate::app_check::errors::AppCheckError;
+use crate::app_check::errors::AppCheckResult;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecaptchaFlow {
@@ -17,7 +17,8 @@ pub struct RecaptchaTokenDetails {
     pub succeeded: bool,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait RecaptchaDriver: Send + Sync {
     fn initialize(&self, app: &FirebaseApp, site_key: &str, flow: RecaptchaFlow);
     async fn get_token(&self, app: &FirebaseApp) -> AppCheckResult<RecaptchaTokenDetails>;
@@ -66,7 +67,8 @@ pub(crate) fn clear_driver_override() {
 struct UnsupportedRecaptchaDriver;
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl RecaptchaDriver for UnsupportedRecaptchaDriver {
     fn initialize(&self, _app: &FirebaseApp, _site_key: &str, _flow: RecaptchaFlow) {}
 
@@ -172,7 +174,8 @@ mod web {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl RecaptchaDriver for WebRecaptchaDriver {
         fn initialize(&self, app: &FirebaseApp, site_key: &str, flow: RecaptchaFlow) {
             self.ensure_initialized(app.clone(), site_key.to_owned(), flow);
@@ -531,16 +534,21 @@ mod web {
         onload.forget();
         onerror.forget();
 
-        document
-            .head()
-            .or_else(|| document.body())
-            .ok_or(AppCheckError::RecaptchaError {
+        if let Some(head) = document.head() {
+            head.append_child(&script)
+                .map_err(|err| AppCheckError::RecaptchaError {
+                    message: Some(format!("Failed to append script to <head>: {err:?}")),
+                })?;
+        } else if let Some(body) = document.body() {
+            body.append_child(&script)
+                .map_err(|err| AppCheckError::RecaptchaError {
+                    message: Some(format!("Failed to append script to <body>: {err:?}")),
+                })?;
+        } else {
+            return Err(AppCheckError::RecaptchaError {
                 message: Some("No <head> or <body> element found".into()),
-            })?
-            .append_child(&script)
-            .map_err(|err| AppCheckError::RecaptchaError {
-                message: Some(format!("Failed to append script: {err:?}")),
-            })?;
+            });
+        }
 
         let result = receiver.await.map_err(|_| AppCheckError::RecaptchaError {
             message: Some("Script loading channel dropped".into()),

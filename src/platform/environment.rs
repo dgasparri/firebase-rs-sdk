@@ -27,7 +27,6 @@ fn defaults_from_path() -> Option<Value> {
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 fn defaults_from_global() -> Option<Value> {
-    use wasm_bindgen::JsCast;
     use wasm_bindgen::JsValue;
 
     let global = js_sys::global();

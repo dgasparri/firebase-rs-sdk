@@ -2,8 +2,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use async_trait::async_trait;
-
 use crate::app::{FirebaseApp, HeartbeatService};
 use crate::app_check::logger::LOGGER;
 use crate::platform::runtime;
@@ -137,7 +135,8 @@ impl AppCheckOptions {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait AppCheckProvider: Send + Sync {
     fn initialize(&self, _app: &FirebaseApp) {}
 
@@ -245,7 +244,8 @@ impl AppCheck {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AsyncTokenProvider for Arc<AppCheck> {
     async fn get_token(&self, force_refresh: bool) -> Result<Option<String>, TokenError> {
         let result = AppCheck::get_token(self, force_refresh)

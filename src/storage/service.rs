@@ -443,7 +443,8 @@ mod tests {
     #[derive(Clone)]
     struct StaticAppCheckProvider;
 
-    #[async_trait::async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl AppCheckProvider for StaticAppCheckProvider {
         async fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
             token_with_ttl("app-check-token", Duration::from_secs(60))

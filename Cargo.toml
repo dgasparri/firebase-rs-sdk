@@ -58,6 +58,7 @@ version = "0.3"
 optional = true
 features = [
     "Window",
+    "Document",
     "WorkerGlobalScope",
     "Storage",
     "StorageEvent",
@@ -65,7 +66,10 @@ features = [
     "BroadcastChannel",
     "MessageEvent",
     "HtmlDivElement",
+    "HtmlElement",
+    "HtmlHeadElement",
     "HtmlScriptElement",
+    "CssStyleDeclaration",
     "BinaryType",
     "CloseEvent",
     "console",

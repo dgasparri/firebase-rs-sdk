@@ -1,8 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use async_trait::async_trait;
-
 use crate::app::{registry, FirebaseApp, HeartbeatService, HeartbeatServiceImpl};
 use crate::util::calculate_backoff_millis;
 
@@ -58,7 +56,8 @@ impl CustomProvider {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AppCheckProvider for CustomProvider {
     async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
         (self.options.get_token)()
@@ -192,7 +191,8 @@ impl ReCaptchaV3Provider {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AppCheckProvider for ReCaptchaV3Provider {
     fn initialize(&self, app: &FirebaseApp) {
         self.core.initialize(app);
@@ -215,7 +215,8 @@ impl ReCaptchaEnterpriseProvider {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AppCheckProvider for ReCaptchaEnterpriseProvider {
     fn initialize(&self, app: &FirebaseApp) {
         self.core.initialize(app);
@@ -315,7 +316,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl RecaptchaDriver for StubRecaptchaDriver {
         fn initialize(&self, _app: &FirebaseApp, _site_key: &str, _flow: RecaptchaFlow) {}
 

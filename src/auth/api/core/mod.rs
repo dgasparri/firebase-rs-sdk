@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use async_trait::async_trait;
 use reqwest::Client;
 use reqwest::Url;
 use serde::Serialize;
@@ -131,7 +130,8 @@ pub struct Auth {
     self_ref: Mutex<Weak<Auth>>,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AsyncTokenProvider for Arc<Auth> {
     async fn get_token(&self, force_refresh: bool) -> Result<Option<String>, TokenError> {
         self.get_token(force_refresh)

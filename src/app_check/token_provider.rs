@@ -2,8 +2,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use async_trait::async_trait;
-
 use crate::app_check::errors::AppCheckError;
 use crate::app_check::FirebaseAppCheckInternal;
 use crate::firestore::error::{
@@ -46,7 +44,8 @@ impl Clone for AppCheckTokenProvider {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl TokenProvider for AppCheckTokenProvider {
     async fn get_token(&self) -> FirestoreResult<Option<String>> {
         let force_refresh = self.force_refresh.swap(false, Ordering::SeqCst);

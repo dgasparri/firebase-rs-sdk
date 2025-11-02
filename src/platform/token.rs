@@ -1,8 +1,6 @@
 use std::error::Error;
 use std::fmt;
 
-use async_trait::async_trait;
-
 /// Error type returned by async token providers when token acquisition fails.
 #[derive(Debug, Clone)]
 pub struct TokenError {
@@ -30,7 +28,8 @@ impl fmt::Display for TokenError {
 impl Error for TokenError {}
 
 /// Shared trait used by modules that need to retrieve auth/app-check tokens asynchronously.
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait AsyncTokenProvider: Send + Sync {
     async fn get_token(&self, force_refresh: bool) -> Result<Option<String>, TokenError>;
 }
