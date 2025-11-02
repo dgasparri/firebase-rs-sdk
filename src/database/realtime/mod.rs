@@ -377,14 +377,21 @@ async fn fetch_auth_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
     }
 }
 
-async fn fetch_app_check_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
+#[derive(Clone, Debug, Default)]
+struct AppCheckMetadata {
+    token: Option<String>,
+    #[allow(dead_code)]
+    heartbeat: Option<String>,
+}
+
+async fn fetch_app_check_metadata(app: &FirebaseApp) -> DatabaseResult<AppCheckMetadata> {
     let container = app.container();
     let app_check = container
         .get_provider(APP_CHECK_INTERNAL_COMPONENT_NAME)
         .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
         .map_err(|err| internal_error(format!("failed to resolve app check provider: {err}")))?;
     let Some(app_check) = app_check else {
-        return Ok(None);
+        return Ok(AppCheckMetadata::default());
     };
 
     let result = app_check
@@ -395,10 +402,15 @@ async fn fetch_app_check_token(app: &FirebaseApp) -> DatabaseResult<Option<Strin
         return Err(internal_error(format!("App Check token error: {error}")));
     }
     if result.token.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(result.token))
+        return Ok(AppCheckMetadata::default());
     }
+
+    let heartbeat = app_check.heartbeat_header().await.ok().flatten();
+
+    Ok(AppCheckMetadata {
+        token: Some(result.token),
+        heartbeat,
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -870,7 +882,8 @@ mod native {
             send_request_message(&state, "auth", body).await?;
         }
 
-        if let Some(token) = fetch_app_check_token(&app).await? {
+        let metadata = fetch_app_check_metadata(&app).await?;
+        if let Some(token) = metadata.token {
             let body = json!({ "token": token });
             send_request_message(&state, "appcheck", body).await?;
         }
@@ -1378,8 +1391,12 @@ mod wasm {
             }
 
             let mut request = self.client.put(url);
-            if let Some(token) = fetch_app_check_token(&self.app).await? {
+            let metadata = fetch_app_check_metadata(&self.app).await?;
+            if let Some(token) = metadata.token {
                 request = request.header("X-Firebase-AppCheck", token);
+            }
+            if let Some(header) = metadata.heartbeat {
+                request = request.header("X-Firebase-Client", header);
             }
 
             let response = request.json(payload).send().await.map_err(|err| {
@@ -1400,8 +1417,12 @@ mod wasm {
             }
 
             let mut request = self.client.patch(url);
-            if let Some(token) = fetch_app_check_token(&self.app).await? {
+            let metadata = fetch_app_check_metadata(&self.app).await?;
+            if let Some(token) = metadata.token {
                 request = request.header("X-Firebase-AppCheck", token);
+            }
+            if let Some(header) = metadata.heartbeat {
+                request = request.header("X-Firebase-Client", header);
             }
 
             let response = request.json(map).send().await.map_err(|err| {
@@ -1626,8 +1647,12 @@ mod wasm {
             request = request.header("If-None-Match", etag);
         }
 
-        if let Some(token) = fetch_app_check_token(app).await? {
+        let metadata = fetch_app_check_metadata(app).await?;
+        if let Some(token) = metadata.token {
             request = request.header("X-Firebase-AppCheck", token);
+        }
+        if let Some(header) = metadata.heartbeat {
+            request = request.header("X-Firebase-Client", header);
         }
 
         let response = request
@@ -1895,7 +1920,8 @@ mod wasm {
             send_request_message(&state, "auth", body).await?;
         }
 
-        if let Some(token) = fetch_app_check_token(&app).await? {
+        let metadata = fetch_app_check_metadata(&app).await?;
+        if let Some(token) = metadata.token {
             let body = json!({ "token": token });
             send_request_message(&state, "appcheck", body).await?;
         }

@@ -74,6 +74,13 @@ impl TokenProvider for AppCheckTokenProvider {
     fn invalidate_token(&self) {
         self.force_refresh.store(true, Ordering::SeqCst);
     }
+
+    async fn heartbeat_header(&self) -> FirestoreResult<Option<String>> {
+        self.app_check
+            .heartbeat_header()
+            .await
+            .map_err(map_app_check_error)
+    }
 }
 
 fn map_app_check_error(error: AppCheckError) -> FirestoreError {
@@ -145,6 +152,9 @@ mod tests {
 
         let token = provider.get_token().await.unwrap();
         assert_eq!(token.as_deref(), Some("app-check-123"));
+
+        let heartbeat = provider.heartbeat_header().await.unwrap();
+        assert!(heartbeat.is_none());
     }
 
     #[tokio::test(flavor = "current_thread")]

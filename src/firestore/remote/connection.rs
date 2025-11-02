@@ -28,6 +28,7 @@ pub struct ConnectionBuilder {
 pub struct RequestContext {
     pub auth_token: Option<String>,
     pub app_check_token: Option<String>,
+    pub heartbeat_header: Option<String>,
     pub request_timeout: Option<Duration>,
 }
 
@@ -178,6 +179,9 @@ impl Connection {
         }
         if let Some(app_check) = context.app_check_token.as_deref() {
             builder = builder.header("X-Firebase-AppCheck", app_check);
+        }
+        if let Some(header) = context.heartbeat_header.as_deref() {
+            builder = builder.header("X-Firebase-Client", header);
         }
         builder = builder.header("Content-Type", "application/json");
         builder

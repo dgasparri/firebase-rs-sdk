@@ -13,6 +13,9 @@ pub(crate) mod registry;
 mod types;
 
 #[doc(inline)]
+pub use heartbeat::HeartbeatServiceImpl;
+
+#[doc(inline)]
 pub use api::{
     delete_app, get_app, get_apps, initialize_app, initialize_server_app, on_log, register_version,
     set_log_level, SDK_VERSION,
@@ -30,7 +33,7 @@ pub use namespace::FirebaseNamespace;
 #[doc(inline)]
 pub use types::{
     FirebaseApp, FirebaseAppConfig, FirebaseAppSettings, FirebaseOptions, FirebaseServerApp,
-    FirebaseServerAppSettings, VersionService,
+    FirebaseServerAppSettings, HeartbeatService, VersionService,
 };
 
 use async_lock::OnceCell;

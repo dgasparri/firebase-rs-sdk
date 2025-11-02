@@ -3,6 +3,8 @@ use std::future::Future;
 use std::time::{Duration, SystemTime};
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+use js_sys::Date;
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 use std::time::UNIX_EPOCH;
 
 /// Platform-independent helper to spawn an async task that runs in the background.
@@ -40,7 +42,7 @@ where
 /// Returns the current system time in a platform-aware way.
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 pub fn now() -> SystemTime {
-    let millis = js_sys::Date::now() as u64;
+    let millis = Date::now() as u64;
     UNIX_EPOCH + Duration::from_millis(millis)
 }
 

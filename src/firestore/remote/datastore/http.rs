@@ -117,9 +117,11 @@ impl HttpDatastore {
     async fn build_request_context(&self) -> FirestoreResult<RequestContext> {
         let auth_token = self.auth_provider.get_token().await?;
         let app_check_token = self.app_check_provider.get_token().await?;
+        let heartbeat_header = self.app_check_provider.heartbeat_header().await?;
         Ok(RequestContext {
             auth_token,
             app_check_token,
+            heartbeat_header,
             request_timeout: Some(self.retry.request_timeout),
         })
     }

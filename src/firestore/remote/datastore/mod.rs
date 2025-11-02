@@ -36,6 +36,9 @@ pub trait Datastore: Send + Sync + 'static {
 pub trait TokenProvider: Send + Sync + 'static {
     async fn get_token(&self) -> FirestoreResult<Option<String>>;
     fn invalidate_token(&self);
+    async fn heartbeat_header(&self) -> FirestoreResult<Option<String>> {
+        Ok(None)
+    }
 }
 
 #[derive(Default, Clone)]

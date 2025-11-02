@@ -17,6 +17,7 @@ pub struct CallContext {
     pub auth_token: Option<String>,
     pub messaging_token: Option<String>,
     pub app_check_token: Option<String>,
+    pub app_check_heartbeat: Option<String>,
 }
 
 pub struct ContextProvider {
@@ -81,12 +82,15 @@ impl ContextProvider {
             return overrides;
         }
 
+        let (app_check_token, app_check_heartbeat) = self
+            .fetch_app_check_credentials(limited_use_app_check_tokens)
+            .await;
+
         CallContext {
             auth_token: self.fetch_auth_token().await,
             messaging_token: self.fetch_messaging_token().await,
-            app_check_token: self
-                .fetch_app_check_token(limited_use_app_check_tokens)
-                .await,
+            app_check_token,
+            app_check_heartbeat,
         }
     }
 
@@ -130,27 +134,38 @@ impl ContextProvider {
         }
     }
 
-    async fn fetch_app_check_token(&self, limited_use: bool) -> Option<String> {
-        let app_check = self.ensure_app_check()?;
-        let result = if limited_use {
+    async fn fetch_app_check_credentials(
+        &self,
+        limited_use: bool,
+    ) -> (Option<String>, Option<String>) {
+        let app_check = match self.ensure_app_check() {
+            Some(app_check) => app_check,
+            None => return (None, None),
+        };
+
+        let token_result = if limited_use {
             app_check.get_limited_use_token().await
         } else {
             app_check.get_token(false).await
         };
 
-        match result {
-            Ok(result) => {
-                if result.error.is_some() || result.internal_error.is_some() {
-                    return None;
-                }
+        let token = match token_result {
+            Ok(result) if result.error.is_none() && result.internal_error.is_none() => {
                 if result.token.is_empty() {
                     None
                 } else {
                     Some(result.token)
                 }
             }
+            _ => None,
+        };
+
+        let heartbeat = match app_check.heartbeat_header().await {
+            Ok(header) => header,
             Err(_) => None,
-        }
+        };
+
+        (token, heartbeat)
     }
 
     fn ensure_auth(&self) -> Option<Arc<Auth>> {

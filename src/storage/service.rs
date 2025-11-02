@@ -219,10 +219,16 @@ impl FirebaseStorageImpl {
             }
         }
 
-        if let Some(token) = self.app_check_token().await? {
-            if !token.is_empty() {
+        if let Some(headers) = self.app_check_headers().await? {
+            if !headers.token.is_empty() {
                 info.headers
-                    .insert("X-Firebase-AppCheck".to_string(), token);
+                    .insert("X-Firebase-AppCheck".to_string(), headers.token);
+            }
+            if let Some(heartbeat) = headers.heartbeat {
+                if !heartbeat.is_empty() {
+                    info.headers
+                        .insert("X-Firebase-Client".to_string(), heartbeat);
+                }
             }
         }
 
@@ -277,7 +283,7 @@ impl FirebaseStorageImpl {
         }
     }
 
-    async fn app_check_token(&self) -> StorageResult<Option<String>> {
+    async fn app_check_headers(&self) -> StorageResult<Option<AppCheckHeaders>> {
         let app_check = match self
             .app_check_provider
             .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
@@ -306,9 +312,23 @@ impl FirebaseStorageImpl {
         if result.token.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(result.token))
+            let heartbeat = app_check.heartbeat_header().await.map_err(|err| {
+                internal_error(format!(
+                    "failed to obtain App Check heartbeat header: {err}"
+                ))
+            })?;
+
+            Ok(Some(AppCheckHeaders {
+                token: result.token,
+                heartbeat,
+            }))
         }
     }
+}
+
+struct AppCheckHeaders {
+    token: String,
+    heartbeat: Option<String>,
 }
 
 fn extract_bucket(host: &str, app: &FirebaseApp) -> StorageResult<Option<Location>> {

@@ -52,7 +52,6 @@ async fn auth_reports_not_supported_on_wasm() {
     delete_app(&app).await.expect("delete app");
 }
 
-
 #[wasm_bindgen_test(async)]
 async fn app_check_custom_provider_produces_token() {
     let app = init_test_app("wasm-app-check").await;

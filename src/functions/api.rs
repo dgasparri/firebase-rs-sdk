@@ -185,6 +185,14 @@ where
             }
         }
 
+        if let Some(header) = context.app_check_heartbeat {
+            if !header.is_empty() {
+                request
+                    .headers
+                    .insert("X-Firebase-Client".to_string(), header);
+            }
+        }
+
         let response_body = invoke_callable_async(request).await?;
         extract_data(response_body)
     }
@@ -462,6 +470,7 @@ mod tests {
             auth_token: Some("auth-token".into()),
             messaging_token: Some("iid-token".into()),
             app_check_token: Some("app-check-token".into()),
+            app_check_heartbeat: None,
         });
 
         let callable = functions

@@ -4,7 +4,8 @@ use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 
-use crate::app::FirebaseApp;
+use crate::app::{FirebaseApp, HeartbeatService};
+use crate::app_check::logger::LOGGER;
 use crate::platform::runtime;
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::{PartialObserver, Unsubscribe};
@@ -151,12 +152,17 @@ pub trait AppCheckProvider: Send + Sync {
 pub struct AppCheck {
     app: FirebaseApp,
     app_name: Arc<str>,
+    heartbeat: Option<Arc<dyn HeartbeatService>>,
 }
 
 impl AppCheck {
-    pub(crate) fn new(app: FirebaseApp) -> Self {
+    pub(crate) fn new(app: FirebaseApp, heartbeat: Option<Arc<dyn HeartbeatService>>) -> Self {
         let app_name: Arc<str> = Arc::from(app.name().to_owned().into_boxed_str());
-        Self { app, app_name }
+        Self {
+            app,
+            app_name,
+            heartbeat,
+        }
     }
 
     pub fn app(&self) -> &FirebaseApp {
@@ -177,6 +183,33 @@ impl AppCheck {
 
     pub async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckTokenResult> {
         crate::app_check::api::get_limited_use_token(self).await
+    }
+
+    pub async fn heartbeat_header(&self) -> AppCheckResult<Option<String>> {
+        let Some(service) = self.heartbeat.clone() else {
+            return Ok(None);
+        };
+
+        if let Err(err) = service.trigger_heartbeat().await {
+            LOGGER.debug(format!(
+                "Failed to trigger heartbeat for app {}: {}",
+                self.app.name(),
+                err
+            ));
+            return Ok(None);
+        }
+
+        match service.heartbeats_header().await {
+            Ok(header) => Ok(header),
+            Err(err) => {
+                LOGGER.debug(format!(
+                    "Failed to build heartbeat header for app {}: {}",
+                    self.app.name(),
+                    err
+                ));
+                Ok(None)
+            }
+        }
     }
 
     pub fn on_token_changed_with_observer(

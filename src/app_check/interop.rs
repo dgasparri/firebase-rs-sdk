@@ -37,6 +37,10 @@ impl FirebaseAppCheckInternal {
         api::get_limited_use_token(&self.app_check).await
     }
 
+    pub async fn heartbeat_header(&self) -> AppCheckResult<Option<String>> {
+        self.app_check.heartbeat_header().await
+    }
+
     pub fn add_token_listener(&self, listener: AppCheckInternalListener) -> AppCheckResult<()> {
         let listeners = Arc::clone(&self.listeners);
         let listener_clone = Arc::clone(&listener);
@@ -119,6 +123,9 @@ mod tests {
         let internal = setup_internal("app-check-internal-test").await;
         let result = internal.get_token(false).await.unwrap();
         assert_eq!(result.token, "token");
+
+        let heartbeat = internal.heartbeat_header().await.unwrap();
+        assert!(heartbeat.is_none());
     }
 
     #[tokio::test(flavor = "current_thread")]

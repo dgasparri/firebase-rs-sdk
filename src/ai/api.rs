@@ -273,16 +273,19 @@ impl AiService {
         }
     }
 
-    async fn fetch_app_check_token(&self, limited_use: bool) -> AiResult<Option<String>> {
+    async fn fetch_app_check_credentials(
+        &self,
+        limited_use: bool,
+    ) -> AiResult<(Option<String>, Option<String>)> {
         #[cfg(test)]
         {
             let overrides = self.inner.test_tokens.lock().unwrap();
             if limited_use {
                 if let Some(token) = overrides.limited_app_check.clone() {
-                    return Ok(Some(token));
+                    return Ok((Some(token), None));
                 }
             } else if let Some(token) = overrides.app_check.clone() {
-                return Ok(Some(token));
+                return Ok((Some(token), None));
             }
         }
 
@@ -292,7 +295,7 @@ impl AiService {
             .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
         {
             Ok(Some(app_check)) => app_check,
-            Ok(None) => return Ok(None),
+            Ok(None) => return Ok((None, None)),
             Err(err) => {
                 return Err(internal_error(format!(
                     "failed to resolve App Check provider: {err}"
@@ -315,10 +318,16 @@ impl AiService {
         }
 
         if result.token.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(result.token))
+            return Ok((None, None));
         }
+
+        let heartbeat = app_check.heartbeat_header().await.map_err(|err| {
+            internal_error(format!(
+                "failed to obtain App Check heartbeat header: {err}"
+            ))
+        })?;
+
+        Ok((Some(result.token), heartbeat))
     }
 
     pub(crate) async fn api_settings(&self) -> AiResult<ApiSettings> {
@@ -354,8 +363,8 @@ impl AiService {
 
         let runtime_options = self.options();
         let automatic = self.inner.app.automatic_data_collection_enabled();
-        let app_check_token = self
-            .fetch_app_check_token(runtime_options.use_limited_use_app_check_tokens)
+        let (app_check_token, app_check_heartbeat) = self
+            .fetch_app_check_credentials(runtime_options.use_limited_use_app_check_tokens)
             .await?;
         let auth_token = self.fetch_auth_token().await?;
 
@@ -366,6 +375,7 @@ impl AiService {
             self.inner.backend.clone(),
             automatic,
             app_check_token,
+            app_check_heartbeat,
             auth_token,
         ))
     }

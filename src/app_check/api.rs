@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use crate::app::registry;
-use crate::app::{get_app, AppError, FirebaseApp};
+use crate::app::{get_app, AppError, FirebaseApp, HeartbeatService, HeartbeatServiceImpl};
 use crate::component::types::{
     ComponentError, ComponentType, DynService, InstanceFactoryOptions, InstantiationMode,
 };
@@ -152,6 +152,23 @@ pub async fn initialize_app_check(
 
     let app_name: Arc<str> = Arc::from(app.name().to_owned());
 
+    let heartbeat = registry::get_provider(&app, "heartbeat")
+        .get_immediate::<HeartbeatServiceImpl>()
+        .map(|service| -> Arc<dyn HeartbeatService> { service });
+
+    if let Some(service) = &heartbeat {
+        let app_name = app.name().to_owned();
+        let service_clone = service.clone();
+        runtime::spawn_detached(async move {
+            if let Err(err) = service_clone.trigger_heartbeat().await {
+                LOGGER.debug(format!(
+                    "Failed to trigger heartbeat for app {}: {}",
+                    app_name, err
+                ));
+            }
+        });
+    }
+
     if let Some(entry) = REGISTRY.lock().unwrap().get(&app_name) {
         if !state::is_activated(&entry.app_check) {
             state::ensure_activation(&entry.app_check, provider.clone(), final_auto_refresh)?;
@@ -176,7 +193,7 @@ pub async fn initialize_app_check(
         return Ok(entry.app_check.clone());
     }
 
-    let app_check = AppCheck::new(app.clone());
+    let app_check = AppCheck::new(app.clone(), heartbeat.clone());
     state::ensure_activation(&app_check, provider.clone(), final_auto_refresh)?;
     provider.initialize(&app);
 

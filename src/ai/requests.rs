@@ -20,6 +20,7 @@ pub(crate) struct ApiSettings {
     pub backend: Backend,
     pub automatic_data_collection_enabled: bool,
     pub app_check_token: Option<String>,
+    pub app_check_heartbeat: Option<String>,
     pub auth_token: Option<String>,
 }
 
@@ -31,6 +32,7 @@ impl ApiSettings {
         backend: Backend,
         automatic_data_collection_enabled: bool,
         app_check_token: Option<String>,
+        app_check_heartbeat: Option<String>,
         auth_token: Option<String>,
     ) -> Self {
         Self {
@@ -40,6 +42,7 @@ impl ApiSettings {
             backend,
             automatic_data_collection_enabled,
             app_check_token,
+            app_check_heartbeat,
             auth_token,
         }
     }
@@ -213,6 +216,10 @@ impl RequestFactory {
             headers.push(("X-Firebase-AppCheck".into(), token.clone()));
         }
 
+        if let Some(header) = &self.settings.app_check_heartbeat {
+            headers.push(("X-Firebase-Client".into(), header.clone()));
+        }
+
         if let Some(token) = &self.settings.auth_token {
             headers.push(("Authorization".into(), format!("Firebase {token}")));
         }
@@ -254,6 +261,7 @@ mod tests {
             "1:123:web:abc".into(),
             backend,
             true,
+            None,
             None,
             None,
         )

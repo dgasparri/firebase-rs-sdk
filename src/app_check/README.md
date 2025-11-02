@@ -54,6 +54,8 @@ async fn main() {
   - Matches the JS `proactive-refresh` policy (midpoint + 5 min offset, exponential backoff, cancellation) and automatically starts/stops based on auto-refresh settings.
 - **Persistence & cross-tab broadcast** (`persistence.rs`)
   - IndexedDB persistence for wasm builds now records issued and expiry timestamps and broadcasts token updates across tabs; native builds fall back to memory cache.
+- **Heartbeat telemetry** (`types.rs`, `api.rs`)
+  - Integrates with the shared heartbeat service so outgoing requests can attach the `X-Firebase-Client` header (Storage, Firestore, Functions, Database, and AI clients now call through `FirebaseAppCheckInternal::heartbeat_header`).
 - **Tests & tooling** (`api.rs`, `interop.rs`, `token_provider.rs`, `storage/service.rs`)
   - Unit tests cover background refresh, cached-token error handling, internal listener wiring, and Storage integration; shared test helpers ensure state isolation.
 
@@ -61,7 +63,6 @@ async fn main() {
 
 - Full reCAPTCHA v3/Enterprise client implementations (script bootstrap, throttling, heartbeat awareness).
 - Debug token developer mode, emulator toggles, and console logging parity.
-- Heartbeat integration and limited-use token exchange helpers from the JS internal API.
 - Web-specific visibility listeners and throttling heuristics (document visibility, pause on hidden tabs).
 - Broader provider catalogue (App Attest, SafetyNet) and wasm-friendly abstractions for platform bridges.
 
@@ -71,8 +72,8 @@ async fn main() {
    - Port `client.ts`/`recaptcha.ts`, including script injection, widget lifecycle, and throttling metadata; surface provider configuration errors through the Rust error enum.
 2. **Debug/emulator workflow**
    - Persist debug tokens, expose APIs to toggle debug mode, and surface console hints mirroring `debug.ts`; ensure emulator host/port wiring is available to downstream services.
-3. **Heartbeat & internal API parity**
-   - Bridge heartbeat headers and limited-use token exchange helpers from `internal-api.ts`, aligning with services (Firestore, Storage) that expect those hooks.
+3. **Internal API parity**
+   - Port the remaining `internal-api.ts` helpers (limited-use exchange wrappers, throttling metadata) so downstream services can rely on the same behaviours as the JS SDK.
 4. **Visibility-aware refresh controls**
    - Add document visibility listeners on wasm targets and equivalent hooks for native platforms so refresh pauses/resumes follow the JS scheduler behaviour.
 5. **Expand tests & docs**
