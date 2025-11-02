@@ -344,12 +344,23 @@ where
     Arc::new(CustomProvider::new(callback))
 }
 
-/// Placeholder ReCAPTCHA v3 provider (currently returns `ProviderError`).
+/// Creates an App Check provider backed by reCAPTCHA v3 attestation.
+///
+/// The provider mirrors the JS SDK implementation: it renders an invisible reCAPTCHA
+/// widget, exchanges each attested token with the App Check backend, and applies the
+/// same throttling heuristics when the backend responds with rate-limited status
+/// codes. The provider requires the `wasm-web` feature when targeting `wasm32` so the
+/// browser runtime can bootstrap the reCAPTCHA scripts.
 pub fn recaptcha_v3_provider(site_key: impl Into<String>) -> Arc<dyn AppCheckProvider> {
     Arc::new(ReCaptchaV3Provider::new(site_key.into()))
 }
 
-/// Placeholder ReCAPTCHA Enterprise provider (returns `ProviderError`).
+/// Creates an App Check provider backed by the reCAPTCHA Enterprise (score-based) API.
+///
+/// Behaviour matches the JS SDK variant: tokens are attested via the Enterprise
+/// widget and exchanged with the App Check backend, and error throttling mirrors the
+/// JavaScript semantics. As with the v3 provider, this requires the `wasm-web`
+/// feature on `wasm32` builds to access the DOM and reCAPTCHA bootstrap scripts.
 pub fn recaptcha_enterprise_provider(site_key: impl Into<String>) -> Arc<dyn AppCheckProvider> {
     Arc::new(ReCaptchaEnterpriseProvider::new(site_key.into()))
 }

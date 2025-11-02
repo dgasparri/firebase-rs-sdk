@@ -84,15 +84,20 @@ impl TokenProvider for AppCheckTokenProvider {
 }
 
 fn map_app_check_error(error: AppCheckError) -> FirestoreError {
-    match error {
+    match error.clone() {
         AppCheckError::AlreadyInitialized { .. }
         | AppCheckError::UseBeforeActivation { .. }
         | AppCheckError::InvalidConfiguration { .. } => invalid_argument(error.to_string()),
-        AppCheckError::TokenFetchFailed { .. } | AppCheckError::ProviderError { .. } => {
-            unavailable(error.to_string())
-        }
         AppCheckError::TokenExpired => unauthenticated(error.to_string()),
         AppCheckError::Internal(message) => internal_error(message),
+        AppCheckError::TokenFetchFailed { .. }
+        | AppCheckError::ProviderError { .. }
+        | AppCheckError::FetchNetworkError { .. }
+        | AppCheckError::FetchParseError { .. }
+        | AppCheckError::FetchStatusError { .. }
+        | AppCheckError::RecaptchaError { .. }
+        | AppCheckError::InitialThrottle { .. }
+        | AppCheckError::Throttled { .. } => unavailable(error.to_string()),
     }
 }
 

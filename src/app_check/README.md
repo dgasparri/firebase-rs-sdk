@@ -6,7 +6,7 @@ This module ports Firebase App Check to Rust so client code can obtain, cache, a
 
 ## Porting status
 
-- app_check 60% `[######    ]`
+- app_check 70% `[#######   ]`
 
 Significant parity milestones are now in place: App Check registers with the component system, background refresh follows the JS proactive-refresh heuristics (issued/expiry timestamps, jitter, exponential backoff), tokens persist across reloads on wasm targets, and storage, analytics, and other modules can request App Check tokens via the shared internal provider. ReCAPTCHA flows, debug tooling, and heartbeat integration remain unported, but the primary token lifecycle is functional and covered by tests.
 
@@ -35,6 +35,12 @@ async fn main() {
 }
 ```
 
+For web/WASM builds you can swap the custom provider for
+`recaptcha_v3_provider("your-site-key")` or
+`recaptcha_enterprise_provider("your-enterprise-site-key")`; the helper manages
+script injection, invisible widget lifecycle, and backend throttling exactly as
+the JS SDK does.
+
 ## References to the Firebase JS SDK - firestore module
 
 - QuickStart: <https://firebase.google.com/docs/app-check/web/recaptcha-provider>
@@ -58,23 +64,22 @@ async fn main() {
   - Integrates with the shared heartbeat service so outgoing requests can attach the `X-Firebase-Client` header (Storage, Firestore, Functions, Database, and AI clients now call through `FirebaseAppCheckInternal::heartbeat_header`).
 - **Tests & tooling** (`api.rs`, `interop.rs`, `token_provider.rs`, `storage/service.rs`)
   - Unit tests cover background refresh, cached-token error handling, internal listener wiring, and Storage integration; shared test helpers ensure state isolation.
+- **reCAPTCHA v3 & Enterprise providers** (`providers.rs`, `client.rs`, `recaptcha.rs`)
+  - Script bootstrap, invisible widget lifecycle, attestation exchange, and throttling semantics match the JS SDK. Native builds still surface configuration errors, while wasm builds load Google’s scripts on demand.
 
 ## Still to do
 
-- Full reCAPTCHA v3/Enterprise client implementations (script bootstrap, throttling, heartbeat awareness).
 - Debug token developer mode, emulator toggles, and console logging parity.
 - Web-specific visibility listeners and throttling heuristics (document visibility, pause on hidden tabs).
 - Broader provider catalogue (App Attest, SafetyNet) and wasm-friendly abstractions for platform bridges.
 
 ## Next steps – Detailed completion plan
 
-1. **Implement reCAPTCHA providers**
-   - Port `client.ts`/`recaptcha.ts`, including script injection, widget lifecycle, and throttling metadata; surface provider configuration errors through the Rust error enum.
-2. **Debug/emulator workflow**
+1. **Debug/emulator workflow**
    - Persist debug tokens, expose APIs to toggle debug mode, and surface console hints mirroring `debug.ts`; ensure emulator host/port wiring is available to downstream services.
-3. **Internal API parity**
+2. **Internal API parity**
    - Port the remaining `internal-api.ts` helpers (limited-use exchange wrappers, throttling metadata) so downstream services can rely on the same behaviours as the JS SDK.
-4. **Visibility-aware refresh controls**
+3. **Visibility-aware refresh controls**
    - Add document visibility listeners on wasm targets and equivalent hooks for native platforms so refresh pauses/resumes follow the JS scheduler behaviour.
-5. **Expand tests & docs**
+4. **Expand tests & docs**
    - Backfill the JS unit scenarios (refresh retry tables, storage integration failures) and extend rustdoc/README guidance, including wasm-specific notes and provider examples.

@@ -1,16 +1,19 @@
 #![doc = include_str!("README.md")]
 pub mod api;
+mod client;
 mod errors;
 mod interop;
 mod logger;
 #[cfg(feature = "wasm-web")]
 mod persistence;
 mod providers;
+mod recaptcha;
 mod refresher;
 mod state;
 #[cfg(feature = "firestore")]
 mod token_provider;
 mod types;
+mod util;
 
 #[doc(inline)]
 pub use api::{
