@@ -775,3 +775,336 @@ Updated Plan
 
   Natural next step: 1) Decide whether InMemoryHeartbeatStorage (and its helpers) should be gated or removed to silence
   the existing dead-code warnings.
+
+
+ in the app_check's README under Next Steps it's written: "2. **Internal API parity**
+▌    - Port the remaining `internal-api.ts` helpers (limited-use exchange wrappers, throttling metadata) so downstream
+▌ services can rely on the same behaviours as the JS SDK." Can you clarify what API used by downstream services are
+▌ missing?
+
+
+
+ in the app_check's README under Next Steps it's written: "2. **Internal API parity**
+▌    - Port the remaining `internal-api.ts` helpers (limited-use exchange wrappers, throttling metadata) so downstream
+▌ services can rely on the same behaviours as the JS SDK." Can you clarify what API used by downstream services are
+    Read state.rs
+
+> Thinking
+  I'm reviewing the user's question on missing APIs used by downstream services, focusing on what from the internal-
+  api.js (like dummy token helpers, notifyTokenListeners, throttling metadata) hasn't been ported to Rust. I’m comparing
+  our Rust code handling tokens and providers with the TypeScript original to clarify what exact functionalities—such as
+  debug modes, throttling state, or error details—are lacking or incomplete. Next, I'll dive deeper into the internal-
+  api.ts file beyond 400 lines to pinpoint unported features.
+
+• Explored
+  └ Read internal-api.ts
+
+> Thinking
+  I'm investigating how the Rust add_token_listener lacks distinction between internal and external error callbacks,
+  unlike the JS version which handles dummy tokens and throttling metadata better. I'll check differences in error
+  propagation, dummy token fallback, and whether token fetch deduplication exists in our Rust state.
+
+• Explored
+  └ Search exchange in app_check
+    Read service.rs
+    Search AppCheckTokenResult in storage
+    Search get_token in storage
+    Read service.rs
+
+> Thinking
+  I’m gathering that several internal API features downstream services rely on aren’t fully ported yet. Key gaps
+  include returning dummy tokens with error fields instead of errors in get_token so modules like Storage can handle
+  failure gracefully, missing debug-mode handling and error packaging in getLimitedUseToken, and incomplete support for
+  throttling metadata and exchange token deduplication tracked via state.exchange_token_promise. I’ll reference relevant
+  code lines and clearly explain how these missing pieces affect Storage, Firestore, and similar modules expecting JS
+  SDK parity.
+
+> The “internal-api parity” note is about the bits of packages/app-check/src/internal-api.ts that downstream SDKs lean
+  on but that our Rust port still skips:
+
+  - getToken’s dummy-token/metadata path (packages/app-check/src/internal-api.ts:72-210). In JS the call always
+  resolves, even when the exchange fails: it hands back a base64 “dummy” token and fills in error/internalError so
+  callers can keep using the cached token and decide how to react. Our version (src/app_check/api.rs:232) still returns
+  Err in those cases, so consumers like Storage (src/storage/service.rs:276) and Firestore’s AppCheckTokenProvider see a
+  hard failure instead of the JS-style degraded result.
+  IMPORTANT:
+  - getLimitedUseToken’s debug/exchange wrapper (packages/app-check/src/internal-api.ts:214-233). The JS helper
+  bypasses the cached state, hits the debug exchange when dev-mode is enabled, and still wraps errors the same way. Our
+  get_limited_use_token simply calls the provider and bubbles the error (src/app_check/api.rs:270), so services that
+  expect the debug behaviour or dummy-token fallback don’t see it yet.
+  IMPORTANT:
+  - Listener error propagation & throttling signals (packages/app-check/src/internal-api.ts:235-320). The JS
+  notifyTokenListeners distinguishes internal vs external listeners and routes throttling errors to the supplied error
+  callbacks so refresh/backoff logic in other modules can react. Our add_token_listener just replays the token (src/
+  app_check/api.rs:292), ignoring listener type and never surfacing the throttling metadata.
+
+  Until we port those helpers, downstream crates (Storage, Firestore, Functions, etc.) won’t observe the same semantics
+  the JS SDK guarantees when App Check is throttled, in debug mode, or when exchanges fail.
+
+
+ Explain more the dummy-token. By using a fake token, aren't the calls made to the Firebase service rejected? What's
+▌ the use of it?
+
+• Explored
+  └ Read internal-api.ts
+
+> In the JS SDK getToken() is designed to always resolve. That way callers don’t have to mix await + try/ catch—they
+  just inspect the returned AppCheckTokenResult, which always contains a string and optional error/internalError fields.
+  When the exchange really fails and there isn’t a still‑valid cached token to hand back, the SDK fabricates a base64
+  “dummy” token (the UNKNOWN_ERROR payload you saw). That string is not meant to be sent upstream; it just satisfies the
+  “always return a token string” contract so older code keeps working.
+
+  Every first‑party service that consumes App Check token results immediately checks those error fields and drops the
+  dummy instead of attaching it to requests. What they do keep is the metadata: the error object lets them log, surface
+  warnings, and—critically—drive their retry/backoff logic (for example, Storage cancels the request with that error,
+  the proactive refresher uses it to back off). Meanwhile the promise doesn’t reject, so listeners stay subscribed and
+  the scheduler keeps running.
+
+  So the dummy token isn’t a real credential and should never produce a successful backend call; it’s an implementation
+  detail to maintain a graceful API contract while still conveying “we failed, here’s why.”
+
+ Explain more the dummy-token. By using a fake token, aren't the calls made to the Firebase service rejected? What's
+▌ the use of it?
+
+• Explored
+  └ Read internal-api.ts
+
+> In the JS SDK getToken() is designed to always resolve. That way callers don’t have to mix await + try/ catch—they
+  just inspect the returned AppCheckTokenResult, which always contains a string and optional error/internalError fields.
+  When the exchange really fails and there isn’t a still‑valid cached token to hand back, the SDK fabricates a base64
+  “dummy” token (the UNKNOWN_ERROR payload you saw). That string is not meant to be sent upstream; it just satisfies the
+  “always return a token string” contract so older code keeps working.
+
+  Every first‑party service that consumes App Check token results immediately checks those error fields and drops the
+  dummy instead of attaching it to requests. What they do keep is the metadata: the error object lets them log, surface
+  warnings, and—critically—drive their retry/backoff logic (for example, Storage cancels the request with that error,
+  the proactive refresher uses it to back off). Meanwhile the promise doesn’t reject, so listeners stay subscribed and
+  the scheduler keeps running.
+
+  So the dummy token isn’t a real credential and should never produce a successful backend call; it’s an implementation
+  detail to maintain a graceful API contract while still conveying “we failed, here’s why.”
+
+A Rust library has no legacy code to serve, and I feel that returning a dummy token would only make things more
+▌ complicated than returning a error response. Are there benefits in it?
+
+
+
+A Rust library has no legacy code to serve, and I feel that returning a dummy token would only make things more
+▌ complicated than returning a error response. Are there benefits in it?
+A Rust library has no legacy code to serve, and I feel that returning a dummy token would only make things more
+▌ complicated than returning a error response. Are there benefits in it?
+
+> You’re right that in a pure Rust world the “always return a string, maybe it’s fake” pattern feels awkward—Result
+  already lets us signal failure cleanly, and we don’t carry JS’s legacy baggage.
+
+  The only real benefit of the dummy-token approach is API parity with the JS SDK: every service in that ecosystem
+  assumes getToken() resolves, then inspects error/internalError. If we ever want drop‑in behaviour for code ported from
+  JS (including our own modules once they share logic with upstream), mirroring that shape makes the transition trivial.
+
+  Otherwise, there’s no technical upside. Trying to emulate the dummy-token contract in Rust would actually make things
+  more complicated: downstream services would have to examine both Result and “maybe-dummy” payloads, and we’d still
+  need some extra metadata to trigger backoff/scheduling decisions.
+
+  A better fit for Rust is to keep returning a Result, but enrich the error side so callers can distinguish:
+
+  - “Fatal”: no cached token available, treat as hard failure.
+  - “Soft”: cached token still valid, but refresh failed; keep using the old one and back off.
+  - “Throttled”: include the HTTP status/Retry-After so schedulers can pause correctly.
+
+  You can encode that with a custom error enum or a struct carrying the same metadata the JS code exposes in
+  internalError. That gives our downstream crates the signals they need for throttling/backoff, without shipping fake
+  tokens around.
+
+  So unless we have a hard requirement to mimic the exact JS signature, returning explicit errors (plus the right
+
+• Updated Plan
+  └ We'll update documentation then adjust the error handling across App Check, so downstream services can distinguish
+    soft/fatal/throttled cases.
+    □ Document intentional API deviations in app_check README
+    □ Extend App Check error model with Fatal/Soft/Throttled metadata and propagate through API
+    □ Run fmt/check and summarize changes
+
+ Thinking
+  I'm reorganizing how AppCheck::get_token and related APIs handle errors and cached tokens, introducing a richer error
+  type AppCheckTokenError that can carry cached tokens for soft or throttled errors. This involves updating async token
+  provider logic to potentially return cached tokens on recoverable errors, adjusting AppCheckTokenResult to minimize
+  or phase out deprecated error fields, and modifying app_check/api.rs to implement detailed error classification with
+  throttling information while preserving backward compatibility for clients expecting internal error metadata.
+
+
+ Thinking
+  I'm working through how to adapt AppCheckTokenProvider to a new get_token return type with richer error handling.
+  The key challenge is treating Soft and Throttled errors with cached tokens as success cases returning the cached
+  token, while propagating fatal errors properly. I’m planning to integrate this behavior into existing error mapping
+  for Firestore, preserving semantics by degrading gracefully where appropriate. This involves updating match arms for
+  get_token results, converting cached tokens to strings, and carefully handling retry logic and logging opportunities.
+  Next, I’ll patch src/app_check/token_provider.rs accordingly.
+
+
+Thinking
+  I’m reviewing the internal_error import and confirming it’s still needed due to usage in map_app_check_error. Then I’m
+  carefully restructuring how app_check.get_token(false).await is handled to support cached tokens on soft or throttled
+  errors while still calling heartbeat_header() afterwards. I’m figuring out how to gracefully degrade in error cases,
+  ensure proper token and heartbeat handling, and decide whether to log or propagate throttling info, aiming to keep
+  consistent and clean error management.
+
+• Ed
+
+ Thinking
+  I'm gathering key points to highlight: updates to error types and async traits, removal of dummy tokens,
+  adjustments across several modules, and relevant file locations for each change. I also note the breaking change
+  in AppCheck::get_token's signature and the need to update consumers. I'll finalize a clear bullet list for the user
+  covering these essentials, including successful cargo check and testing notes.
+
+> - Documented why we deliberately skip the JS dummy-token behaviour so Rust callers rely on richer error variants
+  instead (src/app_check/README.md:76).
+  - Added AppCheckTokenError/TokenErrorKind plus boxing helpers to encode fatal vs soft (cached token) vs throttled
+  outcomes and re-exported them for consumers (src/app_check/types.rs:113, src/app_check/mod.rs:41).
+  - Reworked the core API to return the new error model instead of fabricating success results: AppCheck::get_token,
+  get_limited_use_token, and the underlying helpers now classify failures and preserve usable cached tokens (src/
+  app_check/types.rs:299, src/app_check/api.rs:239).
+  - Updated downstream integrations (Firestore token provider, Storage, Realtime Database, Functions, AI) to
+  consume the new error metadata—soft/throttled cases now fall back to cached tokens automatically (src/app_check/
+  token_provider.rs:60, src/storage/service.rs:300, src/database/backend.rs:102, src/database/realtime/mod.rs:397, src/
+  functions/context.rs:140, src/ai/api.rs:306).
+  - Adjusted the flakey-provider test to assert the new soft-error path (src/app_check/api.rs:504).
+
+  cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+
+  Note: AppCheck::get_token and related APIs now return Result<_, AppCheckTokenError>; update any external callers to
+  inspect the new error kind when they want to reuse cached tokens or react to throttling.
+
+
+can you explain this point? "getLimitedUseToken’s debug/exchange wrapper (packages/app-check/src/internal-api.ts:214-
+▌ 233). The JS helper
+▌   bypasses the cached state, hits the debug exchange when dev-mode is enabled, and still wraps errors the same way.
+▌ Our
+▌   get_limited_use_token simply calls the provider and bubbles the error (src/app_check/api.rs:270), so services that
+▌   expect the debug behaviour or dummy-token fallback don’t see it yet."
+
+> In the JS SDK, getLimitedUseToken is more than a thin wrapper around the provider:
+
+  - Debug mode shortcut. If the app is running with AppCheck debug mode enabled, the JS helper skips the registered
+  provider entirely. It first retrieves the debug token (getDebugToken()), then calls the exchange endpoint directly
+  (exchangeToken(getExchangeDebugTokenRequest(...))). That lets developers test limited‑use tokens even when they
+  haven’t wired up a real provider. The helper also writes the exchanged token back to storage/state so later calls
+  reuse it.
+  - Normal flow with consistent wrapping. When debug mode isn’t active, it still invokes the provider, but any failure
+  is folded into the same “dummy token + error metadata” structure the SDK always emits. Callers never get a rejected
+  promise; they read the error field, and, if a cached token existed, continue using it.
+
+  Our current Rust get_limited_use_token (now returning Result<_, AppCheckTokenError>, see src/app_check/api.rs:295)
+  simply forwards to the provider. There’s no debug-mode check, no direct exchange request, and—prior to these changes
+  —no nuanced error wrapping. So if someone had been relying on JS behaviour (e.g., debug mode producing a valid token
+  without a provider, or getting a soft/throttled response instead of a hard error) they wouldn’t see that yet in the
+  Rust port.
+
+
+
+  what does it take to implement it?
+
+> To bring our get_limited_use_token up to parity you’d have to mirror the three moving parts the JS helper coordinates:
+
+IMPORTANT: debug mode in app_check and other modules
+  1. Debug-mode path
+      - Port the debug helpers from packages/app-check/src/debug.ts: keep a per-app debug token (getDebugToken,
+  setDebugToken), persist it in IndexedDB for wasm, and expose the developer toggle API.
+      - Teach get_limited_use_token (and get_token) to branch: if debug mode is active, call our REST client’s
+  exchange_token with get_exchange_debug_token_request, bypassing the provider entirely, then write the new token back
+  into state/storage so later calls hit the cached value.
+  2. Shared state integration
+      - Extend state::AppCheckState to hold the pending debug exchange future the way JS does (exchangeTokenPromise), so
+  multiple requests coalesce and you don’t spam the backend.
+      - Make sure tokens gained through the debug flow raise the same refresh/listener events as provider-issued ones.
+  3. Error wrapping & metadata
+      - When the debug exchange fails, return the same AppCheckTokenError we now use for provider errors:
+          - TokenErrorKind::Throttled when the backend returns 429/503 with Retry-After.
+          - TokenErrorKind::Soft if a previously cached token is still valid.
+          - TokenErrorKind::Fatal otherwise.
+      - That keeps Storage/Firestore/Functions behaving exactly like the JS SDK, just without dummy strings.
+
+  Supporting work: wire the debug toggle into public API (e.g., set_app_check_debug_token), add persistence for wasm
+  (mirroring writeDebugTokenToStorage), update tests to cover both branches, and refresh the README/docs so developers
+  know how to enable debug mode in Rust.
+
+  Once those pieces are in place, limited-use tokens behave the same as JS: developer mode “just works”, throttling/
+  backoff signals propagate correctly, and there’s still no dummy token.
+
+
+is debug mode implemented only in the app_cache module, or in other modules as well?  
+
+
+> At the moment the repo has no implementation of App Check’s debug mode anywhere—neither in app_check nor in other
+  modules. The only mentions are TODO notes and roadmap entries pointing out that we still need to port the JS debug.ts
+  flow (storing a debug token, console hints, etc.). So adding the debug/exchange path would require building it in the
+  App Check module from scratch; you won’t find an existing debug-mode implementation elsewhere to reuse.
+
+
+PROMPT: Can you clarify this: "- Listener error propagation & throttling signals (packages/app-check/src/internal-api.ts:235-320). The JS
+  notifyTokenListeners distinguishes internal vs external listeners and routes throttling errors to the supplied error
+  callbacks so refresh/backoff logic in other modules can react. Our add_token_listener just replays the token (src/
+  app_check/api.rs:292), ignoring listener type and never surfacing the throttling metadata."
+
+
+> In the JS SDK each token listener is stored with its ListenerType—INTERNAL (modules like Storage/Firestore) or
+  EXTERNAL (user code). When notifyTokenListeners runs it inspects the AppCheckTokenResult:
+
+  - If the result carries an error (meaning the request failed/throttled and there’s no usable token) it calls the
+  listener’s error callback for external observers so app code can react.
+  - Internal observers always get the full AppCheckTokenResult (token plus internalError metadata) so they can keep
+  using a cached token and adjust their own backoff logic.
+  - Soft errors (valid token plus internalError) still reach internal listeners so they can see throttling metadata and
+  pause retries; external listeners aren’t bothered.
+
+  Our Rust port doesn’t yet do that. add_token_listener just stores the callback and immediately invokes it with
+  AppCheckTokenResult::from_token(token) if there’s a cached token. When tokens are updated, state::store_token
+  calls every listener with the raw result and we never consult ListenerType; there’s no dedicated error callback.
+  So the richer throttling information never reaches services via observers—they only see it when calling get_token
+  directly. Matching JS behaviour would mean storing listener type, invoking user listeners’ error handlers (if any)
+  when AppCheckTokenError is fatal/throttled, and ensuring internal listeners receive the retry metadata so they can
+  coordinate backoff.
+
+• Updated Plan
+  └ Need to mirror JS listener error handling and propagate token errors appropriately.
+    □ Enhance App Check listener notification with error callbacks and throttling metadata
+    □ Ensure state/storage notify logic propagates ListenerType distinctions
+    □ Run fmt/check and summarize changes
+
+  Working
+
+
+  Ran cargo fmt
+
+• Ran cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+
+• Updated Plan
+  └ ✔ Enhance App Check listener notification with error callbacks and throttling metadata
+    ✔ Ensure state/storage notify logic propagates ListenerType distinctions
+    ✔ Run fmt/check and summarize changes
+
+> Thinking
+  I'll summarize the key modifications around AppCheck error classification, the addition of error listeners and state
+  notifications, and how downstream modules adapt to these changes, highlighting AppCheckTokenError usage and updated
+  tests; I'll also include verifying steps and potential next steps for watcher alignment.
+
+> App Check Errors
+
+  - Documented the deliberate omission of JS-style dummy tokens in the README so users understand why Rust surfaces
+  richer error variants instead (src/app_check/README.md:76).
+  - Introduced AppCheckTokenError/TokenErrorKind plus error listeners, updated AppCheck::get_token/get_limited_use_token
+  to classify failures (fatal, soft with cached token, throttled) and notify listeners via the state layer instead of
+  faking success (src/app_check/types.rs:113, src/app_check/api.rs:239, src/app_check/state.rs:245).
+  - Expanded listener plumbing: add_token_listener now accepts an optional error callback, AppCheck::on_token_changed
+  wires user-provided error observers, and internal consumers receive throttling metadata while external observers
+  get soft errors through their callbacks (src/app_check/types.rs:338, src/app_check/api.rs:341, src/app_check/
+  state.rs:245).
+  - Updated downstream users (Firestore, Storage, Realtime DB, Functions, AI) to rely on the new error surface,
+  automatically falling back to cached tokens when available instead of treating soft/throttled responses as hard
+  failures (src/app_check/token_provider.rs:60, src/storage/service.rs:300, src/database/backend.rs:102, src/database/
+  realtime/mod.rs:397, src/functions/context.rs:140, src/ai/api.rs:306).
+  - Adjusted tests to validate the soft-error path and ensured internal listeners continue to receive token updates with
+  retry metadata (src/app_check/api.rs:526).
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+
+  Next step you might consider: add the pending App Check debug toggles so limited-use token requests mirror the JS
+  debug workflow.
