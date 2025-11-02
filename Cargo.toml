@@ -64,6 +64,8 @@ features = [
     "EventTarget",
     "BroadcastChannel",
     "MessageEvent",
+    "HtmlDivElement",
+    "HtmlScriptElement",
     "BinaryType",
     "CloseEvent",
     "console",

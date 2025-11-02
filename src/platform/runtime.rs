@@ -105,8 +105,29 @@ async fn sleep_impl(duration: Duration) {
 
 #[cfg(target_arch = "wasm32")]
 async fn yield_now_impl() {
-    use gloo_timers::future::TimeoutFuture;
-    TimeoutFuture::new(0).await;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    struct YieldOnce {
+        yielded: bool,
+    }
+
+    impl Future for YieldOnce {
+        type Output = ();
+
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            if self.yielded {
+                Poll::Ready(())
+            } else {
+                self.yielded = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        }
+    }
+
+    YieldOnce { yielded: false }.await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
