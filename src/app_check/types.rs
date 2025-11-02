@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -17,6 +18,34 @@ use crate::app_check::persistence::BroadcastSubscription;
 
 use super::errors::{AppCheckError, AppCheckResult};
 use super::refresher::Refresher;
+
+#[cfg(not(target_arch = "wasm32"))]
+use futures::future::BoxFuture;
+#[cfg(target_arch = "wasm32")]
+use futures::future::LocalBoxFuture;
+
+#[cfg(target_arch = "wasm32")]
+pub type AppCheckProviderFuture<'a, T> = LocalBoxFuture<'a, T>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type AppCheckProviderFuture<'a, T> = BoxFuture<'a, T>;
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn box_app_check_future<'a, F, T>(future: F) -> AppCheckProviderFuture<'a, T>
+where
+    F: Future<Output = T> + 'a,
+{
+    use futures::FutureExt;
+    future.boxed_local()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn box_app_check_future<'a, F, T>(future: F) -> AppCheckProviderFuture<'a, T>
+where
+    F: Future<Output = T> + Send + 'a,
+{
+    use futures::FutureExt;
+    future.boxed()
+}
 
 pub const APP_CHECK_COMPONENT_NAME: &str = "appCheck";
 pub const APP_CHECK_INTERNAL_COMPONENT_NAME: &str = "app-check-internal";
@@ -135,15 +164,13 @@ impl AppCheckOptions {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait AppCheckProvider: Send + Sync {
     fn initialize(&self, _app: &FirebaseApp) {}
 
-    async fn get_token(&self) -> AppCheckResult<AppCheckToken>;
+    fn get_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>>;
 
-    async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
-        self.get_token().await
+    fn get_limited_use_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+        self.get_token()
     }
 }
 

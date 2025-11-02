@@ -347,7 +347,10 @@ mod tests {
     use crate::app_check::api::{
         clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
     };
-    use crate::app_check::{AppCheckOptions, AppCheckProvider, AppCheckToken};
+    use crate::app_check::{
+        box_app_check_future, AppCheckProviderFuture,
+        AppCheckOptions, AppCheckProvider, AppCheckToken,
+    };
     use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions};
     use crate::component::{Component, ComponentType};
     use crate::storage::request::{RequestInfo, ResponseHandler};
@@ -443,11 +446,13 @@ mod tests {
     #[derive(Clone)]
     struct StaticAppCheckProvider;
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl AppCheckProvider for StaticAppCheckProvider {
-        async fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
-            token_with_ttl("app-check-token", Duration::from_secs(60))
+        fn get_token(
+            &self,
+        ) -> AppCheckProviderFuture<'_, crate::app_check::AppCheckResult<AppCheckToken>> {
+            box_app_check_future(async {
+                token_with_ttl("app-check-token", Duration::from_secs(60))
+            })
         }
     }
 

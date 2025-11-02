@@ -78,7 +78,10 @@ mod tests {
     use crate::app_check::api::{
         clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
     };
-    use crate::app_check::types::{AppCheckOptions, AppCheckProvider, AppCheckToken};
+    use crate::app_check::types::{
+        box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
+        AppCheckToken,
+    };
     use crate::component::ComponentContainer;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -86,16 +89,15 @@ mod tests {
     #[derive(Clone)]
     struct TestProvider;
 
-    //#[async_trait::async_trait]
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl AppCheckProvider for TestProvider {
-        async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
-            token_with_ttl("token", Duration::from_secs(60))
+        fn get_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+            box_app_check_future(async { token_with_ttl("token", Duration::from_secs(60)) })
         }
 
-        async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
-            token_with_ttl("limited", Duration::from_secs(60))
+        fn get_limited_use_token(
+            &self,
+        ) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+            box_app_check_future(async { token_with_ttl("limited", Duration::from_secs(60)) })
         }
     }
 

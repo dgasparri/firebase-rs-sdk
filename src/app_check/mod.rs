@@ -37,9 +37,12 @@ pub use providers::{
 #[doc(inline)]
 pub use token_provider::{app_check_token_provider_arc, AppCheckTokenProvider};
 
+#[allow(unused_imports)]
+pub(crate) use types::box_app_check_future;
+
 #[doc(inline)]
 pub use types::{
-    AppCheck, AppCheckInternalListener, AppCheckOptions, AppCheckProvider, AppCheckToken,
-    AppCheckTokenListener, AppCheckTokenResult, ListenerHandle, ListenerType,
+    AppCheck, AppCheckInternalListener, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
+    AppCheckToken, AppCheckTokenListener, AppCheckTokenResult, ListenerHandle, ListenerType,
     APP_CHECK_COMPONENT_NAME, APP_CHECK_INTERNAL_COMPONENT_NAME,
 };

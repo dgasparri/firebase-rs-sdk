@@ -105,7 +105,10 @@ mod tests {
     use super::*;
     use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
     use crate::app_check::api::{initialize_app_check, token_with_ttl};
-    use crate::app_check::types::{AppCheckOptions, AppCheckProvider, AppCheckToken};
+    use crate::app_check::types::{
+        box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
+        AppCheckToken,
+    };
     use crate::component::ComponentContainer;
     use std::sync::Arc;
     use std::time::Duration;
@@ -115,21 +118,26 @@ mod tests {
         token: String,
     }
 
-    #[async_trait::async_trait]
     impl AppCheckProvider for StaticTokenProvider {
-        async fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
-            token_with_ttl(self.token.clone(), Duration::from_secs(60))
+        fn get_token(
+            &self,
+        ) -> AppCheckProviderFuture<'_, crate::app_check::AppCheckResult<AppCheckToken>> {
+            let token = self.token.clone();
+            box_app_check_future(async move { token_with_ttl(token, Duration::from_secs(60)) })
         }
     }
 
     #[derive(Clone)]
     struct ErrorProvider;
 
-    #[async_trait::async_trait]
     impl AppCheckProvider for ErrorProvider {
-        async fn get_token(&self) -> crate::app_check::AppCheckResult<AppCheckToken> {
-            Err(AppCheckError::TokenFetchFailed {
-                message: "network".into(),
+        fn get_token(
+            &self,
+        ) -> AppCheckProviderFuture<'_, crate::app_check::AppCheckResult<AppCheckToken>> {
+            box_app_check_future(async move {
+                Err(AppCheckError::TokenFetchFailed {
+                    message: "network".into(),
+                })
             })
         }
     }

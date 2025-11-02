@@ -491,6 +491,8 @@ mod tests {
     use crate::component::ComponentContainer;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use crate::app_check::types::{box_app_check_future, AppCheckProviderFuture};
+
     fn test_app(name: &str, automatic_data_collection_enabled: bool) -> FirebaseApp {
         FirebaseApp::new(
             FirebaseOptions::default(),
@@ -504,17 +506,19 @@ mod tests {
         calls: Arc<AtomicUsize>,
     }
 
-    #[async_trait::async_trait]
     impl AppCheckProvider for FlakyProvider {
-        async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
-            let idx = self.calls.fetch_add(1, Ordering::SeqCst);
-            if idx == 0 {
-                token_with_ttl("initial", Duration::from_secs(600))
-            } else {
-                Err(AppCheckError::TokenFetchFailed {
-                    message: "network".into(),
-                })
-            }
+        fn get_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+            let calls = Arc::clone(&self.calls);
+            box_app_check_future(async move {
+                let idx = calls.fetch_add(1, Ordering::SeqCst);
+                if idx == 0 {
+                    token_with_ttl("initial", Duration::from_secs(600))
+                } else {
+                    Err(AppCheckError::TokenFetchFailed {
+                        message: "network".into(),
+                    })
+                }
+            })
         }
     }
 
@@ -547,10 +551,9 @@ mod tests {
     #[derive(Clone)]
     struct StaticProvider;
 
-    #[async_trait::async_trait]
     impl AppCheckProvider for StaticProvider {
-        async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
-            token_with_ttl("token", Duration::from_secs(600))
+        fn get_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+            box_app_check_future(async { token_with_ttl("token", Duration::from_secs(600)) })
         }
     }
 

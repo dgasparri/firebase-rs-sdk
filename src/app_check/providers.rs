@@ -5,7 +5,7 @@ use crate::app::{registry, FirebaseApp, HeartbeatService, HeartbeatServiceImpl};
 use crate::util::calculate_backoff_millis;
 
 use super::errors::{AppCheckError, AppCheckResult};
-use super::types::{AppCheckProvider, AppCheckToken};
+use super::types::{box_app_check_future, AppCheckProvider, AppCheckProviderFuture, AppCheckToken};
 use crate::app_check::client::{
     exchange_token, get_exchange_recaptcha_enterprise_request, get_exchange_recaptcha_v3_request,
 };
@@ -56,19 +56,20 @@ impl CustomProvider {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AppCheckProvider for CustomProvider {
-    async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
-        (self.options.get_token)()
+    fn get_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+        let callback = Arc::clone(&self.options.get_token);
+        box_app_check_future(async move { callback() })
     }
 
-    async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckToken> {
-        if let Some(callback) = &self.options.get_limited_use_token {
-            callback()
-        } else {
-            (self.options.get_token)()
-        }
+    fn get_limited_use_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+        let callback = self
+            .options
+            .get_limited_use_token
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| Arc::clone(&self.options.get_token));
+        box_app_check_future(async move { callback() })
     }
 }
 
@@ -191,15 +192,13 @@ impl ReCaptchaV3Provider {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AppCheckProvider for ReCaptchaV3Provider {
     fn initialize(&self, app: &FirebaseApp) {
         self.core.initialize(app);
     }
 
-    async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
-        self.core.get_token().await
+    fn get_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+        box_app_check_future(async move { self.core.get_token().await })
     }
 }
 
@@ -215,15 +214,13 @@ impl ReCaptchaEnterpriseProvider {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AppCheckProvider for ReCaptchaEnterpriseProvider {
     fn initialize(&self, app: &FirebaseApp) {
         self.core.initialize(app);
     }
 
-    async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
-        self.core.get_token().await
+    fn get_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+        box_app_check_future(async move { self.core.get_token().await })
     }
 }
 
