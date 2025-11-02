@@ -181,6 +181,7 @@ where
     })
 }
 
+#[allow(dead_code)]
 #[cfg(test)]
 pub fn token_refresher(app: &AppCheck) -> Option<Refresher> {
     let app_name = app.app_name();
@@ -313,6 +314,8 @@ pub fn clear_state() {
     guard.clear();
 }
 
+// Used in api.rs tests.
+#[allow(dead_code)]
 #[cfg(test)]
 pub fn refresher_running(app: &AppCheck) -> bool {
     token_refresher(app)

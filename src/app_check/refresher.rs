@@ -102,7 +102,9 @@ impl Refresher {
         self.inner.running.store(false, Ordering::SeqCst);
     }
 
+    // Used in state.rs tests.
     #[cfg(test)]
+    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.inner.running.load(Ordering::SeqCst)
     }

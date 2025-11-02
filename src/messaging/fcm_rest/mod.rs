@@ -20,6 +20,7 @@ use std::time::Duration;
 ))]
 pub const FCM_API_URL: &str = "https://fcmregistrations.googleapis.com/v1";
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
@@ -39,6 +40,7 @@ pub struct FcmRegistrationRequest<'a> {
     pub subscription: FcmSubscription<'a>,
 }
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
@@ -58,6 +60,7 @@ pub struct FcmSubscription<'a> {
     pub application_pub_key: Option<&'a str>,
 }
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
@@ -98,6 +101,7 @@ compile_error!(
     "Building firebase-rs-sdk for wasm32 requires enabling the `wasm-web` feature for the messaging module."
 );
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
@@ -115,6 +119,7 @@ struct RegistrationRequestBody<'a> {
     web: RegistrationWebBody<'a>,
 }
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
@@ -149,7 +154,9 @@ struct RegistrationWebBody<'a> {
 )]
 #[derive(Deserialize)]
 struct FcmResponse {
+    #[allow(dead_code)]
     token: Option<String>,
+    #[allow(dead_code)]
     #[serde(default)]
     error: Option<FcmErrorBody>,
 }
@@ -167,9 +174,11 @@ struct FcmResponse {
 )]
 #[derive(Deserialize)]
 struct FcmErrorBody {
+    #[allow(dead_code)]
     message: String,
 }
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
@@ -192,6 +201,7 @@ fn build_body<'a>(subscription: &FcmSubscription<'a>) -> RegistrationRequestBody
     }
 }
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
@@ -210,6 +220,7 @@ fn map_subscribe_response(response: FcmResponse) -> MessagingResult<String> {
     response.token.ok_or_else(token_subscribe_no_token)
 }
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
@@ -228,6 +239,7 @@ fn map_update_response(response: FcmResponse) -> MessagingResult<String> {
     response.token.ok_or_else(token_update_no_token)
 }
 
+#[allow(dead_code)]
 #[cfg_attr(
     not(any(
         test,
