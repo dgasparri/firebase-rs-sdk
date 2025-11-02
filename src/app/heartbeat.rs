@@ -203,12 +203,16 @@ impl HeartbeatService for HeartbeatServiceImpl {
     }
 }
 
+
 pub struct InMemoryHeartbeatStorage {
     key: String,
 }
 
+
 impl InMemoryHeartbeatStorage {
+    // Used in test
     /// Builds an in-memory heartbeat store scoped to the provided app instance.
+    #[allow(dead_code)]
     pub fn new(app: &FirebaseApp) -> Self {
         let options = app.options();
         let key = format!("{}!{}", app.name(), options.app_id.unwrap_or_default());
