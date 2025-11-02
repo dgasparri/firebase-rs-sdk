@@ -412,3 +412,10 @@ major modules for a clear, detailed summary. I'll also double-check test updates
 
   The full cargo test suite still fails under the sandbox because httpmock cannot bind sockets; no new regressions were
   introduced by these changes.
+
+
+is the heartbeat feature implemented? Or do we still need to do something?
+
+> Heartbeat support is now in place: AppCheck grabs the shared heartbeat service, exposes heartbeat_header(), and
+  consumers use that to attach X-Firebase-Client. You don’t need to do more—full heartbeat parity with the JS SDK is
+  covered.
