@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use super::errors::{AppCheckError, AppCheckResult};
+use super::refresher::Refresher;
 use super::types::{
     AppCheck, AppCheckProvider, AppCheckState, AppCheckToken, AppCheckTokenListener,
     AppCheckTokenResult, ListenerHandle, ListenerType, TokenListenerEntry,
@@ -17,6 +18,9 @@ use crate::app_check::persistence::{load_token, save_token, subscribe, Persisted
 
 static STATES: LazyLock<Mutex<HashMap<Arc<str>, AppCheckState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(test)]
+pub static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn with_state_mut<F, R>(app_name: &Arc<str>, mut f: F) -> R
 where
@@ -95,9 +99,13 @@ pub fn provider(app: &AppCheck) -> Option<Arc<dyn AppCheckProvider>> {
     with_state(&app_name, |state| state.provider.clone())
 }
 
-pub fn current_token(app: &AppCheck) -> Option<AppCheckToken> {
+pub fn peek_token(app: &AppCheck) -> Option<AppCheckToken> {
     let app_name = app.app_name();
-    let token = with_state(&app_name, |state| state.token.clone());
+    with_state(&app_name, |state| state.token.clone())
+}
+
+pub fn current_token(app: &AppCheck) -> Option<AppCheckToken> {
+    let token = peek_token(app);
 
     #[cfg(all(
         feature = "wasm-web",
@@ -105,6 +113,7 @@ pub fn current_token(app: &AppCheck) -> Option<AppCheckToken> {
         feature = "experimental-indexed-db"
     ))]
     if token.is_none() {
+        let app_name = app.app_name();
         let app_name_clone = app_name.clone();
         wasm_bindgen_futures::spawn_local(async move {
             if let Ok(Some(persisted)) = load_token(app_name_clone.as_ref()).await {
@@ -149,22 +158,43 @@ pub fn set_auto_refresh(app: &AppCheck, enabled: bool) {
     });
 }
 
-pub(crate) fn replace_refresh_cancel(
-    app: &AppCheck,
-    cancel: Option<Arc<AtomicBool>>,
-) -> Option<Arc<AtomicBool>> {
-    let app_name = app.app_name();
-    with_state_mut(&app_name, |state| {
-        let previous = state.refresh_cancel.clone();
-        state.refresh_cancel = cancel.clone();
-        previous
-    })
-}
-
-#[allow(dead_code)]
 pub fn auto_refresh_enabled(app: &AppCheck) -> bool {
     let app_name = app.app_name();
     with_state(&app_name, |state| state.is_token_auto_refresh_enabled)
+}
+
+pub fn ensure_token_refresher<F>(app: &AppCheck, builder: F) -> Refresher
+where
+    F: FnOnce() -> Refresher,
+{
+    let app_name = app.app_name();
+    let mut builder = Some(builder);
+    with_state_mut(&app_name, |state| {
+        if let Some(refresher) = &state.token_refresher {
+            return refresher.clone();
+        }
+        let refresher = builder
+            .take()
+            .expect("token refresher builder already used")();
+        state.token_refresher = Some(refresher.clone());
+        refresher
+    })
+}
+
+#[cfg(test)]
+pub fn token_refresher(app: &AppCheck) -> Option<Refresher> {
+    let app_name = app.app_name();
+    with_state(&app_name, |state| state.token_refresher.clone())
+}
+
+pub fn clear_token_refresher(app: &AppCheck) {
+    let app_name = app.app_name();
+    with_state_mut(&app_name, |state| {
+        if let Some(refresher) = &state.token_refresher {
+            refresher.stop();
+        }
+        state.token_refresher = None;
+    });
 }
 
 pub fn add_listener(
@@ -220,6 +250,11 @@ fn persist_token_async(token: AppCheckToken, app_name: Arc<str>) {
                 .duration_since(UNIX_EPOCH)
                 .map(|duration| duration.as_millis() as u64)
                 .unwrap_or(0),
+            issued_at_time_ms: token
+                .issued_at
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_millis() as u64)
+                .unwrap_or(0),
         };
         let _ = save_token(app_name.as_ref(), &persisted).await;
     });
@@ -235,9 +270,11 @@ fn apply_persisted_token(app_name: Arc<str>, persisted: Option<PersistedToken>) 
 
     let maybe_token = persisted.map(|persisted| {
         let expiration = UNIX_EPOCH + Duration::from_millis(persisted.expire_time_ms);
+        let issued_at = UNIX_EPOCH + Duration::from_millis(persisted.issued_at_time_ms);
         AppCheckToken {
             token: persisted.token,
             expire_time: expiration,
+            issued_at,
         }
     });
 
@@ -264,7 +301,21 @@ fn apply_persisted_token(app_name: Arc<str>, persisted: Option<PersistedToken>) 
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn clear_state() {
-    STATES.lock().unwrap().clear();
+    let mut guard = STATES.lock().unwrap();
+    for state in guard.values_mut() {
+        if let Some(refresher) = &state.token_refresher {
+            refresher.stop();
+        }
+        state.token_refresher = None;
+    }
+    guard.clear();
+}
+
+#[cfg(test)]
+pub fn refresher_running(app: &AppCheck) -> bool {
+    token_refresher(app)
+        .map(|refresher| refresher.is_running())
+        .unwrap_or(false)
 }

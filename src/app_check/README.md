@@ -1,49 +1,39 @@
-# Firebase Firestore module
+# Firebase App Check module
 
-This module ports core pieces of the Firebase App Check SDK to Rust so applications can request, cache, and refresh attestation tokens that protect backend resources from abuse. It mirrors the JS SDK’s structure with an App Check façade, provider implementations, and internal wiring that other services (Firestore, Storage, etc.) can tap into via token providers.
+## Introduction
 
-It includes error handling, configuration options, and integration with Firebase apps.
-
-## Features
-
-- Initialize App Check for any FirebaseApp, choosing between the built-in reCAPTCHA providers or a custom provider callback.
-- Toggle automatic token refresh and listen for token updates through observer APIs.
-- Retrieve standard and limited-use App Check tokens on demand, receiving structured error details when attestation fails.
-- Bridge App Check tokens into dependent services via FirebaseAppCheckInternal::token_provider so HTTP clients can attach X-Firebase-AppCheck headers automatically.
-- Manage internal listeners (add/remove) and inspect cached token state for emulator or server-driven scenarios.
+This module ports Firebase App Check to Rust so client code can obtain, cache, and refresh attestation tokens that protect backend resources from abuse. The Rust port mirrors the modular JS SDK: it exposes an App Check façade, provider implementations, proactive refresh scheduling, IndexedDB persistence for wasm builds, and an internal bridge that other services (Firestore, Storage, etc.) can depend on.
 
 ## Porting status
 
-- app_check 30% `[###       ]`
+- app_check 60% `[######    ]`
 
-==As of October 20th, 2025== 
+Significant parity milestones are now in place: App Check registers with the component system, background refresh follows the JS proactive-refresh heuristics (issued/expiry timestamps, jitter, exponential backoff), tokens persist across reloads on wasm targets, and storage, analytics, and other modules can request App Check tokens via the shared internal provider. ReCAPTCHA flows, debug tooling, and heartbeat integration remain unported, but the primary token lifecycle is functional and covered by tests.
 
-Prompt: Compare the original JS/Typescript files in ./packages/app_check and the ported files in Rust in ./src/app_check, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust
+## Quick Start Example
 
-I'm estimating the Rust implementation covers about 25-30% of the JavaScript App Check API, with many core parts missing like storage, proactive refresh, and debug support. I'm breaking down major areas to check coverage, especially around token handling, providers, and internal bridging, while planning to verify component registration details next.
+```rust,no_run
+use firebase_rs_sdk::app::{initialize_app, FirebaseOptions};
+use firebase_rs_sdk::app_check::{initialize_app_check, custom_provider, token_with_ttl, AppCheckOptions};
+use std::sync::Arc;
+use std::time::Duration;
 
-Estimated coverage ≈30 % of the JS App Check SDK.
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    // Initialise a Firebase app (see the `app` module for full options).
+    let app = initialize_app(FirebaseOptions::default(), None).await.unwrap();
 
-  - Implemented pieces cover only the happy-path API surface: initialize_app_check, token fetch, limited-use fetch,
-  listener wiring, and manual auto-refresh toggling (src/app_check/api.rs:15, src/app_check/state.rs:37). Custom
-  providers work for synchronous token callbacks (src/app_check/providers.rs:8), and there’s an internal bridge so other
-  modules (e.g. Firestore) can treat App Check as a token provider (src/app_check/token_provider.rs:9, src/app_check/
-  interop.rs:1).
-  - All platform integrations that dominate the JS SDK are missing. There’s no component registration or service
-  factory equivalent to the JS wiring in packages/app-check/src/factory.ts:33 and _registerComponent calls, so other
-  modules cannot obtain App Check via the component system. Basic IndexedDB persistence now exists on wasm, but
-  richer storage helpers (debug-token storage, visibility-aware refresh cues) from packages/app-check/src/storage.ts:32,
-  packages/app-check/src/indexeddb.ts:1, and packages/app-check/src/debug.ts:1 remain unported.
-  - Proactive refresh, throttling, and visibility-aware backoff are absent: the scheduler and retry policy in packages/
-  app-check/src/proactive-refresh.ts:26 and the state-machine logic in packages/app-check/src/internal-api.ts:61 aren’t
-  ported, leaving set_token_auto_refresh_enabled as a no-op flag (src/app_check/state.rs:98).
-  - Provider support is skeletal. ReCAPTCHA providers immediately return “not implemented” errors (src/app_check/
-  providers.rs:77, src/app_check/providers.rs:100), while the JS versions perform token acquisition, throttling, and
-  heartbeat integration (packages/app-check/src/providers.ts:33). Debug-mode, emulator support, heartbeat usage, and
-  observer error channels defined across packages/app-check/src/api.ts:34, packages/app-check/src/client.ts:1, and
-  packages/app-check/src/util.ts:1 are missing entirely.
+    // Register a simple custom App Check provider.
+    let provider = custom_provider(|| token_with_ttl("dev-token", Duration::from_secs(300)));
+    let options = AppCheckOptions::new(provider);
+    let app_check = initialize_app_check(Some(app.clone()), options).await.unwrap();
 
-Given that only the minimal API shell and custom-provider plumbing exist while the JS module’s storage, refresh lifecycle, provider implementations, debug/emulator flows, and component factories are unported, a 20 % completion estimate is a reasonable upper bound.
+    // Fetch and refresh tokens as needed.
+    let token = app_check.get_token(false).await.expect("Could not get token");
+    println!("token={}", token.token);
+
+}
+```
 
 ## References to the Firebase JS SDK - firestore module
 
@@ -52,139 +42,38 @@ Given that only the minimal API shell and custom-provider plumbing exist while t
 - Github Repo - Module: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/app-check>
 - Github Repo - API: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/firebase/app-check>
 
-## Development status as of 14th October 2025
 
-- Core functionalities: Some implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check) for details)
-- Tests: 4 tests (passed)
-- Documentation: Some public functions are documented
-- Examples: None provided
 
-DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that it has no bugs or that it will work as intended.
+## Implemented
 
-## Example Usage
+- **Component registration & interop** (`api.rs`, `interop.rs`)
+  - Public and internal App Check components register with the Firebase component system so other services can obtain tokens via `FirebaseAppCheckInternal`.
+- **Token lifecycle management** (`state.rs`, `api.rs`)
+  - In-memory cache with listener management, limited-use token support, and graceful error propagation when refreshes fail but cached tokens remain valid.
+- **Proactive refresh scheduler** (`refresher.rs`, `api.rs`)
+  - Matches the JS `proactive-refresh` policy (midpoint + 5 min offset, exponential backoff, cancellation) and automatically starts/stops based on auto-refresh settings.
+- **Persistence & cross-tab broadcast** (`persistence.rs`)
+  - IndexedDB persistence for wasm builds now records issued and expiry timestamps and broadcasts token updates across tabs; native builds fall back to memory cache.
+- **Tests & tooling** (`api.rs`, `interop.rs`, `token_provider.rs`, `storage/service.rs`)
+  - Unit tests cover background refresh, cached-token error handling, internal listener wiring, and Storage integration; shared test helpers ensure state isolation.
 
-```rust,no_run
-use firebase_rs_sdk::app::*;
-use firebase_rs_sdk::app_check::*;
-use std::error::Error;
-use std::sync::Arc;
-use std::time::Duration;
+## Still to do
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn Error>> {
-    // Configure the Firebase project. Replace these placeholder values with your
-    // own Firebase configuration when running the sample against real services.
-    let options = FirebaseOptions {
-        api_key: Some("YOUR_WEB_API_KEY".into()),
-        project_id: Some("your-project-id".into()),
-        app_id: Some("1:1234567890:web:abcdef".into()),
-        ..Default::default()
-    };
+- Full reCAPTCHA v3/Enterprise client implementations (script bootstrap, throttling, heartbeat awareness).
+- Debug token developer mode, emulator toggles, and console logging parity.
+- Heartbeat integration and limited-use token exchange helpers from the JS internal API.
+- Web-specific visibility listeners and throttling heuristics (document visibility, pause on hidden tabs).
+- Broader provider catalogue (App Attest, SafetyNet) and wasm-friendly abstractions for platform bridges.
 
-    let settings = FirebaseAppSettings {
-        name: Some("app-check-demo".into()),
-        automatic_data_collection_enabled: Some(true),
-    };
+## Next steps – Detailed completion plan
 
-    let app = initialize_app(options, Some(settings)).await?;
-
-    // Create a simple provider that always returns the same demo token.
-    let provider = custom_provider(|| token_with_ttl("demo-app-check", Duration::from_secs(60)));
-    let options = AppCheckOptions::new(provider.clone()).with_auto_refresh(true);
-
-    let app_check = initialize_app_check(Some(app.clone()), options).await?;
-
-    // Enable or disable automatic background refresh.
-    set_token_auto_refresh_enabled(&app_check, true);
-
-    // Listen for token updates. The listener fires immediately with the cached token
-    // (if any) and then on subsequent refreshes.
-    let listener: AppCheckTokenListener = Arc::new(|result| {
-        if !result.token.is_empty() {
-            println!("Received App Check token: {}", result.token);
-        }
-        if let Some(error) = &result.error {
-            eprintln!("App Check token error: {error}");
-        }
-    });
-    let handle = add_token_listener(&app_check, listener, ListenerType::External)?;
-
-    // Retrieve the current token and a limited-use token.
-    let token = get_token(&app_check, false).await?;
-    println!("Immediate token fetch: {}", token.token);
-
-    let limited = get_limited_use_token(&app_check).await?;
-    println!("Limited-use token: {}", limited.token);
-
-    // Listener handles implement Drop and automatically unsubscribe, but you can
-    // explicitly disconnect if desired.
-    handle.unsubscribe();
-
-    delete_app(&app).await?;
-    Ok(())
-}
-```
-
-> **Runtime note:** The sample uses `tokio` for native async execution. For WASM targets, drive the futures with
-> `wasm-bindgen-futures::spawn_local` or host-specific executors instead of `tokio`.
-
-## What’s Implemented
-
-- **Public API surface** (`api.rs`)
-  - Registration of the App Check component, `initialize_app_check`, `get_token`, listener management, and
-    emulator toggles.
-- **Token state management** (`state.rs`)
-  - In-memory token cache with listener registration/unregistration and auto-refresh flags.
-- **Browser persistence** (`persistence.rs`)
-  - IndexedDB storage plus BroadcastChannel updates so App Check tokens survive reloads and propagate across tabs (no-ops on native targets or when the optional `experimental-indexed-db` feature is disabled).
-- **Providers** (`providers.rs`)
-  - Debug, reCAPTCHA, and limited-use provider scaffolding (mirroring factory wiring in JS) with placeholder behaviour.
-- **Interop surface** (`interop.rs`)
-  - Internal interfaces (`FirebaseAppCheckInternal`) to integrate with other services that depend on the internal
-    provider.
-- **Types & errors** (`types.rs`, `errors.rs`)
-  - Ported core enums, token/result structs, and error variants.
-- **Logging** (`logger.rs`)
-  - Simple logger wrapping the shared `app::LOGGER` for App Check–specific messages.
-
-This functionality allows registration of App Check providers, manual token fetching, and listener callbacks in line
-with the JS modular API, albeit without full refresh scheduling or storage guarantees.
-
-## Gaps vs `packages/app-check`
-
-Comparing to the TypeScript implementation reveals functionality that still needs to be ported:
-
-1. **Token storage & persistence**
-   - IndexedDB/localStorage-backed persistence (`indexeddb.ts`, `storage.ts`) is not implemented; tokens live only in
-     memory.
-2. **Proactive refresh**
-  - Refresh scheduler (`proactive-refresh.ts`) with exponential backoff and visibility listeners is missing.
-3. **Recaptcha flows**
-   - Full reCAPTCHA/enterprise client logic (`client.ts`, `recaptcha.ts`, widget management) is stubbed in the Rust
-     providers.
-4. **Debug token support**
-   - Debug token handling and storage is only partially mirrored (`debug.ts` behaviour not fully ported).
-5. **Internal API features**
-   - JS `internal-api.ts` includes bridge functions for limited-use tokens and heartbeat integration not yet ported.
-6. **Utility helpers**
-   - `util.ts` (e.g., caching helpers, canonicalization) and measurement logging are outstanding.
-7. **Tests**
-   - Port of the unit test suite covering token lifecycle, provider factories, and storage interactions is pending.
-
-## Next Steps
-
-1. **Refresh scheduler**
-   - Add proactive refresh logic with timer management, page visibility handling, and error retries. The current implementation only stubs the hook; actual scheduling is still pending.
-2. **Recaptcha clients**
-   - Complete reCAPTCHA provider implementations, including script injection, token exchange, and enterprise support.
-3. **Debug token flow**
-   - Mirror the JS debug token registration, persistence, and developer-mode warnings.
-4. **Internal API parity**
-   - Port limited-use token APIs, heartbeat wiring, and provider factory helpers from `internal-api.ts`/`factory.ts`.
-5. **Testing parity**
-   - Translate JS unit tests to Rust to cover refresh cycles, storage, and error paths.
-6. **Documentation/examples**
-   - Expand docs once the missing features land to show typical activation/refresh flows.
-
-Addressing these items will bring the Rust App Check module up to feature parity with the JavaScript SDK and ready other
-services to rely on its token guarantees.
+1. **Implement reCAPTCHA providers**
+   - Port `client.ts`/`recaptcha.ts`, including script injection, widget lifecycle, and throttling metadata; surface provider configuration errors through the Rust error enum.
+2. **Debug/emulator workflow**
+   - Persist debug tokens, expose APIs to toggle debug mode, and surface console hints mirroring `debug.ts`; ensure emulator host/port wiring is available to downstream services.
+3. **Heartbeat & internal API parity**
+   - Bridge heartbeat headers and limited-use token exchange helpers from `internal-api.ts`, aligning with services (Firestore, Storage) that expect those hooks.
+4. **Visibility-aware refresh controls**
+   - Add document visibility listeners on wasm targets and equivalent hooks for native platforms so refresh pauses/resumes follow the JS scheduler behaviour.
+5. **Expand tests & docs**
+   - Backfill the JS unit scenarios (refresh retry tables, storage integration failures) and extend rustdoc/README guidance, including wasm-specific notes and provider examples.

@@ -88,3 +88,134 @@ logger.rs,
   Given that only the minimal API shell and custom-provider plumbing exist while the JS module’s storage, refresh
   lifecycle, provider implementations, debug/emulator flows, and component factories are unported, a 20 % completion
   estimate is a reasonable upper bound.
+
+
+  ## 2 November 2025
+
+  Updated Plan
+  └ □ Map TypeScript features and design missing pieces to bring App Check port toward 60% coverage.
+    □ Implement App Check state/refresh updates (component registration, cached token loading, proactive refresh,
+      persistence metadata) with tests.
+    □ Document new functionality and update module README to reflect 60% completion.
+
+> Thinking
+  I’m organizing a detailed plan to implement a Refresher module that replicates the TypeScript logic for token
+  refreshing, including struct design, async handling, concurrency considerations across targets, integration with state
+  management, and handling auto-refresh activation tied to listeners. This involves defining futures, closures with
+  precise traits, and careful coordination with existing token loading and activation flows.
+
+  Addressing recursion and concurrency in token refresher implementation
+
+  I’m carefully planning how to avoid infinite loops and concurrency hazards when the refresher calls get_token, which
+  itself can start or interact with the refresher. To handle this, I’m considering separating token fetching logic into
+  internal functions that don’t start the refresher and structuring the refresher’s async operations to properly manage
+  errors and retries without recursion. I’m also outlining essential updates for token metadata, persistence, state
+  management, and API changes needed to integrate this refreshed token lifecycle smoothly.
+
+
+Updated Plan
+  └ □ Map TypeScript features and design missing pieces to bring App Check port toward 60% coverage.
+    □ Implement App Check state/refresh updates (component registration, cached token loading, proactive refresh,
+      persistence metadata) with tests.
+    □ Document new functionality and update module README to reflect 60% completion.
+
+> Thinking
+  I’m organizing a detailed plan to implement a Refresher module that replicates the TypeScript logic for token
+  refreshing, including struct design, async handling, concurrency considerations across targets, integration with state
+  management, and handling auto-refresh activation tied to listeners. This involves defining futures, closures with
+  precise traits, and careful coordination with existing token loading and activation flows.
+
+  Addressing recursion and concurrency in token refresher implementation
+
+  I’m carefully planning how to avoid infinite loops and concurrency hazards when the refresher calls get_token, which
+  itself can start or interact with the refresher. To handle this, I’m considering separating token fetching logic into
+  internal functions that don’t start the refresher and structuring the refresher’s async operations to properly manage
+  errors and retries without recursion. I’m also outlining essential updates for token metadata, persistence, state
+  management, and API changes needed to integrate this refreshed token lifecycle smoothly.
+
+
+ Thinking
+  I see some files like scripts/update_rustdoc.py and src/RUSTDOC.md were changed unexpectedly, likely due to formatting
+  tools like cargo fmt. I want to verify these edits weren’t from our work and confirm that we leave those untouched
+  since they might have been dirty before. I'll focus the final summary on our actual code changes, mention running
+  tests, the new helper functions and module, and note these unrelated preexisting modifications. I'll also update the
+  plan's final step covering the documentation updates.
+
+• Updated Plan
+  └ ✔ Map TypeScript features and design missing pieces to bring App Check port toward 60% coverage.
+    ✔ Implement App Check state/refresh updates (component registration, cached token loading, proactive refresh,
+      persistence metadata) with tests.
+    ✔ Document new functionality and update module README to reflect 60% completion.
+
+> Thinking
+  I'll prepare a clear final summary highlighting key code changes across several files, document updates, and tests run
+  with cargo. I’ll also outline next steps including reCAPTCHA and mention new test helpers to keep everything organized
+  and informative.
+
+> - Refreshed the App Check runtime: component registration now mirrors the JS factory/interop wiring, background
+  refresh follows the JS proactive-refresh heuristics, cached tokens capture issued/expiry metadata, and new helpers
+  keep test state isolated (src/app_check/api.rs, src/app_check/state.rs, src/app_check/refresher.rs).
+  - Persistence now records issued times and broadcasts updates, and cross-module tests (App Check + Storage) were
+  updated to respect the shared App Check registry (src/app_check/persistence.rs, src/storage/service.rs).
+  - Expanded documentation: public APIs gained rustdoc coverage, a dedicated README overhauled to reflect 60 % parity,
+  and tests were augmented to cover refresh failure handling and listener bridging (src/app_check/README.md, src/
+  app_check/api.rs, src/app_check/interop.rs).
+  - Tests: cargo test app_check -- --nocapture
+  - Next steps: 1) Port full reCAPTCHA v3/Enterprise providers (script bootstrap, throttling, heartbeat) so
+  recaptcha_*_provider stop stubbing errors. 2) Implement debug/emulator flows and heartbeat integration from the JS
+  internal API, then extend the test suite to cover those scenarios.
+
+▌ Summarize recent commits 
+
+
+
+ Thinking
+  I see some files like scripts/update_rustdoc.py and src/RUSTDOC.md were changed unexpectedly, likely due to formatting
+  tools like cargo fmt. I want to verify these edits weren’t from our work and confirm that we leave those untouched
+  since they might have been dirty before. I'll focus the final summary on our actual code changes, mention running
+  tests, the new helper functions and module, and note these unrelated preexisting modifications. I'll also update the
+  plan's final step covering the documentation updates.
+
+• Updated Plan
+  └ ✔ Map TypeScript features and design missing pieces to bring App Check port toward 60% coverage.
+    ✔ Implement App Check state/refresh updates (component registration, cached token loading, proactive refresh,
+      persistence metadata) with tests.
+    ✔ Document new functionality and update module README to reflect 60% completion.
+
+> Thinking
+  I'll prepare a clear final summary highlighting key code changes across several files, document updates, and tests run
+  with cargo. I’ll also outline next steps including reCAPTCHA and mention new test helpers to keep everything organized
+  and informative.
+
+> - Refreshed the App Check runtime: component registration now mirrors the JS factory/interop wiring, background
+  refresh follows the JS proactive-refresh heuristics, cached tokens capture issued/expiry metadata, and new helpers
+  keep test state isolated (src/app_check/api.rs, src/app_check/state.rs, src/app_check/refresher.rs).
+  - Persistence now records issued times and broadcasts updates, and cross-module tests (App Check + Storage) were
+  updated to respect the shared App Check registry (src/app_check/persistence.rs, src/storage/service.rs).
+  - Expanded documentation: public APIs gained rustdoc coverage, a dedicated README overhauled to reflect 60 % parity,
+  and tests were augmented to cover refresh failure handling and listener bridging (src/app_check/README.md, src/
+  app_check/api.rs, src/app_check/interop.rs).
+  - Tests: cargo test app_check -- --nocapture
+  - Next steps: 1) Port full reCAPTCHA v3/Enterprise providers (script bootstrap, throttling, heartbeat) so
+  recaptcha_*_provider stop stubbing errors. 2) Implement debug/emulator flows and heartbeat integration from the JS
+  internal API, then extend the test suite to cover those scenarios.
+
+▌ Summarize recent commits 
+
+From readme, what is heartbeat?
+"nd storage, analytics, and other modules can request App Check tokens via the shared internal provider. ReCAPTCHA flows, debug tooling, and heartbeat integration remain unported, but the primary token lifecycle is functional and covered by tests."
+
+
+cargo test --target wasm32-unknown-unknown --features wasm-web --test wasm_smoke
+running cargo test --target wasm32-unknown-unknown --features wasm-web:
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 filtered out; finished in 0.00s
+     Running tests\wasm_smoke.rs (target\wasm32-unknown-unknown\debug\deps\wasm_smoke-f90073fcb9941bb6.wasm)
+Running headless tests in Firefox on `http://127.0.0.1:56826/`
+Try find `webdriver.json` for configure browser's capabilities:
+Not found
+Waiting for test to finish...
+It freezes, the CPU is not running,
+
+    let app_check = initialize_app_check(Some(app.clone()), options)
+        .await
+        .expect("initialize app check");

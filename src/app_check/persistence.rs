@@ -39,6 +39,7 @@ mod wasm {
     pub struct PersistedToken {
         pub token: String,
         pub expire_time_ms: u64,
+        pub issued_at_time_ms: u64,
     }
 
     impl From<PersistedToken> for AppCheckTokenResult {
@@ -197,6 +198,7 @@ mod wasm {
             PersistedToken {
                 token: value.to_string(),
                 expire_time_ms: ttl_ms,
+                issued_at_time_ms: 0,
             }
         }
 
@@ -236,6 +238,7 @@ mod wasm_stub {
     pub struct PersistedToken {
         pub token: String,
         pub expire_time_ms: u64,
+        pub issued_at_time_ms: u64,
     }
 
     impl From<PersistedToken> for AppCheckTokenResult {
@@ -298,6 +301,7 @@ mod native {
     pub struct PersistedToken {
         pub token: String,
         pub expire_time_ms: u64,
+        pub issued_at_time_ms: u64,
     }
 
     impl From<PersistedToken> for AppCheckTokenResult {

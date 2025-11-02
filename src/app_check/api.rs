@@ -1,13 +1,22 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
+use crate::app::registry;
 use crate::app::{get_app, AppError, FirebaseApp};
-use crate::platform::runtime::{sleep as runtime_sleep, spawn_detached};
+use crate::component::types::{
+    ComponentError, ComponentType, DynService, InstanceFactoryOptions, InstantiationMode,
+};
+use crate::component::{Component, ComponentContainer};
+use futures::FutureExt;
+#[cfg(test)]
+use std::sync::MutexGuard;
 
 use super::errors::{AppCheckError, AppCheckResult};
+use super::interop::FirebaseAppCheckInternal;
 use super::logger::LOGGER;
 use super::providers::{CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider};
+use super::refresher::Refresher;
 use super::state;
 use super::time::system_time_now;
 use super::types::{
@@ -15,10 +24,101 @@ use super::types::{
     AppCheckTokenResult, ListenerHandle, ListenerType,
 };
 
+const TOKEN_REFRESH_OFFSET: Duration = Duration::from_secs(5 * 60);
+const TOKEN_RETRY_MIN_WAIT: Duration = Duration::from_secs(30);
+const TOKEN_RETRY_MAX_WAIT: Duration = Duration::from_secs(16 * 60);
+
+struct AppCheckRegistryEntry {
+    app_check: AppCheck,
+    internal: FirebaseAppCheckInternal,
+}
+
+static REGISTRY: LazyLock<Mutex<HashMap<Arc<str>, AppCheckRegistryEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static APP_CHECK_COMPONENT: LazyLock<()> = LazyLock::new(|| {
+    let component = Component::new(
+        super::types::APP_CHECK_COMPONENT_NAME,
+        Arc::new(app_check_factory),
+        ComponentType::Public,
+    )
+    .with_instantiation_mode(InstantiationMode::Explicit);
+    let _ = registry::register_component(component);
+});
+
+static APP_CHECK_INTERNAL_COMPONENT: LazyLock<()> = LazyLock::new(|| {
+    let component = Component::new(
+        super::types::APP_CHECK_INTERNAL_COMPONENT_NAME,
+        Arc::new(app_check_internal_factory),
+        ComponentType::Private,
+    )
+    .with_instantiation_mode(InstantiationMode::Explicit);
+    let _ = registry::register_component(component);
+});
+
+fn ensure_components_registered() {
+    LazyLock::force(&APP_CHECK_COMPONENT);
+    LazyLock::force(&APP_CHECK_INTERNAL_COMPONENT);
+}
+
+fn app_check_factory(
+    container: &ComponentContainer,
+    _options: InstanceFactoryOptions,
+) -> Result<DynService, ComponentError> {
+    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
+        ComponentError::InitializationFailed {
+            name: super::types::APP_CHECK_COMPONENT_NAME.to_string(),
+            reason: "Firebase app not attached to component container".to_string(),
+        }
+    })?;
+    let app_name: Arc<str> = Arc::from(app.name().to_owned());
+    let service = REGISTRY
+        .lock()
+        .unwrap()
+        .get(&app_name)
+        .map(|entry| entry.app_check.clone())
+        .ok_or_else(|| ComponentError::InitializationFailed {
+            name: super::types::APP_CHECK_COMPONENT_NAME.to_string(),
+            reason: "App Check has not been initialized".to_string(),
+        })?;
+    Ok(Arc::new(service) as DynService)
+}
+
+fn app_check_internal_factory(
+    container: &ComponentContainer,
+    _options: InstanceFactoryOptions,
+) -> Result<DynService, ComponentError> {
+    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
+        ComponentError::InitializationFailed {
+            name: super::types::APP_CHECK_INTERNAL_COMPONENT_NAME.to_string(),
+            reason: "Firebase app not attached to component container".to_string(),
+        }
+    })?;
+    let app_name: Arc<str> = Arc::from(app.name().to_owned());
+    let internal = REGISTRY
+        .lock()
+        .unwrap()
+        .get(&app_name)
+        .map(|entry| entry.internal.clone())
+        .ok_or_else(|| ComponentError::InitializationFailed {
+            name: super::types::APP_CHECK_INTERNAL_COMPONENT_NAME.to_string(),
+            reason: "App Check has not been initialized".to_string(),
+        })?;
+    Ok(Arc::new(internal) as DynService)
+}
+
+/// Registers Firebase App Check for the given app using the supplied options.
+///
+/// Mirrors `initializeAppCheck` from the JS SDK (`packages/app-check/src/api.ts`).
+/// Components are registered with the Firebase container, cached tokens are
+/// restored when persistence is available, and the proactive refresh policy is
+/// configured based on the provided options.
 pub async fn initialize_app_check(
     app: Option<FirebaseApp>,
     options: AppCheckOptions,
 ) -> AppCheckResult<AppCheck> {
+    ensure_components_registered();
+
     let app = if let Some(app) = app {
         app
     } else {
@@ -35,41 +135,90 @@ pub async fn initialize_app_check(
         }
     };
 
-    let app_check = AppCheck::new(app.clone());
-
     let provider = options.provider.clone();
-    let auto_refresh = options
+    let requested_auto_refresh = options
         .is_token_auto_refresh_enabled
         .unwrap_or_else(|| app.automatic_data_collection_enabled());
+    let final_auto_refresh = if requested_auto_refresh && !app.automatic_data_collection_enabled() {
+        if matches!(options.is_token_auto_refresh_enabled, Some(true)) {
+            LOGGER.warn(
+                "`isTokenAutoRefreshEnabled` is true but `automaticDataCollectionEnabled` was set to false during `initialize_app()`. This blocks automatic token refresh.",
+            );
+        }
+        false
+    } else {
+        requested_auto_refresh
+    };
 
-    state::ensure_activation(&app_check, provider.clone(), auto_refresh)?;
+    let app_name: Arc<str> = Arc::from(app.name().to_owned());
 
+    if let Some(entry) = REGISTRY.lock().unwrap().get(&app_name) {
+        if !state::is_activated(&entry.app_check) {
+            state::ensure_activation(&entry.app_check, provider.clone(), final_auto_refresh)?;
+            provider.initialize(&app);
+            if final_auto_refresh {
+                maybe_start_refresher(&entry.app_check);
+            }
+            return Ok(entry.app_check.clone());
+        }
+        if let Some(current) = state::provider(&entry.app_check) {
+            if !Arc::ptr_eq(&current, &provider) {
+                return Err(AppCheckError::AlreadyInitialized {
+                    app_name: app.name().to_owned(),
+                });
+            }
+        }
+        if state::auto_refresh_enabled(&entry.app_check) != final_auto_refresh {
+            return Err(AppCheckError::AlreadyInitialized {
+                app_name: app.name().to_owned(),
+            });
+        }
+        return Ok(entry.app_check.clone());
+    }
+
+    let app_check = AppCheck::new(app.clone());
+    state::ensure_activation(&app_check, provider.clone(), final_auto_refresh)?;
     provider.initialize(&app);
 
-    if auto_refresh {
+    let internal = FirebaseAppCheckInternal::new(app_check.clone());
+    REGISTRY.lock().unwrap().insert(
+        app_name.clone(),
+        AppCheckRegistryEntry {
+            app_check: app_check.clone(),
+            internal,
+        },
+    );
+
+    if final_auto_refresh {
         LOGGER.debug("App Check auto-refresh enabled");
-        if let Some(token) = state::current_token(&app_check) {
-            schedule_token_refresh(&app_check, &token);
-        }
-    } else {
-        cancel_scheduled_refresh(&app_check);
+        maybe_start_refresher(&app_check);
     }
 
     Ok(app_check)
 }
 
+/// Enables or disables proactive App Check token refresh.
+///
+/// Equivalent to `setTokenAutoRefreshEnabled` in the JS SDK. When enabled the
+/// refresh scheduler follows the same midpoint + offset heuristics as
+/// `proactive-refresh.ts`; disabling stops the background task and future calls
+/// to [`get_token`] will fetch on demand.
 pub fn set_token_auto_refresh_enabled(app_check: &AppCheck, enabled: bool) {
     state::set_auto_refresh(app_check, enabled);
     if enabled {
         LOGGER.debug("App Check auto-refresh toggled on");
-        if let Some(token) = state::current_token(app_check) {
-            schedule_token_refresh(app_check, &token);
-        }
+        maybe_start_refresher(app_check);
     } else {
-        cancel_scheduled_refresh(app_check);
+        state::clear_token_refresher(app_check);
     }
 }
 
+/// Returns the current App Check token, optionally forcing a refresh.
+///
+/// Mirrors `getToken` from `packages/app-check/src/internal-api.ts`. When a
+/// cached token is still valid it is returned immediately; refresh failures are
+/// surfaced via the `internal_error` field while keeping the last valid token
+/// available to callers.
 pub async fn get_token(
     app_check: &AppCheck,
     force_refresh: bool,
@@ -80,8 +229,9 @@ pub async fn get_token(
         });
     }
 
+    let cached = state::current_token(app_check);
     if !force_refresh {
-        if let Some(token) = state::current_token(app_check) {
+        if let Some(token) = cached.clone() {
             if !token.is_expired() {
                 return Ok(AppCheckTokenResult::from_token(token));
             }
@@ -93,11 +243,30 @@ pub async fn get_token(
             app_name: app_check.app().name().to_owned(),
         })?;
 
-    let token = provider.get_token().await?;
-    state::store_token(app_check, token.clone());
-    Ok(AppCheckTokenResult::from_token(token))
+    match provider.get_token().await {
+        Ok(token) => {
+            state::store_token(app_check, token.clone());
+            Ok(AppCheckTokenResult::from_token(token))
+        }
+        Err(err) => {
+            if let Some(token) = cached {
+                if !token.is_expired() {
+                    return Ok(AppCheckTokenResult {
+                        token: token.token,
+                        error: None,
+                        internal_error: Some(err),
+                    });
+                }
+            }
+            Err(err)
+        }
+    }
 }
 
+/// Fetches a limited-use App Check token from the underlying provider.
+///
+/// Equivalent to `getLimitedUseToken` in the JS SDK. Limited-use tokens always
+/// hit the provider (or debug endpoint) and do not touch the cached state.
 pub async fn get_limited_use_token(app_check: &AppCheck) -> AppCheckResult<AppCheckTokenResult> {
     if !state::is_activated(app_check) {
         return Err(AppCheckError::UseBeforeActivation {
@@ -114,6 +283,10 @@ pub async fn get_limited_use_token(app_check: &AppCheck) -> AppCheckResult<AppCh
     Ok(AppCheckTokenResult::from_token(token))
 }
 
+/// Adds a listener that is notified whenever the cached token changes.
+///
+/// Behaviour matches the JS `addTokenListener` helper: listeners receive an
+/// immediate callback when a valid token is already cached.
 pub fn add_token_listener(
     app_check: &AppCheck,
     listener: AppCheckTokenListener,
@@ -131,14 +304,22 @@ pub fn add_token_listener(
         listener(&AppCheckTokenResult::from_token(token));
     }
 
+    if state::auto_refresh_enabled(app_check) {
+        maybe_start_refresher(app_check);
+    }
+
     Ok(handle)
 }
 
+/// Removes a listener previously registered via [`add_token_listener`].
 pub fn remove_token_listener(handle: ListenerHandle) {
     handle.unsubscribe();
 }
 
-// Helper constructors for simple providers.
+/// Builds a custom App Check provider from a synchronous callback.
+/// 
+/// Useful for emulators or bespoke attestation strategies. Mirrors the JS
+/// `CustomProvider` helper (`packages/app-check/src/providers.ts`).
 pub fn custom_provider<F>(callback: F) -> Arc<dyn AppCheckProvider>
 where
     F: Fn() -> AppCheckResult<AppCheckToken> + Send + Sync + 'static,
@@ -146,70 +327,132 @@ where
     Arc::new(CustomProvider::new(callback))
 }
 
+/// Placeholder ReCAPTCHA v3 provider (currently returns `ProviderError`).
 pub fn recaptcha_v3_provider(site_key: impl Into<String>) -> Arc<dyn AppCheckProvider> {
     Arc::new(ReCaptchaV3Provider::new(site_key.into()))
 }
 
+/// Placeholder ReCAPTCHA Enterprise provider (returns `ProviderError`).
 pub fn recaptcha_enterprise_provider(site_key: impl Into<String>) -> Arc<dyn AppCheckProvider> {
     Arc::new(ReCaptchaEnterpriseProvider::new(site_key.into()))
 }
 
-// Convenience helper to build AppCheck tokens for custom providers.
+/// Convenience helper that constructs an [`AppCheckToken`] from a raw token string and TTL.
 pub fn token_with_ttl(token: impl Into<String>, ttl: Duration) -> AppCheckResult<AppCheckToken> {
     AppCheckToken::with_ttl(token, ttl)
 }
 
-const REFRESH_DRIFT: Duration = Duration::from_secs(60);
-
-pub(super) fn on_token_stored(app_check: &AppCheck, token: &AppCheckToken) {
-    schedule_token_refresh(app_check, token);
+pub(super) fn on_token_stored(app_check: &AppCheck, _token: &AppCheckToken) {
+    maybe_start_refresher(app_check);
 }
 
-fn schedule_token_refresh(app_check: &AppCheck, token: &AppCheckToken) {
+fn ensure_refresher(app_check: &AppCheck) -> Refresher {
+    state::ensure_token_refresher(app_check, || {
+        let app_clone = app_check.clone();
+        let operation = Arc::new(move || {
+            let app = app_clone.clone();
+            let future = async move {
+                let has_token = state::peek_token(&app).is_some();
+                let result = if has_token {
+                    get_token(&app, true).await
+                } else {
+                    get_token(&app, false).await
+                };
+
+                match result {
+                    Ok(result) => {
+                        if result.error.is_some() || result.internal_error.is_some() {
+                            Err(AppCheckError::TokenFetchFailed {
+                                message: "token refresh signalled an error".into(),
+                            })
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    Err(err) => Err(err),
+                }
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                future.boxed()
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                future.boxed_local()
+            }
+        });
+
+        let wait = Arc::new({
+            let app = app_check.clone();
+            move || compute_refresh_delay(&app)
+        });
+
+        Refresher::new(
+            operation,
+            Arc::new(|_| true),
+            wait,
+            TOKEN_RETRY_MIN_WAIT,
+            TOKEN_RETRY_MAX_WAIT,
+        )
+    })
+}
+
+fn maybe_start_refresher(app_check: &AppCheck) {
     if !state::auto_refresh_enabled(app_check) {
-        cancel_scheduled_refresh(app_check);
         return;
     }
+    let refresher = ensure_refresher(app_check);
+    refresher.start();
+}
 
-    let now = system_time_now();
-    let mut delay = match token.expire_time.duration_since(now) {
-        Ok(duration) => duration,
-        Err(_) => Duration::from_secs(0),
+fn compute_refresh_delay(app_check: &AppCheck) -> Duration {
+    let Some(token) = state::peek_token(app_check) else {
+        return Duration::ZERO;
     };
 
-    if delay > REFRESH_DRIFT {
-        delay -= REFRESH_DRIFT;
+    let now = system_time_now();
+    let ttl = token
+        .expire_time
+        .duration_since(token.issued_at)
+        .unwrap_or(Duration::ZERO);
+    let half_ttl_millis = ttl.as_millis() / 2;
+    let half_ttl = Duration::from_millis(half_ttl_millis as u64);
+
+    let mid_refresh = token
+        .issued_at
+        .checked_add(half_ttl)
+        .and_then(|ts| ts.checked_add(TOKEN_REFRESH_OFFSET))
+        .unwrap_or(token.expire_time);
+    let latest = token
+        .expire_time
+        .checked_sub(TOKEN_REFRESH_OFFSET)
+        .unwrap_or(token.expire_time);
+
+    let target = if mid_refresh <= latest {
+        mid_refresh
     } else {
-        LOGGER.debug("App Check token TTL too short for auto-refresh; skipping scheduling");
-        cancel_scheduled_refresh(app_check);
-        return;
+        latest
+    };
+
+    match target.duration_since(now) {
+        Ok(duration) => duration,
+        Err(_) => Duration::ZERO,
     }
-
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    if let Some(previous) = state::replace_refresh_cancel(app_check, Some(cancel_flag.clone())) {
-        previous.store(true, Ordering::SeqCst);
-    }
-
-    let app_clone = app_check.clone();
-    spawn_detached(async move {
-        if !delay.is_zero() {
-            runtime_sleep(delay).await;
-        }
-
-        if cancel_flag.load(Ordering::SeqCst) {
-            return;
-        }
-
-        if let Err(err) = get_token(&app_clone, true).await {
-            LOGGER.warn(format!("Background App Check token refresh failed: {err}"));
-        }
-    });
 }
 
-fn cancel_scheduled_refresh(app_check: &AppCheck) {
-    if let Some(flag) = state::replace_refresh_cancel(app_check, None) {
-        flag.store(true, Ordering::SeqCst);
-    }
+#[cfg(test)]
+pub(crate) fn clear_registry() {
+    REGISTRY.lock().unwrap().clear();
+}
+
+#[cfg(test)]
+pub(crate) fn clear_state_for_tests() {
+    state::clear_state();
+}
+
+#[cfg(test)]
+pub(crate) fn test_guard() -> MutexGuard<'static, ()> {
+    state::TEST_GUARD.lock().unwrap()
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -218,6 +461,7 @@ mod tests {
     use crate::app::api::delete_app;
     use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
     use crate::component::ComponentContainer;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn test_app(name: &str, automatic_data_collection_enabled: bool) -> FirebaseApp {
         FirebaseApp::new(
@@ -227,26 +471,81 @@ mod tests {
         )
     }
 
+    #[derive(Clone)]
+    struct FlakyProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl AppCheckProvider for FlakyProvider {
+        async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
+            let idx = self.calls.fetch_add(1, Ordering::SeqCst);
+            if idx == 0 {
+                token_with_ttl("initial", Duration::from_secs(600))
+            } else {
+                Err(AppCheckError::TokenFetchFailed {
+                    message: "network".into(),
+                })
+            }
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
-    async fn short_ttl_tokens_do_not_schedule_refresh() {
-        let app = test_app("short-ttl", true);
-        let provider = custom_provider(|| token_with_ttl("token", Duration::from_secs(30)));
+    async fn cached_token_surfaces_internal_error() {
+        let _guard = test_guard();
+        clear_state_for_tests();
+        clear_registry();
+        let app = test_app("flaky", true);
+        let provider = Arc::new(FlakyProvider {
+            calls: Arc::new(AtomicUsize::new(0)),
+        });
         let options = AppCheckOptions::new(provider);
         let app_check = initialize_app_check(Some(app.clone()), options)
             .await
             .expect("initialize app check");
 
-        let result = get_token(&app_check, false).await.expect("get token");
-        assert_eq!(result.token, "token");
+        let first = get_token(&app_check, false).await.expect("first token");
+        assert_eq!(first.token, "initial");
 
-        let scheduled = state::replace_refresh_cancel(&app_check, None);
-        assert!(
-            scheduled.is_none(),
-            "expected no refresh task to be scheduled"
-        );
+        let second = get_token(&app_check, true).await.expect("second token");
+        assert_eq!(second.token, "initial");
+        assert!(second.internal_error.is_some());
 
-        // Restore original state to avoid side effects for subsequent tests.
-        state::set_auto_refresh(&app_check, false);
         delete_app(&app).await.expect("delete app");
+        clear_state_for_tests();
+        clear_registry();
+    }
+
+    #[derive(Clone)]
+    struct StaticProvider;
+
+    #[async_trait::async_trait]
+    impl AppCheckProvider for StaticProvider {
+        async fn get_token(&self) -> AppCheckResult<AppCheckToken> {
+            token_with_ttl("token", Duration::from_secs(600))
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn auto_refresh_can_be_toggled() {
+        let _guard = test_guard();
+        clear_state_for_tests();
+        clear_registry();
+        let app = test_app("auto", true);
+        let provider = Arc::new(StaticProvider);
+        let options = AppCheckOptions::new(provider).with_auto_refresh(true);
+        let app_check = initialize_app_check(Some(app.clone()), options)
+            .await
+            .expect("initialize app check");
+
+        let _ = get_token(&app_check, false).await.expect("token fetch");
+        assert!(state::refresher_running(&app_check));
+
+        set_token_auto_refresh_enabled(&app_check, false);
+        assert!(!state::refresher_running(&app_check));
+
+        delete_app(&app).await.expect("delete app");
+        clear_state_for_tests();
+        clear_registry();
     }
 }

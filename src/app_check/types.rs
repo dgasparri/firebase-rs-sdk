@@ -16,6 +16,7 @@ use crate::util::{PartialObserver, Unsubscribe};
 use crate::app_check::persistence::BroadcastSubscription;
 
 use super::errors::{AppCheckError, AppCheckResult};
+use super::refresher::Refresher;
 use super::time::system_time_now;
 
 pub const APP_CHECK_COMPONENT_NAME: &str = "appCheck";
@@ -25,6 +26,7 @@ pub const APP_CHECK_INTERNAL_COMPONENT_NAME: &str = "app-check-internal";
 pub struct AppCheckToken {
     pub token: String,
     pub expire_time: SystemTime,
+    pub issued_at: SystemTime,
 }
 
 impl AppCheckToken {
@@ -33,12 +35,14 @@ impl AppCheckToken {
     }
 
     pub fn with_ttl(token: impl Into<String>, ttl: Duration) -> AppCheckResult<Self> {
-        let expire_time = system_time_now().checked_add(ttl).ok_or_else(|| {
+        let issued_at = system_time_now();
+        let expire_time = issued_at.checked_add(ttl).ok_or_else(|| {
             AppCheckError::Internal("failed to compute token expiration".to_string())
         })?;
         Ok(Self {
             token: token.into(),
             expire_time,
+            issued_at,
         })
     }
 }
@@ -260,7 +264,7 @@ pub(crate) struct AppCheckState {
         feature = "experimental-indexed-db"
     ))]
     pub broadcast_handle: Option<BroadcastSubscription>,
-    pub refresh_cancel: Option<Arc<AtomicBool>>,
+    pub token_refresher: Option<Refresher>,
 }
 
 impl AppCheckState {
@@ -277,7 +281,7 @@ impl AppCheckState {
                 feature = "experimental-indexed-db"
             ))]
             broadcast_handle: None,
-            refresh_cancel: None,
+            token_refresher: None,
         }
     }
 }

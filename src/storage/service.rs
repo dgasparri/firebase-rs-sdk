@@ -324,7 +324,9 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use crate::app_check::api::{initialize_app_check, token_with_ttl};
+    use crate::app_check::api::{
+        clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
+    };
     use crate::app_check::{AppCheckOptions, AppCheckProvider, AppCheckToken};
     use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions};
     use crate::component::{Component, ComponentType};
@@ -453,6 +455,9 @@ mod tests {
 
     #[tokio::test]
     async fn prepare_request_includes_app_check_header_when_available() {
+        let _guard = test_guard();
+        clear_state_for_tests();
+        clear_registry();
         let storage = build_storage_with(|app| {
             let app = app.clone();
             async move { register_app_check(&app).await }
@@ -464,5 +469,8 @@ mod tests {
             prepared.headers.get("X-Firebase-AppCheck"),
             Some(&"app-check-token".to_string())
         );
+
+        clear_state_for_tests();
+        clear_registry();
     }
 }

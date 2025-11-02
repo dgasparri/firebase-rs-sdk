@@ -71,7 +71,9 @@ impl FirebaseAppCheckInternal {
 mod tests {
     use super::*;
     use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
-    use crate::app_check::api::{initialize_app_check, token_with_ttl};
+    use crate::app_check::api::{
+        clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
+    };
     use crate::app_check::types::{AppCheckOptions, AppCheckProvider, AppCheckToken};
     use crate::component::ComponentContainer;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -100,6 +102,8 @@ mod tests {
     }
 
     async fn setup_internal(name: &str) -> FirebaseAppCheckInternal {
+        clear_state_for_tests();
+        clear_registry();
         let app = test_app(name);
         let provider = Arc::new(TestProvider);
         let options = AppCheckOptions::new(provider);
@@ -111,6 +115,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn get_token_returns_value() {
+        let _guard = test_guard();
         let internal = setup_internal("app-check-internal-test").await;
         let result = internal.get_token(false).await.unwrap();
         assert_eq!(result.token, "token");
@@ -118,6 +123,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn listener_receives_updates_and_can_be_removed() {
+        let _guard = test_guard();
         let internal = setup_internal("app-check-listener-test").await;
         let counter = Arc::new(AtomicUsize::new(0));
         let listener: AppCheckInternalListener = {

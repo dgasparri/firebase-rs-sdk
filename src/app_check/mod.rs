@@ -6,6 +6,7 @@ mod logger;
 #[cfg(feature = "wasm-web")]
 mod persistence;
 mod providers;
+mod refresher;
 mod state;
 mod time;
 #[cfg(feature = "firestore")]
