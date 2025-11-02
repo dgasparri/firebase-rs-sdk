@@ -203,11 +203,9 @@ impl HeartbeatService for HeartbeatServiceImpl {
     }
 }
 
-
 pub struct InMemoryHeartbeatStorage {
     key: String,
 }
-
 
 impl InMemoryHeartbeatStorage {
     // Used in test

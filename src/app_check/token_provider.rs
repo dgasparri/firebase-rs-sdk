@@ -49,24 +49,25 @@ impl Clone for AppCheckTokenProvider {
 impl TokenProvider for AppCheckTokenProvider {
     async fn get_token(&self) -> FirestoreResult<Option<String>> {
         let force_refresh = self.force_refresh.swap(false, Ordering::SeqCst);
-        let result = self
-            .app_check
-            .get_token(force_refresh)
-            .await
-            .map_err(map_app_check_error)?;
-
-        if let Some(error) = result.error {
-            return Err(map_app_check_error(error));
-        }
-
-        if let Some(error) = result.internal_error {
-            return Err(internal_error(error.to_string()));
-        }
-
-        if result.token.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(result.token))
+        match self.app_check.get_token(force_refresh).await {
+            Ok(result) => {
+                if result.token.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(result.token))
+                }
+            }
+            Err(err) => {
+                if let Some(cached) = err.cached_token() {
+                    if cached.token.is_empty() {
+                        Ok(None)
+                    } else {
+                        Ok(Some(cached.token.clone()))
+                    }
+                } else {
+                    Err(map_app_check_error(err.cause))
+                }
+            }
         }
     }
 

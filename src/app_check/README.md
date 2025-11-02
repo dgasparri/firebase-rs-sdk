@@ -73,6 +73,10 @@ the JS SDK does.
 - Web-specific visibility listeners and throttling heuristics (document visibility, pause on hidden tabs).
 - Broader provider catalogue (App Attest, SafetyNet) and wasm-friendly abstractions for platform bridges.
 
+## Intentional deviations
+
+- **No dummy-token fallback** – The JS SDK always resolves `getToken()` with a string, returning a base64 "dummy" token alongside error metadata when the exchange fails. Rust callers already rely on `Result`, so the port surfaces enriched error variants instead of fabricating placeholder tokens. This keeps downstream code explicit while still exposing throttling/backoff details through the returned error value.
+
 ## Next steps – Detailed completion plan
 
 1. **Debug/emulator workflow**

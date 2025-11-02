@@ -303,21 +303,19 @@ impl AiService {
             }
         };
 
-        let result = if limited_use {
+        let token = match if limited_use {
             app_check.get_limited_use_token().await
         } else {
             app_check.get_token(false).await
-        }
-        .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
+        } {
+            Ok(result) => Ok(result.token),
+            Err(err) => err
+                .cached_token()
+                .map(|cached| cached.token.clone())
+                .ok_or_else(|| internal_error(format!("failed to obtain App Check token: {err}"))),
+        }?;
 
-        if let Some(error) = result.error {
-            return Err(internal_error(error.to_string()));
-        }
-        if let Some(error) = result.internal_error {
-            return Err(internal_error(error.to_string()));
-        }
-
-        if result.token.is_empty() {
+        if token.is_empty() {
             return Ok((None, None));
         }
 
@@ -327,7 +325,7 @@ impl AiService {
             ))
         })?;
 
-        Ok((Some(result.token), heartbeat))
+        Ok((Some(token), heartbeat))
     }
 
     pub(crate) async fn api_settings(&self) -> AiResult<ApiSettings> {

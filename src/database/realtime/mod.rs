@@ -394,21 +394,27 @@ async fn fetch_app_check_metadata(app: &FirebaseApp) -> DatabaseResult<AppCheckM
         return Ok(AppCheckMetadata::default());
     };
 
-    let result = app_check
-        .get_token(false)
-        .await
-        .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
-    if let Some(error) = result.error.or(result.internal_error) {
-        return Err(internal_error(format!("App Check token error: {error}")));
-    }
-    if result.token.is_empty() {
+    let token = match app_check.get_token(false).await {
+        Ok(result) => result.token,
+        Err(err) => {
+            if let Some(cached) = err.cached_token() {
+                cached.token.clone()
+            } else {
+                return Err(internal_error(format!(
+                    "failed to obtain App Check token: {err}"
+                )));
+            }
+        }
+    };
+
+    if token.is_empty() {
         return Ok(AppCheckMetadata::default());
     }
 
     let heartbeat = app_check.heartbeat_header().await.ok().flatten();
 
     Ok(AppCheckMetadata {
-        token: Some(result.token),
+        token: Some(token),
         heartbeat,
     })
 }

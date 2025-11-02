@@ -150,14 +150,20 @@ impl ContextProvider {
         };
 
         let token = match token_result {
-            Ok(result) if result.error.is_none() && result.internal_error.is_none() => {
+            Ok(result) => {
                 if result.token.is_empty() {
                     None
                 } else {
                     Some(result.token)
                 }
             }
-            _ => None,
+            Err(err) => err.cached_token().and_then(|cached| {
+                if cached.token.is_empty() {
+                    None
+                } else {
+                    Some(cached.token.clone())
+                }
+            }),
         };
 
         let heartbeat = match app_check.heartbeat_header().await {

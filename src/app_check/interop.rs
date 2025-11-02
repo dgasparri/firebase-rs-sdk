@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use crate::app_check::api;
 use crate::app_check::errors::AppCheckResult;
 use crate::app_check::types::{
-    AppCheck, AppCheckInternalListener, AppCheckTokenResult, ListenerHandle, ListenerType,
+    AppCheck, AppCheckInternalListener, AppCheckTokenError, AppCheckTokenResult, ListenerHandle,
+    ListenerType,
 };
 #[cfg(feature = "firestore")]
 use crate::firestore::remote::datastore::TokenProviderArc;
@@ -29,11 +30,14 @@ impl FirebaseAppCheckInternal {
         &self.app_check
     }
 
-    pub async fn get_token(&self, force_refresh: bool) -> AppCheckResult<AppCheckTokenResult> {
+    pub async fn get_token(
+        &self,
+        force_refresh: bool,
+    ) -> Result<AppCheckTokenResult, AppCheckTokenError> {
         api::get_token(&self.app_check, force_refresh).await
     }
 
-    pub async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckTokenResult> {
+    pub async fn get_limited_use_token(&self) -> Result<AppCheckTokenResult, AppCheckTokenError> {
         api::get_limited_use_token(&self.app_check).await
     }
 

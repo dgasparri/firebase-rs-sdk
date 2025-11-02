@@ -1,3 +1,4 @@
+use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -5,6 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::app::{FirebaseApp, HeartbeatService};
 use crate::app_check::logger::LOGGER;
+use crate::app_check::util::format_duration;
 use crate::platform::runtime;
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::{PartialObserver, Unsubscribe};
@@ -108,6 +110,97 @@ impl AppCheckTokenResult {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum TokenErrorKind {
+    /// No cached token is usable; callers should treat the failure as fatal.
+    Fatal,
+    /// A previous token is still valid and included for best-effort calls.
+    Soft { cached_token: AppCheckToken },
+    /// Backend throttled requests; retry after the provided duration.
+    Throttled {
+        retry_after: Duration,
+        cached_token: Option<AppCheckToken>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct AppCheckTokenError {
+    pub cause: AppCheckError,
+    pub kind: TokenErrorKind,
+}
+
+impl AppCheckTokenError {
+    pub fn fatal(cause: AppCheckError) -> Self {
+        Self {
+            cause,
+            kind: TokenErrorKind::Fatal,
+        }
+    }
+
+    pub fn soft(cause: AppCheckError, cached_token: AppCheckToken) -> Self {
+        Self {
+            cause,
+            kind: TokenErrorKind::Soft { cached_token },
+        }
+    }
+
+    pub fn throttled(
+        cause: AppCheckError,
+        retry_after: Duration,
+        cached_token: Option<AppCheckToken>,
+    ) -> Self {
+        Self {
+            cause,
+            kind: TokenErrorKind::Throttled {
+                retry_after,
+                cached_token,
+            },
+        }
+    }
+
+    pub fn is_throttled(&self) -> bool {
+        matches!(self.kind, TokenErrorKind::Throttled { .. })
+    }
+
+    pub fn cached_token(&self) -> Option<&AppCheckToken> {
+        match &self.kind {
+            TokenErrorKind::Soft { cached_token } => Some(cached_token),
+            TokenErrorKind::Throttled { cached_token, .. } => cached_token.as_ref(),
+            TokenErrorKind::Fatal => None,
+        }
+    }
+
+    pub fn retry_after(&self) -> Option<Duration> {
+        match self.kind {
+            TokenErrorKind::Throttled { retry_after, .. } => Some(retry_after),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for AppCheckTokenError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            TokenErrorKind::Fatal => write!(f, "fatal App Check token failure: {}", self.cause),
+            TokenErrorKind::Soft { .. } => {
+                write!(f, "transient App Check token failure: {}", self.cause)
+            }
+            TokenErrorKind::Throttled { retry_after, .. } => write!(
+                f,
+                "App Check throttled for {}: {}",
+                format_duration(*retry_after),
+                self.cause
+            ),
+        }
+    }
+}
+
+impl std::error::Error for AppCheckTokenError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
+    }
+}
+
 pub type AppCheckTokenListener = Arc<dyn Fn(&AppCheckTokenResult) + Send + Sync + 'static>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -203,11 +296,14 @@ impl AppCheck {
         crate::app_check::api::set_token_auto_refresh_enabled(self, enabled);
     }
 
-    pub async fn get_token(&self, force_refresh: bool) -> AppCheckResult<AppCheckTokenResult> {
+    pub async fn get_token(
+        &self,
+        force_refresh: bool,
+    ) -> Result<AppCheckTokenResult, AppCheckTokenError> {
         crate::app_check::api::get_token(self, force_refresh).await
     }
 
-    pub async fn get_limited_use_token(&self) -> AppCheckResult<AppCheckTokenResult> {
+    pub async fn get_limited_use_token(&self) -> Result<AppCheckTokenResult, AppCheckTokenError> {
         crate::app_check::api::get_limited_use_token(self).await
     }
 
@@ -275,18 +371,25 @@ impl AppCheck {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AsyncTokenProvider for Arc<AppCheck> {
     async fn get_token(&self, force_refresh: bool) -> Result<Option<String>, TokenError> {
-        let result = AppCheck::get_token(self, force_refresh)
-            .await
-            .map_err(TokenError::from_error)?;
-
-        if let Some(err) = result.error.or(result.internal_error) {
-            return Err(TokenError::from_error(err));
-        }
-
-        if result.token.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(result.token))
+        match AppCheck::get_token(self, force_refresh).await {
+            Ok(result) => {
+                if result.token.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(result.token))
+                }
+            }
+            Err(err) => {
+                if let Some(cached) = err.cached_token() {
+                    if cached.token.is_empty() {
+                        Ok(None)
+                    } else {
+                        Ok(Some(cached.token.clone()))
+                    }
+                } else {
+                    Err(TokenError::from_error(err))
+                }
+            }
         }
     }
 }

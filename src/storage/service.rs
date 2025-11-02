@@ -297,19 +297,20 @@ impl FirebaseStorageImpl {
             }
         };
 
-        let result = app_check
-            .get_token(false)
-            .await
-            .map_err(|err| internal_error(format!("failed to obtain App Check token: {err}")))?;
+        let token = match app_check.get_token(false).await {
+            Ok(result) => result.token,
+            Err(err) => {
+                if let Some(cached) = err.cached_token() {
+                    cached.token.clone()
+                } else {
+                    return Err(internal_error(format!(
+                        "failed to obtain App Check token: {err}"
+                    )));
+                }
+            }
+        };
 
-        if let Some(error) = result.error {
-            return Err(internal_error(error.to_string()));
-        }
-        if let Some(error) = result.internal_error {
-            return Err(internal_error(error.to_string()));
-        }
-
-        if result.token.is_empty() {
+        if token.is_empty() {
             Ok(None)
         } else {
             let heartbeat = app_check.heartbeat_header().await.map_err(|err| {
@@ -318,10 +319,7 @@ impl FirebaseStorageImpl {
                 ))
             })?;
 
-            Ok(Some(AppCheckHeaders {
-                token: result.token,
-                heartbeat,
-            }))
+            Ok(Some(AppCheckHeaders { token, heartbeat }))
         }
     }
 }
@@ -348,8 +346,8 @@ mod tests {
         clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
     };
     use crate::app_check::{
-        box_app_check_future, AppCheckProviderFuture,
-        AppCheckOptions, AppCheckProvider, AppCheckToken,
+        box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
+        AppCheckToken,
     };
     use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions};
     use crate::component::{Component, ComponentType};

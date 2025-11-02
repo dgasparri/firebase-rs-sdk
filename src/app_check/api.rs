@@ -20,8 +20,8 @@ use super::providers::{CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3P
 use super::refresher::Refresher;
 use super::state;
 use super::types::{
-    AppCheck, AppCheckOptions, AppCheckProvider, AppCheckToken, AppCheckTokenListener,
-    AppCheckTokenResult, ListenerHandle, ListenerType,
+    AppCheck, AppCheckOptions, AppCheckProvider, AppCheckToken, AppCheckTokenError,
+    AppCheckTokenListener, AppCheckTokenResult, ListenerHandle, ListenerType,
 };
 
 const TOKEN_REFRESH_OFFSET: Duration = Duration::from_secs(5 * 60);
@@ -234,16 +234,18 @@ pub fn set_token_auto_refresh_enabled(app_check: &AppCheck, enabled: bool) {
 ///
 /// Mirrors `getToken` from `packages/app-check/src/internal-api.ts`. When a
 /// cached token is still valid it is returned immediately; refresh failures are
-/// surfaced via the `internal_error` field while keeping the last valid token
-/// available to callers.
+/// reported through [`AppCheckTokenError`] so callers can distinguish fatal,
+/// soft (cached-token) and throttled outcomes without relying on dummy tokens.
 pub async fn get_token(
     app_check: &AppCheck,
     force_refresh: bool,
-) -> AppCheckResult<AppCheckTokenResult> {
+) -> Result<AppCheckTokenResult, AppCheckTokenError> {
     if !state::is_activated(app_check) {
-        return Err(AppCheckError::UseBeforeActivation {
-            app_name: app_check.app().name().to_owned(),
-        });
+        return Err(AppCheckTokenError::fatal(
+            AppCheckError::UseBeforeActivation {
+                app_name: app_check.app().name().to_owned(),
+            },
+        ));
     }
 
     let cached = state::current_token(app_check);
@@ -255,10 +257,11 @@ pub async fn get_token(
         }
     }
 
-    let provider =
-        state::provider(app_check).ok_or_else(|| AppCheckError::UseBeforeActivation {
+    let provider = state::provider(app_check).ok_or_else(|| {
+        AppCheckTokenError::fatal(AppCheckError::UseBeforeActivation {
             app_name: app_check.app().name().to_owned(),
-        })?;
+        })
+    })?;
 
     match provider.get_token().await {
         Ok(token) => {
@@ -266,16 +269,20 @@ pub async fn get_token(
             Ok(AppCheckTokenResult::from_token(token))
         }
         Err(err) => {
-            if let Some(token) = cached {
-                if !token.is_expired() {
-                    return Ok(AppCheckTokenResult {
-                        token: token.token,
-                        error: None,
-                        internal_error: Some(err),
-                    });
+            let retry_after = throttle_retry_after(&err);
+            let usable_cached = cached.filter(|token| !token.is_expired());
+
+            if let Some(token) = usable_cached {
+                if let Some(wait) = retry_after {
+                    Err(AppCheckTokenError::throttled(err, wait, Some(token)))
+                } else {
+                    Err(AppCheckTokenError::soft(err, token))
                 }
+            } else if let Some(wait) = retry_after {
+                Err(AppCheckTokenError::throttled(err, wait, None))
+            } else {
+                Err(AppCheckTokenError::fatal(err))
             }
-            Err(err)
         }
     }
 }
@@ -284,20 +291,41 @@ pub async fn get_token(
 ///
 /// Equivalent to `getLimitedUseToken` in the JS SDK. Limited-use tokens always
 /// hit the provider (or debug endpoint) and do not touch the cached state.
-pub async fn get_limited_use_token(app_check: &AppCheck) -> AppCheckResult<AppCheckTokenResult> {
+pub async fn get_limited_use_token(
+    app_check: &AppCheck,
+) -> Result<AppCheckTokenResult, AppCheckTokenError> {
     if !state::is_activated(app_check) {
-        return Err(AppCheckError::UseBeforeActivation {
-            app_name: app_check.app().name().to_owned(),
-        });
+        return Err(AppCheckTokenError::fatal(
+            AppCheckError::UseBeforeActivation {
+                app_name: app_check.app().name().to_owned(),
+            },
+        ));
     }
 
-    let provider =
-        state::provider(app_check).ok_or_else(|| AppCheckError::UseBeforeActivation {
+    let provider = state::provider(app_check).ok_or_else(|| {
+        AppCheckTokenError::fatal(AppCheckError::UseBeforeActivation {
             app_name: app_check.app().name().to_owned(),
-        })?;
+        })
+    })?;
 
-    let token = provider.get_limited_use_token().await?;
-    Ok(AppCheckTokenResult::from_token(token))
+    match provider.get_limited_use_token().await {
+        Ok(token) => Ok(AppCheckTokenResult::from_token(token)),
+        Err(err) => {
+            if let Some(wait) = throttle_retry_after(&err) {
+                Err(AppCheckTokenError::throttled(err, wait, None))
+            } else {
+                Err(AppCheckTokenError::fatal(err))
+            }
+        }
+    }
+}
+
+fn throttle_retry_after(error: &AppCheckError) -> Option<Duration> {
+    match error {
+        AppCheckError::InitialThrottle { retry_after, .. }
+        | AppCheckError::Throttled { retry_after, .. } => Some(*retry_after),
+        _ => None,
+    }
 }
 
 /// Adds a listener that is notified whenever the cached token changes.
@@ -388,16 +416,8 @@ fn ensure_refresher(app_check: &AppCheck) -> Refresher {
                 };
 
                 match result {
-                    Ok(result) => {
-                        if result.error.is_some() || result.internal_error.is_some() {
-                            Err(AppCheckError::TokenFetchFailed {
-                                message: "token refresh signalled an error".into(),
-                            })
-                        } else {
-                            Ok(())
-                        }
-                    }
-                    Err(err) => Err(err),
+                    Ok(_) => Ok(()),
+                    Err(err) => Err(err.cause.clone()),
                 }
             };
             #[cfg(not(target_arch = "wasm32"))]
@@ -491,7 +511,7 @@ mod tests {
     use crate::component::ComponentContainer;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::app_check::types::{box_app_check_future, AppCheckProviderFuture};
+    use crate::app_check::types::{box_app_check_future, AppCheckProviderFuture, TokenErrorKind};
 
     fn test_app(name: &str, automatic_data_collection_enabled: bool) -> FirebaseApp {
         FirebaseApp::new(
@@ -539,9 +559,13 @@ mod tests {
         let first = get_token(&app_check, false).await.expect("first token");
         assert_eq!(first.token, "initial");
 
-        let second = get_token(&app_check, true).await.expect("second token");
-        assert_eq!(second.token, "initial");
-        assert!(second.internal_error.is_some());
+        let err = get_token(&app_check, true).await.expect_err("second token");
+        match err.kind {
+            TokenErrorKind::Soft { ref cached_token } => {
+                assert_eq!(cached_token.token, "initial");
+            }
+            _ => panic!("expected soft error"),
+        }
 
         delete_app(&app).await.expect("delete app");
         clear_state_for_tests();
