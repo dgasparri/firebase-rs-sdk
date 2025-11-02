@@ -52,7 +52,8 @@ impl FirebaseAppCheckInternal {
             (*listener_clone)(result.clone());
         });
 
-        let handle = api::add_token_listener(&self.app_check, bridge, ListenerType::Internal)?;
+        let handle =
+            api::add_token_listener(&self.app_check, bridge, None, ListenerType::Internal)?;
         listeners.lock().unwrap().push((listener, handle));
         Ok(())
     }

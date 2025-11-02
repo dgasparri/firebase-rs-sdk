@@ -21,7 +21,8 @@ use super::refresher::Refresher;
 use super::state;
 use super::types::{
     AppCheck, AppCheckOptions, AppCheckProvider, AppCheckToken, AppCheckTokenError,
-    AppCheckTokenListener, AppCheckTokenResult, ListenerHandle, ListenerType,
+    AppCheckTokenErrorListener, AppCheckTokenListener, AppCheckTokenResult, ListenerHandle,
+    ListenerType,
 };
 
 const TOKEN_REFRESH_OFFSET: Duration = Duration::from_secs(5 * 60);
@@ -272,17 +273,20 @@ pub async fn get_token(
             let retry_after = throttle_retry_after(&err);
             let usable_cached = cached.filter(|token| !token.is_expired());
 
-            if let Some(token) = usable_cached {
+            let error = if let Some(token) = usable_cached {
                 if let Some(wait) = retry_after {
-                    Err(AppCheckTokenError::throttled(err, wait, Some(token)))
+                    AppCheckTokenError::throttled(err, wait, Some(token))
                 } else {
-                    Err(AppCheckTokenError::soft(err, token))
+                    AppCheckTokenError::soft(err, token)
                 }
             } else if let Some(wait) = retry_after {
-                Err(AppCheckTokenError::throttled(err, wait, None))
+                AppCheckTokenError::throttled(err, wait, None)
             } else {
-                Err(AppCheckTokenError::fatal(err))
-            }
+                AppCheckTokenError::fatal(err)
+            };
+
+            state::notify_token_error(app_check, &error);
+            Err(error)
         }
     }
 }
@@ -311,11 +315,13 @@ pub async fn get_limited_use_token(
     match provider.get_limited_use_token().await {
         Ok(token) => Ok(AppCheckTokenResult::from_token(token)),
         Err(err) => {
-            if let Some(wait) = throttle_retry_after(&err) {
-                Err(AppCheckTokenError::throttled(err, wait, None))
+            let error = if let Some(wait) = throttle_retry_after(&err) {
+                AppCheckTokenError::throttled(err, wait, None)
             } else {
-                Err(AppCheckTokenError::fatal(err))
-            }
+                AppCheckTokenError::fatal(err)
+            };
+            state::notify_token_error(app_check, &error);
+            Err(error)
         }
     }
 }
@@ -335,6 +341,7 @@ fn throttle_retry_after(error: &AppCheckError) -> Option<Duration> {
 pub fn add_token_listener(
     app_check: &AppCheck,
     listener: AppCheckTokenListener,
+    error_listener: Option<AppCheckTokenErrorListener>,
     listener_type: ListenerType,
 ) -> AppCheckResult<ListenerHandle> {
     if !state::is_activated(app_check) {
@@ -343,7 +350,7 @@ pub fn add_token_listener(
         });
     }
 
-    let handle = state::add_listener(app_check, listener.clone(), listener_type);
+    let handle = state::add_listener(app_check, listener.clone(), error_listener, listener_type);
 
     if let Some(token) = state::current_token(app_check) {
         listener(&AppCheckTokenResult::from_token(token));

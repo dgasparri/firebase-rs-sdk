@@ -43,6 +43,7 @@ pub(crate) use types::box_app_check_future;
 #[doc(inline)]
 pub use types::{
     AppCheck, AppCheckInternalListener, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
-    AppCheckToken, AppCheckTokenError, AppCheckTokenListener, AppCheckTokenResult, ListenerHandle,
-    ListenerType, TokenErrorKind, APP_CHECK_COMPONENT_NAME, APP_CHECK_INTERNAL_COMPONENT_NAME,
+    AppCheckToken, AppCheckTokenError, AppCheckTokenErrorListener, AppCheckTokenListener,
+    AppCheckTokenResult, ListenerHandle, ListenerType, TokenErrorKind, APP_CHECK_COMPONENT_NAME,
+    APP_CHECK_INTERNAL_COMPONENT_NAME,
 };

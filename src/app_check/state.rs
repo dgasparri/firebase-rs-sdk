@@ -5,8 +5,9 @@ use std::sync::{Arc, LazyLock, Mutex};
 use super::errors::{AppCheckError, AppCheckResult};
 use super::refresher::Refresher;
 use super::types::{
-    AppCheck, AppCheckProvider, AppCheckState, AppCheckToken, AppCheckTokenListener,
-    AppCheckTokenResult, ListenerHandle, ListenerType, TokenListenerEntry,
+    AppCheck, AppCheckProvider, AppCheckState, AppCheckToken, AppCheckTokenError,
+    AppCheckTokenErrorListener, AppCheckTokenListener, AppCheckTokenResult, ListenerHandle,
+    ListenerType, TokenErrorKind, TokenListenerEntry,
 };
 
 #[cfg(all(
@@ -128,13 +129,9 @@ pub fn current_token(app: &AppCheck) -> Option<AppCheckToken> {
 pub fn store_token(app: &AppCheck, token: AppCheckToken) {
     let app_name = app.app_name();
     let result = AppCheckTokenResult::from_token(token.clone());
-    let listeners = with_state_mut(&app_name, |state| {
+    let entries = with_state_mut(&app_name, |state| {
         state.token = Some(token.clone());
-        state
-            .observers
-            .iter()
-            .map(|entry| entry.listener.clone())
-            .collect::<Vec<_>>()
+        state.observers.clone()
     });
 
     crate::app_check::api::on_token_stored(app, &token);
@@ -146,8 +143,8 @@ pub fn store_token(app: &AppCheck, token: AppCheckToken) {
     ))]
     persist_token_async(token.clone(), app_name.clone());
 
-    for listener in listeners {
-        listener(&result);
+    for entry in entries {
+        (entry.listener)(&result);
     }
 }
 
@@ -201,10 +198,11 @@ pub fn clear_token_refresher(app: &AppCheck) {
 pub fn add_listener(
     app: &AppCheck,
     listener: AppCheckTokenListener,
+    error_listener: Option<AppCheckTokenErrorListener>,
     listener_type: ListenerType,
 ) -> ListenerHandle {
     let app_name = app.app_name();
-    let entry = TokenListenerEntry::new(listener, listener_type);
+    let entry = TokenListenerEntry::new(listener, error_listener, listener_type);
     let id = entry.id;
     with_state_mut(&app_name, |state| {
         state.observers.push(entry.clone());
@@ -288,17 +286,58 @@ fn apply_persisted_token(app_name: Arc<str>, persisted: Option<PersistedToken>) 
             internal_error: None,
         });
 
-    let listeners = with_state_mut(&app_name, |state| {
+    let entries = with_state_mut(&app_name, |state| {
         state.token = maybe_token.clone();
-        state
-            .observers
-            .iter()
-            .map(|entry| entry.listener.clone())
-            .collect::<Vec<_>>()
+        state.observers.clone()
     });
 
-    for listener in listeners {
-        listener(&result);
+    for entry in entries {
+        (entry.listener)(&result);
+    }
+}
+
+pub fn notify_token_error(app: &AppCheck, error: &AppCheckTokenError) {
+    let app_name = app.app_name();
+    let entries = with_state(&app_name, |state| state.observers.clone());
+    let result = error_to_result(error);
+
+    for entry in entries {
+        match entry.listener_type {
+            ListenerType::Internal => {
+                (entry.listener)(&result);
+            }
+            ListenerType::External => {
+                if result.error.is_some() {
+                    if let Some(callback) = &entry.error_listener {
+                        callback(error);
+                    }
+                } else {
+                    (entry.listener)(&result);
+                }
+            }
+        }
+    }
+}
+
+fn error_to_result(error: &AppCheckTokenError) -> AppCheckTokenResult {
+    match &error.kind {
+        TokenErrorKind::Fatal => AppCheckTokenResult::from_error(error.cause.clone()),
+        TokenErrorKind::Soft { cached_token } => AppCheckTokenResult {
+            token: cached_token.token.clone(),
+            error: None,
+            internal_error: Some(error.cause.clone()),
+        },
+        TokenErrorKind::Throttled {
+            cached_token: Some(token),
+            ..
+        } => AppCheckTokenResult {
+            token: token.token.clone(),
+            error: None,
+            internal_error: Some(error.cause.clone()),
+        },
+        TokenErrorKind::Throttled {
+            cached_token: None, ..
+        } => AppCheckTokenResult::from_error(error.cause.clone()),
     }
 }
 

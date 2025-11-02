@@ -202,6 +202,7 @@ impl std::error::Error for AppCheckTokenError {
 }
 
 pub type AppCheckTokenListener = Arc<dyn Fn(&AppCheckTokenResult) + Send + Sync + 'static>;
+pub type AppCheckTokenErrorListener = Arc<dyn Fn(&AppCheckTokenError) + Send + Sync + 'static>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListenerType {
@@ -341,20 +342,27 @@ impl AppCheck {
         use crate::app_check::api::add_token_listener;
 
         let next = observer.next.clone();
+        let error = observer.error.clone();
         let listener = Arc::new(move |result: &AppCheckTokenResult| {
             if let Some(callback) = &next {
                 callback(result);
             }
         });
 
-        let handle = add_token_listener(self, listener, ListenerType::External)?;
+        let error_listener = error.map(|callback| {
+            Arc::new(move |err: &AppCheckTokenError| {
+                callback(err);
+            }) as AppCheckTokenErrorListener
+        });
+
+        let handle = add_token_listener(self, listener, error_listener, ListenerType::External)?;
         Ok(Box::new(move || handle.unsubscribe()))
     }
 
     pub fn on_token_changed<F, E, C>(
         &self,
         on_next: F,
-        _on_error: Option<E>,
+        on_error: Option<E>,
         _on_complete: Option<C>,
     ) -> AppCheckResult<Unsubscribe>
     where
@@ -362,7 +370,10 @@ impl AppCheck {
         E: Fn(&dyn std::error::Error) + Send + Sync + 'static,
         C: Fn() + Send + Sync + 'static,
     {
-        let observer = PartialObserver::new().with_next(on_next);
+        let mut observer = PartialObserver::new().with_next(on_next);
+        if let Some(on_error) = on_error {
+            observer = observer.with_error(on_error);
+        }
         self.on_token_changed_with_observer(observer)
     }
 }
@@ -400,16 +411,22 @@ pub type AppCheckInternalListener = Arc<dyn Fn(AppCheckTokenResult) + Send + Syn
 pub(crate) struct TokenListenerEntry {
     pub id: u64,
     pub listener: AppCheckTokenListener,
-    _listener_type: ListenerType,
+    pub error_listener: Option<AppCheckTokenErrorListener>,
+    pub listener_type: ListenerType,
 }
 
 impl TokenListenerEntry {
-    pub fn new(listener: AppCheckTokenListener, listener_type: ListenerType) -> Self {
+    pub fn new(
+        listener: AppCheckTokenListener,
+        error_listener: Option<AppCheckTokenErrorListener>,
+        listener_type: ListenerType,
+    ) -> Self {
         let id = LISTENER_ID.fetch_add(1, Ordering::SeqCst);
         Self {
             id,
             listener,
-            _listener_type: listener_type,
+            error_listener,
+            listener_type,
         }
     }
 }
