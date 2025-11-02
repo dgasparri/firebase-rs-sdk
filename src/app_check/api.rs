@@ -8,6 +8,7 @@ use crate::component::types::{
     ComponentError, ComponentType, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentContainer};
+use crate::platform::runtime;
 use futures::FutureExt;
 #[cfg(test)]
 use std::sync::MutexGuard;
@@ -18,7 +19,6 @@ use super::logger::LOGGER;
 use super::providers::{CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider};
 use super::refresher::Refresher;
 use super::state;
-use super::time::system_time_now;
 use super::types::{
     AppCheck, AppCheckOptions, AppCheckProvider, AppCheckToken, AppCheckTokenListener,
     AppCheckTokenResult, ListenerHandle, ListenerType,
@@ -317,7 +317,7 @@ pub fn remove_token_listener(handle: ListenerHandle) {
 }
 
 /// Builds a custom App Check provider from a synchronous callback.
-/// 
+///
 /// Useful for emulators or bespoke attestation strategies. Mirrors the JS
 /// `CustomProvider` helper (`packages/app-check/src/providers.ts`).
 pub fn custom_provider<F>(callback: F) -> Arc<dyn AppCheckProvider>
@@ -410,7 +410,7 @@ fn compute_refresh_delay(app_check: &AppCheck) -> Duration {
         return Duration::ZERO;
     };
 
-    let now = system_time_now();
+    let now = runtime::now();
     let ttl = token
         .expire_time
         .duration_since(token.issued_at)

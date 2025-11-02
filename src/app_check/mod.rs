@@ -8,7 +8,6 @@ mod persistence;
 mod providers;
 mod refresher;
 mod state;
-mod time;
 #[cfg(feature = "firestore")]
 mod token_provider;
 mod types;

@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 use async_trait::async_trait;
 
 use crate::app::FirebaseApp;
+use crate::platform::runtime;
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::{PartialObserver, Unsubscribe};
 
@@ -17,7 +18,6 @@ use crate::app_check::persistence::BroadcastSubscription;
 
 use super::errors::{AppCheckError, AppCheckResult};
 use super::refresher::Refresher;
-use super::time::system_time_now;
 
 pub const APP_CHECK_COMPONENT_NAME: &str = "appCheck";
 pub const APP_CHECK_INTERNAL_COMPONENT_NAME: &str = "app-check-internal";
@@ -31,11 +31,11 @@ pub struct AppCheckToken {
 
 impl AppCheckToken {
     pub fn is_expired(&self) -> bool {
-        system_time_now() >= self.expire_time
+        runtime::now() >= self.expire_time
     }
 
     pub fn with_ttl(token: impl Into<String>, ttl: Duration) -> AppCheckResult<Self> {
-        let issued_at = system_time_now();
+        let issued_at = runtime::now();
         let expire_time = issued_at.checked_add(ttl).ok_or_else(|| {
             AppCheckError::Internal("failed to compute token expiration".to_string())
         })?;

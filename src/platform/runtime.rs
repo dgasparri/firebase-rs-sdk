@@ -1,6 +1,9 @@
 use std::fmt;
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+use std::time::UNIX_EPOCH;
 
 /// Platform-independent helper to spawn an async task that runs in the background.
 #[cfg(target_arch = "wasm32")]
@@ -32,6 +35,19 @@ where
     } else {
         let _ = BACKGROUND_RUNTIME.spawn(future);
     }
+}
+
+/// Returns the current system time in a platform-aware way.
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+pub fn now() -> SystemTime {
+    let millis = js_sys::Date::now() as u64;
+    UNIX_EPOCH + Duration::from_millis(millis)
+}
+
+/// Returns the current system time in a platform-aware way.
+#[cfg(not(all(target_arch = "wasm32", feature = "wasm-web")))]
+pub fn now() -> SystemTime {
+    SystemTime::now()
 }
 
 /// Asynchronously waits for the provided duration in a platform-compatible way.
