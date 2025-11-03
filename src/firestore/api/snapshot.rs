@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::model::DocumentKey;
+use crate::firestore::model::{DocumentKey, IntoFieldPath};
 use crate::firestore::value::{FirestoreValue, MapValue};
 
 use super::reference::DocumentReference;
@@ -99,6 +99,18 @@ impl DocumentSnapshot {
     pub fn reference(&self, firestore: Firestore) -> FirestoreResult<DocumentReference> {
         DocumentReference::new(firestore, self.key.path().clone())
     }
+
+    /// Retrieves the value stored at the provided field path if it exists.
+    ///
+    /// Mirrors the modular JS `DocumentSnapshot.get(...)` API from
+    /// `packages/firestore/src/lite-api/snapshot.ts`.
+    pub fn get<P>(&self, field_path: P) -> FirestoreResult<Option<&FirestoreValue>>
+    where
+        P: IntoFieldPath,
+    {
+        let field_path = field_path.into_field_path()?;
+        Ok(self.data.as_ref().and_then(|map| map.get(&field_path)))
+    }
     /// Converts this snapshot into a typed snapshot using the provided converter.
     pub fn into_typed<C>(self, converter: Arc<C>) -> TypedDocumentSnapshot<C>
     where
@@ -173,13 +185,24 @@ where
             None => Ok(None),
         }
     }
+
+    /// Retrieves the raw Firestore value at the provided field path if it exists.
+    ///
+    /// Mirrors the modular JS typed snapshot `get` API from
+    /// `packages/firestore/src/lite-api/snapshot.ts`.
+    pub fn get<P>(&self, field_path: P) -> FirestoreResult<Option<&FirestoreValue>>
+    where
+        P: IntoFieldPath,
+    {
+        self.base.get(field_path)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::firestore::api::converter::{FirestoreDataConverter, PassthroughConverter};
-    use crate::firestore::model::DocumentKey;
+    use crate::firestore::model::{DocumentKey, FieldPath};
     use crate::firestore::value::ValueKind;
     use std::collections::BTreeMap;
 
@@ -255,5 +278,54 @@ mod tests {
         let typed = snapshot.into_typed(Arc::new(PassthroughConverter::default()));
         let raw = typed.data().unwrap().unwrap();
         assert_eq!(raw.get("name"), map.get("name"));
+    }
+
+    #[test]
+    fn snapshot_get_returns_nested_field() {
+        let key = DocumentKey::from_string("cities/sf").unwrap();
+        let mut stats = BTreeMap::new();
+        stats.insert("wins".to_string(), FirestoreValue::from_integer(10));
+        let mut map = BTreeMap::new();
+        map.insert("stats".to_string(), FirestoreValue::from_map(stats));
+        let snapshot =
+            DocumentSnapshot::new(key, Some(MapValue::new(map)), SnapshotMetadata::default());
+
+        let value = snapshot.get("stats.wins").unwrap().unwrap();
+        match value.kind() {
+            ValueKind::Integer(v) => assert_eq!(*v, 10),
+            _ => panic!("expected integer"),
+        }
+
+        assert!(snapshot.get("stats.losses").unwrap().is_none());
+    }
+
+    #[test]
+    fn snapshot_get_validates_field_path() {
+        let key = DocumentKey::from_string("cities/sf").unwrap();
+        let snapshot = DocumentSnapshot::new(key, None, SnapshotMetadata::default());
+        let err = snapshot.get("").unwrap_err();
+        assert_eq!(err.code_str(), "firestore/invalid-argument");
+
+        // Ensure FieldPath inputs are accepted as well.
+        let path = FieldPath::from_dot_separated("foo").unwrap();
+        assert!(snapshot.get(path).unwrap().is_none());
+    }
+
+    #[test]
+    fn typed_snapshot_get_delegates_to_base() {
+        let key = DocumentKey::from_string("cities/nyc").unwrap();
+        let mut stats = BTreeMap::new();
+        stats.insert("wins".to_string(), FirestoreValue::from_integer(5));
+        let mut map = BTreeMap::new();
+        map.insert("stats".to_string(), FirestoreValue::from_map(stats));
+        let snapshot =
+            DocumentSnapshot::new(key, Some(MapValue::new(map)), SnapshotMetadata::default());
+
+        let typed = snapshot.into_typed(Arc::new(PassthroughConverter::default()));
+        let value = typed.get("stats.wins").unwrap().unwrap();
+        match value.kind() {
+            ValueKind::Integer(v) => assert_eq!(*v, 5),
+            _ => panic!("expected integer"),
+        }
     }
 }

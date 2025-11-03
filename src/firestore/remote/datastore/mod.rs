@@ -1,13 +1,15 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::firestore::api::aggregate::AggregateDefinition;
 use crate::firestore::api::operations::FieldTransform;
 use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::api::DocumentSnapshot;
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::{DocumentKey, FieldPath};
-use crate::firestore::value::MapValue;
+use crate::firestore::value::{FirestoreValue, MapValue};
 
 pub mod http;
 pub mod in_memory;
@@ -52,6 +54,11 @@ pub trait Datastore: Send + Sync + 'static {
     ) -> FirestoreResult<()>;
     async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()>;
     async fn commit(&self, writes: Vec<WriteOperation>) -> FirestoreResult<()>;
+    async fn run_aggregate(
+        &self,
+        query: &QueryDefinition,
+        aggregations: &[AggregateDefinition],
+    ) -> FirestoreResult<BTreeMap<String, FirestoreValue>>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

@@ -165,6 +165,7 @@ impl Bound {
 pub struct Query {
     firestore: Firestore,
     collection_path: ResourcePath,
+    collection_group: Option<String>,
     filters: Vec<FieldFilter>,
     explicit_order_by: Vec<OrderBy>,
     limit: Option<u32>,
@@ -187,6 +188,33 @@ impl Query {
         Ok(Self {
             firestore,
             collection_path,
+            collection_group: None,
+            filters: Vec::new(),
+            explicit_order_by: Vec::new(),
+            limit: None,
+            limit_type: LimitType::First,
+            start_at: None,
+            end_at: None,
+            projection: None,
+        })
+    }
+
+    pub(crate) fn new_collection_group(
+        firestore: Firestore,
+        collection_id: String,
+    ) -> FirestoreResult<Self> {
+        if collection_id.is_empty() {
+            return Err(invalid_argument("Collection ID must not be empty"));
+        }
+        if collection_id.contains('/') {
+            return Err(invalid_argument(
+                "Collection ID must not contain '/' characters",
+            ));
+        }
+        Ok(Self {
+            firestore,
+            collection_path: ResourcePath::root(),
+            collection_group: Some(collection_id),
             filters: Vec::new(),
             explicit_order_by: Vec::new(),
             limit: None,
@@ -206,9 +234,13 @@ impl Query {
     }
 
     pub fn collection_id(&self) -> &str {
-        self.collection_path
-            .last_segment()
-            .expect("Collection path always ends with an identifier")
+        match &self.collection_group {
+            Some(group) => group.as_str(),
+            None => self
+                .collection_path
+                .last_segment()
+                .expect("Collection path always ends with an identifier"),
+        }
     }
 
     pub fn where_field(
@@ -308,7 +340,17 @@ impl Query {
     }
 
     pub(crate) fn definition(&self) -> QueryDefinition {
-        let parent_path = self.collection_path.without_last();
+        let (collection_path, parent_path, collection_group) = match &self.collection_group {
+            Some(group) => (
+                self.collection_path.clone(),
+                self.collection_path.clone(),
+                Some(group.clone()),
+            ),
+            None => {
+                let parent_path = self.collection_path.without_last();
+                (self.collection_path.clone(), parent_path, None)
+            }
+        };
         let normalized_order = self.normalized_order_by();
 
         let mut request_order = normalized_order.clone();
@@ -325,9 +367,10 @@ impl Query {
         }
 
         QueryDefinition {
-            collection_path: self.collection_path.clone(),
+            collection_path,
             parent_path,
             collection_id: self.collection_id().to_string(),
+            collection_group,
             filters: self.filters.clone(),
             request_order_by: request_order,
             result_order_by: normalized_order,
@@ -527,9 +570,9 @@ mod tests {
     use crate::app::FirebaseOptions;
     use crate::component::ComponentContainer;
     use crate::firestore::api::Firestore;
-    use crate::firestore::model::{DatabaseId, FieldPath, ResourcePath};
+    use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
 
-    fn build_query() -> Query {
+    fn build_firestore() -> Firestore {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -537,7 +580,11 @@ mod tests {
         let config = FirebaseAppConfig::new("query-test", false);
         let container = ComponentContainer::new("query-test");
         let app = FirebaseApp::new(options, config, container);
-        let firestore = Firestore::new(app, DatabaseId::new("project", "(default)"));
+        Firestore::new(app, DatabaseId::new("project", "(default)"))
+    }
+
+    fn build_query() -> Query {
+        let firestore = build_firestore();
         Query::new(firestore, ResourcePath::from_string("cities").unwrap()).unwrap()
     }
 
@@ -612,6 +659,21 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.code_str(), "firestore/invalid-argument");
     }
+
+    #[test]
+    fn collection_group_query_definition_marks_descendants() {
+        let firestore = build_firestore();
+        let query = Query::new_collection_group(firestore, "landmarks".to_string()).unwrap();
+        let definition = query.definition();
+        assert_eq!(definition.collection_group(), Some("landmarks"));
+        assert_eq!(definition.collection_id(), "landmarks");
+        assert!(definition.parent_path().is_empty());
+
+        let matching = DocumentKey::from_string("cities/sf/landmarks/golden_gate").unwrap();
+        let non_matching = DocumentKey::from_string("cities/sf/attractions/golden_gate").unwrap();
+        assert!(definition.matches_collection(&matching));
+        assert!(!definition.matches_collection(&non_matching));
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -619,6 +681,7 @@ pub struct QueryDefinition {
     pub(crate) collection_path: ResourcePath,
     pub(crate) parent_path: ResourcePath,
     pub(crate) collection_id: String,
+    pub(crate) collection_group: Option<String>,
     pub(crate) filters: Vec<FieldFilter>,
     pub(crate) request_order_by: Vec<OrderBy>,
     pub(crate) result_order_by: Vec<OrderBy>,
@@ -633,7 +696,14 @@ pub struct QueryDefinition {
 
 impl QueryDefinition {
     pub(crate) fn matches_collection(&self, key: &DocumentKey) -> bool {
-        key.collection_path() == self.collection_path
+        match &self.collection_group {
+            Some(group) => key
+                .collection_path()
+                .last_segment()
+                .map(|segment| segment == group)
+                .unwrap_or(false),
+            None => key.collection_path() == self.collection_path,
+        }
     }
 
     pub(crate) fn parent_path(&self) -> &ResourcePath {
@@ -642,6 +712,10 @@ impl QueryDefinition {
 
     pub(crate) fn collection_id(&self) -> &str {
         &self.collection_id
+    }
+
+    pub(crate) fn collection_group(&self) -> Option<&str> {
+        self.collection_group.as_deref()
     }
 
     pub(crate) fn filters(&self) -> &[FieldFilter] {

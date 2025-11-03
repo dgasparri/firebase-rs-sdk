@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 
+use crate::firestore::api::aggregate::{AggregateField, AggregateQuerySnapshot, AggregateSpec};
 use crate::firestore::api::operations::{self, SetOptions};
 use crate::firestore::api::query::{
     ConvertedQuery, LimitType, Query, QuerySnapshot, TypedQuerySnapshot,
 };
 use crate::firestore::api::snapshot::{DocumentSnapshot, TypedDocumentSnapshot};
-use crate::firestore::error::{internal_error, FirestoreResult};
+use crate::firestore::error::{internal_error, invalid_argument, FirestoreResult};
 use std::sync::Arc;
 
 use crate::firestore::remote::datastore::{
@@ -17,6 +18,8 @@ use super::write_batch::WriteBatch;
 use super::{
     ConvertedCollectionReference, ConvertedDocumentReference, Firestore, FirestoreDataConverter,
 };
+
+const COUNT_ALIAS: &str = "count";
 
 #[derive(Clone)]
 pub struct FirestoreClient {
@@ -235,6 +238,65 @@ impl FirestoreClient {
         Ok(TypedQuerySnapshot::new(snapshot, query.converter()))
     }
 
+    /// Executes the provided aggregate specification against `query`.
+    ///
+    /// Mirrors the modular JS `getAggregate(query, spec)` helper from
+    /// `packages/firestore/src/lite-api/aggregate.ts`.
+    pub async fn get_aggregate(
+        &self,
+        query: &Query,
+        spec: AggregateSpec,
+    ) -> FirestoreResult<AggregateQuerySnapshot> {
+        if spec.is_empty() {
+            return Err(invalid_argument(
+                "Aggregate spec must contain at least one field",
+            ));
+        }
+        self.ensure_same_database(query.firestore())?;
+        let definition = query.definition();
+        let aggregates = spec.definitions();
+        let data = self
+            .datastore
+            .run_aggregate(&definition, &aggregates)
+            .await?;
+        Ok(AggregateQuerySnapshot::new(query.clone(), spec, data))
+    }
+
+    /// Runs an aggregate query against a typed query definition.
+    pub async fn get_aggregate_with_converter<C>(
+        &self,
+        query: &ConvertedQuery<C>,
+        spec: AggregateSpec,
+    ) -> FirestoreResult<AggregateQuerySnapshot>
+    where
+        C: FirestoreDataConverter,
+    {
+        self.get_aggregate(query.raw(), spec).await
+    }
+
+    /// Counts the number of documents that match `query` without downloading them.
+    ///
+    /// Mirrors the modular JS `getCount(query)` helper from
+    /// `packages/firestore/src/lite-api/aggregate.ts`.
+    pub async fn get_count(&self, query: &Query) -> FirestoreResult<AggregateQuerySnapshot> {
+        let mut spec = AggregateSpec::new();
+        spec.insert(COUNT_ALIAS, AggregateField::count())?;
+        self.get_aggregate(query, spec).await
+    }
+
+    /// Counts matching documents for a converted query.
+    pub async fn get_count_with_converter<C>(
+        &self,
+        query: &ConvertedQuery<C>,
+    ) -> FirestoreResult<AggregateQuerySnapshot>
+    where
+        C: FirestoreDataConverter,
+    {
+        let mut spec = AggregateSpec::new();
+        spec.insert(COUNT_ALIAS, AggregateField::count())?;
+        self.get_aggregate(query.raw(), spec).await
+    }
+
     /// Writes a typed model to the location referenced by `reference`.
     pub async fn set_doc_with_converter<C>(
         &self,
@@ -284,6 +346,7 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use crate::firestore::api::aggregate::{AggregateField, AggregateSpec};
     use crate::firestore::api::get_firestore;
     use crate::firestore::model::FieldPath;
     use crate::firestore::value::MapValue;
@@ -824,6 +887,83 @@ mod tests {
             .map(|doc| doc.id().to_string())
             .collect();
         assert_eq!(ids, vec!["la", "sf"]);
+    }
+
+    #[tokio::test]
+    async fn aggregate_count_returns_total_documents() {
+        let (client, firestore) = build_client_with_firestore().await;
+        client
+            .set_doc(
+                "cities/sf",
+                BTreeMap::from([("population".into(), FirestoreValue::from_integer(100))]),
+                None,
+            )
+            .await
+            .unwrap();
+        client
+            .set_doc(
+                "cities/la",
+                BTreeMap::from([("population".into(), FirestoreValue::from_integer(50))]),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let query = firestore.collection("cities").unwrap().query();
+        let snapshot = client.get_count(&query).await.expect("aggregate count");
+        let count = snapshot.count(COUNT_ALIAS).expect("count result").unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn aggregate_sum_and_average_compute_numeric_fields() {
+        let (client, firestore) = build_client_with_firestore().await;
+        client
+            .set_doc(
+                "cities/sf",
+                BTreeMap::from([("population".into(), FirestoreValue::from_integer(100))]),
+                None,
+            )
+            .await
+            .unwrap();
+        client
+            .set_doc(
+                "cities/la",
+                BTreeMap::from([("population".into(), FirestoreValue::from_integer(50))]),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let query = firestore.collection("cities").unwrap().query();
+        let mut spec = AggregateSpec::new();
+        spec.insert(
+            "total_population",
+            AggregateField::sum("population").unwrap(),
+        )
+        .unwrap();
+        spec.insert(
+            "average_population",
+            AggregateField::average("population").unwrap(),
+        )
+        .unwrap();
+
+        let snapshot = client
+            .get_aggregate(&query, spec)
+            .await
+            .expect("aggregate query");
+
+        let total = snapshot.get("total_population").expect("total value");
+        match total.kind() {
+            ValueKind::Integer(value) => assert_eq!(*value, 150),
+            other => panic!("expected integer total, found {other:?}"),
+        }
+
+        let average = snapshot.get("average_population").expect("average value");
+        match average.kind() {
+            ValueKind::Double(value) => assert!((*value - 75.0).abs() < f64::EPSILON),
+            other => panic!("expected double average, found {other:?}"),
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]

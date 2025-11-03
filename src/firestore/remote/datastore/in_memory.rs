@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::firestore::api::aggregate::{AggregateDefinition, AggregateOperation};
 use crate::firestore::api::operations::{
     set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation,
 };
@@ -208,6 +209,88 @@ impl Datastore for InMemoryDatastore {
             }
         }
         Ok(())
+    }
+
+    async fn run_aggregate(
+        &self,
+        query: &QueryDefinition,
+        aggregations: &[AggregateDefinition],
+    ) -> FirestoreResult<BTreeMap<String, FirestoreValue>> {
+        let documents = self.run_query(query).await?;
+        let mut results = BTreeMap::new();
+
+        for aggregate in aggregations {
+            let value = match aggregate.operation() {
+                AggregateOperation::Count => FirestoreValue::from_integer(documents.len() as i64),
+                AggregateOperation::Sum(field_path) => sum_numeric(&documents, field_path),
+                AggregateOperation::Average(field_path) => average_numeric(&documents, field_path),
+            };
+            results.insert(aggregate.alias().to_string(), value);
+        }
+
+        Ok(results)
+    }
+}
+
+fn sum_numeric(documents: &[DocumentSnapshot], field_path: &FieldPath) -> FirestoreValue {
+    let mut total = 0f64;
+    let mut has_double = false;
+    let mut has_value = false;
+
+    for snapshot in documents {
+        if let Some(map) = snapshot.map_value() {
+            if let Some(value) = map.get(field_path) {
+                match value.kind() {
+                    ValueKind::Integer(i) => {
+                        total += *i as f64;
+                        has_value = true;
+                    }
+                    ValueKind::Double(d) => {
+                        total += *d;
+                        has_value = true;
+                        has_double = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if !has_value {
+        FirestoreValue::from_integer(0)
+    } else if has_double || (total.fract() != 0.0) {
+        FirestoreValue::from_double(total)
+    } else {
+        FirestoreValue::from_integer(total as i64)
+    }
+}
+
+fn average_numeric(documents: &[DocumentSnapshot], field_path: &FieldPath) -> FirestoreValue {
+    let mut total = 0f64;
+    let mut count = 0usize;
+
+    for snapshot in documents {
+        if let Some(map) = snapshot.map_value() {
+            if let Some(value) = map.get(field_path) {
+                match value.kind() {
+                    ValueKind::Integer(i) => {
+                        total += *i as f64;
+                        count += 1;
+                    }
+                    ValueKind::Double(d) => {
+                        total += *d;
+                        count += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if count == 0 {
+        FirestoreValue::null()
+    } else {
+        FirestoreValue::from_double(total / count as f64)
     }
 }
 

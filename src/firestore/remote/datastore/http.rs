@@ -7,6 +7,7 @@ use reqwest::Method;
 
 use async_trait::async_trait;
 
+use crate::firestore::api::aggregate::{AggregateDefinition, AggregateOperation};
 use crate::firestore::api::operations::FieldTransform;
 use crate::firestore::api::query::{Bound, FieldFilter, QueryDefinition};
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
@@ -16,7 +17,7 @@ use crate::firestore::error::{
 use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath};
 use crate::firestore::remote::connection::{Connection, ConnectionBuilder, RequestContext};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
-use crate::firestore::value::MapValue;
+use crate::firestore::value::{FirestoreValue, MapValue};
 use serde_json::{json, Value as JsonValue};
 
 use crate::platform::runtime::sleep as runtime_sleep;
@@ -325,6 +326,71 @@ impl Datastore for HttpDatastore {
         })
         .await
     }
+
+    async fn run_aggregate(
+        &self,
+        query: &QueryDefinition,
+        aggregations: &[AggregateDefinition],
+    ) -> FirestoreResult<BTreeMap<String, FirestoreValue>> {
+        if aggregations.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let request_path = if query.parent_path().is_empty() {
+            "documents:runAggregationQuery".to_string()
+        } else {
+            format!(
+                "documents/{}:runAggregationQuery",
+                query.parent_path().canonical_string()
+            )
+        };
+
+        let body = self.build_aggregation_body(query, aggregations)?;
+        let serializer = self.serializer.clone();
+
+        let response = self
+            .execute_with_retry(|context| {
+                let context = context.clone();
+                let request_path = request_path.clone();
+                let body = body.clone();
+                async move {
+                    self.connection
+                        .invoke_json(Method::POST, &request_path, Some(body.clone()), &context)
+                        .await
+                }
+            })
+            .await?;
+
+        let entries = response.as_array().ok_or_else(|| {
+            internal_error("Firestore runAggregationQuery response must be an array")
+        })?;
+
+        let mut aggregates = BTreeMap::new();
+        for entry in entries {
+            let result = match entry.get("result") {
+                Some(result) => result,
+                None => continue,
+            };
+            let fields = result
+                .get("aggregateFields")
+                .and_then(JsonValue::as_object)
+                .ok_or_else(|| {
+                    internal_error("Firestore runAggregationQuery response missing aggregateFields")
+                })?;
+            for (alias, value_json) in fields {
+                let decoded = serializer.decode_value_json(value_json)?;
+                aggregates.insert(alias.clone(), decoded);
+            }
+        }
+
+        if aggregates.is_empty() {
+            return Err(internal_error(
+                "Firestore runAggregationQuery response contained no aggregation results",
+            ));
+        }
+
+        Ok(aggregates)
+    }
 }
 
 impl HttpDatastore {
@@ -351,12 +417,18 @@ impl HttpDatastore {
             structured.insert("select".to_string(), json!({ "fields": field_entries }));
         }
 
+        let mut from_entry = serde_json::Map::new();
+        from_entry.insert(
+            "collectionId".to_string(),
+            json!(definition.collection_id()),
+        );
+        from_entry.insert(
+            "allDescendants".to_string(),
+            json!(definition.collection_group().is_some()),
+        );
         structured.insert(
             "from".to_string(),
-            json!([{
-                "collectionId": definition.collection_id(),
-                "allDescendants": false
-            }]),
+            JsonValue::Array(vec![JsonValue::Object(from_entry)]),
         );
 
         if !definition.filters().is_empty() {
@@ -391,6 +463,45 @@ impl HttpDatastore {
         }
 
         Ok(JsonValue::Object(structured))
+    }
+
+    fn build_aggregation_body(
+        &self,
+        definition: &QueryDefinition,
+        aggregations: &[AggregateDefinition],
+    ) -> FirestoreResult<JsonValue> {
+        let structured_query = self.build_structured_query(definition)?;
+
+        let mut aggregation_entries = Vec::new();
+        for aggregate in aggregations {
+            let mut entry = serde_json::Map::new();
+            entry.insert("alias".to_string(), json!(aggregate.alias()));
+            match aggregate.operation() {
+                AggregateOperation::Count => {
+                    entry.insert("count".to_string(), json!({}));
+                }
+                AggregateOperation::Sum(field_path) => {
+                    entry.insert(
+                        "sum".to_string(),
+                        json!({ "field": { "fieldPath": field_path.canonical_string() } }),
+                    );
+                }
+                AggregateOperation::Average(field_path) => {
+                    entry.insert(
+                        "avg".to_string(),
+                        json!({ "field": { "fieldPath": field_path.canonical_string() } }),
+                    );
+                }
+            };
+            aggregation_entries.push(JsonValue::Object(entry));
+        }
+
+        Ok(json!({
+            "structuredAggregationQuery": {
+                "structuredQuery": structured_query,
+                "aggregations": aggregation_entries
+            }
+        }))
     }
 
     fn encode_filters(&self, filters: &[FieldFilter]) -> JsonValue {
@@ -523,9 +634,11 @@ mod tests {
     use super::*;
     use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
     use crate::component::ComponentContainer;
+    use crate::firestore::api::aggregate::{AggregateField, AggregateSpec};
     use crate::firestore::api::Firestore;
     use crate::firestore::error::{internal_error, unauthenticated};
     use crate::firestore::model::DatabaseId;
+    use crate::firestore::value::ValueKind;
     use crate::firestore::FirestoreValue;
     use crate::test_support::start_mock_server;
     use httpmock::prelude::*;
@@ -658,6 +771,220 @@ mod tests {
         assert_eq!(snapshots.len(), 2);
         let names: Vec<_> = snapshots.iter().map(|snap| snap.id().to_string()).collect();
         assert_eq!(names, vec!["LA", "SF"]);
+    }
+
+    #[tokio::test]
+    async fn run_query_collection_group_sets_all_descendants() {
+        let server = match panic::catch_unwind(|| start_mock_server()) {
+            Ok(server) => server,
+            Err(_) => {
+                eprintln!(
+                    "Skipping run_query_collection_group_sets_all_descendants: unable to bind httpmock server in this environment."
+                );
+                return;
+            }
+        };
+        let database_id = DatabaseId::new("demo-project", "(default)");
+
+        let response_body = json!([
+            {
+                "document": {
+                    "name": format!(
+                        "projects/{}/databases/{}/documents/cities/SF/landmarks/golden_gate",
+                        database_id.project_id(),
+                        database_id.database()
+                    ),
+                    "fields": {
+                        "name": { "stringValue": "Golden Gate" }
+                    }
+                }
+            }
+        ]);
+
+        let expected_body = json!({
+            "structuredQuery": {
+                "from": [
+                    {
+                        "collectionId": "landmarks",
+                        "allDescendants": true
+                    }
+                ],
+                "orderBy": [
+                    {
+                        "field": { "fieldPath": "__name__" },
+                        "direction": "ASCENDING"
+                    }
+                ]
+            }
+        });
+
+        let expected_path = format!(
+            "/v1/projects/{}/databases/{}/documents:runQuery",
+            database_id.project_id(),
+            database_id.database()
+        );
+
+        let run_query_path = expected_path.clone();
+        let expected_body_clone = expected_body.clone();
+        let response_clone = response_body.clone();
+
+        let _mock = server.mock(move |when, then| {
+            when.method(POST)
+                .path(run_query_path.as_str())
+                .json_body(expected_body_clone.clone());
+            then.status(200).json_body(response_clone.clone());
+        });
+
+        let client = reqwest::Client::builder().build().expect("reqwest client");
+
+        let connection_builder = Connection::builder(database_id.clone())
+            .with_client(client)
+            .with_emulator_host(server.address().to_string());
+
+        let datastore = HttpDatastore::builder(database_id.clone())
+            .with_connection_builder(connection_builder)
+            .build()
+            .expect("datastore");
+
+        let options = FirebaseOptions {
+            project_id: Some(database_id.project_id().to_string()),
+            ..Default::default()
+        };
+        let app = FirebaseApp::new(
+            options,
+            FirebaseAppConfig::new("query-test", false),
+            ComponentContainer::new("query-test"),
+        );
+
+        let firestore = Firestore::new(app, database_id.clone());
+        let query = firestore.collection_group("landmarks").unwrap();
+        let definition = query.definition();
+
+        let snapshots = datastore
+            .run_query(&definition)
+            .await
+            .expect("collection group query");
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].id(), "golden_gate");
+    }
+
+    #[tokio::test]
+    async fn run_aggregate_posts_structured_query() {
+        let server = match panic::catch_unwind(|| start_mock_server()) {
+            Ok(server) => server,
+            Err(_) => {
+                eprintln!(
+                    "Skipping run_aggregate_posts_structured_query: unable to bind httpmock server in this environment."
+                );
+                return;
+            }
+        };
+        let database_id = DatabaseId::new("demo-project", "(default)");
+
+        let response_body = json!([
+            {
+                "result": {
+                    "aggregateFields": {
+                        "count": { "integerValue": "2" },
+                        "total_population": { "integerValue": "150" }
+                    }
+                }
+            }
+        ]);
+
+        let expected_body = json!({
+            "structuredAggregationQuery": {
+                "structuredQuery": {
+                    "from": [
+                        {
+                            "collectionId": "cities",
+                            "allDescendants": false
+                        }
+                    ],
+                    "orderBy": [
+                        {
+                            "field": { "fieldPath": "__name__" },
+                            "direction": "ASCENDING"
+                        }
+                    ]
+                },
+                "aggregations": [
+                    { "alias": "count", "count": {} },
+                    {
+                        "alias": "total_population",
+                        "sum": { "field": { "fieldPath": "population" } }
+                    }
+                ]
+            }
+        });
+
+        let expected_path = format!(
+            "/v1/projects/{}/databases/{}/documents:runAggregationQuery",
+            database_id.project_id(),
+            database_id.database()
+        );
+
+        let run_query_path = expected_path.clone();
+        let expected_body_clone = expected_body.clone();
+        let response_clone = response_body.clone();
+
+        let _mock = server.mock(move |when, then| {
+            when.method(POST)
+                .path(run_query_path.as_str())
+                .json_body(expected_body_clone.clone());
+            then.status(200).json_body(response_clone.clone());
+        });
+
+        let client = reqwest::Client::builder().build().expect("reqwest client");
+
+        let connection_builder = Connection::builder(database_id.clone())
+            .with_client(client)
+            .with_emulator_host(server.address().to_string());
+
+        let datastore = HttpDatastore::builder(database_id.clone())
+            .with_connection_builder(connection_builder)
+            .build()
+            .expect("datastore");
+
+        let options = FirebaseOptions {
+            project_id: Some(database_id.project_id().to_string()),
+            ..Default::default()
+        };
+        let app = FirebaseApp::new(
+            options,
+            FirebaseAppConfig::new("aggregate-test", false),
+            ComponentContainer::new("aggregate-test"),
+        );
+
+        let firestore = Firestore::new(app, database_id.clone());
+        let query = firestore.collection("cities").unwrap().query();
+        let definition = query.definition();
+
+        let mut spec = AggregateSpec::new();
+        spec.insert("count", AggregateField::count()).unwrap();
+        spec.insert(
+            "total_population",
+            AggregateField::sum("population").unwrap(),
+        )
+        .unwrap();
+        let aggregates = spec.definitions();
+
+        let results = datastore
+            .run_aggregate(&definition, &aggregates)
+            .await
+            .expect("aggregate");
+
+        let count_value = results.get("count").expect("count present");
+        match count_value.kind() {
+            ValueKind::Integer(i) => assert_eq!(*i, 2),
+            other => panic!("expected integer count, got {other:?}"),
+        }
+
+        let total_value = results.get("total_population").expect("sum present");
+        match total_value.kind() {
+            ValueKind::Integer(i) => assert_eq!(*i, 150),
+            other => panic!("expected integer total, got {other:?}"),
+        }
     }
 
     #[tokio::test]

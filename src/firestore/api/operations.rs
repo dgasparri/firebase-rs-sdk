@@ -338,19 +338,7 @@ fn collect_paths_from_value(
 }
 
 pub(crate) fn value_for_field_path(map: &MapValue, path: &FieldPath) -> Option<FirestoreValue> {
-    value_for_segments(map, path.segments())
-}
-
-fn value_for_segments(map: &MapValue, segments: &[String]) -> Option<FirestoreValue> {
-    let (first, rest) = segments.split_first()?;
-    let value = map.fields().get(first)?;
-    if rest.is_empty() {
-        Some(value.clone())
-    } else if let ValueKind::Map(child) = value.kind() {
-        value_for_segments(child, rest)
-    } else {
-        None
-    }
+    map.get(path).cloned()
 }
 
 pub(crate) fn set_value_at_field_path(

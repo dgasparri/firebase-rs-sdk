@@ -53,6 +53,35 @@ impl FieldPath {
     }
 }
 
+/// Trait that converts common user inputs into a validated [`FieldPath`].
+pub trait IntoFieldPath {
+    fn into_field_path(self) -> FirestoreResult<FieldPath>;
+}
+
+impl IntoFieldPath for FieldPath {
+    fn into_field_path(self) -> FirestoreResult<FieldPath> {
+        Ok(self)
+    }
+}
+
+impl<'a> IntoFieldPath for &'a FieldPath {
+    fn into_field_path(self) -> FirestoreResult<FieldPath> {
+        Ok(self.clone())
+    }
+}
+
+impl IntoFieldPath for String {
+    fn into_field_path(self) -> FirestoreResult<FieldPath> {
+        FieldPath::from_dot_separated(&self)
+    }
+}
+
+impl<'a> IntoFieldPath for &'a str {
+    fn into_field_path(self) -> FirestoreResult<FieldPath> {
+        FieldPath::from_dot_separated(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

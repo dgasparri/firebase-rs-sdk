@@ -14,6 +14,7 @@ use crate::firestore::error::{
 };
 use crate::firestore::model::{DatabaseId, ResourcePath};
 
+use super::query::Query;
 use super::reference::{CollectionReference, DocumentReference};
 
 #[derive(Clone, Debug)]
@@ -60,6 +61,14 @@ impl Firestore {
     pub fn doc(&self, path: &str) -> FirestoreResult<DocumentReference> {
         let resource = ResourcePath::from_string(path)?;
         DocumentReference::new(self.clone(), resource)
+    }
+
+    /// Creates a query that targets every collection with the provided identifier, regardless of its parent path.
+    ///
+    /// Mirrors the modular JS `collectionGroup` API from
+    /// `packages/firestore/src/lite-api/reference.ts`.
+    pub fn collection_group(&self, collection_id: &str) -> FirestoreResult<Query> {
+        Query::new_collection_group(self.clone(), collection_id.to_string())
     }
 
     /// Clones a Firestore handle that has been wrapped in an `Arc`.

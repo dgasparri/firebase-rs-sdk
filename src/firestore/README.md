@@ -12,17 +12,20 @@ Firebase apps.
 
 ## Porting status
 
-- firestore 60% `[######   ]`
+- firestore 80% `[########  ]`
 
-==As of April 5th, 2026==
+==As of April 12th, 2026==
 
-Roughly 60 % of the Firestore JS SDK now has a Rust counterpart.
+Roughly 80 % of the Firestore JS SDK now has a Rust counterpart.
 
 - Core handles (component registration, `Firestore`/reference types, converters), document/query operations, and the HTTP datastore remain in place.
 - Set semantics now mirror the JS SDK, including `SetOptions::merge`/`merge_fields`, allowing partial document updates through both the HTTP and in-memory datastores.
 - All array/membership operators (`array-contains`, `array-contains-any`, `in`, `not-in`) are supported and validated; queries auto-normalise ordering just like the JS structured-query builder.
 - Batched writes (`WriteBatch`) are fully wired, sharing the commit pipeline across HTTP and in-memory datastores so atomic groups of set/update/delete mirror `writeBatch()` from the modular SDK.
-- Remaining gaps focus on the sync engine: real-time watchers, transactions, precondition/sentinel transforms, offline persistence, and bundle/aggregate support.
+- Collection group queries now compile identical structured queries across the HTTP and in-memory datastores.
+- Document snapshots expose `get(...)` helpers that align with the modular JS API for selective field reads.
+- REST and in-memory datastores can execute aggregation queries (`count`, `sum`, `average`), matching `getAggregate()`/`getCount()` from the JS SDK.
+- Remaining gaps focus on the sync engine: real-time watchers, transactions, offline persistence, cross-platform transports, and advanced bundle/listener plumbing.
 
 ## References to the Firebase JS SDK - firestore module
 
@@ -34,8 +37,8 @@ Roughly 60 % of the Firestore JS SDK now has a Rust counterpart.
 ## Development status as of 5th April 2026
 
 - Core functionalities: Mostly implemented (see this README for details)
-- Testing: 44 tests (covering merges, advanced filters, batched writes, and existing update/delete flows)
-- Documentation: Public APIs documented with rustdoc (set merge semantics, `WriteBatch`, advanced filters)
+- Testing: 48 tests (covering merges, advanced filters, collection-group queries, aggregations, and existing update/delete flows)
+- Documentation: Public APIs documented with rustdoc (set/merge semantics, `WriteBatch`, queries, snapshot accessors, aggregations)
 - Examples: 3 examples
 
 DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that it has no bugs or that it will work as intended.
@@ -83,8 +86,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     alan.insert("middle".into(), FirestoreValue::from_string("Mathison"));
     alan.insert("last".into(), FirestoreValue::from_string("Turing"));
     alan.insert("born".into(), FirestoreValue::from_integer(1912));
-    let alan_snapshot = client.add_doc("users", alan).await?;
-    println!("Document written with ID: {}", alan_snapshot.id());
+let alan_snapshot = client.add_doc("users", alan).await?;
+println!("Document written with ID: {}", alan_snapshot.id());
+if let Some(born) = alan_snapshot.get("born")? {
+    if let ValueKind::Integer(year) = born.kind() {
+        println!("Alan was born in {year}");
+    }
+}
+let query = firestore.collection("users").unwrap().query();
+let aggregates = client.get_count(&query).await?;
+println!(
+    "Total users: {}",
+    aggregates.count("count")?.unwrap_or_default()
+);
     Ok(())
 }
 ```
@@ -173,15 +187,20 @@ async fn example_with_converter(
   (`in`, `not-in`) are validated client-side and encoded for both datastores, matching the JS SDK constraints.
 - **Batched writes** – `WriteBatch` mirrors the modular SDK: set/update/delete operations queue up and commit atomically
   via the shared datastore pipeline, enabling multi-document mutations over HTTP or the in-memory store.
+- **Collection-group queries** – `Firestore::collection_group` issues structured queries with `allDescendants`, and both
+  datastores respect the same validation/ordering semantics as the JS SDK.
+- **Snapshot field accessors** – `DocumentSnapshot::get` (and typed variants) accept `&str`/`FieldPath` inputs, returning
+  borrowed `FirestoreValue`s for selective field reads just like `DocumentSnapshot.get(...)` in the modular API.
+- **Aggregations** – `FirestoreClient::get_aggregate`/`get_count` surface REST `runAggregationQuery`, while the
+  in-memory datastore computes `count`, `sum`, and `average` locally for tests.
 
 ## Still to do
 
-- Transactions, merge preconditions, and sentinel transforms aligned with the JS mutation queue.
-- Field transforms such as server timestamps, array union/remove, and numeric increment.
+- Transactions and merge preconditions aligned with the JS mutation queue.
 - Real-time listeners, watch streams, and pending-write coordination for latency-compensation.
-- Collection group queries, aggregation APIs, and bundle/named-query support.
 - Offline persistence layers (memory + IndexedDB), LRU pruning, and multi-tab coordination.
-- Bundle loading, named queries, and emulator-backed integration coverage.
+- Bundle loading, named queries, and enhanced aggregation coverage (min/max, percentile).
+- Emulator-backed integration coverage and stress tests across HTTP/gRPC transports.
 
 This is enough to explore API ergonomics and stand up tests, but it lacks real network, persistence, query logic, and the
 majority of the Firestore feature set.
@@ -195,8 +214,8 @@ majority of the Firestore feature set.
      wired.
    - Add richer token refresh/emulator header support for long-lived streaming sessions.
 2. **Snapshot & converter parity**
-   - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to match the JS SDK, including `withConverter`
-     support and typed accessors.
+   - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
+     snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.
 3. **Write operations**
    - Build client-side transactions (retries, preconditions, mutation queue) atop the shared commit + transform
      pipeline.
@@ -206,8 +225,9 @@ majority of the Firestore feature set.
 5. **Local persistence**
    - Introduce the local cache layers (memory, IndexedDB-like, LRU pruning) and multi-tab coordination, matching the JS
      architecture.
-6. **Bundles & aggregates**
-   - Port bundle loading, named queries, and aggregate functions once core querying is functional.
+6. **Bundles & advanced aggregates**
+   - Port bundle loading, named queries, and extended aggregate functions (min/max, percentile) once core querying is
+     functional.
 7. **Platform-specific plumbing**
    - Mirror browser/node differences (e.g., persistence availability checks, WebChannel vs gRPC) via `platform/` modules.
 8. **Testing & parity checks**

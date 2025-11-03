@@ -7,7 +7,7 @@ mod timestamp;
 
 pub use database_id::DatabaseId;
 pub use document_key::DocumentKey;
-pub use field_path::FieldPath;
+pub use field_path::{FieldPath, IntoFieldPath};
 pub use geo_point::GeoPoint;
 pub use resource_path::ResourcePath;
 pub use timestamp::Timestamp;

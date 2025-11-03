@@ -985,3 +985,54 @@ what do you mean with "layer transaction handing"
 > Updated src/firestore/README.md so the “Next steps” section now focuses on standing up the gRPC/WebChannel transport,
   richer streaming/token handling, and transactions atop the new commit pipeline, and the “Immediate Porting Focus”
   table reflects those priorities (gRPC streaming, credential refresh, transactions, snapshot polish, etc.).
+
+
+
+> Thinking
+  I'm gathering the final summary and test outputs. There are no warnings in the test results, but I see the aggregator
+  HTTP tests were skipped because the sandbox couldn't bind to the needed ports, so I'll mention that. I'll also get the
+  git status to list any changed files before finishing up.
+
+• Ran git status -sb
+
+> Thinking
+  I'm gathering highlights for a changelog including the new aggregate.rs file, feature additions like collection
+  group support and DocumentSnapshot::get, and updates across multiple source files with approximate line numbers. I'll
+  mention the tests run with notes on skips due to sandbox and httpmock, confirm formatting with cargo fmt, and ensure
+  no warnings remain. This will help create clear, referenced documentation on the modifications made.
+
+• Explored
+  └ Search pub async fn get_aggregate in document.rs
+    Search pub async fn get_count in document.rs
+    Search pub fn get<P> in snapshot.rs
+    Search pub fn get(&self, field_path in map_value.rs
+    Search MapValue::new in map_value.rs
+    Read map_value.rs
+    Search run_aggregate in http.rs
+    Search run_aggregate in in_memory.rs
+    Read field_path.rs
+
+> Thinking
+  I'll organize the final message with clear bullet points outlining new features like collection-group queries,
+  DocumentSnapshot enhancements, and the aggregator API with corresponding file references and lines. I'll also note
+  the cargo fmt formatting done, summarize test runs including the skipped aggregator RESTful tests due to binding
+  restrictions, and mention relevant README updates to keep everything transparent and easy to scan.
+
+> Highlights
+
+  - Expanded query targeting to handle collection-group scans, wiring QueryDefinition and Firestore::collection_group
+  so both datastores emit allDescendants structured queries (src/firestore/api/query.rs:181, src/firestore/api/
+  database.rs:66, src/firestore/remote/datastore/http.rs:316).
+  - Added ergonomic field access via DocumentSnapshot::get/typed variants plus reusable IntoFieldPath and MapValue::get,
+  matching the JS snapshot API (src/firestore/api/snapshot.rs:107, src/firestore/model/field_path.rs:56, src/firestore/
+  value/map_value.rs:20).
+  - Introduced the aggregation surface (AggregateField, AggregateSpec, AggregateQuerySnapshot) with
+  FirestoreClient::get_aggregate/get_count and REST/in-memory execution paths, including docs and README updates
+  highlighting the new capabilities (src/firestore/api/aggregate.rs, src/firestore/api/document.rs:245, src/firestore/
+  remote/datastore/http.rs:330, src/firestore/remote/datastore/in_memory.rs:214, src/firestore/README.md).
+
+  Testing
+
+  - cargo fmt
+  - cargo test firestore -- --nocapture (httpmock-based HTTP tests auto-skip in the sandbox when a listener cannot bind;
+  all other tests pass)

@@ -8,11 +8,12 @@ pub mod value;
 
 #[doc(inline)]
 pub use api::{
-    get_firestore, register_firestore_component, CollectionReference, ConvertedCollectionReference,
-    ConvertedDocumentReference, ConvertedQuery, DocumentReference, DocumentSnapshot,
-    FilterOperator, Firestore, FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection,
-    PassthroughConverter, Query, QuerySnapshot, SetOptions, SnapshotMetadata,
-    TypedDocumentSnapshot, TypedQuerySnapshot, WriteBatch,
+    get_firestore, register_firestore_component, AggregateField, AggregateQuerySnapshot,
+    AggregateSpec, CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,
+    ConvertedQuery, DocumentReference, DocumentSnapshot, FilterOperator, Firestore,
+    FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection, PassthroughConverter,
+    Query, QuerySnapshot, SetOptions, SnapshotMetadata, TypedDocumentSnapshot, TypedQuerySnapshot,
+    WriteBatch,
 };
 
 #[doc(inline)]

@@ -211,6 +211,10 @@ impl JsonProtoSerializer {
     pub fn encode_value(&self, value: &FirestoreValue) -> JsonValue {
         encode_value(value)
     }
+
+    pub fn decode_value_json(&self, value: &JsonValue) -> FirestoreResult<FirestoreValue> {
+        decode_value(value)
+    }
 }
 
 fn encode_map_fields(map: &MapValue) -> JsonValue {

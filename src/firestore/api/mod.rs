@@ -1,3 +1,4 @@
+pub(crate) mod aggregate;
 mod converter;
 mod database;
 pub mod document;
@@ -7,6 +8,7 @@ mod reference;
 mod snapshot;
 mod write_batch;
 
+pub use aggregate::{AggregateField, AggregateQuerySnapshot, AggregateSpec};
 pub use converter::{FirestoreDataConverter, PassthroughConverter};
 pub use database::{get_firestore, register_firestore_component, Firestore};
 pub use document::FirestoreClient;
