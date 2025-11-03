@@ -2,6 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
+use futures::future::BoxFuture;
+#[cfg(target_arch = "wasm32")]
+use futures::future::LocalBoxFuture;
 
 use crate::firestore::api::aggregate::AggregateDefinition;
 use crate::firestore::api::operations::FieldTransform;
@@ -13,6 +17,7 @@ use crate::firestore::value::{FirestoreValue, MapValue};
 
 pub mod http;
 pub mod in_memory;
+pub mod streaming;
 
 #[derive(Clone, Debug)]
 pub enum WriteOperation {
@@ -31,6 +36,22 @@ pub enum WriteOperation {
     Delete {
         key: DocumentKey,
     },
+}
+
+#[cfg(target_arch = "wasm32")]
+pub type StreamingFuture<'a, T> = LocalBoxFuture<'a, T>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type StreamingFuture<'a, T> = BoxFuture<'a, T>;
+
+pub trait StreamingDatastore: Send + Sync + 'static {
+    fn open_listen_stream(&self) -> StreamingFuture<'_, FirestoreResult<Box<dyn StreamHandle>>>;
+    fn open_write_stream(&self) -> StreamingFuture<'_, FirestoreResult<Box<dyn StreamHandle>>>;
+}
+
+pub trait StreamHandle: Send + Sync {
+    fn send(&self, payload: Vec<u8>) -> StreamingFuture<'_, FirestoreResult<()>>;
+    fn next(&self) -> StreamingFuture<'_, Option<FirestoreResult<Vec<u8>>>>;
+    fn close(&self) -> StreamingFuture<'_, FirestoreResult<()>>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -88,3 +109,4 @@ pub type TokenProviderArc = Arc<dyn TokenProvider>;
 
 pub use http::{HttpDatastore, RetrySettings};
 pub use in_memory::InMemoryDatastore;
+pub use streaming::StreamingDatastoreImpl;

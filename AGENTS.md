@@ -124,3 +124,13 @@ The README.md file for each module must follow the rules and layout set in the "
 ### Messages for a PULL REQUEST
 
 Pull requests should have a title that starts with the name of the {module} affected, and a message that explains in detail what are the changes in the code and the benefits of those changes. In particular, it should highlight if the code creates breaking changes to the APIs.
+
+### Async traits on wasm
+
+If `async_trait` introduces `Send` bounds that break `wasm32` builds, mirror the approach in `src/app_check/types.rs`:
+
+- Define a target-aware alias (e.g., `StreamingFuture`) that flips between `LocalBoxFuture` and `BoxFuture`.
+- Expose helpers (like `box_stream_future`) to box futures without relying on `async_trait`.
+- Rewrite the trait to return the alias instead of using `async fn`.
+
+This keeps wasm-compatible async code without duplicating implementations.

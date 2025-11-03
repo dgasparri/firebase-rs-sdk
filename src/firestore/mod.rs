@@ -31,7 +31,8 @@ pub use remote::WebSocketTransport;
 pub use remote::{
     map_http_error, Connection, ConnectionBuilder, Datastore, HttpDatastore, InMemoryDatastore,
     InMemoryTransport, JsonProtoSerializer, MultiplexedConnection, MultiplexedStream,
-    NoopTokenProvider, RequestContext, RetrySettings, StreamTransport, TokenProviderArc,
+    NoopTokenProvider, RequestContext, RetrySettings, StreamHandle, StreamTransport,
+    StreamingDatastore, StreamingDatastoreImpl, StreamingFuture, TokenProviderArc,
 };
 
 #[doc(inline)]

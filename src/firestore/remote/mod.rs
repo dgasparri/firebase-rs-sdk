@@ -6,7 +6,8 @@ pub mod stream;
 
 pub use connection::{Connection, ConnectionBuilder, RequestContext};
 pub use datastore::{
-    Datastore, HttpDatastore, InMemoryDatastore, NoopTokenProvider, RetrySettings, TokenProviderArc,
+    Datastore, HttpDatastore, InMemoryDatastore, NoopTokenProvider, RetrySettings, StreamHandle,
+    StreamingDatastore, StreamingDatastoreImpl, StreamingFuture, TokenProviderArc,
 };
 pub use rpc_error::map_http_error;
 pub use serializer::JsonProtoSerializer;

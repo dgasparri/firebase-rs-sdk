@@ -195,6 +195,8 @@ async fn example_with_converter(
   in-memory datastore computes `count`, `sum`, and `average` locally for tests.
 - **Streaming scaffolding** – A multiplexed stream manager provides shared framing over arbitrary transports, with
   in-memory and WebSocket transports plus tests validating multi-stream exchange and cooperative shutdown behaviour.
+- **Streaming datastore** – Exposed a generic `StreamingDatastore` over the multiplexed streams so listen/write state
+  machines can share connection management with concrete transports.
 
 ## Still to do
 
