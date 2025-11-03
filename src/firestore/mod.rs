@@ -28,7 +28,8 @@ pub use model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, ResourcePath, Time
 #[doc(inline)]
 pub use remote::{
     map_http_error, Connection, ConnectionBuilder, Datastore, HttpDatastore, InMemoryDatastore,
-    JsonProtoSerializer, NoopTokenProvider, RequestContext, RetrySettings, TokenProviderArc,
+    InMemoryTransport, JsonProtoSerializer, MultiplexedConnection, MultiplexedStream,
+    NoopTokenProvider, RequestContext, RetrySettings, StreamTransport, TokenProviderArc,
 };
 
 #[doc(inline)]

@@ -44,6 +44,8 @@ async-lock = "3"
 bytes = "1"
 futures = { version = "0.3", default-features = false, features = ["executor", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+async-channel = "1"
+log = "0.4"
 
 [dependencies.wasm-bindgen]
 version = "0.2"

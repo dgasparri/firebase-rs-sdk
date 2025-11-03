@@ -584,6 +584,7 @@ checksum = "52051878f80a721bb68ebfbc930e07b65ba72f2da88968ea5c06fd6ca3d3a127"
 name = "firebase-rs-sdk"
 version = "0.11.1"
 dependencies = [
+ "async-channel 1.9.0",
  "async-lock",
  "async-trait",
  "base64 0.22.1",
@@ -595,6 +596,7 @@ dependencies = [
  "gloo-timers",
  "httpmock",
  "js-sys",
+ "log",
  "once_cell",
  "percent-encoding",
  "rand",

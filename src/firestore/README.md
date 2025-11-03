@@ -193,6 +193,8 @@ async fn example_with_converter(
   borrowed `FirestoreValue`s for selective field reads just like `DocumentSnapshot.get(...)` in the modular API.
 - **Aggregations** – `FirestoreClient::get_aggregate`/`get_count` surface REST `runAggregationQuery`, while the
   in-memory datastore computes `count`, `sum`, and `average` locally for tests.
+- **Streaming scaffolding** – A multiplexed stream manager provides shared framing over arbitrary transports, with an
+  in-memory transport and tests validating multi-stream message exchange and cooperative shutdown behaviour.
 
 ## Still to do
 
@@ -220,8 +222,12 @@ majority of the Firestore feature set.
    - Build client-side transactions (retries, preconditions, mutation queue) atop the shared commit + transform
      pipeline.
 4. **Query engine**
-   - Port query builders (filters, orderBy, limit, cursors) and result handling, then connect them to the remote listen
-     stream.
+   - Finish porting the remaining query builder surface (composite/OR filters, `orderBy` on nested/transform fields,
+     cursor helpers such as `startAfter`/`endBefore`, limit-to-last validation) so it mirrors `packages/firestore/src/core/query.ts`.
+   - Implement target serialization and comparator logic shared by the local store and the remote watch layer so
+     listen responses can be applied to views.
+   - Connect the normalised query definitions to the remote listen stream once gRPC/WebChannel support lands, ensuring
+     resume tokens, ordering, and backfill handling behave identically to the JS SDK.
 5. **Local persistence**
    - Introduce the local cache layers (memory, IndexedDB-like, LRU pruning) and multi-tab coordination, matching the JS
      architecture.
