@@ -189,17 +189,17 @@ majority of the Firestore feature set.
 ## Next steps - Detailed completion plan
 
 1. **Network layer**
-   - Port the remote datastore to call Firestore’s REST/gRPC endpoints (authentication headers, request/response
-     serialization, retry/backoff).
-   - Handle stream-specific behaviour (listen/write pipelines) once basic REST calls succeed.
-   - Extend structured query support with array and membership operators (`array-contains`, `in`, `not-in`), composite
-     filters, and collection group queries to complete parity with the modular SDK.
+   - Stand up a gRPC/WebChannel transport alongside the existing REST client so we can stream listen/write RPCs with
+     shared auth/backoff logic.
+   - Handle persistent listen/write stream lifecycles (resume tokens, exponential backoff, heartbeat) once gRPC is
+     wired.
+   - Add richer token refresh/emulator header support for long-lived streaming sessions.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to match the JS SDK, including `withConverter`
      support and typed accessors.
 3. **Write operations**
-   - Finish merge semantics, batched writes, and transactions now that single-document set/add/update/delete calls are in
-     place; add precondition handling and sentinel transforms.
+   - Build client-side transactions (retries, preconditions, mutation queue) atop the shared commit + transform
+     pipeline.
 4. **Query engine**
    - Port query builders (filters, orderBy, limit, cursors) and result handling, then connect them to the remote listen
      stream.
@@ -236,10 +236,10 @@ majority of the Firestore feature set.
 
 | Priority | JS source | Target Rust module | Scope | Key dependencies |
 |----------|-----------|--------------------|-------|------------------|
-| P0 | `packages/firestore/src/remote/datastore.ts`, `remote/persistent_stream.ts` | Extend `src/firestore/remote/datastore/http.rs`, add `listen`/`write` streaming scaffolding | Layer real listen/write streaming on top of the HTTP bridge (or gRPC when ready), reuse retry/backoff, and surface structured responses. | Needs auth/App Check providers returning real tokens plus async stream abstraction. |
-| P0 | `packages/firestore/src/remote/datastore.ts` (token handling) | `src/firestore/remote/datastore/mod.rs`, `http.rs` | ✅ Auth/App Check token providers now feed the HTTP datastore with automatic retry on `Unauthenticated`; still need emulator headers and richer refresh flows. | Depends on porting credential providers from `packages/firestore/src/api/credentials.ts` and wiring to existing `crate::auth`. |
-| P0 | `packages/firestore/src/api/snapshot.ts`, `api/reference_impl.ts`, `core/firestore_client.ts` | Split `src/firestore/api/operations.rs` into `snapshot/` modules with converter support | Add typed metadata flags, `with_converter`, and map the HTTP responses to rich snapshots. | Requires serializer parity, encoded reference paths, and converter traits. |
-| P1 | `packages/firestore/src/api/transaction.ts`, `api/write_batch.ts`, `core/transaction_runner.ts` | `src/firestore/api/transaction.rs`, `src/firestore/core/transaction.rs` | Layer transactions, retries, and precondition handling on top of the shared commit pipeline; add sentinel transforms (server timestamp, array union/remove, numeric increment). | Builds on serializer support for mutations plus `CommitRequest`/`Rollback` RPCs. |
+| P0 | `packages/firestore/src/remote/persistent_stream.ts`, `remote/datastore.ts` | New `src/firestore/remote/grpc/` plus updates to `remote/datastore/mod.rs` | Implement gRPC/WebChannel listen & write streaming alongside REST, sharing auth/backoff logic. | Requires platform stream adapters (native + wasm) and watch change parsing. |
+| P0 | `packages/firestore/src/remote/datastore.ts` (credentials, emulator) | `src/firestore/remote/datastore/http.rs`, `mod.rs` | Expand token refresh/emulator header handling and unify transform-aware commits across transports. | Depends on auth/App Check providers, heartbeat storage, and gRPC transport availability. |
+| P1 | `packages/firestore/src/api/transaction.ts`, `core/transaction_runner.ts` | `src/firestore/api/transaction.rs`, `src/firestore/core/transaction.rs` | Build transactions/retries and precondition support atop the new commit pipeline. | Needs gRPC commit parity and mutation queue abstractions. |
+| P1 | `packages/firestore/src/api/snapshot.ts`, `api/reference_impl.ts` | `src/firestore/api/snapshot.rs`, `src/firestore/api/mod.rs` | Polish snapshot metadata/converters and align API surface with modular JS (`withConverter`, typed snapshots). | Requires gRPC listen results and converter parity. |
 | P1 | `packages/firestore/src/api/filter.ts`, `core/query.ts`, `core/view.ts`, `remote/watch_change.ts` | `src/firestore/api/query.rs`, `src/firestore/core/query/` | Port query builders, bounds, ordering, and attach them to real listen results. | Requires streaming remote store, target serialization, and comparator logic. |
 | P2 | `packages/firestore/src/local/indexeddb_*`, `local/persistence.ts`, `local/remote_document_cache.ts` | `src/firestore/local/` | Establish trait-based persistence with in-memory baseline, paving the way for disk-backed stores later. | Requires query engine integration and watch pipeline parity. |
 

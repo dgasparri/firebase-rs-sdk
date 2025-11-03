@@ -834,3 +834,154 @@ Ran cargo test --features firestore update_document_merges_fields
 ▌ Improve documentation in @filename                                                                                    
 
 
+Thinking
+  I'm laying out how to implement Step 3, focusing on adding batched writes via a new WriteBatch type. This involves
+  defining the WriteOperation enum, updating the Datastore trait to support committing multiple writes, and refactoring
+  HTTP and InMemory backends to use this batch commit. I’m also planning new serializer methods to create JSON for
+  each write operation, and designing the WriteBatch API to mimic existing client patterns for set, update, delete, and
+  commit—with attention to typed and untyped document references.
+
+• Explored
+  └ Search pub struct DocumentKey in model
+    Read document_key.rs
+
+> Thinking
+  I’m figuring out how to create DocumentKey from DocumentReference since it doesn’t expose one directly, cloning the
+  path to achieve this. I’m planning to encode data for set and update operations, while delete doesn’t need data.
+  For WriteBatch, I need to track operations, enforce a 500-operation limit, and make sure commits happen only once,
+  handling errors properly with Firestore error codes. I’ll look into error.rs to match error handling patterns.
+
+
+Thinking
+  I'll gather line numbers and summarize key changes across multiple source files, covering merges, write batch
+  additions, remote datastore updates, and README improvements, so the user gets a clear, linkable overview of new
+  features and test runs.
+
+• Explored
+  └ Read operations.rs, write_batch.rs, http.rs, in_memory.rs
+
+> Thinking
+  I'll highlight the key code changes with precise line references across multiple files, note updates to the README,
+  confirm tests run successfully, and suggest logical next steps like implementing transactions or adding sentinel
+  transforms.
+
+> Implemented merge-capable writes, richer queries, and batched commits for Firestore.
+
+  - Added full SetOptions handling (merge + merge_fields) and mask utilities so set_doc now executes partial writes
+  across both datastores (src/firestore/api/operations.rs:7, src/firestore/api/document.rs:94).
+  - Introduced the shared WriteOperation pipeline, including a new public WriteBatch API (src/firestore/api/
+  write_batch.rs:15) and FirestoreClient::batch helper (src/firestore/api/document.rs:68), with HTTP/in-memory
+  datastores committing via the same batching logic (src/firestore/remote/datastore/http.rs:189, src/firestore/remote/
+  datastore/in_memory.rs:26, src/firestore/remote/datastore/mod.rs:12, src/firestore/remote/serializer.rs:32).
+  - Expanded query validation to support array-contains, array-contains-any, in, and not-in, mirroring JS constraints
+  for both request encoding and in-memory evaluation (src/firestore/api/query.rs:217, src/firestore/remote/datastore/
+  in_memory.rs:170).
+  - Updated README to reflect 60 % porting progress, new capabilities, and refreshed next-step priorities (src/
+  firestore/README.md:12).
+
+  Tests:
+
+  - cargo test firestore::api::document --tests
+  - cargo test firestore::api::query --tests
+
+  Next steps you may consider:
+
+IMPORTANT:
+  1. Implement transactional commits (runner, retries, preconditions) on top of the new commit pipeline.
+  Fatto: 2. Port sentinel transforms (server timestamps, array union/remove, numeric increment) to close the mutation parity
+  gap.
+
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+        modified:   src/firestore/README.md
+        modified:   src/firestore/api/document.rs
+        modified:   src/firestore/api/mod.rs
+        modified:   src/firestore/api/operations.rs
+        modified:   src/firestore/api/query.rs
+        modified:   src/firestore/mod.rs
+        modified:   src/firestore/remote/datastore/http.rs
+        modified:   src/firestore/remote/datastore/in_memory.rs
+        modified:   src/firestore/remote/datastore/mod.rs
+        modified:   src/firestore/remote/serializer.rs
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+        src/firestore/api/write_batch.rs
+
+> PROMPT: Port sentinel transforms  
+
+Thinking
+  I’m mapping out how to represent sentinel transform values—like server timestamps and array operations—in Rust's
+  Firestore API. Since these sentinels differ from regular document values, I’m considering a new enum to hold both
+  actual values and transforms without breaking existing APIs. I’ll also need to update encoding logic to produce the
+  correct protobuf structures for commit requests, including separate handling of update masks and field transforms
+  following Firestore’s REST spec. This involves a careful balance between API compatibility and faithfully implementing
+  the transform semantics. I’m also planning to replicate some TypeScript mutation models to get the serialization right
+  and ensure the Rust client can send combined updates with transforms in one write. There’s a lot to reconcile here, so
+  I’m focusing on clear enum design and encode updates that identify and separate transform operations properly.
+
+Thinking
+  I'm mapping out how to handle Firestore field transforms in Rust by extending data types with sentinel variants,
+  defining new structs for encoding set/update operations with transforms, and updating commit logic to include these
+  transforms. I’m figuring out recursive sanitization to separate sentinel values from data and designing how to adjust
+  datastore traits and in-memory behavior accordingly. This will let the system handle special transform writes like
+  server timestamps and array operations similarly to the JS SDK.
+
+
+ Thinking
+  I’m gathering the important modified files and line numbers like value.rs for sentinel constructors, operations.rs
+  for SetOptions and transforms, and document.rs for FirestoreClient updates. I’ll also check batch and test files to
+  reference specific code ranges accurately in the final summary.
+
+• Explored
+  └ Read document.rs, write_batch.rs, mod.rs, serializer.rs, in_memory.rs, README.md
+
+> Thinking
+  I'm putting together a final message highlighting all the key updates, like the sentinel API additions in
+  FirestoreValue, the restructuring of SetOptions, and how Datastore now handles joint transforms. I'll include file
+  references with line numbers, note the API-breaking changes, list the test commands run, and mention the README
+  updates. Also, I'll suggest next steps about transactions and sentinel interactions to round it off nicely.
+
+> - Added write-sentinel support to FirestoreValue, exposing server_timestamp, array_union, array_remove, and
+  numeric_increment so callers can express transform intents directly (src/firestore/value/value.rs:16).
+  - Reworked write encoding: SetOptions now returns structured EncodedSetData/EncodedUpdateData with field masks and
+  collected FieldTransforms, and validation mirrors the modular SDK (src/firestore/api/operations.rs:71).
+  - Updated FirestoreClient::set_doc/update_doc and WriteBatch to forward transform lists so both HTTP and in-memory
+  datastores apply the same commit pipeline (src/firestore/api/document.rs:98, src/firestore/api/write_batch.rs:35).
+  - Extended datastore plumbing to carry transforms through trait calls, HTTP serialization (adding updateTransforms),
+  and the in-memory mutation queue with local application of server timestamp, union/remove, and increment semantics
+  (src/firestore/remote/datastore/mod.rs:15, src/firestore/remote/serializer.rs:50, src/firestore/remote/datastore/
+  in_memory.rs:408).
+  - Refreshed Firestore README porting status to 60 % and highlighted sentinel support in the implemented feature list
+  (src/firestore/README.md:15).
+
+  Tests executed:
+
+  - cargo test firestore::api::document --tests
+  - cargo test firestore::api::operations --tests
+  - cargo test firestore::api::query --tests
+
+  Next steps you might consider:
+IMPORTANT:
+  1. Layer transaction handling and precondition/sentinel parity on top of the new commit infrastructure.
+IMPORTANT:
+  2. Extend transform coverage to WASM tests and ensure Typed converters expose sentinel helpers ergonomically.
+
+what do you mean with "layer transaction handing"
+
+> By “layer transaction handling” I meant taking the new shared commit/transform infrastructure we just built and using
+  it to port the JS SDK’s runTransaction() flow: the transaction runner, retries, preconditions, and mutation batching
+  that the JS client uses to guarantee atomic read‑modify‑write semantics.
+
+
+ In README.md there is a line "Port the remote datastore to call Firestore’s REST/gRPC endpoints", is it complete?
+
+> That “Port the remote datastore to call Firestore’s REST/gRPC endpoints” item is only partially complete. The REST
+  piece is done—the HTTP datastore is live—but there’s still no gRPC channel, so the README note should be updated or
+  split to reflect that the REST half is finished while gRPC remains outstanding.
+
+> Updated src/firestore/README.md so the “Next steps” section now focuses on standing up the gRPC/WebChannel transport,
+  richer streaming/token handling, and transactions atop the new commit pipeline, and the “Immediate Porting Focus”
+  table reflects those priorities (gRPC streaming, credential refresh, transactions, snapshot polish, etc.).
