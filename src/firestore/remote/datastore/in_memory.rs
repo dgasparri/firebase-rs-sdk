@@ -1,16 +1,17 @@
 use std::collections::BTreeMap;
 
+use crate::firestore::api::operations::{set_value_at_field_path, value_for_field_path};
 use crate::firestore::api::query::{
     Bound, FieldFilter, FilterOperator, OrderBy, OrderDirection, QueryDefinition,
 };
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{internal_error, not_found, FirestoreResult};
 use crate::firestore::model::{DocumentKey, FieldPath};
-use crate::firestore::value::{FirestoreValue, MapValue, ValueKind};
+use crate::firestore::value::{ArrayValue, FirestoreValue, MapValue, ValueKind};
 
 use async_trait::async_trait;
 
-use super::Datastore;
+use super::{Datastore, WriteOperation};
 
 #[derive(Clone, Default)]
 pub struct InMemoryDatastore {
@@ -20,6 +21,67 @@ pub struct InMemoryDatastore {
 impl InMemoryDatastore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn apply_set(
+        &self,
+        key: DocumentKey,
+        data: MapValue,
+        mask: Option<Vec<FieldPath>>,
+    ) -> FirestoreResult<()> {
+        let mut store = self.documents.lock().unwrap();
+        let canonical = key.path().canonical_string();
+        match mask {
+            Some(mask) => {
+                let mut fields = store
+                    .get(&canonical)
+                    .map(|existing| existing.fields().clone())
+                    .unwrap_or_default();
+                for field in mask {
+                    let value = value_for_field_path(&data, &field).expect("merge mask validated");
+                    set_value_at_field_path(&mut fields, &field, value);
+                }
+                store.insert(canonical, MapValue::new(fields));
+            }
+            None => {
+                store.insert(canonical, data);
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_update(
+        &self,
+        key: DocumentKey,
+        data: MapValue,
+        field_paths: Vec<FieldPath>,
+    ) -> FirestoreResult<()> {
+        let mut store = self.documents.lock().unwrap();
+        let canonical = key.path().canonical_string();
+        let current = store
+            .get(&canonical)
+            .cloned()
+            .ok_or_else(|| not_found(format!("Document {} does not exist", canonical)))?;
+
+        let mut fields = current.fields().clone();
+        for path in &field_paths {
+            let value = value_for_field_path(&data, path).ok_or_else(|| {
+                internal_error(format!(
+                    "Failed to resolve value for update path {}",
+                    path.canonical_string()
+                ))
+            })?;
+            set_value_at_field_path(&mut fields, path, value);
+        }
+
+        store.insert(canonical, MapValue::new(fields));
+        Ok(())
+    }
+
+    fn apply_delete(&self, key: DocumentKey) -> FirestoreResult<()> {
+        let mut store = self.documents.lock().unwrap();
+        store.remove(&key.path().canonical_string());
+        Ok(())
     }
 }
 
@@ -40,11 +102,9 @@ impl Datastore for InMemoryDatastore {
         &self,
         key: &DocumentKey,
         data: MapValue,
-        _merge: bool,
+        mask: Option<Vec<FieldPath>>,
     ) -> FirestoreResult<()> {
-        let mut store = self.documents.lock().unwrap();
-        store.insert(key.path().canonical_string(), data);
-        Ok(())
+        self.apply_set(key.clone(), data, mask)
     }
 
     async fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>> {
@@ -104,31 +164,31 @@ impl Datastore for InMemoryDatastore {
         data: MapValue,
         field_paths: Vec<FieldPath>,
     ) -> FirestoreResult<()> {
-        let mut store = self.documents.lock().unwrap();
-        let canonical = key.path().canonical_string();
-        let current = store
-            .get(&canonical)
-            .cloned()
-            .ok_or_else(|| not_found(format!("Document {} does not exist", canonical)))?;
-
-        let mut fields = current.fields().clone();
-        for path in &field_paths {
-            let value = value_for_path(&data, path.segments()).ok_or_else(|| {
-                internal_error(format!(
-                    "Failed to resolve value for update path {}",
-                    path.canonical_string()
-                ))
-            })?;
-            set_value_at_path(&mut fields, path.segments(), value);
-        }
-
-        store.insert(canonical, MapValue::new(fields));
-        Ok(())
+        self.apply_update(key.clone(), data, field_paths)
     }
 
     async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()> {
-        let mut store = self.documents.lock().unwrap();
-        store.remove(&key.path().canonical_string());
+        self.apply_delete(key.clone())
+    }
+
+    async fn commit(&self, writes: Vec<WriteOperation>) -> FirestoreResult<()> {
+        for write in writes {
+            match write {
+                WriteOperation::Set { key, data, mask } => {
+                    self.apply_set(key, data, mask)?;
+                }
+                WriteOperation::Update {
+                    key,
+                    data,
+                    field_paths,
+                } => {
+                    self.apply_update(key, data, field_paths)?;
+                }
+                WriteOperation::Delete { key } => {
+                    self.apply_delete(key)?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -146,7 +206,7 @@ mod tests {
         map.insert("name".to_string(), FirestoreValue::from_string("SF"));
         let map = MapValue::new(map);
         datastore
-            .set_document(&key, map.clone(), false)
+            .set_document(&key, map.clone(), None)
             .await
             .unwrap();
         let snapshot = datastore.get_document(&key).await.unwrap();
@@ -163,10 +223,11 @@ fn document_satisfies_filters(snapshot: &DocumentSnapshot, filters: &[FieldFilte
         .iter()
         .all(|filter| match get_field_value(snapshot, filter.field()) {
             Some(value) => evaluate_filter(filter, &value),
-            None => {
-                filter.operator() == FilterOperator::NotEqual
-                    && evaluate_filter(filter, &FirestoreValue::null())
-            }
+            None => match filter.operator() {
+                FilterOperator::NotEqual => evaluate_filter(filter, &FirestoreValue::null()),
+                FilterOperator::NotIn => false,
+                _ => false,
+            },
         })
 }
 
@@ -188,10 +249,27 @@ fn evaluate_filter(filter: &FieldFilter, value: &FirestoreValue) -> bool {
             Some(std::cmp::Ordering::Greater) | Some(std::cmp::Ordering::Equal) => true,
             _ => false,
         },
-        FilterOperator::NotIn
-        | FilterOperator::ArrayContains
-        | FilterOperator::ArrayContainsAny
-        | FilterOperator::In => false,
+        FilterOperator::ArrayContains => match value.kind() {
+            ValueKind::Array(array) => array_contains(array, filter.value()),
+            _ => false,
+        },
+        FilterOperator::ArrayContainsAny => match (value.kind(), filter.value().kind()) {
+            (ValueKind::Array(array), ValueKind::Array(needles)) => {
+                array_contains_any(array, needles)
+            }
+            _ => false,
+        },
+        FilterOperator::In => match filter.value().kind() {
+            ValueKind::Array(values) => values.values().iter().any(|needle| needle == value),
+            _ => false,
+        },
+        FilterOperator::NotIn => match filter.value().kind() {
+            ValueKind::Array(values) => {
+                !matches!(value.kind(), ValueKind::Null)
+                    && values.values().iter().all(|needle| needle != value)
+            }
+            _ => false,
+        },
     }
 }
 
@@ -239,46 +317,6 @@ fn compare_snapshots(
     std::cmp::Ordering::Equal
 }
 
-fn value_for_path(map: &MapValue, segments: &[String]) -> Option<FirestoreValue> {
-    let (first, rest) = segments.split_first()?;
-    let value = map.fields().get(first)?;
-    if rest.is_empty() {
-        return Some(value.clone());
-    }
-    match value.kind() {
-        ValueKind::Map(child) => value_for_path(child, rest),
-        _ => None,
-    }
-}
-
-fn set_value_at_path(
-    fields: &mut BTreeMap<String, FirestoreValue>,
-    segments: &[String],
-    value: FirestoreValue,
-) {
-    if segments.is_empty() {
-        return;
-    }
-
-    if segments.len() == 1 {
-        fields.insert(segments[0].clone(), value);
-        return;
-    }
-
-    let first = &segments[0];
-    let entry = fields
-        .entry(first.clone())
-        .or_insert_with(|| FirestoreValue::from_map(BTreeMap::new()));
-
-    let mut child_fields = match entry.kind() {
-        ValueKind::Map(map) => map.fields().clone(),
-        _ => BTreeMap::new(),
-    };
-
-    set_value_at_path(&mut child_fields, &segments[1..], value);
-    *entry = FirestoreValue::from_map(child_fields);
-}
-
 fn compare_values(left: &FirestoreValue, right: &FirestoreValue) -> Option<std::cmp::Ordering> {
     match (left.kind(), right.kind()) {
         (ValueKind::Null, ValueKind::Null) => Some(std::cmp::Ordering::Equal),
@@ -291,6 +329,17 @@ fn compare_values(left: &FirestoreValue, right: &FirestoreValue) -> Option<std::
         (ValueKind::Reference(a), ValueKind::Reference(b)) => Some(a.cmp(b)),
         _ => None,
     }
+}
+
+fn array_contains(array: &ArrayValue, needle: &FirestoreValue) -> bool {
+    array.values().iter().any(|candidate| candidate == needle)
+}
+
+fn array_contains_any(array: &ArrayValue, needles: &ArrayValue) -> bool {
+    needles
+        .values()
+        .iter()
+        .any(|needle| array_contains(array, needle))
 }
 
 fn is_before_start_bound(snapshot: &DocumentSnapshot, bound: &Bound, order_by: &[OrderBy]) -> bool {

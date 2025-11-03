@@ -12,7 +12,7 @@ pub use api::{
     ConvertedDocumentReference, ConvertedQuery, DocumentReference, DocumentSnapshot,
     FilterOperator, Firestore, FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection,
     PassthroughConverter, Query, QuerySnapshot, SetOptions, SnapshotMetadata,
-    TypedDocumentSnapshot, TypedQuerySnapshot,
+    TypedDocumentSnapshot, TypedQuerySnapshot, WriteBatch,
 };
 
 #[doc(inline)]

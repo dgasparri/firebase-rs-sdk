@@ -20,7 +20,7 @@ use serde_json::{json, Value as JsonValue};
 
 use crate::platform::runtime::sleep as runtime_sleep;
 
-use super::{Datastore, NoopTokenProvider, TokenProviderArc};
+use super::{Datastore, NoopTokenProvider, TokenProviderArc, WriteOperation};
 
 #[derive(Clone)]
 pub struct HttpDatastore {
@@ -125,6 +125,29 @@ impl HttpDatastore {
             request_timeout: Some(self.retry.request_timeout),
         })
     }
+
+    fn encode_commit_body(&self, writes: &[WriteOperation]) -> JsonValue {
+        let encoded: Vec<JsonValue> = writes
+            .iter()
+            .map(|write| self.encode_write(write))
+            .collect();
+        json!({ "writes": encoded })
+    }
+
+    fn encode_write(&self, write: &WriteOperation) -> JsonValue {
+        match write {
+            WriteOperation::Set { key, data, mask } => match mask {
+                Some(mask) => self.serializer.encode_merge_write(key, data, mask),
+                None => self.serializer.encode_set_write(key, data),
+            },
+            WriteOperation::Update {
+                key,
+                data,
+                field_paths,
+            } => self.serializer.encode_update_write(key, data, field_paths),
+            WriteOperation::Delete { key } => self.serializer.encode_delete_write(key),
+        }
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -167,30 +190,13 @@ impl Datastore for HttpDatastore {
         &self,
         key: &DocumentKey,
         data: MapValue,
-        merge: bool,
+        mask: Option<Vec<FieldPath>>,
     ) -> FirestoreResult<()> {
-        if merge {
-            return Err(invalid_argument(
-                "HTTP datastore set with merge is not yet implemented",
-            ));
-        }
-
-        let commit_body = self.serializer.encode_commit_body(key, &data);
-        self.execute_with_retry(|context| {
-            let context = context.clone();
-            let body = commit_body.clone();
-            async move {
-                self.connection
-                    .invoke_json(
-                        Method::POST,
-                        "documents:commit",
-                        Some(body.clone()),
-                        &context,
-                    )
-                    .await
-                    .map(|_| ())
-            }
-        })
+        self.commit(vec![WriteOperation::Set {
+            key: key.clone(),
+            data,
+            mask,
+        }])
         .await
     }
 
@@ -268,30 +274,28 @@ impl Datastore for HttpDatastore {
             ));
         }
 
-        let body = self.serializer.encode_update_body(key, &data, &field_paths);
-        self.execute_with_retry(|context| {
-            let context = context.clone();
-            let body = body.clone();
-            async move {
-                self.connection
-                    .invoke_json(
-                        Method::POST,
-                        "documents:commit",
-                        Some(body.clone()),
-                        &context,
-                    )
-                    .await
-                    .map(|_| ())
-            }
-        })
+        self.commit(vec![WriteOperation::Update {
+            key: key.clone(),
+            data,
+            field_paths,
+        }])
         .await
     }
 
     async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()> {
-        let body = self.serializer.encode_delete_body(key);
+        self.commit(vec![WriteOperation::Delete { key: key.clone() }])
+            .await
+    }
+
+    async fn commit(&self, writes: Vec<WriteOperation>) -> FirestoreResult<()> {
+        if writes.is_empty() {
+            return Ok(());
+        }
+
+        let commit_body = self.encode_commit_body(&writes);
         self.execute_with_retry(|context| {
             let context = context.clone();
-            let body = body.clone();
+            let body = commit_body.clone();
             async move {
                 self.connection
                     .invoke_json(
@@ -507,9 +511,11 @@ mod tests {
     use crate::firestore::api::Firestore;
     use crate::firestore::error::{internal_error, unauthenticated};
     use crate::firestore::model::DatabaseId;
+    use crate::firestore::FirestoreValue;
     use crate::test_support::start_mock_server;
     use httpmock::prelude::*;
     use serde_json::json;
+    use std::collections::BTreeMap;
     use std::panic;
 
     #[test]
@@ -637,5 +643,83 @@ mod tests {
         assert_eq!(snapshots.len(), 2);
         let names: Vec<_> = snapshots.iter().map(|snap| snap.id().to_string()).collect();
         assert_eq!(names, vec!["LA", "SF"]);
+    }
+
+    #[tokio::test]
+    async fn set_document_merge_sends_update_mask() {
+        let server = match panic::catch_unwind(|| start_mock_server()) {
+            Ok(server) => server,
+            Err(_) => {
+                eprintln!(
+                    "Skipping set_document_merge_sends_update_mask: unable to bind httpmock server in this environment."
+                );
+                return;
+            }
+        };
+
+        let database_id = DatabaseId::new("demo-project", "(default)");
+        let expected_path = format!(
+            "/v1/projects/{}/databases/{}/documents:commit",
+            database_id.project_id(),
+            database_id.database()
+        );
+
+        let expected_body = json!({
+            "writes": [
+                {
+                    "update": {
+                        "name": format!(
+                            "projects/{}/databases/{}/documents/cities/SF",
+                            database_id.project_id(),
+                            database_id.database()
+                        ),
+                        "fields": {
+                            "stats": {
+                                "mapValue": {
+                                    "fields": {
+                                        "population": { "integerValue": "200" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "updateMask": {
+                        "fieldPaths": ["stats.population"]
+                    }
+                }
+            ]
+        });
+
+        let run_path = expected_path.clone();
+        let expected_body_clone = expected_body.clone();
+        let _mock = server.mock(move |when, then| {
+            when.method(POST)
+                .path(run_path.as_str())
+                .json_body(expected_body_clone.clone());
+            then.status(200).json_body(json!({ "commitTime": "" }));
+        });
+
+        let client = reqwest::Client::builder().build().expect("reqwest client");
+        let connection_builder = Connection::builder(database_id.clone())
+            .with_client(client)
+            .with_emulator_host(server.address().to_string());
+        let datastore = HttpDatastore::builder(database_id.clone())
+            .with_connection_builder(connection_builder)
+            .build()
+            .expect("datastore");
+
+        let mut stats = BTreeMap::new();
+        stats.insert("population".to_string(), FirestoreValue::from_integer(200));
+        let data = MapValue::new(BTreeMap::from([(
+            "stats".to_string(),
+            FirestoreValue::from_map(stats),
+        )]));
+
+        let key = DocumentKey::from_string("cities/SF").unwrap();
+        let mask = vec![FieldPath::from_dot_separated("stats.population").unwrap()];
+        datastore
+            .set_document(&key, data, Some(mask))
+            .await
+            .expect("merge commit");
     }
 }

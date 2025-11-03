@@ -13,6 +13,7 @@ use crate::firestore::remote::datastore::{
 };
 use crate::firestore::value::FirestoreValue;
 
+use super::write_batch::WriteBatch;
 use super::{
     ConvertedCollectionReference, ConvertedDocumentReference, Firestore, FirestoreDataConverter,
 };
@@ -67,6 +68,14 @@ impl FirestoreClient {
         Ok(Self::new(firestore, Arc::new(datastore)))
     }
 
+    /// Creates a new write batch that targets the same Firestore instance as this client.
+    ///
+    /// TypeScript reference: `writeBatch(firestore)` in
+    /// `packages/firestore/src/lite-api/write_batch.ts`.
+    pub fn batch(&self) -> WriteBatch {
+        WriteBatch::new(self.firestore.clone(), Arc::clone(&self.datastore))
+    }
+
     /// Fetches the document located at `path`.
     ///
     /// Returns a snapshot that may or may not contain data depending on whether
@@ -87,9 +96,9 @@ impl FirestoreClient {
         options: Option<SetOptions>,
     ) -> FirestoreResult<()> {
         let key = operations::validate_document_path(path)?;
-        let encoded = operations::encode_document_data(data)?;
-        let merge = options.unwrap_or_default().merge;
-        self.datastore.set_document(&key, encoded, merge).await
+        let options = options.unwrap_or_default();
+        let (encoded, mask) = operations::encode_set_data(data, &options)?;
+        self.datastore.set_document(&key, encoded, mask).await
     }
 
     /// Applies a partial update to the document located at `path`.
@@ -277,6 +286,7 @@ mod tests {
     use crate::firestore::model::FieldPath;
     use crate::firestore::value::MapValue;
     use crate::firestore::value::ValueKind;
+    use crate::firestore::FilterOperator;
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -290,7 +300,7 @@ mod tests {
         }
     }
 
-    async fn build_client() -> FirestoreClient {
+    async fn build_client_with_firestore() -> (FirestoreClient, Firestore) {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             ..Default::default()
@@ -299,7 +309,13 @@ mod tests {
             .await
             .unwrap();
         let firestore = get_firestore(Some(app)).await.unwrap();
-        FirestoreClient::with_in_memory(Firestore::from_arc(firestore))
+        let firestore = Firestore::from_arc(firestore);
+        let client = FirestoreClient::with_in_memory(firestore.clone());
+        (client, firestore)
+    }
+
+    async fn build_client() -> FirestoreClient {
+        build_client_with_firestore().await.0
     }
 
     #[tokio::test]
@@ -317,6 +333,231 @@ mod tests {
             snapshot.data().unwrap().get("name"),
             Some(&FirestoreValue::from_string("Ada"))
         );
+    }
+
+    #[tokio::test]
+    async fn set_doc_with_merge_preserves_existing_fields() {
+        let client = build_client().await;
+        let mut initial = BTreeMap::new();
+        initial.insert(
+            "name".to_string(),
+            FirestoreValue::from_string("San Francisco"),
+        );
+        let mut stats = BTreeMap::new();
+        stats.insert("population".to_string(), FirestoreValue::from_integer(100));
+        initial.insert("stats".to_string(), FirestoreValue::from_map(stats));
+        client
+            .set_doc("cities/sf", initial, None)
+            .await
+            .expect("initial set");
+
+        let mut merge_data = BTreeMap::new();
+        let mut stats_update = BTreeMap::new();
+        stats_update.insert("population".to_string(), FirestoreValue::from_integer(150));
+        merge_data.insert("stats".to_string(), FirestoreValue::from_map(stats_update));
+        client
+            .set_doc("cities/sf", merge_data, Some(SetOptions::merge_all()))
+            .await
+            .expect("merge set");
+
+        let snapshot = client.get_doc("cities/sf").await.expect("get doc");
+        let data = snapshot.data().expect("data");
+        assert_eq!(
+            data.get("name"),
+            Some(&FirestoreValue::from_string("San Francisco"))
+        );
+        let stats_map = match data.get("stats").unwrap().kind() {
+            ValueKind::Map(map) => map,
+            _ => panic!("expected stats map"),
+        };
+        assert_eq!(
+            stats_map.fields().get("population"),
+            Some(&FirestoreValue::from_integer(150))
+        );
+    }
+
+    #[tokio::test]
+    async fn merge_fields_only_updates_requested_paths() {
+        let client = build_client().await;
+        let mut initial = BTreeMap::new();
+        let mut stats = BTreeMap::new();
+        stats.insert("wins".to_string(), FirestoreValue::from_integer(3));
+        stats.insert("losses".to_string(), FirestoreValue::from_integer(5));
+        initial.insert("stats".to_string(), FirestoreValue::from_map(stats));
+        client
+            .set_doc("teams/giants", initial, None)
+            .await
+            .expect("initial set");
+
+        let mut update = BTreeMap::new();
+        let mut stats_update = BTreeMap::new();
+        stats_update.insert("wins".to_string(), FirestoreValue::from_integer(4));
+        stats_update.insert("losses".to_string(), FirestoreValue::from_integer(6));
+        update.insert("stats".to_string(), FirestoreValue::from_map(stats_update));
+
+        let options =
+            SetOptions::merge_fields(vec![FieldPath::from_dot_separated("stats.wins").unwrap()])
+                .unwrap();
+        client
+            .set_doc("teams/giants", update, Some(options))
+            .await
+            .expect("merge fields");
+
+        let snapshot = client.get_doc("teams/giants").await.expect("get doc");
+        let stats = match snapshot
+            .data()
+            .expect("data")
+            .get("stats")
+            .expect("stats")
+            .kind()
+        {
+            ValueKind::Map(map) => map,
+            _ => panic!("expected map"),
+        };
+        assert_eq!(
+            stats.fields().get("wins"),
+            Some(&FirestoreValue::from_integer(4))
+        );
+        assert_eq!(
+            stats.fields().get("losses"),
+            Some(&FirestoreValue::from_integer(5))
+        );
+    }
+
+    #[tokio::test]
+    async fn array_contains_query_returns_expected_documents() {
+        let (client, firestore) = build_client_with_firestore().await;
+        let collection = firestore.collection("places").unwrap();
+        let mut data = BTreeMap::new();
+        data.insert(
+            "tags".to_string(),
+            FirestoreValue::from_array(vec![
+                FirestoreValue::from_string("coastal"),
+                FirestoreValue::from_string("tourism"),
+            ]),
+        );
+        client
+            .set_doc("places/sf", data, None)
+            .await
+            .expect("set doc");
+
+        let query = collection
+            .query()
+            .where_field(
+                FieldPath::from_dot_separated("tags").unwrap(),
+                FilterOperator::ArrayContains,
+                FirestoreValue::from_string("coastal"),
+            )
+            .unwrap();
+
+        let snapshot = client.get_docs(&query).await.expect("query");
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot.documents()[0].id(), "sf");
+    }
+
+    #[tokio::test]
+    async fn in_filter_matches_documents() {
+        let (client, firestore) = build_client_with_firestore().await;
+        client
+            .set_doc(
+                "cities/la",
+                BTreeMap::from([("region".to_string(), FirestoreValue::from_string("west"))]),
+                None,
+            )
+            .await
+            .expect("set la");
+        client
+            .set_doc(
+                "cities/nyc",
+                BTreeMap::from([("region".to_string(), FirestoreValue::from_string("east"))]),
+                None,
+            )
+            .await
+            .expect("set nyc");
+
+        let values = FirestoreValue::from_array(vec![
+            FirestoreValue::from_string("west"),
+            FirestoreValue::from_string("south"),
+        ]);
+
+        let query = firestore
+            .collection("cities")
+            .unwrap()
+            .query()
+            .where_field(
+                FieldPath::from_dot_separated("region").unwrap(),
+                FilterOperator::In,
+                values,
+            )
+            .unwrap();
+
+        let snapshot = client.get_docs(&query).await.expect("query");
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot.documents()[0].id(), "la");
+    }
+
+    #[tokio::test]
+    async fn write_batch_applies_all_operations() {
+        let (client, firestore) = build_client_with_firestore().await;
+        let cities = firestore.collection("cities").unwrap();
+        let denver = cities.doc(Some("denver")).unwrap();
+        let la = cities.doc(Some("la")).unwrap();
+        let abandoned = cities.doc(Some("ghost")).unwrap();
+
+        let mut batch = client.batch();
+        batch
+            .set(
+                &denver,
+                BTreeMap::from([(
+                    "population".to_string(),
+                    FirestoreValue::from_integer(700_000),
+                )]),
+                None,
+            )
+            .unwrap();
+        batch
+            .update(
+                &denver,
+                BTreeMap::from([("state".to_string(), FirestoreValue::from_string("CO"))]),
+            )
+            .unwrap();
+        batch
+            .set(
+                &la,
+                BTreeMap::from([(
+                    "population".to_string(),
+                    FirestoreValue::from_integer(3_000_000),
+                )]),
+                None,
+            )
+            .unwrap();
+        batch
+            .set(
+                &abandoned,
+                BTreeMap::from([("should_delete".to_string(), FirestoreValue::from_bool(true))]),
+                None,
+            )
+            .unwrap();
+        batch.delete(&abandoned).unwrap();
+
+        batch.commit().await.expect("commit");
+
+        let denver_snapshot = client.get_doc("cities/denver").await.unwrap();
+        let denver_data = denver_snapshot.data().unwrap();
+        assert_eq!(
+            denver_data.get("state"),
+            Some(&FirestoreValue::from_string("CO"))
+        );
+        assert_eq!(
+            denver_data.get("population"),
+            Some(&FirestoreValue::from_integer(700_000))
+        );
+
+        let la_snapshot = client.get_doc("cities/la").await.unwrap();
+        assert!(la_snapshot.exists());
+
+        let deleted_snapshot = client.get_doc("cities/ghost").await.unwrap();
+        assert!(!deleted_snapshot.exists());
     }
 
     #[tokio::test]
@@ -411,7 +652,7 @@ mod tests {
 
     #[tokio::test]
     async fn query_returns_collection_documents() {
-        let client = build_client().await;
+        let (client, firestore) = build_client_with_firestore().await;
         client
             .set_doc(
                 "cities/sf",
@@ -429,7 +670,7 @@ mod tests {
             .await
             .unwrap();
 
-        let collection = client.firestore.collection("cities").unwrap();
+        let collection = firestore.collection("cities").unwrap();
         let query = collection.query();
         let snapshot = client.get_docs(&query).await.expect("query");
 
@@ -493,8 +734,8 @@ mod tests {
 
     #[tokio::test]
     async fn typed_set_and_get_document() {
-        let client = build_client().await;
-        let collection = client.firestore.collection("people").unwrap();
+        let (client, firestore) = build_client_with_firestore().await;
+        let collection = firestore.collection("people").unwrap();
         let converted = collection.with_converter(PersonConverter);
         let doc_ref = converted.doc(Some("ada")).unwrap();
 
@@ -522,8 +763,8 @@ mod tests {
 
     #[tokio::test]
     async fn typed_query_returns_converted_results() {
-        let client = build_client().await;
-        let collection = client.firestore.collection("people").unwrap();
+        let (client, firestore) = build_client_with_firestore().await;
+        let collection = firestore.collection("people").unwrap();
         let converted = collection.with_converter(PersonConverter);
 
         let doc_ref = converted.doc(Some("ada")).unwrap();
@@ -552,8 +793,8 @@ mod tests {
     async fn query_with_filters_and_limit() {
         use crate::firestore::api::query::{FilterOperator, OrderDirection};
 
-        let client = build_client().await;
-        let collection = client.firestore.collection("cities").unwrap();
+        let (client, firestore) = build_client_with_firestore().await;
+        let collection = firestore.collection("cities").unwrap();
 
         let mut sf = BTreeMap::new();
         sf.insert("name".into(), FirestoreValue::from_string("San Francisco"));

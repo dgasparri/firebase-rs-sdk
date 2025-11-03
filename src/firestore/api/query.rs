@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
 use crate::firestore::model::{DocumentKey, FieldPath, ResourcePath};
-use crate::firestore::value::FirestoreValue;
+use crate::firestore::value::{FirestoreValue, ValueKind};
 
 use super::snapshot::DocumentSnapshot;
 use super::{Firestore, FirestoreDataConverter, TypedDocumentSnapshot};
@@ -34,6 +34,21 @@ impl FilterOperator {
             FilterOperator::ArrayContainsAny => "ARRAY_CONTAINS_ANY",
             FilterOperator::In => "IN",
             FilterOperator::NotIn => "NOT_IN",
+        }
+    }
+
+    pub(crate) fn keyword(&self) -> &'static str {
+        match self {
+            FilterOperator::LessThan => "<",
+            FilterOperator::LessThanOrEqual => "<=",
+            FilterOperator::GreaterThan => ">",
+            FilterOperator::GreaterThanOrEqual => ">=",
+            FilterOperator::Equal => "==",
+            FilterOperator::NotEqual => "!=",
+            FilterOperator::ArrayContains => "array-contains",
+            FilterOperator::ArrayContainsAny => "array-contains-any",
+            FilterOperator::In => "in",
+            FilterOperator::NotIn => "not-in",
         }
     }
 }
@@ -202,20 +217,11 @@ impl Query {
         operator: FilterOperator,
         value: FirestoreValue,
     ) -> FirestoreResult<Self> {
-        match operator {
-            FilterOperator::ArrayContains
-            | FilterOperator::ArrayContainsAny
-            | FilterOperator::In
-            | FilterOperator::NotIn => {
-                return Err(invalid_argument(
-                    "operator not yet supported for Firestore queries",
-                ))
-            }
-            _ => {}
-        }
+        let field_path = field.into();
+        self.validate_filter(&field_path, operator, &value)?;
         let mut next = self.clone();
         next.filters
-            .push(FieldFilter::new(field.into(), operator, value));
+            .push(FieldFilter::new(field_path, operator, value));
         Ok(next)
     }
 
@@ -381,6 +387,230 @@ impl Query {
             ));
         }
         order
+    }
+}
+
+const MAX_DISJUNCTIVE_VALUES: usize = 10;
+
+impl Query {
+    fn validate_filter(
+        &self,
+        field: &FieldPath,
+        operator: FilterOperator,
+        value: &FirestoreValue,
+    ) -> FirestoreResult<()> {
+        if field == &FieldPath::document_id() {
+            match operator {
+                FilterOperator::ArrayContains | FilterOperator::ArrayContainsAny => {
+                    return Err(invalid_argument(
+                        "Invalid query. You can't use array membership operators with documentId().",
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        match operator {
+            FilterOperator::ArrayContains => {
+                ensure_value_supported(operator, value)?;
+            }
+            FilterOperator::ArrayContainsAny | FilterOperator::In | FilterOperator::NotIn => {
+                ensure_disjunctive_filter(operator, value)?;
+            }
+            FilterOperator::NotEqual => {
+                if is_nan(value) {
+                    return Err(invalid_argument(
+                        "Invalid query. You cannot use '!=' filters with NaN values.",
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        // Prevent mixing inequality operators on different fields.
+        if is_inequality(operator) {
+            if let Some(existing) = self.inequality_field() {
+                if existing != field.canonical_string() {
+                    return Err(invalid_argument(
+                        "Invalid query. All inequality filters must be on the same field.",
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn inequality_field(&self) -> Option<String> {
+        self.filters.iter().find_map(|filter| {
+            if is_inequality(filter.operator()) {
+                Some(filter.field().canonical_string())
+            } else {
+                None
+            }
+        })
+    }
+}
+
+fn is_inequality(operator: FilterOperator) -> bool {
+    matches!(
+        operator,
+        FilterOperator::LessThan
+            | FilterOperator::LessThanOrEqual
+            | FilterOperator::GreaterThan
+            | FilterOperator::GreaterThanOrEqual
+            | FilterOperator::NotEqual
+            | FilterOperator::NotIn
+    )
+}
+
+fn ensure_value_supported(operator: FilterOperator, value: &FirestoreValue) -> FirestoreResult<()> {
+    if is_nan(value) || matches!(value.kind(), ValueKind::Null) {
+        return Err(invalid_argument(format!(
+            "Invalid query. You cannot use '{}' filters with null or NaN values.",
+            operator.keyword()
+        )));
+    }
+    Ok(())
+}
+
+fn ensure_disjunctive_filter(
+    operator: FilterOperator,
+    value: &FirestoreValue,
+) -> FirestoreResult<()> {
+    let array = match value.kind() {
+        ValueKind::Array(array) => array,
+        _ => {
+            return Err(invalid_argument(format!(
+                "Invalid query. A non-empty array is required for '{}' filters.",
+                operator.keyword()
+            )))
+        }
+    };
+
+    let elements = array.values();
+    if elements.is_empty() {
+        return Err(invalid_argument(format!(
+            "Invalid query. A non-empty array is required for '{}' filters.",
+            operator.keyword()
+        )));
+    }
+    if elements.len() > MAX_DISJUNCTIVE_VALUES {
+        return Err(invalid_argument(format!(
+            "Invalid query. '{}' filters support a maximum of {} elements.",
+            operator.keyword(),
+            MAX_DISJUNCTIVE_VALUES
+        )));
+    }
+
+    for element in elements {
+        if is_nan(element) || matches!(element.kind(), ValueKind::Null) {
+            return Err(invalid_argument(format!(
+                "Invalid query. '{}' filters cannot contain 'null' or 'NaN' values.",
+                operator.keyword()
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn is_nan(value: &FirestoreValue) -> bool {
+    matches!(value.kind(), ValueKind::Double(number) if number.is_nan())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::FirebaseApp;
+    use crate::app::FirebaseAppConfig;
+    use crate::app::FirebaseOptions;
+    use crate::component::ComponentContainer;
+    use crate::firestore::api::Firestore;
+    use crate::firestore::model::{DatabaseId, FieldPath, ResourcePath};
+
+    fn build_query() -> Query {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let config = FirebaseAppConfig::new("query-test", false);
+        let container = ComponentContainer::new("query-test");
+        let app = FirebaseApp::new(options, config, container);
+        let firestore = Firestore::new(app, DatabaseId::new("project", "(default)"));
+        Query::new(firestore, ResourcePath::from_string("cities").unwrap()).unwrap()
+    }
+
+    #[test]
+    fn array_contains_rejects_null() {
+        let query = build_query();
+        let err = query
+            .where_field(
+                FieldPath::from_dot_separated("tags").unwrap(),
+                FilterOperator::ArrayContains,
+                FirestoreValue::null(),
+            )
+            .unwrap_err();
+        assert_eq!(err.code_str(), "firestore/invalid-argument");
+    }
+
+    #[test]
+    fn array_contains_any_requires_array() {
+        let query = build_query();
+        let err = query
+            .where_field(
+                FieldPath::from_dot_separated("tags").unwrap(),
+                FilterOperator::ArrayContainsAny,
+                FirestoreValue::from_string("coastal"),
+            )
+            .unwrap_err();
+        assert_eq!(err.code_str(), "firestore/invalid-argument");
+    }
+
+    #[test]
+    fn in_filter_rejects_large_arrays() {
+        let query = build_query();
+        let mut values = Vec::new();
+        for i in 0..11 {
+            values.push(FirestoreValue::from_integer(i));
+        }
+        let err = query
+            .where_field(
+                FieldPath::from_dot_separated("rank").unwrap(),
+                FilterOperator::In,
+                FirestoreValue::from_array(values),
+            )
+            .unwrap_err();
+        assert_eq!(err.code_str(), "firestore/invalid-argument");
+    }
+
+    #[test]
+    fn in_filter_accepts_valid_values() {
+        let query = build_query();
+        let values = FirestoreValue::from_array(vec![
+            FirestoreValue::from_integer(1),
+            FirestoreValue::from_integer(2),
+        ]);
+        let _ = query
+            .where_field(
+                FieldPath::from_dot_separated("rank").unwrap(),
+                FilterOperator::In,
+                values,
+            )
+            .expect("valid in filter");
+    }
+
+    #[test]
+    fn document_id_disallows_array_contains() {
+        let query = build_query();
+        let err = query
+            .where_field(
+                FieldPath::document_id(),
+                FilterOperator::ArrayContains,
+                FirestoreValue::from_string("foo"),
+            )
+            .unwrap_err();
+        assert_eq!(err.code_str(), "firestore/invalid-argument");
     }
 }
 

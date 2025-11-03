@@ -1,10 +1,11 @@
 mod converter;
 mod database;
 pub mod document;
-mod operations;
+pub(crate) mod operations;
 pub(crate) mod query;
 mod reference;
 mod snapshot;
+mod write_batch;
 
 pub use converter::{FirestoreDataConverter, PassthroughConverter};
 pub use database::{get_firestore, register_firestore_component, Firestore};
@@ -19,3 +20,4 @@ pub use reference::{
     DocumentReference,
 };
 pub use snapshot::{DocumentSnapshot, SnapshotMetadata, TypedDocumentSnapshot};
+pub use write_batch::WriteBatch;

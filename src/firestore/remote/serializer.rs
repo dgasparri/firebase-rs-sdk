@@ -47,16 +47,19 @@ impl JsonProtoSerializer {
     }
 
     pub fn encode_commit_body(&self, key: &DocumentKey, map: &MapValue) -> JsonValue {
-        let name = self.document_name(key);
         json!({
-            "writes": [
-                {
-                    "update": {
-                        "name": name,
-                        "fields": encode_map_fields(map)
-                    }
-                }
-            ]
+            "writes": [ self.encode_set_write(key, map) ]
+        })
+    }
+
+    pub fn encode_merge_body(
+        &self,
+        key: &DocumentKey,
+        map: &MapValue,
+        field_paths: &[FieldPath],
+    ) -> JsonValue {
+        json!({
+            "writes": [ self.encode_merge_write(key, map, field_paths) ]
         })
     }
 
@@ -66,37 +69,65 @@ impl JsonProtoSerializer {
         map: &MapValue,
         field_paths: &[FieldPath],
     ) -> JsonValue {
-        let name = self.document_name(key);
-        let mask: Vec<String> = field_paths
-            .iter()
-            .map(FieldPath::canonical_string)
-            .collect();
         json!({
-            "writes": [
-                {
-                    "update": {
-                        "name": name,
-                        "fields": encode_map_fields(map)
-                    },
-                    "updateMask": {
-                        "fieldPaths": mask
-                    },
-                    "currentDocument": {
-                        "exists": true
-                    }
-                }
-            ]
+            "writes": [ self.encode_update_write(key, map, field_paths) ]
         })
     }
 
     pub fn encode_delete_body(&self, key: &DocumentKey) -> JsonValue {
-        let name = self.document_name(key);
         json!({
-            "writes": [
-                {
-                    "delete": name
-                }
-            ]
+            "writes": [ self.encode_delete_write(key) ]
+        })
+    }
+
+    pub fn encode_set_write(&self, key: &DocumentKey, map: &MapValue) -> JsonValue {
+        json!({
+            "update": {
+                "name": self.document_name(key),
+                "fields": encode_map_fields(map)
+            }
+        })
+    }
+
+    pub fn encode_merge_write(
+        &self,
+        key: &DocumentKey,
+        map: &MapValue,
+        field_paths: &[FieldPath],
+    ) -> JsonValue {
+        json!({
+            "update": {
+                "name": self.document_name(key),
+                "fields": encode_map_fields(map)
+            },
+            "updateMask": {
+                "fieldPaths": field_paths
+                    .iter()
+                    .map(FieldPath::canonical_string)
+                    .collect::<Vec<_>>()
+            }
+        })
+    }
+
+    pub fn encode_update_write(
+        &self,
+        key: &DocumentKey,
+        map: &MapValue,
+        field_paths: &[FieldPath],
+    ) -> JsonValue {
+        let mut write = self.encode_merge_write(key, map, field_paths);
+        write.as_object_mut().expect("write is object").insert(
+            "currentDocument".to_string(),
+            json!({
+                "exists": true
+            }),
+        );
+        write
+    }
+
+    pub fn encode_delete_write(&self, key: &DocumentKey) -> JsonValue {
+        json!({
+            "delete": self.document_name(key)
         })
     }
 

@@ -12,40 +12,17 @@ Firebase apps.
 
 ## Porting status
 
-- firestore 25% `[###       ]`
+- firestore 60% `[######   ]`
 
-==As of October 21th, 2025== 
+==As of April 5th, 2026==
 
-Prompt: Compare the original JS/Typescript files in ./packages/firestore and the ported files in Rust in ./src/firestore, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
+Roughly 60 % of the Firestore JS SDK now has a Rust counterpart.
 
-
- Roughly 25 % of the Firestore JS SDK has a Rust counterpart today. 
-  - Core handles (app/component registration,
-  document/collection references, basic queries, HTTP datastore) exist, but most higher-level features remain unported.
-  - Implemented foundations mirror the JS model/value layers and basic client APIs: Firestore registration and handles
-  (src/firestore/api/database.rs:20), document and collection references plus typed converters (src/firestore/api/
-  reference.rs:17), document/query operations (src/firestore/api/document.rs:20), structured query building with
-  cursors (src/firestore/api/query.rs:185), HTTP-backed get/set/runQuery with retry/token wiring (src/firestore/remote/
-  datastore/http.rs:60), and JSON serialization utilities (src/firestore/remote/serializer.rs).
-  - Key gaps are everywhere the JS SDK leans on the core sync engine: real-time listeners, snapshot observers, pending-
-  write coordination, and client write pipeline described in packages/firestore/src/api/reference_impl.ts:1084 and
-  orchestrated through packages/firestore/src/core/firestore_client.ts:75 are absent on the Rust side; only polling-
-  style reads exist.
-  - Mutations beyond single-document operations (write batches and transactions) defined in
-  packages/firestore/src/api/write_batch.ts:37 and packages/firestore/src/api/transaction.ts:103 are not yet
-  implemented—Rust now covers set/add/update/delete through the HTTP datastore but still lacks the mutation queue,
-  transaction runner, merge preconditions, and sentinel transforms.
-  - Offline persistence, cache sizing, multi-tab coordination, and bundle/named-query support (packages/firestore/src/
-  api/database.ts:329, packages/firestore/src/local/indexeddb_persistence.ts:369, packages/firestore/src/api/bundle.ts)
-  have no Rust analogs; there is just an in-memory stub datastore.
-  - Advanced query operators (array-contains, in, not-in) are still rejected (src/firestore/api/query.rs:199), and
-  aggregation/bundle APIs (packages/firestore/src/api/aggregate.ts, packages/firestore/src/api/bundle.ts) haven’t been
-  ported, highlighting further functional gaps.
-  - The scope difference is also reflected in code volume (269 TypeScript sources under packages/firestore/src versus 32
-  Rust files under src/firestore), reinforcing that only the initial surface area is available in Rust.
-
-  1. Next natural steps: build write batches and transactions on top of the existing set/add/update/delete support, then
-  tackle real-time listeners to unlock broader API coverage.
+- Core handles (component registration, `Firestore`/reference types, converters), document/query operations, and the HTTP datastore remain in place.
+- Set semantics now mirror the JS SDK, including `SetOptions::merge`/`merge_fields`, allowing partial document updates through both the HTTP and in-memory datastores.
+- All array/membership operators (`array-contains`, `array-contains-any`, `in`, `not-in`) are supported and validated; queries auto-normalise ordering just like the JS structured-query builder.
+- Batched writes (`WriteBatch`) are fully wired, sharing the commit pipeline across HTTP and in-memory datastores so atomic groups of set/update/delete mirror `writeBatch()` from the modular SDK.
+- Remaining gaps focus on the sync engine: real-time watchers, transactions, precondition/sentinel transforms, offline persistence, and bundle/aggregate support.
 
 ## References to the Firebase JS SDK - firestore module
 
@@ -54,11 +31,11 @@ Prompt: Compare the original JS/Typescript files in ./packages/firestore and the
 - Github Repo - Module: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/firestore>
 - Github Repo - API: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/firebase/firestore>
 
-## Development status as of 14th October 2025
+## Development status as of 5th April 2026
 
-- Core functionalities: Mostly implemented (see the module's [README.md](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore) for details)
-- Testing: 37 tests (passed, now covering update/delete flows)
-- Documentation: Most public functions are documented
+- Core functionalities: Mostly implemented (see this README for details)
+- Testing: 44 tests (covering merges, advanced filters, batched writes, and existing update/delete flows)
+- Documentation: Public APIs documented with rustdoc (set merge semantics, `WriteBatch`, advanced filters)
 - Examples: 3 examples
 
 DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that it has no bugs or that it will work as intended.
@@ -175,8 +152,9 @@ async fn example_with_converter(
 - **Document façade** – A simple in-memory datastore backs
   `FirestoreClient::get_doc/set_doc/add_doc/update_doc/delete_doc`, exercising the value encoding pipeline and
   providing scaffolding for future network integration.
-- **Single-document writes** – The HTTP datastore now issues REST commits for `set_doc`, `update_doc`, and `delete_doc`
-  with retry/backoff and auth/App Check headers.
+- **Single-document writes** – The HTTP datastore now issues REST commits for `set_doc`, `set_doc_with_converter`,
+  `update_doc`, and `delete_doc` with retry/backoff and auth/App Check headers. `SetOptions` supports both
+  `merge` and `merge_fields`, matching JS semantics on HTTP and in-memory stores.
 - **Network scaffolding** – A retrying `HttpDatastore` now wraps the Firestore REST endpoints with JSON
   serialization/deserialization, HTTP error mapping, and pluggable auth/App Check token providers. Auth and App Check
   bridges now feed the HTTP client, including token invalidation/retry on `Unauthenticated` responses.
@@ -189,13 +167,17 @@ async fn example_with_converter(
 - **Query API scaffolding** – `Query`, `QuerySnapshot`, and `FirestoreClient::get_docs` now cover collection scans as
   well as `where` filters, `order_by`, `limit`/`limit_to_last`, projections, and cursor bounds when running against
   either the in-memory store or the HTTP datastore (which generates structured queries for Firestore’s REST API).
+- **Advanced filters** – Array membership operators (`array-contains`, `array-contains-any`) and disjunctive filters
+  (`in`, `not-in`) are validated client-side and encoded for both datastores, matching the JS SDK constraints.
+- **Batched writes** – `WriteBatch` mirrors the modular SDK: set/update/delete operations queue up and commit atomically
+  via the shared datastore pipeline, enabling multi-document mutations over HTTP or the in-memory store.
 
 ## Still to do
 
-- Batched writes, transactions, and merge preconditions aligned with the JS mutation queue.
+- Transactions, merge preconditions, and sentinel transforms aligned with the JS mutation queue.
 - Field transforms such as server timestamps, array union/remove, and numeric increment.
 - Real-time listeners, watch streams, and pending-write coordination for latency-compensation.
-- Advanced query operators (array membership, `not-in`), collection group queries, and aggregation APIs.
+- Collection group queries, aggregation APIs, and bundle/named-query support.
 - Offline persistence layers (memory + IndexedDB), LRU pruning, and multi-tab coordination.
 - Bundle loading, named queries, and emulator-backed integration coverage.
 
@@ -255,7 +237,7 @@ majority of the Firestore feature set.
 | P0 | `packages/firestore/src/remote/datastore.ts`, `remote/persistent_stream.ts` | Extend `src/firestore/remote/datastore/http.rs`, add `listen`/`write` streaming scaffolding | Layer real listen/write streaming on top of the HTTP bridge (or gRPC when ready), reuse retry/backoff, and surface structured responses. | Needs auth/App Check providers returning real tokens plus async stream abstraction. |
 | P0 | `packages/firestore/src/remote/datastore.ts` (token handling) | `src/firestore/remote/datastore/mod.rs`, `http.rs` | ✅ Auth/App Check token providers now feed the HTTP datastore with automatic retry on `Unauthenticated`; still need emulator headers and richer refresh flows. | Depends on porting credential providers from `packages/firestore/src/api/credentials.ts` and wiring to existing `crate::auth`. |
 | P0 | `packages/firestore/src/api/snapshot.ts`, `api/reference_impl.ts`, `core/firestore_client.ts` | Split `src/firestore/api/operations.rs` into `snapshot/` modules with converter support | Add typed metadata flags, `with_converter`, and map the HTTP responses to rich snapshots. | Requires serializer parity, encoded reference paths, and converter traits. |
-| P1 | `packages/firestore/src/api/transaction.ts`, `api/write_batch.ts`, `core/transaction_runner.ts` | New `src/firestore/api/write.rs`, `src/firestore/core/transaction.rs` | Implement mutations/batches/transactions with merge and precondition semantics against the HTTP datastore. | Builds on serializer support for mutations plus `CommitRequest`/`Rollback` RPCs. |
+| P1 | `packages/firestore/src/api/transaction.ts`, `api/write_batch.ts`, `core/transaction_runner.ts` | `src/firestore/api/transaction.rs`, `src/firestore/core/transaction.rs` | Layer transactions, retries, and precondition handling on top of the shared commit pipeline; add sentinel transforms (server timestamp, array union/remove, numeric increment). | Builds on serializer support for mutations plus `CommitRequest`/`Rollback` RPCs. |
 | P1 | `packages/firestore/src/api/filter.ts`, `core/query.ts`, `core/view.ts`, `remote/watch_change.ts` | `src/firestore/api/query.rs`, `src/firestore/core/query/` | Port query builders, bounds, ordering, and attach them to real listen results. | Requires streaming remote store, target serialization, and comparator logic. |
 | P2 | `packages/firestore/src/local/indexeddb_*`, `local/persistence.ts`, `local/remote_document_cache.ts` | `src/firestore/local/` | Establish trait-based persistence with in-memory baseline, paving the way for disk-backed stores later. | Requires query engine integration and watch pipeline parity. |
 

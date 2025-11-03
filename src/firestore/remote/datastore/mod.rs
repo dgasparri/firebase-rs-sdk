@@ -11,6 +11,23 @@ use crate::firestore::value::MapValue;
 pub mod http;
 pub mod in_memory;
 
+#[derive(Clone, Debug)]
+pub enum WriteOperation {
+    Set {
+        key: DocumentKey,
+        data: MapValue,
+        mask: Option<Vec<FieldPath>>,
+    },
+    Update {
+        key: DocumentKey,
+        data: MapValue,
+        field_paths: Vec<FieldPath>,
+    },
+    Delete {
+        key: DocumentKey,
+    },
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait Datastore: Send + Sync + 'static {
@@ -19,7 +36,7 @@ pub trait Datastore: Send + Sync + 'static {
         &self,
         key: &DocumentKey,
         data: MapValue,
-        merge: bool,
+        mask: Option<Vec<FieldPath>>,
     ) -> FirestoreResult<()>;
     async fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>>;
     async fn update_document(
@@ -29,6 +46,7 @@ pub trait Datastore: Send + Sync + 'static {
         field_paths: Vec<FieldPath>,
     ) -> FirestoreResult<()>;
     async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()>;
+    async fn commit(&self, writes: Vec<WriteOperation>) -> FirestoreResult<()>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
