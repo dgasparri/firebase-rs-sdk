@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use crate::firestore::error::{invalid_argument, FirestoreResult};
 use crate::firestore::model::ResourcePath;
 
@@ -33,6 +35,18 @@ impl DocumentKey {
         self.path
             .last_segment()
             .expect("DocumentKey path always has id")
+    }
+}
+
+impl Ord for DocumentKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.path.as_vec().cmp(other.path.as_vec())
+    }
+}
+
+impl PartialOrd for DocumentKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 

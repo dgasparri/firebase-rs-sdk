@@ -204,7 +204,8 @@ async fn example_with_converter(
   targets.
 - **Listen/write streaming** – `firestore::remote::streams::{ListenStream, WriteStream}` encode Firestore gRPC listen
   and write RPC payloads, propagate resume tokens, and surface decoded `WatchChange`/`WriteResponse` events through async
-  delegates so higher layers can build the remote store.
+  delegates. `firestore::remote::watch_change_aggregator::WatchChangeAggregator` converts those into consolidated
+  `RemoteEvent`s so higher layers can drive query views.
 
 ## Still to do
 

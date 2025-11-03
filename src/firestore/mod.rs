@@ -32,10 +32,10 @@ pub use remote::{
     map_http_error, Connection, ConnectionBuilder, Datastore, ExistenceFilterChange, HttpDatastore,
     InMemoryDatastore, InMemoryTransport, JsonProtoSerializer, ListenStream, ListenStreamDelegate,
     ListenTarget, MultiplexedConnection, MultiplexedStream, NetworkLayer, NetworkLayerBuilder,
-    NetworkStreamHandler, NoopTokenProvider, RequestContext, RetrySettings, StreamCredentials,
-    StreamHandle, StreamTransport, StreamingDatastore, StreamingDatastoreImpl, StreamingFuture,
-    TargetChangeState, TargetPayload, TokenProviderArc, WatchChange, WatchDocument,
-    WatchTargetChange,
+    NetworkStreamHandler, NoopTokenProvider, RemoteEvent, RequestContext, RetrySettings,
+    StreamCredentials, StreamHandle, StreamTransport, StreamingDatastore, StreamingDatastoreImpl,
+    StreamingFuture, TargetChange, TargetChangeState, TargetMetadataProvider, TargetPayload,
+    TokenProviderArc, WatchChange, WatchChangeAggregator, WatchDocument, WatchTargetChange,
 };
 
 #[doc(inline)]

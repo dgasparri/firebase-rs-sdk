@@ -1464,4 +1464,98 @@ Thinking
   2. Feed WriteStream acknowledgements into the mutation queue, layering retry semantics and error propagation atop the
   streaming write pipeline.
 
-▌
+Updated Plan
+  └ ✔ Audit existing Rust remote modules and TypeScript remote store/watch change handling to determine structure for
+      watch change translation and remote store integration.
+    ✔ Implement watch change decoding into Rust types (WatchChange, etc.), integrate ListenStream delegate to feed
+      remote store logic, and update mutation acknowledgement handling via WriteStream.
+    ✔ Update documentation and README to reflect remote store integration progress and highlight remaining tasks.
+
+• Ran git status -sb
+
+• Ran git diff --stat
+
+> - Added src/firestore/remote/watch_change.rs:1-190 with Rust-side WatchChange/WatchTargetChange/WatchDocument
+  decoding, including gRPC status mapping and document/key parsing helpers.
+  - Reworked the listen stream to emit high-level watch changes and maintain resume tokens (src/firestore/remote/
+  streams/listen.rs:1-276), exposing the new delegate signature and keeping target management intact.
+  - Updated serializer/datastore plumbing so all transports reuse shared structured query and write encoders, plus
+  document-name parsing (src/firestore/remote/serializer.rs:199-222, src/firestore/remote/datastore/http.rs:150-167),
+  and refreshed module re-exports/docs (src/firestore/remote/mod.rs:1-24, src/firestore/mod.rs:31-47, src/firestore/
+  README.md:202-205).
+
+  Tests:
+
+  - cargo test listen_stream_replays_targets_on_open --lib
+  - cargo test listen_stream_decodes_target_change --lib
+  - cargo test write_stream_sends_handshake_and_mutations --lib
+  - cargo test network_layer_stream_roundtrip --lib
+
+  Next Steps:
+
+  1. Wire WatchChange events into a remote store facade that produces RemoteEvent/-style watch updates for query views
+  and latency compensation.
+  2. Route WriteResponse acknowledgements into the mutation queue, layering retries and error propagation to complete
+  the streaming write pipeline.
+
+
+  > Thinking
+  I’m outlining the key changes including new modules like remote_event.rs and watch_change_aggregator.rs, updates to
+  ListenStream, and the addition of Ord for DocumentKey. I’ll also check for any naming conflicts with re-exports around
+  TargetChange and ensure RemoteEvent is properly accessible. Finally, I’ll gather executed tests and prep instructions
+  and suggestions for the next steps.
+
+> - Added RemoteEvent + TargetChange structures that capture aggregated watch stream output and track document updates,
+  target resets, and limbo resolutions (src/firestore/remote/remote_event.rs).
+  - Implemented WatchChangeAggregator to fold WatchChange sequences into RemoteEvents while maintaining per-
+  target document state and resume tokens; exposed metadata provider trait and unit coverage (src/firestore/remote/
+  watch_change_aggregator.rs, src/firestore/remote/watch_change_aggregator.rs:274-324).
+  - Expanded watch-change decoding with document key extraction, timestamp helpers, and error mapping, enabling
+  aggregator consumption (src/firestore/remote/watch_change.rs:20-213).
+  - Updated listen stream delegate to emit WatchChange events, preserving resume token tracking while deferring
+  aggregation to the new helper (src/firestore/remote/streams/listen.rs:1-274).
+  - Re-exported new primitives at the crate root and added total ordering on DocumentKey for deterministic maps/sets
+  (src/firestore/mod.rs:31-47, src/firestore/model/document_key.rs:1-51), plus refreshed README with remote-event
+  tooling (src/firestore/README.md:202-205).
+
+  Tests:
+
+  - cargo test watch_change_aggregator::tests::aggregates_document_changes --lib
+  - cargo test firestore::remote::watch_change::tests::decodes_target_change --lib
+  - cargo test listen_stream_replays_targets_on_open --lib
+  - cargo test listen_stream_decodes_target_change --lib
+  - cargo test write_stream_sends_handshake_and_mutations --lib
+  - cargo test network_layer_stream_roundtrip --lib
+
+  Next Steps:
+
+  1. Wire WatchChangeAggregator output into a RemoteStore facade that produces view-ready RemoteEvents and coordinates
+  target metadata from the local store.
+
+
+ - Added a platform-neutral RemoteEvent/TargetChange data model so watch results have a dedicated aggregate
+  representation (src/firestore/remote/remote_event.rs).
+  - Implemented WatchChangeAggregator to fold WatchChange inputs into RemoteEvents, managing per-target state, resume
+  tokens, resets, and document updates, plus a simple metadata provider trait and unit coverage (src/firestore/remote/
+  watch_change_aggregator.rs).
+  - Enhanced watch-change decoding to emit document keys and richer error mapping, and wired ListenStream to surface
+  WatchChange events for the aggregator (src/firestore/remote/watch_change.rs, src/firestore/remote/streams/listen.rs).
+  - Re-exported the new primitives at the crate root and made DocumentKey totally ordered for deterministic maps/sets
+  (src/firestore/mod.rs, src/firestore/model/document_key.rs), with README updated to note the remote-event tooling
+  (src/firestore/README.md).
+
+  Tests:
+
+  - cargo test watch_change_aggregator::tests::aggregates_document_changes --lib
+  - cargo test firestore::remote::watch_change::tests::decodes_target_change --lib
+  - cargo test listen_stream_replays_targets_on_open --lib
+  - cargo test listen_stream_decodes_target_change --lib
+  - cargo test write_stream_sends_handshake_and_mutations --lib
+  - cargo test network_layer_stream_roundtrip --lib
+
+  Next Steps:
+
+  1. Build the Rust RemoteStore that consumes WatchChangeAggregator output, coordinates target metadata, and emits
+  RemoteEvents to higher layers.
+
+▌ Explain this codebase                                                                                                 

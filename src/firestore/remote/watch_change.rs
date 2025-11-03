@@ -4,8 +4,9 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{
-    //json, 
-    Value as JsonValue};
+    //json,
+    Value as JsonValue,
+};
 
 use crate::firestore::error::{
     deadline_exceeded, internal_error, invalid_argument, not_found, permission_denied,
@@ -46,6 +47,7 @@ pub enum TargetChangeState {
 pub struct DocumentChange {
     pub updated_target_ids: Vec<i32>,
     pub removed_target_ids: Vec<i32>,
+    pub key: DocumentKey,
     pub document: Option<WatchDocument>,
 }
 
@@ -170,9 +172,23 @@ fn decode_document_change(
         .map(|doc| decode_watch_document(serializer, doc))
         .transpose()?;
 
+    let key = match &document {
+        Some(doc) => doc.key.clone(),
+        None => {
+            let name = value
+                .get("document")
+                .and_then(JsonValue::as_object)
+                .and_then(|obj| obj.get("name"))
+                .and_then(JsonValue::as_str)
+                .ok_or_else(|| invalid_argument("documentChange missing document"))?;
+            serializer.document_key_from_name(name)?
+        }
+    };
+
     Ok(WatchChange::DocumentChange(DocumentChange {
         updated_target_ids,
         removed_target_ids,
+        key,
         document,
     }))
 }
