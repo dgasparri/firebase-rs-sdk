@@ -25,6 +25,8 @@ pub use constants::{DEFAULT_DATABASE_ID, FIRESTORE_COMPONENT_NAME};
 #[doc(inline)]
 pub use model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, ResourcePath, Timestamp};
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use remote::WebSocketTransport;
 #[doc(inline)]
 pub use remote::{
     map_http_error, Connection, ConnectionBuilder, Datastore, HttpDatastore, InMemoryDatastore,

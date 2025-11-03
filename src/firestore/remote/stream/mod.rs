@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
 use crate::platform::runtime;
@@ -70,6 +71,18 @@ impl TransportFrame {
 
     pub fn kind(&self) -> &FrameKind {
         &self.kind
+    }
+
+    pub fn encode(&self) -> FirestoreResult<Vec<u8>> {
+        let envelope = FrameEnvelope::try_from(self)?;
+        serde_json::to_vec(&envelope)
+            .map_err(|err| internal_error(format!("failed to encode transport frame: {err}")))
+    }
+
+    pub fn decode(bytes: &[u8]) -> FirestoreResult<Self> {
+        let envelope: FrameEnvelope = serde_json::from_slice(bytes)
+            .map_err(|err| internal_error(format!("failed to decode transport frame: {err}")))?;
+        TransportFrame::try_from(envelope)
     }
 }
 
@@ -278,6 +291,133 @@ impl StreamTransport for InMemoryTransport {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct FrameEnvelope {
+    stream_id: u32,
+    #[serde(flatten)]
+    kind: FrameEnvelopeKind,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum FrameEnvelopeKind {
+    Open,
+    Data { payload: Vec<u8> },
+    Close,
+}
+
+impl TryFrom<&TransportFrame> for FrameEnvelope {
+    type Error = FirestoreError;
+
+    fn try_from(frame: &TransportFrame) -> Result<Self, Self::Error> {
+        let kind = match frame.kind() {
+            FrameKind::Open => FrameEnvelopeKind::Open,
+            FrameKind::Data(payload) => FrameEnvelopeKind::Data {
+                payload: payload.clone(),
+            },
+            FrameKind::Close => FrameEnvelopeKind::Close,
+            FrameKind::Error(err) => {
+                return Err(internal_error(format!(
+                    "error frames cannot be serialized: {err}"
+                )))
+            }
+        };
+
+        Ok(Self {
+            stream_id: frame.stream_id().value(),
+            kind,
+        })
+    }
+}
+
+impl TryFrom<FrameEnvelope> for TransportFrame {
+    type Error = FirestoreError;
+
+    fn try_from(envelope: FrameEnvelope) -> Result<Self, Self::Error> {
+        let stream_id = StreamId::new(envelope.stream_id);
+        let kind = match envelope.kind {
+            FrameEnvelopeKind::Open => FrameKind::Open,
+            FrameEnvelopeKind::Data { payload } => FrameKind::Data(payload),
+            FrameEnvelopeKind::Close => FrameKind::Close,
+        };
+
+        Ok(TransportFrame { stream_id, kind })
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+type NativeWebSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub struct WebSocketTransport {
+    inner: tokio::sync::Mutex<NativeWebSocket>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl WebSocketTransport {
+    pub async fn connect(url: url::Url) -> FirestoreResult<Arc<Self>> {
+        use tokio_tungstenite::connect_async;
+
+        let (stream, _) = connect_async(url)
+            .await
+            .map_err(|err| internal_error(format!("websocket connect failed: {err}")))?;
+        Ok(Arc::new(Self {
+            inner: tokio::sync::Mutex::new(stream),
+        }))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl StreamTransport for WebSocketTransport {
+    async fn send(&self, frame: TransportFrame) -> FirestoreResult<()> {
+        use futures::SinkExt;
+        use tokio_tungstenite::tungstenite::protocol::Message;
+
+        let mut stream = self.inner.lock().await;
+        let payload = frame.encode()?;
+        stream
+            .send(Message::Binary(payload))
+            .await
+            .map_err(|err| internal_error(format!("websocket send failed: {err}")))
+    }
+
+    async fn next(&self) -> FirestoreResult<TransportFrame> {
+        use futures::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::protocol::Message;
+
+        loop {
+            let maybe_msg = {
+                let mut stream = self.inner.lock().await;
+                stream.next().await
+            };
+
+            match maybe_msg {
+                Some(Ok(Message::Binary(data))) => return TransportFrame::decode(&data),
+                Some(Ok(Message::Text(text))) => return TransportFrame::decode(text.as_bytes()),
+                Some(Ok(Message::Ping(payload))) => {
+                    let mut stream = self.inner.lock().await;
+                    if let Err(err) = stream.send(Message::Pong(payload)).await {
+                        log::debug!("failed to reply to websocket ping: {err}");
+                    }
+                }
+                Some(Ok(Message::Pong(_))) => {}
+                Some(Ok(Message::Frame(_))) => {}
+                Some(Ok(Message::Close(_))) => {
+                    return Err(internal_error("websocket closed by peer"));
+                }
+                Some(Err(err)) => {
+                    return Err(internal_error(format!("websocket receive failed: {err}")));
+                }
+                None => {
+                    return Err(internal_error("websocket stream ended"));
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,5 +465,17 @@ mod tests {
 
         left_stream.close().await.expect("left close");
         assert!(right_stream.next().await.is_none());
+    }
+
+    #[test]
+    fn transport_frame_serialization_roundtrip() {
+        let frame = TransportFrame::data(StreamId::new(7), b"payload".to_vec());
+        let encoded = frame.encode().expect("encode");
+        let decoded = TransportFrame::decode(&encoded).expect("decode");
+        assert_eq!(decoded.stream_id().value(), 7);
+        match decoded.kind() {
+            FrameKind::Data(bytes) => assert_eq!(bytes, b"payload"),
+            other => panic!("unexpected frame kind: {other:?}"),
+        }
     }
 }

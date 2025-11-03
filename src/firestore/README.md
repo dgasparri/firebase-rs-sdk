@@ -193,8 +193,8 @@ async fn example_with_converter(
   borrowed `FirestoreValue`s for selective field reads just like `DocumentSnapshot.get(...)` in the modular API.
 - **Aggregations** – `FirestoreClient::get_aggregate`/`get_count` surface REST `runAggregationQuery`, while the
   in-memory datastore computes `count`, `sum`, and `average` locally for tests.
-- **Streaming scaffolding** – A multiplexed stream manager provides shared framing over arbitrary transports, with an
-  in-memory transport and tests validating multi-stream message exchange and cooperative shutdown behaviour.
+- **Streaming scaffolding** – A multiplexed stream manager provides shared framing over arbitrary transports, with
+  in-memory and WebSocket transports plus tests validating multi-stream exchange and cooperative shutdown behaviour.
 
 ## Still to do
 

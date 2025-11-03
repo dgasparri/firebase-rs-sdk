@@ -10,4 +10,6 @@ pub use datastore::{
 };
 pub use rpc_error::map_http_error;
 pub use serializer::JsonProtoSerializer;
+#[cfg(not(target_arch = "wasm32"))]
+pub use stream::WebSocketTransport;
 pub use stream::{InMemoryTransport, MultiplexedConnection, MultiplexedStream, StreamTransport};
