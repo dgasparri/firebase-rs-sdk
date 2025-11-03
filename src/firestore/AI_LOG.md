@@ -1427,3 +1427,41 @@ Thinking
   1. Wire Firestore listen/write protobuf (or gRPC-web JSON) encoding through NetworkLayer and emit watch mutations to
   the remote store.
   2. Extend the new handler traits with resume-token management and heartbeat handling once the protocol layer lands.
+
+
+> Thinking
+  I'll review the Git status to confirm new files are tracked and note them for the final summary without committing.
+  I'll verify that all tests, especially for WriteStream and ListenStream, pass without warnings or references to
+  removed code. Then, I'll run the network_layer_stream_roundtrip test to ensure the recent changes didn't introduce
+  regressions before crafting the final response with a clear summary and next steps.
+
+• Ran cargo test network_layer_stream_roundtrip --lib
+
+• Explored
+  └ Read listen.rs, write.rs, structured_query.rs, serializer.rs
+
+> - Added listen/write streaming client primitives that serialize Firestore gRPC payloads, manage resume tokens, and
+  expose async delegates for higher layers via ListenStream/WriteStream (src/firestore/remote/streams/listen.rs:23-
+  226, src/firestore/remote/streams/write.rs:20-248), complete with in-memory transport tests to validate handshake and
+  message flow.
+  - Extracted shared structured-query encoding and write serialization utilities so both HTTP and streaming paths reuse
+  a single implementation (src/firestore/remote/structured_query.rs:1-149, src/firestore/remote/serializer.rs:199-222,
+  src/firestore/remote/datastore/http.rs:150-165), reducing duplication and ensuring parity between transports.
+  - Re-exported the new streaming APIs and refreshed module docs to capture the watch/write progress and future
+  integration work (src/firestore/remote/mod.rs:3-18, src/firestore/mod.rs:31-36, src/firestore/README.md:199-227).
+
+  Tests:
+
+  - cargo test listen_stream_replays_targets_on_open --lib
+  - cargo test listen_stream_decodes_target_change --lib
+  - cargo test write_stream_sends_handshake_and_mutations --lib
+  - cargo test network_layer_stream_roundtrip --lib
+
+  Next Steps:
+
+  1. Wire ListenStream responses into Firestore watch-change types so the remote store can drive query views and latency
+  compensation.
+  2. Feed WriteStream acknowledgements into the mutation queue, layering retry semantics and error propagation atop the
+  streaming write pipeline.
+
+▌

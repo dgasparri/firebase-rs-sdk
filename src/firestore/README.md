@@ -202,12 +202,15 @@ async fn example_with_converter(
 - **Network layer** – `firestore::remote::network::NetworkLayer` now coordinates credential-aware persistent listen
   and write streams over the multiplexed transport, reusing backoff logic and compiling for both native and WASM
   targets.
+- **Listen/write streaming** – `firestore::remote::streams::{ListenStream, WriteStream}` encode Firestore gRPC listen
+  and write RPC payloads, propagate resume tokens, and surface decoded responses through async delegates so higher
+  layers can build the remote store.
 
 ## Still to do
 
 - Transactions and merge preconditions aligned with the JS mutation queue.
-- Real-time listeners, watch streams, and pending-write coordination for latency-compensation, wiring Firestore's
-  listen/write RPC payloads onto the new network layer.
+- Real-time listeners, watch streams, and pending-write coordination for latency-compensation, plumbing the decoded
+  listen/write events into the remote store and sync engine.
 - Offline persistence layers (memory + IndexedDB), LRU pruning, and multi-tab coordination.
 - Bundle loading, named queries, and enhanced aggregation coverage (min/max, percentile).
 - Emulator-backed integration coverage and stress tests across HTTP/gRPC transports.
@@ -217,14 +220,13 @@ majority of the Firestore feature set.
 
 ## Next steps - Detailed completion plan
 
-1. **Watch/write protocol integration**
-   - Encode Firestore `ListenRequest`/`ListenResponse` and `WriteRequest`/`WriteResponse` payloads (gRPC-web or proto
-     JSON) and route them through `NetworkLayer` so the remote store can subscribe and commit over the streaming
-     transport.
-   - Layer resume-token management, stream health checks, and idle heartbeats on top of the credential-aware
-     `PersistentStream` runner so listeners recover seamlessly after reconnects.
-   - Expose a thin remote store façade that translates network events into higher-level watch mutations for the sync
-     engine.
+1. **Remote store wiring**
+   - Bridge `ListenStream` events to Firestore watch change structures (`WatchChange`, existence filters, document
+     updates) so the remote store can drive query views and latency-compensation flows.
+   - Feed `WriteStream` results into the mutation queue, updating write acknowledgements and surfacing commit errors
+     with retry semantics.
+   - Reconcile resume tokens and target state across reconnects, ensuring the remote store can reissue watch targets
+     without losing progress.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.

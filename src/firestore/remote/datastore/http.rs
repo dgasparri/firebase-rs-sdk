@@ -7,9 +7,9 @@ use reqwest::Method;
 
 use async_trait::async_trait;
 
-use crate::firestore::api::aggregate::{AggregateDefinition, AggregateOperation};
+use crate::firestore::api::aggregate::AggregateDefinition;
 use crate::firestore::api::operations::FieldTransform;
-use crate::firestore::api::query::{Bound, FieldFilter, QueryDefinition};
+use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{
     internal_error, invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
@@ -17,6 +17,9 @@ use crate::firestore::error::{
 use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath};
 use crate::firestore::remote::connection::{Connection, ConnectionBuilder, RequestContext};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
+use crate::firestore::remote::structured_query::{
+    encode_aggregation_body, encode_structured_query,
+};
 use crate::firestore::value::{FirestoreValue, MapValue};
 use serde_json::{json, Value as JsonValue};
 
@@ -149,34 +152,9 @@ impl HttpDatastore {
     fn encode_commit_body(&self, writes: &[WriteOperation]) -> JsonValue {
         let encoded: Vec<JsonValue> = writes
             .iter()
-            .map(|write| self.encode_write(write))
+            .map(|write| self.serializer.encode_write_operation(write))
             .collect();
         json!({ "writes": encoded })
-    }
-
-    fn encode_write(&self, write: &WriteOperation) -> JsonValue {
-        match write {
-            WriteOperation::Set {
-                key,
-                data,
-                mask,
-                transforms,
-            } => match mask {
-                Some(mask) => self
-                    .serializer
-                    .encode_merge_write(key, data, mask, transforms),
-                None => self.serializer.encode_set_write(key, data, transforms),
-            },
-            WriteOperation::Update {
-                key,
-                data,
-                field_paths,
-                transforms,
-            } => self
-                .serializer
-                .encode_update_write(key, data, field_paths, transforms),
-            WriteOperation::Delete { key } => self.serializer.encode_delete_write(key),
-        }
     }
 }
 
@@ -242,7 +220,7 @@ impl Datastore for HttpDatastore {
             )
         };
 
-        let structured_query = self.build_structured_query(query)?;
+        let structured_query = encode_structured_query(&self.serializer, query)?;
         let body = json!({
             "structuredQuery": structured_query
         });
@@ -363,7 +341,7 @@ impl Datastore for HttpDatastore {
             )
         };
 
-        let body = self.build_aggregation_body(query, aggregations)?;
+        let body = encode_aggregation_body(&self.serializer, query, aggregations)?;
         let serializer = self.serializer.clone();
 
         let response = self
@@ -422,154 +400,6 @@ impl HttpDatastore {
 
         let relative = &name[prefix.len()..];
         DocumentKey::from_string(relative)
-    }
-
-    fn build_structured_query(&self, definition: &QueryDefinition) -> FirestoreResult<JsonValue> {
-        let mut structured = serde_json::Map::new();
-
-        if let Some(fields) = definition.projection() {
-            let field_entries: Vec<_> = fields
-                .iter()
-                .map(|field| json!({ "fieldPath": field.canonical_string() }))
-                .collect();
-            structured.insert("select".to_string(), json!({ "fields": field_entries }));
-        }
-
-        let mut from_entry = serde_json::Map::new();
-        from_entry.insert(
-            "collectionId".to_string(),
-            json!(definition.collection_id()),
-        );
-        from_entry.insert(
-            "allDescendants".to_string(),
-            json!(definition.collection_group().is_some()),
-        );
-        structured.insert(
-            "from".to_string(),
-            JsonValue::Array(vec![JsonValue::Object(from_entry)]),
-        );
-
-        if !definition.filters().is_empty() {
-            let filter_json = self.encode_filters(definition.filters());
-            structured.insert("where".to_string(), filter_json);
-        }
-
-        if !definition.request_order_by().is_empty() {
-            let orders: Vec<_> = definition
-                .request_order_by()
-                .iter()
-                .map(|order| {
-                    json!({
-                        "field": { "fieldPath": order.field().canonical_string() },
-                        "direction": order.direction().as_str(),
-                    })
-                })
-                .collect();
-            structured.insert("orderBy".to_string(), JsonValue::Array(orders));
-        }
-
-        if let Some(limit) = definition.limit() {
-            structured.insert("limit".to_string(), json!(limit as i64));
-        }
-
-        if let Some(start) = definition.request_start_at() {
-            structured.insert("startAt".to_string(), self.encode_start_cursor(start));
-        }
-
-        if let Some(end) = definition.request_end_at() {
-            structured.insert("endAt".to_string(), self.encode_end_cursor(end));
-        }
-
-        Ok(JsonValue::Object(structured))
-    }
-
-    fn build_aggregation_body(
-        &self,
-        definition: &QueryDefinition,
-        aggregations: &[AggregateDefinition],
-    ) -> FirestoreResult<JsonValue> {
-        let structured_query = self.build_structured_query(definition)?;
-
-        let mut aggregation_entries = Vec::new();
-        for aggregate in aggregations {
-            let mut entry = serde_json::Map::new();
-            entry.insert("alias".to_string(), json!(aggregate.alias()));
-            match aggregate.operation() {
-                AggregateOperation::Count => {
-                    entry.insert("count".to_string(), json!({}));
-                }
-                AggregateOperation::Sum(field_path) => {
-                    entry.insert(
-                        "sum".to_string(),
-                        json!({ "field": { "fieldPath": field_path.canonical_string() } }),
-                    );
-                }
-                AggregateOperation::Average(field_path) => {
-                    entry.insert(
-                        "avg".to_string(),
-                        json!({ "field": { "fieldPath": field_path.canonical_string() } }),
-                    );
-                }
-            };
-            aggregation_entries.push(JsonValue::Object(entry));
-        }
-
-        Ok(json!({
-            "structuredAggregationQuery": {
-                "structuredQuery": structured_query,
-                "aggregations": aggregation_entries
-            }
-        }))
-    }
-
-    fn encode_filters(&self, filters: &[FieldFilter]) -> JsonValue {
-        if filters.len() == 1 {
-            return self.encode_field_filter(&filters[0]);
-        }
-
-        let nested: Vec<_> = filters
-            .iter()
-            .map(|filter| self.encode_field_filter(filter))
-            .collect();
-
-        json!({
-            "compositeFilter": {
-                "op": "AND",
-                "filters": nested
-            }
-        })
-    }
-
-    fn encode_field_filter(&self, filter: &FieldFilter) -> JsonValue {
-        json!({
-            "fieldFilter": {
-                "field": { "fieldPath": filter.field().canonical_string() },
-                "op": filter.operator().as_str(),
-                "value": self.serializer.encode_value(filter.value())
-            }
-        })
-    }
-
-    fn encode_start_cursor(&self, bound: &Bound) -> JsonValue {
-        json!({
-            "values": bound
-                .values()
-                .iter()
-                .map(|value| self.serializer.encode_value(value))
-                .collect::<Vec<_>>(),
-            "before": bound.inclusive(),
-        })
-    }
-
-    fn encode_end_cursor(&self, bound: &Bound) -> JsonValue {
-        json!({
-            "values": bound
-                .values()
-                .iter()
-                .map(|value| self.serializer.encode_value(value))
-                .collect::<Vec<_>>(),
-            "before": !bound.inclusive(),
-        })
     }
 }
 

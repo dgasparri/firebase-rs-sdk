@@ -9,6 +9,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::firestore::api::operations::{FieldTransform, TransformOperation};
 use crate::firestore::error::{invalid_argument, FirestoreResult};
 use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, Timestamp};
+use crate::firestore::remote::datastore::WriteOperation;
 use crate::firestore::value::{BytesValue, FirestoreValue, MapValue, ValueKind};
 
 #[derive(Clone, Debug)]
@@ -193,6 +194,31 @@ impl JsonProtoSerializer {
         json!({
             "delete": self.document_name(key)
         })
+    }
+
+    pub fn encode_write_operation(&self, write: &WriteOperation) -> JsonValue {
+        match write {
+            WriteOperation::Set {
+                key,
+                data,
+                mask,
+                transforms,
+            } => match mask {
+                Some(mask) => self.encode_merge_write(key, data, mask, transforms),
+                None => self.encode_set_write(key, data, transforms),
+            },
+            WriteOperation::Update {
+                key,
+                data,
+                field_paths,
+                transforms,
+            } => self.encode_update_write(key, data, field_paths, transforms),
+            WriteOperation::Delete { key } => self.encode_delete_write(key),
+        }
+    }
+
+    pub fn decode_timestamp_string(&self, value: &str) -> FirestoreResult<Timestamp> {
+        parse_timestamp(value)
     }
 
     pub fn decode_document_fields(&self, value: &JsonValue) -> FirestoreResult<Option<MapValue>> {
