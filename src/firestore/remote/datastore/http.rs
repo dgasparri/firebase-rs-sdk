@@ -256,7 +256,7 @@ impl Datastore for HttpDatastore {
                 .ok_or_else(|| {
                     internal_error("Firestore runQuery document missing 'name' field")
                 })?;
-            let key = self.parse_document_name(name)?;
+            let key = self.serializer.document_key_from_name(name)?;
 
             let map_value = serializer
                 .decode_document_fields(document)?
@@ -389,19 +389,7 @@ impl Datastore for HttpDatastore {
     }
 }
 
-impl HttpDatastore {
-    fn parse_document_name(&self, name: &str) -> FirestoreResult<DocumentKey> {
-        let prefix = format!("{}/documents/", self.serializer.database_name());
-        if !name.starts_with(&prefix) {
-            return Err(internal_error(format!(
-                "Unexpected document name '{name}' returned by Firestore"
-            )));
-        }
-
-        let relative = &name[prefix.len()..];
-        DocumentKey::from_string(relative)
-    }
-}
+impl HttpDatastore {}
 
 impl HttpDatastoreBuilder {
     fn new(database_id: DatabaseId) -> Self {

@@ -221,6 +221,18 @@ impl JsonProtoSerializer {
         parse_timestamp(value)
     }
 
+    pub fn document_key_from_name(&self, name: &str) -> FirestoreResult<DocumentKey> {
+        let prefix = format!("{}/documents/", self.database_name());
+        if !name.starts_with(&prefix) {
+            return Err(invalid_argument(format!(
+                "Unexpected document name '{name}' returned by Firestore"
+            )));
+        }
+
+        let relative = &name[prefix.len()..];
+        DocumentKey::from_string(relative)
+    }
+
     pub fn decode_document_fields(&self, value: &JsonValue) -> FirestoreResult<Option<MapValue>> {
         if value.get("fields").is_some() {
             decode_map_value(value).map(Some)

@@ -29,14 +29,17 @@ pub use model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, ResourcePath, Time
 pub use remote::WebSocketTransport;
 #[doc(inline)]
 pub use remote::{
-    map_http_error, Connection, ConnectionBuilder, Datastore, HttpDatastore, InMemoryDatastore,
-    InMemoryTransport, JsonProtoSerializer, ListenResponse, ListenStream, ListenStreamDelegate,
-    ListenTarget, ListenTargetChange, MultiplexedConnection, MultiplexedStream, NetworkLayer,
-    NetworkLayerBuilder, NetworkStreamHandler, NoopTokenProvider, RequestContext, RetrySettings,
-    StreamCredentials, StreamHandle, StreamTransport, StreamingDatastore, StreamingDatastoreImpl,
-    StreamingFuture, TargetChangeState, TargetPayload, TokenProviderArc, WriteResponse,
-    WriteResult, WriteStream, WriteStreamDelegate,
+    map_http_error, Connection, ConnectionBuilder, Datastore, ExistenceFilterChange, HttpDatastore,
+    InMemoryDatastore, InMemoryTransport, JsonProtoSerializer, ListenStream, ListenStreamDelegate,
+    ListenTarget, MultiplexedConnection, MultiplexedStream, NetworkLayer, NetworkLayerBuilder,
+    NetworkStreamHandler, NoopTokenProvider, RequestContext, RetrySettings, StreamCredentials,
+    StreamHandle, StreamTransport, StreamingDatastore, StreamingDatastoreImpl, StreamingFuture,
+    TargetChangeState, TargetPayload, TokenProviderArc, WatchChange, WatchDocument,
+    WatchTargetChange,
 };
+
+#[doc(inline)]
+pub use remote::streams::{WriteResponse, WriteResult, WriteStream, WriteStreamDelegate};
 
 #[doc(inline)]
 pub use remote::datastore::{http::HttpDatastoreBuilder, TokenProvider};

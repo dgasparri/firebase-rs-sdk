@@ -6,22 +6,21 @@ use async_lock::Mutex;
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
-use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
 use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
-use crate::firestore::model::Timestamp;
 use crate::firestore::remote::datastore::StreamHandle;
 use crate::firestore::remote::network::{NetworkLayer, NetworkStreamHandler, StreamCredentials};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
 use crate::firestore::remote::stream::PersistentStreamHandle;
 use crate::firestore::remote::structured_query::encode_structured_query;
+use crate::firestore::remote::watch_change::{decode_watch_change, WatchChange};
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait ListenStreamDelegate: Send + Sync + 'static {
-    async fn on_listen_response(&self, response: ListenResponse) -> FirestoreResult<()>;
+    async fn on_watch_change(&self, change: WatchChange) -> FirestoreResult<()>;
     async fn on_stream_error(&self, error: FirestoreError);
 }
 
@@ -311,25 +310,28 @@ where
         let value: JsonValue = serde_json::from_slice(&payload)
             .map_err(|err| internal_error(format!("Failed to decode listen response: {err}")))?;
 
-        let response = decode_listen_response(&self.serializer, &value)?;
-        if let ListenResponse::TargetChange(change) = &response {
-            if let Some(token) = &change.resume_token {
-                let mut guard = self.state.lock().await;
-                if change.target_ids.is_empty() {
-                    for target in guard.targets.values_mut() {
-                        target.resume_token = Some(token.clone());
-                    }
-                } else {
-                    for target_id in &change.target_ids {
-                        if let Some(target) = guard.targets.get_mut(target_id) {
+        if let Some(change) = decode_watch_change(&self.serializer, &value)? {
+            if let WatchChange::TargetChange(target_change) = &change {
+                if let Some(token) = &target_change.resume_token {
+                    let mut guard = self.state.lock().await;
+                    if target_change.target_ids.is_empty() {
+                        for target in guard.targets.values_mut() {
                             target.resume_token = Some(token.clone());
+                        }
+                    } else {
+                        for target_id in &target_change.target_ids {
+                            if let Some(target) = guard.targets.get_mut(target_id) {
+                                target.resume_token = Some(token.clone());
+                            }
                         }
                     }
                 }
             }
-        }
 
-        self.delegate.on_listen_response(response).await
+            self.delegate.on_watch_change(change).await
+        } else {
+            Ok(())
+        }
     }
 
     async fn on_close(&self) {
@@ -342,261 +344,30 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ListenResponse {
-    TargetChange(ListenTargetChange),
-    DocumentChange(DocumentChange),
-    DocumentDelete(DocumentDelete),
-    DocumentRemove(DocumentRemove),
-    Filter(ExistenceFilter),
-    Unknown(JsonValue),
-}
-
-#[derive(Debug, Clone)]
-pub struct ListenTargetChange {
-    pub target_ids: Vec<i32>,
-    pub resume_token: Option<Vec<u8>>,
-    pub read_time: Option<Timestamp>,
-    pub state: Option<TargetChangeState>,
-    pub cause: Option<ListenErrorCause>,
-}
-
-#[derive(Debug, Clone)]
-pub enum TargetChangeState {
-    NoChange,
-    Add,
-    Remove,
-    Current,
-    Reset,
-}
-
-#[derive(Debug, Clone)]
-pub struct ListenErrorCause {
-    pub code: i32,
-    pub message: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DocumentChange {
-    pub target_ids: Vec<i32>,
-    pub removed_target_ids: Vec<i32>,
-    pub document: JsonValue,
-}
-
-#[derive(Debug, Clone)]
-pub struct DocumentDelete {
-    pub document: String,
-    pub read_time: Option<Timestamp>,
-    pub removed_target_ids: Vec<i32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DocumentRemove {
-    pub document: String,
-    pub read_time: Option<Timestamp>,
-    pub removed_target_ids: Vec<i32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExistenceFilter {
-    pub target_id: i32,
-    pub count: i32,
-}
-
-#[derive(Deserialize)]
-struct StatusCause {
-    code: i32,
-    #[serde(default)]
-    message: Option<String>,
-}
-
-fn decode_listen_response(
-    serializer: &JsonProtoSerializer,
-    value: &JsonValue,
-) -> FirestoreResult<ListenResponse> {
-    if let Some(target_change) = value.get("targetChange") {
-        let target_ids = target_change
-            .get("targetIds")
-            .and_then(JsonValue::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(|v| v.as_i64().map(|id| id as i32))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let resume_token = target_change
-            .get("resumeToken")
-            .and_then(JsonValue::as_str)
-            .and_then(|token| BASE64_STANDARD.decode(token).ok());
-        let read_time = target_change
-            .get("readTime")
-            .and_then(JsonValue::as_str)
-            .map(|timestamp| serializer.decode_timestamp_string(timestamp))
-            .transpose()?;
-        let state = target_change
-            .get("targetChangeType")
-            .and_then(JsonValue::as_str)
-            .map(target_change_state_from_str);
-        let cause = target_change
-            .get("cause")
-            .map(|cause| serde_json::from_value::<StatusCause>(cause.clone()))
-            .transpose()
-            .map_err(|err| internal_error(format!("Failed to decode listen cause: {err}")))?
-            .map(|cause| ListenErrorCause {
-                code: cause.code,
-                message: cause.message,
-            });
-        return Ok(ListenResponse::TargetChange(ListenTargetChange {
-            target_ids,
-            resume_token,
-            read_time,
-            state,
-            cause,
-        }));
-    }
-
-    if let Some(document_change) = value.get("documentChange") {
-        let target_ids = document_change
-            .get("targetIds")
-            .and_then(JsonValue::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(|v| v.as_i64().map(|id| id as i32))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let removed_target_ids = document_change
-            .get("removedTargetIds")
-            .and_then(JsonValue::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(|v| v.as_i64().map(|id| id as i32))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let document = document_change
-            .get("document")
-            .cloned()
-            .ok_or_else(|| internal_error("documentChange missing document"))?;
-        return Ok(ListenResponse::DocumentChange(DocumentChange {
-            target_ids,
-            removed_target_ids,
-            document,
-        }));
-    }
-
-    if let Some(document_delete) = value.get("documentDelete") {
-        let document = document_delete
-            .get("document")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| internal_error("documentDelete missing document field"))?
-            .to_string();
-        let read_time = document_delete
-            .get("readTime")
-            .and_then(JsonValue::as_str)
-            .map(|timestamp| serializer.decode_timestamp_string(timestamp))
-            .transpose()?;
-        let removed_target_ids = document_delete
-            .get("removedTargetIds")
-            .and_then(JsonValue::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(|v| v.as_i64().map(|id| id as i32))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        return Ok(ListenResponse::DocumentDelete(DocumentDelete {
-            document,
-            read_time,
-            removed_target_ids,
-        }));
-    }
-
-    if let Some(document_remove) = value.get("documentRemove") {
-        let document = document_remove
-            .get("document")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| internal_error("documentRemove missing document field"))?
-            .to_string();
-        let read_time = document_remove
-            .get("readTime")
-            .and_then(JsonValue::as_str)
-            .map(|timestamp| serializer.decode_timestamp_string(timestamp))
-            .transpose()?;
-        let removed_target_ids = document_remove
-            .get("removedTargetIds")
-            .and_then(JsonValue::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(|v| v.as_i64().map(|id| id as i32))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        return Ok(ListenResponse::DocumentRemove(DocumentRemove {
-            document,
-            read_time,
-            removed_target_ids,
-        }));
-    }
-
-    if let Some(filter) = value.get("filter") {
-        let target_id = filter
-            .get("targetId")
-            .and_then(JsonValue::as_i64)
-            .ok_or_else(|| internal_error("filter missing targetId"))?
-            as i32;
-        let count = filter
-            .get("count")
-            .and_then(JsonValue::as_i64)
-            .ok_or_else(|| internal_error("filter missing count"))? as i32;
-        return Ok(ListenResponse::Filter(ExistenceFilter { target_id, count }));
-    }
-
-    Ok(ListenResponse::Unknown(value.clone()))
-}
-
-fn target_change_state_from_str(value: &str) -> TargetChangeState {
-    match value {
-        "NO_CHANGE" => TargetChangeState::NoChange,
-        "ADD" => TargetChangeState::Add,
-        "REMOVE" => TargetChangeState::Remove,
-        "CURRENT" => TargetChangeState::Current,
-        "RESET" => TargetChangeState::Reset,
-        _ => TargetChangeState::NoChange,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::BASE64_STANDARD;
     use super::*;
     use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::datastore::streaming::StreamingDatastoreImpl;
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};
-    use crate::firestore::remote::stream::InMemoryTransport;
-    use crate::firestore::remote::stream::MultiplexedConnection;
+    use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};
+    use crate::firestore::remote::watch_change::WatchChange;
     use crate::platform::runtime;
     use async_trait::async_trait;
-    use serde_json::json;
     use std::time::Duration;
 
     #[derive(Default)]
     struct TestDelegate {
-        responses: Mutex<Vec<ListenResponse>>,
+        responses: Mutex<Vec<WatchChange>>,
         errors: Mutex<Vec<FirestoreError>>,
     }
 
     #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl ListenStreamDelegate for TestDelegate {
-        async fn on_listen_response(&self, response: ListenResponse) -> FirestoreResult<()> {
+        async fn on_watch_change(&self, change: WatchChange) -> FirestoreResult<()> {
             let mut guard = self.responses.lock().await;
-            guard.push(response);
+            guard.push(change);
             Ok(())
         }
 
@@ -642,10 +413,9 @@ mod tests {
         let layer = NetworkLayer::builder(datastore, auth_provider).build();
 
         let delegate = Arc::new(TestDelegate::default());
-        let stream_serializer = serializer();
-        let listen = ListenStream::new(layer, stream_serializer.clone(), delegate.clone());
+        let listen = ListenStream::new(layer, serializer(), delegate.clone());
 
-        let target = ListenTarget::for_query(&stream_serializer, 1, &query_definition()).unwrap();
+        let target = ListenTarget::for_query(&serializer(), 1, &query_definition()).unwrap();
         listen.watch(target).await.expect("watch target");
 
         let peer_stream = right_connection.open_stream().await.expect("peer stream");
@@ -665,6 +435,8 @@ mod tests {
         listen.stop();
     }
 
+    use crate::firestore::remote::watch_change::TargetChangeState;
+
     #[tokio::test]
     async fn listen_stream_decodes_target_change() {
         let (left_transport, right_transport) = InMemoryTransport::pair();
@@ -678,13 +450,11 @@ mod tests {
         let layer = NetworkLayer::builder(datastore, auth_provider).build();
 
         let delegate = Arc::new(TestDelegate::default());
-        let stream_serializer = serializer();
-        let listen = ListenStream::new(layer, stream_serializer.clone(), delegate.clone());
-        let target = ListenTarget::for_query(&stream_serializer, 1, &query_definition()).unwrap();
+        let listen = ListenStream::new(layer, serializer(), delegate.clone());
+        let target = ListenTarget::for_query(&serializer(), 1, &query_definition()).unwrap();
         listen.watch(target).await.expect("watch target");
 
         let peer_stream = right_connection.open_stream().await.expect("peer stream");
-        // Consume the initial watch request.
         let _ = peer_stream
             .next()
             .await
@@ -716,10 +486,10 @@ mod tests {
         let responses = delegate.responses.lock().await;
         assert!(!responses.is_empty());
         match &responses[0] {
-            ListenResponse::TargetChange(change) => {
+            WatchChange::TargetChange(change) => {
                 assert_eq!(change.target_ids, vec![1]);
                 assert_eq!(change.resume_token.as_deref(), Some(&[1, 2, 3][..]));
-                matches!(change.state, Some(TargetChangeState::Current));
+                assert_eq!(change.state, TargetChangeState::Current);
             }
             other => panic!("unexpected response: {other:?}"),
         }

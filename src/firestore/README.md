@@ -203,8 +203,8 @@ async fn example_with_converter(
   and write streams over the multiplexed transport, reusing backoff logic and compiling for both native and WASM
   targets.
 - **Listen/write streaming** – `firestore::remote::streams::{ListenStream, WriteStream}` encode Firestore gRPC listen
-  and write RPC payloads, propagate resume tokens, and surface decoded responses through async delegates so higher
-  layers can build the remote store.
+  and write RPC payloads, propagate resume tokens, and surface decoded `WatchChange`/`WriteResponse` events through async
+  delegates so higher layers can build the remote store.
 
 ## Still to do
 
