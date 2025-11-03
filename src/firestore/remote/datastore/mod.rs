@@ -44,11 +44,11 @@ pub type StreamingFuture<'a, T> = LocalBoxFuture<'a, T>;
 pub type StreamingFuture<'a, T> = BoxFuture<'a, T>;
 
 pub trait StreamingDatastore: Send + Sync + 'static {
-    fn open_listen_stream(&self) -> StreamingFuture<'_, FirestoreResult<Box<dyn StreamHandle>>>;
-    fn open_write_stream(&self) -> StreamingFuture<'_, FirestoreResult<Box<dyn StreamHandle>>>;
+    fn open_listen_stream(&self) -> StreamingFuture<'_, FirestoreResult<Arc<dyn StreamHandle>>>;
+    fn open_write_stream(&self) -> StreamingFuture<'_, FirestoreResult<Arc<dyn StreamHandle>>>;
 }
 
-pub trait StreamHandle: Send + Sync {
+pub trait StreamHandle: Send + Sync + 'static {
     fn send(&self, payload: Vec<u8>) -> StreamingFuture<'_, FirestoreResult<()>>;
     fn next(&self) -> StreamingFuture<'_, Option<FirestoreResult<Vec<u8>>>>;
     fn close(&self) -> StreamingFuture<'_, FirestoreResult<()>>;

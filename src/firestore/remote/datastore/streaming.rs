@@ -7,7 +7,7 @@ use crate::firestore::remote::stream::{MultiplexedConnection, MultiplexedStream}
 use futures::FutureExt;
 
 #[cfg(target_arch = "wasm32")]
-fn box_stream_future<'a, F, T>(future: F) -> StreamingFuture<'a, T>
+pub(crate) fn box_stream_future<'a, F, T>(future: F) -> StreamingFuture<'a, T>
 where
     F: std::future::Future<Output = T> + 'a,
 {
@@ -15,7 +15,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn box_stream_future<'a, F, T>(future: F) -> StreamingFuture<'a, T>
+pub(crate) fn box_stream_future<'a, F, T>(future: F) -> StreamingFuture<'a, T>
 where
     F: std::future::Future<Output = T> + Send + 'a,
 {
@@ -33,19 +33,19 @@ impl StreamingDatastoreImpl {
 }
 
 impl StreamingDatastore for StreamingDatastoreImpl {
-    fn open_listen_stream(&self) -> StreamingFuture<'_, FirestoreResult<Box<dyn StreamHandle>>> {
+    fn open_listen_stream(&self) -> StreamingFuture<'_, FirestoreResult<Arc<dyn StreamHandle>>> {
         let connection = Arc::clone(&self.connection);
         box_stream_future(async move {
             let stream = connection.open_stream().await?;
-            Ok(Box::new(StreamingHandleImpl::new(stream)) as Box<dyn StreamHandle>)
+            Ok(Arc::new(StreamingHandleImpl::new(stream)) as Arc<dyn StreamHandle>)
         })
     }
 
-    fn open_write_stream(&self) -> StreamingFuture<'_, FirestoreResult<Box<dyn StreamHandle>>> {
+    fn open_write_stream(&self) -> StreamingFuture<'_, FirestoreResult<Arc<dyn StreamHandle>>> {
         let connection = Arc::clone(&self.connection);
         box_stream_future(async move {
             let stream = connection.open_stream().await?;
-            Ok(Box::new(StreamingHandleImpl::new(stream)) as Box<dyn StreamHandle>)
+            Ok(Arc::new(StreamingHandleImpl::new(stream)) as Arc<dyn StreamHandle>)
         })
     }
 }

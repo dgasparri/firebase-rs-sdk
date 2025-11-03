@@ -197,11 +197,17 @@ async fn example_with_converter(
   in-memory and WebSocket transports plus tests validating multi-stream exchange and cooperative shutdown behaviour.
 - **Streaming datastore** – Exposed a generic `StreamingDatastore` over the multiplexed streams so listen/write state
   machines can share connection management with concrete transports.
+- **Persistent stream runner** – Added a reusable state machine that re-opens listen/write streams with exponential
+  backoff and delegate callbacks, paving the way for the Firestore watch/write RPC loops.
+- **Network layer** – `firestore::remote::network::NetworkLayer` now coordinates credential-aware persistent listen
+  and write streams over the multiplexed transport, reusing backoff logic and compiling for both native and WASM
+  targets.
 
 ## Still to do
 
 - Transactions and merge preconditions aligned with the JS mutation queue.
-- Real-time listeners, watch streams, and pending-write coordination for latency-compensation.
+- Real-time listeners, watch streams, and pending-write coordination for latency-compensation, wiring Firestore's
+  listen/write RPC payloads onto the new network layer.
 - Offline persistence layers (memory + IndexedDB), LRU pruning, and multi-tab coordination.
 - Bundle loading, named queries, and enhanced aggregation coverage (min/max, percentile).
 - Emulator-backed integration coverage and stress tests across HTTP/gRPC transports.
@@ -211,12 +217,14 @@ majority of the Firestore feature set.
 
 ## Next steps - Detailed completion plan
 
-1. **Network layer**
-   - Stand up a gRPC/WebChannel transport alongside the existing REST client so we can stream listen/write RPCs with
-     shared auth/backoff logic.
-   - Handle persistent listen/write stream lifecycles (resume tokens, exponential backoff, heartbeat) once gRPC is
-     wired.
-   - Add richer token refresh/emulator header support for long-lived streaming sessions.
+1. **Watch/write protocol integration**
+   - Encode Firestore `ListenRequest`/`ListenResponse` and `WriteRequest`/`WriteResponse` payloads (gRPC-web or proto
+     JSON) and route them through `NetworkLayer` so the remote store can subscribe and commit over the streaming
+     transport.
+   - Layer resume-token management, stream health checks, and idle heartbeats on top of the credential-aware
+     `PersistentStream` runner so listeners recover seamlessly after reconnects.
+   - Expose a thin remote store façade that translates network events into higher-level watch mutations for the sync
+     engine.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.

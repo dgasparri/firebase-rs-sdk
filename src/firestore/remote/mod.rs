@@ -1,5 +1,6 @@
 pub mod connection;
 pub mod datastore;
+pub mod network;
 pub mod rpc_error;
 pub mod serializer;
 pub mod stream;
@@ -9,6 +10,7 @@ pub use datastore::{
     Datastore, HttpDatastore, InMemoryDatastore, NoopTokenProvider, RetrySettings, StreamHandle,
     StreamingDatastore, StreamingDatastoreImpl, StreamingFuture, TokenProviderArc,
 };
+pub use network::{NetworkLayer, NetworkLayerBuilder, NetworkStreamHandler, StreamCredentials};
 pub use rpc_error::map_http_error;
 pub use serializer::JsonProtoSerializer;
 #[cfg(not(target_arch = "wasm32"))]

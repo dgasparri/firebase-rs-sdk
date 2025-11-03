@@ -6,6 +6,11 @@ use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub mod persistent;
+pub use persistent::{
+    PersistentStream, PersistentStreamDelegate, PersistentStreamHandle, StreamKind,
+};
+
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
 use crate::platform::runtime;
 

@@ -63,6 +63,24 @@ impl Default for RetrySettings {
     }
 }
 
+impl RetrySettings {
+    /// Returns retry settings suited for long-lived streaming connections.
+    ///
+    /// These defaults mirror the Firestore SDK's exponential backoff for listen/write RPCs:
+    /// - Infinite retries (`max_attempts = 0`).
+    /// - Initial delay of 1s, backing off up to 60s with a 1.5x multiplier.
+    /// - A generous 60s request timeout to accommodate stream keep-alives.
+    pub fn streaming_defaults() -> Self {
+        Self {
+            max_attempts: 0,
+            initial_delay: Duration::from_secs(1),
+            multiplier: 1.5,
+            max_delay: Duration::from_secs(60),
+            request_timeout: Duration::from_secs(60),
+        }
+    }
+}
+
 impl HttpDatastore {
     pub fn builder(database_id: DatabaseId) -> HttpDatastoreBuilder {
         HttpDatastoreBuilder::new(database_id)
