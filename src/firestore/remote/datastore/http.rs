@@ -7,6 +7,7 @@ use reqwest::Method;
 
 use async_trait::async_trait;
 
+use crate::firestore::api::operations::FieldTransform;
 use crate::firestore::api::query::{Bound, FieldFilter, QueryDefinition};
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{
@@ -136,15 +137,25 @@ impl HttpDatastore {
 
     fn encode_write(&self, write: &WriteOperation) -> JsonValue {
         match write {
-            WriteOperation::Set { key, data, mask } => match mask {
-                Some(mask) => self.serializer.encode_merge_write(key, data, mask),
-                None => self.serializer.encode_set_write(key, data),
+            WriteOperation::Set {
+                key,
+                data,
+                mask,
+                transforms,
+            } => match mask {
+                Some(mask) => self
+                    .serializer
+                    .encode_merge_write(key, data, mask, transforms),
+                None => self.serializer.encode_set_write(key, data, transforms),
             },
             WriteOperation::Update {
                 key,
                 data,
                 field_paths,
-            } => self.serializer.encode_update_write(key, data, field_paths),
+                transforms,
+            } => self
+                .serializer
+                .encode_update_write(key, data, field_paths, transforms),
             WriteOperation::Delete { key } => self.serializer.encode_delete_write(key),
         }
     }
@@ -191,11 +202,13 @@ impl Datastore for HttpDatastore {
         key: &DocumentKey,
         data: MapValue,
         mask: Option<Vec<FieldPath>>,
+        transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()> {
         self.commit(vec![WriteOperation::Set {
             key: key.clone(),
             data,
             mask,
+            transforms,
         }])
         .await
     }
@@ -267,8 +280,9 @@ impl Datastore for HttpDatastore {
         key: &DocumentKey,
         data: MapValue,
         field_paths: Vec<FieldPath>,
+        transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()> {
-        if field_paths.is_empty() {
+        if field_paths.is_empty() && transforms.is_empty() {
             return Err(invalid_argument(
                 "update_document requires at least one field path",
             ));
@@ -278,6 +292,7 @@ impl Datastore for HttpDatastore {
             key: key.clone(),
             data,
             field_paths,
+            transforms,
         }])
         .await
     }
@@ -718,7 +733,7 @@ mod tests {
         let key = DocumentKey::from_string("cities/SF").unwrap();
         let mask = vec![FieldPath::from_dot_separated("stats.population").unwrap()];
         datastore
-            .set_document(&key, data, Some(mask))
+            .set_document(&key, data, Some(mask), Vec::new())
             .await
             .expect("merge commit");
     }

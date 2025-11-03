@@ -46,11 +46,12 @@ impl WriteBatch {
         self.ensure_same_firestore(reference.firestore())?;
         let key = DocumentKey::from_path(reference.path().clone())?;
         let options = options.unwrap_or_default();
-        let (encoded, mask) = operations::encode_set_data(data, &options)?;
+        let encoded = operations::encode_set_data(data, &options)?;
         self.writes.push(WriteOperation::Set {
             key,
-            data: encoded,
-            mask,
+            data: encoded.map,
+            mask: encoded.mask,
+            transforms: encoded.transforms,
         });
         Ok(self)
     }
@@ -85,11 +86,12 @@ impl WriteBatch {
         self.ensure_capacity()?;
         self.ensure_same_firestore(reference.firestore())?;
         let key = DocumentKey::from_path(reference.path().clone())?;
-        let (encoded, field_paths) = operations::encode_update_document_data(data)?;
+        let encoded = operations::encode_update_document_data(data)?;
         self.writes.push(WriteOperation::Update {
             key,
-            data: encoded,
-            field_paths,
+            data: encoded.map,
+            field_paths: encoded.field_paths,
+            transforms: encoded.transforms,
         });
         Ok(self)
     }

@@ -6,6 +6,7 @@ use base64::Engine;
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde_json::{json, Value as JsonValue};
 
+use crate::firestore::api::operations::{FieldTransform, TransformOperation};
 use crate::firestore::error::{invalid_argument, FirestoreResult};
 use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, Timestamp};
 use crate::firestore::value::{BytesValue, FirestoreValue, MapValue, ValueKind};
@@ -48,7 +49,7 @@ impl JsonProtoSerializer {
 
     pub fn encode_commit_body(&self, key: &DocumentKey, map: &MapValue) -> JsonValue {
         json!({
-            "writes": [ self.encode_set_write(key, map) ]
+            "writes": [ self.encode_set_write(key, map, &[]) ]
         })
     }
 
@@ -57,9 +58,10 @@ impl JsonProtoSerializer {
         key: &DocumentKey,
         map: &MapValue,
         field_paths: &[FieldPath],
+        transforms: &[FieldTransform],
     ) -> JsonValue {
         json!({
-            "writes": [ self.encode_merge_write(key, map, field_paths) ]
+            "writes": [ self.encode_merge_write(key, map, field_paths, transforms) ]
         })
     }
 
@@ -68,9 +70,10 @@ impl JsonProtoSerializer {
         key: &DocumentKey,
         map: &MapValue,
         field_paths: &[FieldPath],
+        transforms: &[FieldTransform],
     ) -> JsonValue {
         json!({
-            "writes": [ self.encode_update_write(key, map, field_paths) ]
+            "writes": [ self.encode_update_write(key, map, field_paths, transforms) ]
         })
     }
 
@@ -80,13 +83,75 @@ impl JsonProtoSerializer {
         })
     }
 
-    pub fn encode_set_write(&self, key: &DocumentKey, map: &MapValue) -> JsonValue {
-        json!({
-            "update": {
+    fn build_update_write_map(
+        &self,
+        key: &DocumentKey,
+        map: &MapValue,
+        transforms: &[FieldTransform],
+    ) -> serde_json::Map<String, JsonValue> {
+        let mut write = serde_json::Map::new();
+        write.insert(
+            "update".to_string(),
+            json!({
                 "name": self.document_name(key),
                 "fields": encode_map_fields(map)
-            }
-        })
+            }),
+        );
+        if let Some(encoded) = self.encode_field_transforms(transforms) {
+            write.insert("updateTransforms".to_string(), JsonValue::Array(encoded));
+        }
+        write
+    }
+
+    fn encode_field_transforms(&self, transforms: &[FieldTransform]) -> Option<Vec<JsonValue>> {
+        if transforms.is_empty() {
+            return None;
+        }
+
+        let mut encoded = Vec::with_capacity(transforms.len());
+        for transform in transforms {
+            let field_path = transform.field_path().canonical_string();
+            let json = match transform.operation() {
+                TransformOperation::ServerTimestamp => json!({
+                    "fieldPath": field_path,
+                    "setToServerValue": "REQUEST_TIME"
+                }),
+                TransformOperation::ArrayUnion(elements) => json!({
+                    "fieldPath": field_path,
+                    "appendMissingElements": {
+                        "values": elements
+                            .iter()
+                            .map(|value| self.encode_value(value))
+                            .collect::<Vec<_>>()
+                    }
+                }),
+                TransformOperation::ArrayRemove(elements) => json!({
+                    "fieldPath": field_path,
+                    "removeAllFromArray": {
+                        "values": elements
+                            .iter()
+                            .map(|value| self.encode_value(value))
+                            .collect::<Vec<_>>()
+                    }
+                }),
+                TransformOperation::NumericIncrement(operand) => json!({
+                    "fieldPath": field_path,
+                    "increment": self.encode_value(operand)
+                }),
+            };
+            encoded.push(json);
+        }
+
+        Some(encoded)
+    }
+
+    pub fn encode_set_write(
+        &self,
+        key: &DocumentKey,
+        map: &MapValue,
+        transforms: &[FieldTransform],
+    ) -> JsonValue {
+        JsonValue::Object(self.build_update_write_map(key, map, transforms))
     }
 
     pub fn encode_merge_write(
@@ -94,19 +159,15 @@ impl JsonProtoSerializer {
         key: &DocumentKey,
         map: &MapValue,
         field_paths: &[FieldPath],
+        transforms: &[FieldTransform],
     ) -> JsonValue {
-        json!({
-            "update": {
-                "name": self.document_name(key),
-                "fields": encode_map_fields(map)
-            },
-            "updateMask": {
-                "fieldPaths": field_paths
-                    .iter()
-                    .map(FieldPath::canonical_string)
-                    .collect::<Vec<_>>()
-            }
-        })
+        let mut write = self.build_update_write_map(key, map, transforms);
+        let mask: Vec<String> = field_paths
+            .iter()
+            .map(FieldPath::canonical_string)
+            .collect();
+        write.insert("updateMask".to_string(), json!({ "fieldPaths": mask }));
+        JsonValue::Object(write)
     }
 
     pub fn encode_update_write(
@@ -114,15 +175,18 @@ impl JsonProtoSerializer {
         key: &DocumentKey,
         map: &MapValue,
         field_paths: &[FieldPath],
+        transforms: &[FieldTransform],
     ) -> JsonValue {
-        let mut write = self.encode_merge_write(key, map, field_paths);
-        write.as_object_mut().expect("write is object").insert(
-            "currentDocument".to_string(),
-            json!({
-                "exists": true
-            }),
-        );
-        write
+        let mut write = self.build_update_write_map(key, map, transforms);
+        if !field_paths.is_empty() {
+            let mask: Vec<String> = field_paths
+                .iter()
+                .map(FieldPath::canonical_string)
+                .collect();
+            write.insert("updateMask".to_string(), json!({ "fieldPaths": mask }));
+        }
+        write.insert("currentDocument".to_string(), json!({ "exists": true }));
+        JsonValue::Object(write)
     }
 
     pub fn encode_delete_write(&self, key: &DocumentKey) -> JsonValue {
@@ -184,6 +248,7 @@ fn encode_value(value: &FirestoreValue) -> JsonValue {
                 "fields": encode_map_fields(map)
             }
         }),
+        ValueKind::Sentinel(_) => panic!("sentinel values must be handled as field transforms"),
     }
 }
 

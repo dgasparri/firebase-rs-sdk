@@ -167,6 +167,8 @@ async fn example_with_converter(
 - **Query API scaffolding** – `Query`, `QuerySnapshot`, and `FirestoreClient::get_docs` now cover collection scans as
   well as `where` filters, `order_by`, `limit`/`limit_to_last`, projections, and cursor bounds when running against
   either the in-memory store or the HTTP datastore (which generates structured queries for Firestore’s REST API).
+- **Sentinel transforms** – `FirestoreValue::server_timestamp`, `array_union`, `array_remove`, and `numeric_increment`
+  mirror the modular SDK’s FieldValue sentinels, with server-side transforms wired through both datastores.
 - **Advanced filters** – Array membership operators (`array-contains`, `array-contains-any`) and disjunctive filters
   (`in`, `not-in`) are validated client-side and encoded for both datastores, matching the JS SDK constraints.
 - **Batched writes** – `WriteBatch` mirrors the modular SDK: set/update/delete operations queue up and commit atomically

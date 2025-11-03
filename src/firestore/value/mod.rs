@@ -6,4 +6,4 @@ mod value;
 pub use array_value::ArrayValue;
 pub use bytes_value::BytesValue;
 pub use map_value::MapValue;
-pub use value::{FirestoreValue, ValueKind};
+pub use value::{FirestoreValue, SentinelValue, ValueKind};

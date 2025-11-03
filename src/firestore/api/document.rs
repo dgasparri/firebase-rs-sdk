@@ -97,8 +97,10 @@ impl FirestoreClient {
     ) -> FirestoreResult<()> {
         let key = operations::validate_document_path(path)?;
         let options = options.unwrap_or_default();
-        let (encoded, mask) = operations::encode_set_data(data, &options)?;
-        self.datastore.set_document(&key, encoded, mask).await
+        let encoded = operations::encode_set_data(data, &options)?;
+        self.datastore
+            .set_document(&key, encoded.map, encoded.mask, encoded.transforms)
+            .await
     }
 
     /// Applies a partial update to the document located at `path`.
@@ -130,9 +132,9 @@ impl FirestoreClient {
         data: BTreeMap<String, FirestoreValue>,
     ) -> FirestoreResult<()> {
         let key = operations::validate_document_path(path)?;
-        let (encoded, field_paths) = operations::encode_update_document_data(data)?;
+        let encoded = operations::encode_update_document_data(data)?;
         self.datastore
-            .update_document(&key, encoded, field_paths)
+            .update_document(&key, encoded.map, encoded.field_paths, encoded.transforms)
             .await
     }
 
@@ -494,6 +496,147 @@ mod tests {
         let snapshot = client.get_docs(&query).await.expect("query");
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot.documents()[0].id(), "la");
+    }
+
+    #[tokio::test]
+    async fn server_timestamp_transform_sets_value() {
+        let (client, _) = build_client_with_firestore().await;
+        client
+            .set_doc("cities/sf", BTreeMap::new(), None)
+            .await
+            .expect("seed doc");
+
+        client
+            .update_doc(
+                "cities/sf",
+                BTreeMap::from([("updated_at".to_string(), FirestoreValue::server_timestamp())]),
+            )
+            .await
+            .expect("server timestamp");
+
+        let snapshot = client.get_doc("cities/sf").await.expect("get doc");
+        let value = snapshot.data().unwrap().get("updated_at").unwrap();
+        match value.kind() {
+            ValueKind::Timestamp(_) => {}
+            other => panic!("expected timestamp transform, found {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn array_union_transform_appends_unique_elements() {
+        let (client, _) = build_client_with_firestore().await;
+        let mut initial = BTreeMap::new();
+        initial.insert(
+            "tags".to_string(),
+            FirestoreValue::from_array(vec![FirestoreValue::from_string("coastal")]),
+        );
+        client
+            .set_doc("places/sf", initial, None)
+            .await
+            .expect("seed doc");
+
+        client
+            .update_doc(
+                "places/sf",
+                BTreeMap::from([(
+                    "tags".to_string(),
+                    FirestoreValue::array_union(vec![
+                        FirestoreValue::from_string("coastal"),
+                        FirestoreValue::from_string("tourism"),
+                    ]),
+                )]),
+            )
+            .await
+            .expect("array union");
+
+        let snapshot = client.get_doc("places/sf").await.expect("get doc");
+        let tags = snapshot.data().unwrap().get("tags").unwrap();
+        let values = match tags.kind() {
+            ValueKind::Array(array) => array
+                .values()
+                .iter()
+                .map(|value| match value.kind() {
+                    ValueKind::String(text) => text.clone(),
+                    other => panic!("expected string tag, found {other:?}"),
+                })
+                .collect::<Vec<_>>(),
+            other => panic!("expected array value, found {other:?}"),
+        };
+        assert_eq!(values, vec!["coastal", "tourism"]);
+    }
+
+    #[tokio::test]
+    async fn array_remove_transform_removes_elements() {
+        let (client, _) = build_client_with_firestore().await;
+        let mut initial = BTreeMap::new();
+        initial.insert(
+            "tags".to_string(),
+            FirestoreValue::from_array(vec![
+                FirestoreValue::from_string("coastal"),
+                FirestoreValue::from_string("tourism"),
+            ]),
+        );
+        client
+            .set_doc("places/sf", initial, None)
+            .await
+            .expect("seed doc");
+
+        client
+            .update_doc(
+                "places/sf",
+                BTreeMap::from([(
+                    "tags".to_string(),
+                    FirestoreValue::array_remove(vec![FirestoreValue::from_string("coastal")]),
+                )]),
+            )
+            .await
+            .expect("array remove");
+
+        let snapshot = client.get_doc("places/sf").await.expect("get doc");
+        let tags = snapshot.data().unwrap().get("tags").unwrap();
+        let values = match tags.kind() {
+            ValueKind::Array(array) => array
+                .values()
+                .iter()
+                .map(|value| match value.kind() {
+                    ValueKind::String(text) => text.clone(),
+                    other => panic!("expected string tag, found {other:?}"),
+                })
+                .collect::<Vec<_>>(),
+            other => panic!("expected array value, found {other:?}"),
+        };
+        assert_eq!(values, vec!["tourism"]);
+    }
+
+    #[tokio::test]
+    async fn numeric_increment_transform_updates_value() {
+        let (client, _) = build_client_with_firestore().await;
+        client
+            .set_doc(
+                "stats/snapshot",
+                BTreeMap::from([("counter".to_string(), FirestoreValue::from_integer(1))]),
+                None,
+            )
+            .await
+            .expect("seed doc");
+
+        client
+            .update_doc(
+                "stats/snapshot",
+                BTreeMap::from([(
+                    "counter".to_string(),
+                    FirestoreValue::numeric_increment(FirestoreValue::from_integer(5)),
+                )]),
+            )
+            .await
+            .expect("increment");
+
+        let snapshot = client.get_doc("stats/snapshot").await.expect("get doc");
+        let counter = snapshot.data().unwrap().get("counter").unwrap();
+        match counter.kind() {
+            ValueKind::Integer(value) => assert_eq!(*value, 6),
+            other => panic!("expected integer counter, found {other:?}"),
+        }
     }
 
     #[tokio::test]

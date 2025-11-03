@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::firestore::api::operations::FieldTransform;
 use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::api::DocumentSnapshot;
 use crate::firestore::error::FirestoreResult;
@@ -17,11 +18,13 @@ pub enum WriteOperation {
         key: DocumentKey,
         data: MapValue,
         mask: Option<Vec<FieldPath>>,
+        transforms: Vec<FieldTransform>,
     },
     Update {
         key: DocumentKey,
         data: MapValue,
         field_paths: Vec<FieldPath>,
+        transforms: Vec<FieldTransform>,
     },
     Delete {
         key: DocumentKey,
@@ -37,6 +40,7 @@ pub trait Datastore: Send + Sync + 'static {
         key: &DocumentKey,
         data: MapValue,
         mask: Option<Vec<FieldPath>>,
+        transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()>;
     async fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>>;
     async fn update_document(
@@ -44,6 +48,7 @@ pub trait Datastore: Send + Sync + 'static {
         key: &DocumentKey,
         data: MapValue,
         field_paths: Vec<FieldPath>,
+        transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()>;
     async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()>;
     async fn commit(&self, writes: Vec<WriteOperation>) -> FirestoreResult<()>;

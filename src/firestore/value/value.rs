@@ -8,6 +8,18 @@ pub struct FirestoreValue {
     kind: ValueKind,
 }
 
+/// Sentinel transforms supported during writes.
+///
+/// Mirrors the modular JS sentinel implementations from the Firebase JS SDK
+/// (see `packages/firestore/src/lite-api/field_value_impl.ts`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum SentinelValue {
+    ServerTimestamp,
+    ArrayUnion(Vec<FirestoreValue>),
+    ArrayRemove(Vec<FirestoreValue>),
+    NumericIncrement(Box<FirestoreValue>),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ValueKind {
     Null,
@@ -21,6 +33,7 @@ pub enum ValueKind {
     GeoPoint(GeoPoint),
     Array(ArrayValue),
     Map(MapValue),
+    Sentinel(SentinelValue),
 }
 
 impl FirestoreValue {
@@ -87,6 +100,46 @@ impl FirestoreValue {
     pub fn from_map(map: BTreeMap<String, FirestoreValue>) -> Self {
         Self {
             kind: ValueKind::Map(MapValue::new(map)),
+        }
+    }
+
+    /// Returns a sentinel that instructs Firestore to populate the field with the server timestamp.
+    ///
+    /// TypeScript reference: `serverTimestamp()` in
+    /// `packages/firestore/src/lite-api/field_value_impl.ts`.
+    pub fn server_timestamp() -> Self {
+        Self {
+            kind: ValueKind::Sentinel(SentinelValue::ServerTimestamp),
+        }
+    }
+
+    /// Returns a sentinel that unions the provided elements with an existing array field.
+    ///
+    /// TypeScript reference: `arrayUnion(...)` in
+    /// `packages/firestore/src/lite-api/field_value_impl.ts`.
+    pub fn array_union(elements: Vec<FirestoreValue>) -> Self {
+        Self {
+            kind: ValueKind::Sentinel(SentinelValue::ArrayUnion(elements)),
+        }
+    }
+
+    /// Returns a sentinel that removes the provided elements from an existing array field.
+    ///
+    /// TypeScript reference: `arrayRemove(...)` in
+    /// `packages/firestore/src/lite-api/field_value_impl.ts`.
+    pub fn array_remove(elements: Vec<FirestoreValue>) -> Self {
+        Self {
+            kind: ValueKind::Sentinel(SentinelValue::ArrayRemove(elements)),
+        }
+    }
+
+    /// Returns a sentinel that increments the targeted numeric field by `operand`.
+    ///
+    /// TypeScript reference: `increment(...)` in
+    /// `packages/firestore/src/lite-api/field_value_impl.ts`.
+    pub fn numeric_increment(operand: FirestoreValue) -> Self {
+        Self {
+            kind: ValueKind::Sentinel(SentinelValue::NumericIncrement(Box::new(operand))),
         }
     }
 

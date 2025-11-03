@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 
-use crate::firestore::api::operations::{set_value_at_field_path, value_for_field_path};
+use crate::firestore::api::operations::{
+    set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation,
+};
 use crate::firestore::api::query::{
     Bound, FieldFilter, FilterOperator, OrderBy, OrderDirection, QueryDefinition,
 };
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
-use crate::firestore::error::{internal_error, not_found, FirestoreResult};
-use crate::firestore::model::{DocumentKey, FieldPath};
+use crate::firestore::error::{internal_error, invalid_argument, not_found, FirestoreResult};
+use crate::firestore::model::{DocumentKey, FieldPath, Timestamp};
 use crate::firestore::value::{ArrayValue, FirestoreValue, MapValue, ValueKind};
 
 use async_trait::async_trait;
@@ -28,25 +30,30 @@ impl InMemoryDatastore {
         key: DocumentKey,
         data: MapValue,
         mask: Option<Vec<FieldPath>>,
+        transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()> {
         let mut store = self.documents.lock().unwrap();
         let canonical = key.path().canonical_string();
-        match mask {
+
+        let mut fields = match mask {
             Some(mask) => {
                 let mut fields = store
                     .get(&canonical)
                     .map(|existing| existing.fields().clone())
                     .unwrap_or_default();
                 for field in mask {
-                    let value = value_for_field_path(&data, &field).expect("merge mask validated");
-                    set_value_at_field_path(&mut fields, &field, value);
+                    if let Some(value) = value_for_field_path(&data, &field) {
+                        set_value_at_field_path(&mut fields, &field, value);
+                    }
                 }
-                store.insert(canonical, MapValue::new(fields));
+                fields
             }
-            None => {
-                store.insert(canonical, data);
-            }
-        }
+            None => data.fields().clone(),
+        };
+
+        apply_field_transforms(&mut fields, &transforms)?;
+
+        store.insert(canonical, MapValue::new(fields));
         Ok(())
     }
 
@@ -55,6 +62,7 @@ impl InMemoryDatastore {
         key: DocumentKey,
         data: MapValue,
         field_paths: Vec<FieldPath>,
+        transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()> {
         let mut store = self.documents.lock().unwrap();
         let canonical = key.path().canonical_string();
@@ -73,6 +81,8 @@ impl InMemoryDatastore {
             })?;
             set_value_at_field_path(&mut fields, path, value);
         }
+
+        apply_field_transforms(&mut fields, &transforms)?;
 
         store.insert(canonical, MapValue::new(fields));
         Ok(())
@@ -103,8 +113,9 @@ impl Datastore for InMemoryDatastore {
         key: &DocumentKey,
         data: MapValue,
         mask: Option<Vec<FieldPath>>,
+        transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()> {
-        self.apply_set(key.clone(), data, mask)
+        self.apply_set(key.clone(), data, mask, transforms)
     }
 
     async fn run_query(&self, query: &QueryDefinition) -> FirestoreResult<Vec<DocumentSnapshot>> {
@@ -163,8 +174,9 @@ impl Datastore for InMemoryDatastore {
         key: &DocumentKey,
         data: MapValue,
         field_paths: Vec<FieldPath>,
+        transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()> {
-        self.apply_update(key.clone(), data, field_paths)
+        self.apply_update(key.clone(), data, field_paths, transforms)
     }
 
     async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()> {
@@ -174,15 +186,21 @@ impl Datastore for InMemoryDatastore {
     async fn commit(&self, writes: Vec<WriteOperation>) -> FirestoreResult<()> {
         for write in writes {
             match write {
-                WriteOperation::Set { key, data, mask } => {
-                    self.apply_set(key, data, mask)?;
+                WriteOperation::Set {
+                    key,
+                    data,
+                    mask,
+                    transforms,
+                } => {
+                    self.apply_set(key, data, mask, transforms)?;
                 }
                 WriteOperation::Update {
                     key,
                     data,
                     field_paths,
+                    transforms,
                 } => {
-                    self.apply_update(key, data, field_paths)?;
+                    self.apply_update(key, data, field_paths, transforms)?;
                 }
                 WriteOperation::Delete { key } => {
                     self.apply_delete(key)?;
@@ -206,7 +224,7 @@ mod tests {
         map.insert("name".to_string(), FirestoreValue::from_string("SF"));
         let map = MapValue::new(map);
         datastore
-            .set_document(&key, map.clone(), None)
+            .set_document(&key, map.clone(), None, Vec::new())
             .await
             .unwrap();
         let snapshot = datastore.get_document(&key).await.unwrap();
@@ -385,4 +403,97 @@ fn compare_snapshot_to_bound(
         }
     }
     std::cmp::Ordering::Equal
+}
+
+fn apply_field_transforms(
+    fields: &mut BTreeMap<String, FirestoreValue>,
+    transforms: &[FieldTransform],
+) -> FirestoreResult<()> {
+    if transforms.is_empty() {
+        return Ok(());
+    }
+
+    for transform in transforms {
+        let path = transform.field_path();
+        let current_value = value_for_field_path(&MapValue::new(fields.clone()), path);
+        let new_value = match transform.operation() {
+            TransformOperation::ServerTimestamp => FirestoreValue::from_timestamp(Timestamp::now()),
+            TransformOperation::ArrayUnion(elements) => array_union(current_value, elements),
+            TransformOperation::ArrayRemove(elements) => array_remove(current_value, elements),
+            TransformOperation::NumericIncrement(operand) => {
+                numeric_increment(current_value, operand)?
+            }
+        };
+        set_value_at_field_path(fields, path, new_value);
+    }
+
+    Ok(())
+}
+
+fn array_union(existing: Option<FirestoreValue>, additions: &[FirestoreValue]) -> FirestoreValue {
+    let mut values = match existing {
+        Some(value) => match value.kind() {
+            ValueKind::Array(array) => array.values().to_vec(),
+            _ => Vec::new(),
+        },
+        None => Vec::new(),
+    };
+
+    for element in additions {
+        if !values.iter().any(|candidate| candidate == element) {
+            values.push(element.clone());
+        }
+    }
+
+    FirestoreValue::from_array(values)
+}
+
+fn array_remove(existing: Option<FirestoreValue>, removals: &[FirestoreValue]) -> FirestoreValue {
+    let values = match existing {
+        Some(value) => match value.kind() {
+            ValueKind::Array(array) => array.values().to_vec(),
+            _ => Vec::new(),
+        },
+        None => Vec::new(),
+    };
+
+    let filtered: Vec<FirestoreValue> = values
+        .into_iter()
+        .filter(|candidate| !removals.iter().any(|needle| needle == candidate))
+        .collect();
+
+    FirestoreValue::from_array(filtered)
+}
+
+fn numeric_increment(
+    existing: Option<FirestoreValue>,
+    operand: &FirestoreValue,
+) -> FirestoreResult<FirestoreValue> {
+    let result = match (existing, operand.kind()) {
+        (Some(value), ValueKind::Integer(delta)) => match value.kind() {
+            ValueKind::Integer(current) => {
+                if let Some(sum) = current.checked_add(*delta) {
+                    FirestoreValue::from_integer(sum)
+                } else {
+                    FirestoreValue::from_double(*current as f64 + *delta as f64)
+                }
+            }
+            ValueKind::Double(current) => FirestoreValue::from_double(*current + *delta as f64),
+            _ => FirestoreValue::from_integer(*delta),
+        },
+        (Some(value), ValueKind::Double(delta)) => match value.kind() {
+            ValueKind::Integer(current) => FirestoreValue::from_double(*current as f64 + *delta),
+            ValueKind::Double(current) => FirestoreValue::from_double(*current + *delta),
+            _ => FirestoreValue::from_double(*delta),
+        },
+        (None, ValueKind::Integer(delta)) => FirestoreValue::from_integer(*delta),
+        (None, ValueKind::Double(delta)) => FirestoreValue::from_double(*delta),
+        (_, _) => {
+            return Err(invalid_argument(
+                "FieldValue.increment() requires a numeric operand",
+            ))
+        }
+    };
+
+    Ok(result)
 }
