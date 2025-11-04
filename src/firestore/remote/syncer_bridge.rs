@@ -5,7 +5,7 @@ use async_lock::Mutex;
 use async_trait::async_trait;
 
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
-use crate::firestore::model::DocumentKey;
+use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_event::RemoteEvent;
 use crate::firestore::remote::remote_syncer::{
@@ -36,6 +36,38 @@ pub trait RemoteSyncerDelegate: Send + Sync + 'static {
     fn notify_stream_token_change(&self, _token: Option<Vec<u8>>) {}
 
     fn record_write_results(&self, _batch_id: i32, _results: &[WriteResult]) {}
+
+    fn update_target_metadata(&self, _target_id: i32, _update: TargetMetadataUpdate) {}
+
+    fn reset_target_metadata(&self, _target_id: i32) {}
+
+    fn record_resolved_limbo_documents(&self, _documents: &BTreeSet<DocumentKey>) {}
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TargetMetadataUpdate {
+    pub resume_token: Option<Vec<u8>>,
+    pub snapshot_version: Option<Timestamp>,
+    pub current: bool,
+    pub added_documents: BTreeSet<DocumentKey>,
+    pub modified_documents: BTreeSet<DocumentKey>,
+    pub removed_documents: BTreeSet<DocumentKey>,
+}
+
+impl TargetMetadataUpdate {
+    pub fn from_change(
+        change: &crate::firestore::remote::remote_event::TargetChange,
+        snapshot: Option<Timestamp>,
+    ) -> Self {
+        Self {
+            resume_token: change.resume_token.clone(),
+            snapshot_version: snapshot,
+            current: change.current,
+            added_documents: change.added_documents.clone(),
+            modified_documents: change.modified_documents.clone(),
+            removed_documents: change.removed_documents.clone(),
+        }
+    }
 }
 
 /// Concrete `RemoteSyncer` implementation that bridges the remote store façade
@@ -71,8 +103,17 @@ where
     }
 
     pub fn replace_remote_keys(&self, target_id: i32, keys: BTreeSet<DocumentKey>) {
-        let mut guard = self.remote_keys.lock().unwrap();
-        guard.insert(target_id, keys);
+        {
+            let mut guard = self.remote_keys.lock().unwrap();
+            guard.insert(target_id, keys.clone());
+        }
+
+        self.delegate.reset_target_metadata(target_id);
+        if !keys.is_empty() {
+            let mut update = TargetMetadataUpdate::default();
+            update.added_documents = keys;
+            self.delegate.update_target_metadata(target_id, update);
+        }
     }
 
     pub fn clear_remote_keys(&self, target_id: i32) {
@@ -91,23 +132,43 @@ where
     }
 
     fn update_remote_keys_from_event(&self, event: &RemoteEvent) {
-        let mut guard = self.remote_keys.lock().unwrap();
-        for target_id in &event.target_resets {
-            guard.remove(target_id);
+        let mut pending_updates: Vec<(i32, TargetMetadataUpdate)> = Vec::new();
+        {
+            let mut guard = self.remote_keys.lock().unwrap();
+            for (target_id, change) in &event.target_changes {
+                let keys = guard.entry(*target_id).or_default();
+                for key in &change.removed_documents {
+                    keys.remove(key);
+                }
+                for key in change
+                    .added_documents
+                    .iter()
+                    .chain(change.modified_documents.iter())
+                {
+                    keys.insert(key.clone());
+                }
+                pending_updates.push((
+                    *target_id,
+                    TargetMetadataUpdate::from_change(change, event.snapshot_version),
+                ));
+            }
+
+            for target_id in &event.target_resets {
+                guard.remove(target_id);
+            }
         }
 
-        for (target_id, change) in &event.target_changes {
-            let keys = guard.entry(*target_id).or_default();
-            for key in &change.removed_documents {
-                keys.remove(key);
-            }
-            for key in change
-                .added_documents
-                .iter()
-                .chain(change.modified_documents.iter())
-            {
-                keys.insert(key.clone());
-            }
+        for (target_id, update) in pending_updates {
+            self.delegate.update_target_metadata(target_id, update);
+        }
+
+        for target_id in &event.target_resets {
+            self.delegate.reset_target_metadata(*target_id);
+        }
+
+        if !event.resolved_limbo_documents.is_empty() {
+            self.delegate
+                .record_resolved_limbo_documents(&event.resolved_limbo_documents);
         }
     }
 }
@@ -257,6 +318,9 @@ mod tests {
         rejected: StdMutex<Vec<i32>>,
         successes: StdMutex<Vec<i32>>,
         failures: StdMutex<Vec<i32>>,
+        target_updates: StdMutex<Vec<(i32, TargetMetadataUpdate)>>,
+        target_resets: StdMutex<Vec<i32>>,
+        limbo_resolutions: StdMutex<Vec<BTreeSet<DocumentKey>>>,
     }
 
     #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -291,6 +355,24 @@ mod tests {
         ) -> FirestoreResult<()> {
             self.failures.lock().unwrap().push(batch_id);
             Ok(())
+        }
+
+        fn update_target_metadata(&self, target_id: i32, update: TargetMetadataUpdate) {
+            self.target_updates
+                .lock()
+                .unwrap()
+                .push((target_id, update));
+        }
+
+        fn reset_target_metadata(&self, target_id: i32) {
+            self.target_resets.lock().unwrap().push(target_id);
+        }
+
+        fn record_resolved_limbo_documents(&self, documents: &BTreeSet<DocumentKey>) {
+            self.limbo_resolutions
+                .lock()
+                .unwrap()
+                .push(documents.clone());
         }
     }
 

@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{self, Debug, Formatter};
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use async_lock::Mutex;
 use async_trait::async_trait;
@@ -11,17 +12,45 @@ use crate::firestore::remote::datastore::WriteOperation;
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_event::RemoteEvent;
 use crate::firestore::remote::streams::WriteResult;
-use crate::firestore::remote::syncer_bridge::{RemoteSyncerBridge, RemoteSyncerDelegate};
+use crate::firestore::remote::syncer_bridge::{
+    RemoteSyncerBridge, RemoteSyncerDelegate, TargetMetadataUpdate,
+};
 use crate::firestore::remote::watch_change::WatchDocument;
 
-/// Minimal in-memory local store that cooperates with [`RemoteStore`] through
-/// [`RemoteSyncerBridge`].
+#[derive(Clone, Debug, Default)]
+pub struct TargetMetadataSnapshot {
+    pub target_id: i32,
+    pub resume_token: Option<Vec<u8>>,
+    pub snapshot_version: Option<Timestamp>,
+    pub current: bool,
+    pub remote_keys: BTreeSet<DocumentKey>,
+}
+
+impl TargetMetadataSnapshot {
+    fn new(target_id: i32) -> Self {
+        Self {
+            target_id,
+            resume_token: None,
+            snapshot_version: None,
+            current: false,
+            remote_keys: BTreeSet::new(),
+        }
+    }
+}
+
+pub trait LocalStorePersistence: Send + Sync {
+    fn save_target_metadata(&self, _snapshot: TargetMetadataSnapshot) {}
+    fn clear_target_metadata(&self, _target_id: i32) {}
+    fn save_document_overlay(&self, _key: &DocumentKey, _overlay: &[WriteOperation]) {}
+    fn clear_document_overlay(&self, _key: &DocumentKey) {}
+}
+
+/// In-memory store that mirrors the responsibilities of the Firestore JS LocalStore.
 ///
-/// This structure mirrors the responsibilities of the Firestore JS `LocalStore`
-/// required by the remote sync pipeline: it tracks remote document state,
-/// remembers pending/acknowledged mutation batches, and surfaces stream tokens
-/// and write results so higher layers can coordinate latency compensation.
-#[derive(Debug)]
+/// The implementation keeps per-target metadata (remote keys, resume tokens, snapshot
+/// versions), overlays for pending writes, limbo bookkeeping, and a simple
+/// persistence hook so higher-level tests can verify durability semantics without a
+/// full persistence layer.
 pub struct MemoryLocalStore {
     documents: Mutex<BTreeMap<DocumentKey, Option<WatchDocument>>>,
     remote_events: Mutex<Vec<RemoteEvent>>,
@@ -29,13 +58,23 @@ pub struct MemoryLocalStore {
     successful_writes: Mutex<Vec<MutationBatchResult>>,
     failed_writes: Mutex<Vec<(i32, FirestoreError)>>,
     outstanding_batches: Mutex<Vec<i32>>,
+    overlays: Mutex<BTreeMap<DocumentKey, Vec<WriteOperation>>>,
+    next_batch_id: AtomicI32,
+
     last_stream_token: StdMutex<Option<Vec<u8>>>,
     write_results: StdMutex<Vec<(i32, Vec<WriteResult>)>>,
-    next_batch_id: AtomicI32,
+    target_metadata: StdMutex<BTreeMap<i32, TargetMetadataSnapshot>>,
+    limbo_documents: StdMutex<BTreeSet<DocumentKey>>,
+    persistence: Option<Arc<dyn LocalStorePersistence>>,
+}
+
+impl Debug for MemoryLocalStore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryLocalStore").finish()
+    }
 }
 
 impl MemoryLocalStore {
-    /// Builds an empty memory-backed local store.
     pub fn new() -> Self {
         Self {
             documents: Mutex::new(BTreeMap::new()),
@@ -44,13 +83,23 @@ impl MemoryLocalStore {
             successful_writes: Mutex::new(Vec::new()),
             failed_writes: Mutex::new(Vec::new()),
             outstanding_batches: Mutex::new(Vec::new()),
+            overlays: Mutex::new(BTreeMap::new()),
+            next_batch_id: AtomicI32::new(1),
             last_stream_token: StdMutex::new(None),
             write_results: StdMutex::new(Vec::new()),
-            next_batch_id: AtomicI32::new(1),
+            target_metadata: StdMutex::new(BTreeMap::new()),
+            limbo_documents: StdMutex::new(BTreeSet::new()),
+            persistence: None,
         }
     }
 
-    /// Queues a mutation batch for remote delivery via the supplied bridge.
+    pub fn new_with_persistence(persistence: Arc<dyn LocalStorePersistence>) -> Self {
+        Self {
+            persistence: Some(persistence),
+            ..Self::new()
+        }
+    }
+
     pub async fn queue_mutation_batch(
         &self,
         bridge: &RemoteSyncerBridge<Self>,
@@ -64,32 +113,59 @@ impl MemoryLocalStore {
 
         let batch_id = self.next_batch_id.fetch_add(1, Ordering::SeqCst);
         let batch = MutationBatch::from_writes(batch_id, Timestamp::now(), writes);
-        bridge.enqueue_batch(batch).await?;
+        bridge.enqueue_batch(batch.clone()).await?;
         self.outstanding_batches.lock().await.push(batch_id);
+
+        let persistence = self.persistence.as_ref().map(Arc::clone);
+        let mut overlay_snapshots = Vec::new();
+        {
+            let mut overlays = self.overlays.lock().await;
+            for write in &batch.writes {
+                let key = write.key().clone();
+                let entry = overlays.entry(key.clone()).or_default();
+                entry.push(write.clone());
+                overlay_snapshots.push((key, entry.clone()));
+            }
+        }
+
+        if let Some(persistence) = persistence {
+            for (key, overlay) in overlay_snapshots {
+                persistence.save_document_overlay(&key, &overlay);
+            }
+        }
+
         Ok(batch_id)
     }
 
-    /// Seeds the bridge with known remote keys for the provided target.
-    pub fn replace_remote_keys(
+    pub async fn replace_remote_keys(
         &self,
         bridge: &RemoteSyncerBridge<Self>,
         target_id: i32,
         keys: BTreeSet<DocumentKey>,
     ) {
-        bridge.replace_remote_keys(target_id, keys);
+        bridge.replace_remote_keys(target_id, keys.clone());
+        let snapshot = {
+            let mut targets = self.target_metadata.lock().unwrap();
+            let entry = targets
+                .entry(target_id)
+                .or_insert_with(|| TargetMetadataSnapshot::new(target_id));
+            entry.remote_keys = keys.clone();
+            entry.clone()
+        };
+
+        if let Some(persistence) = &self.persistence {
+            persistence.save_target_metadata(snapshot);
+        }
     }
 
-    /// Returns the most recent remote event applied to the store.
     pub async fn last_remote_event(&self) -> Option<RemoteEvent> {
         self.remote_events.lock().await.last().cloned()
     }
 
-    /// Retrieves the tracked document for `key`, if any.
     pub async fn document(&self, key: &DocumentKey) -> Option<Option<WatchDocument>> {
         self.documents.lock().await.get(key).cloned()
     }
 
-    /// Lists mutation batch ids acknowledged by the backend.
     pub async fn successful_batch_ids(&self) -> Vec<i32> {
         self.successful_writes
             .lock()
@@ -99,7 +175,6 @@ impl MemoryLocalStore {
             .collect()
     }
 
-    /// Lists ids of batches rejected by the backend.
     pub async fn failed_batch_ids(&self) -> Vec<i32> {
         self.failed_writes
             .lock()
@@ -109,28 +184,74 @@ impl MemoryLocalStore {
             .collect()
     }
 
-    /// Returns ids for batches that are still pending delivery.
     pub async fn outstanding_batch_ids(&self) -> Vec<i32> {
         self.outstanding_batches.lock().await.clone()
     }
 
-    /// Returns a clone of the latest stream token delivered by the backend.
     pub fn last_stream_token(&self) -> Option<Vec<u8>> {
         self.last_stream_token.lock().unwrap().clone()
     }
 
-    /// Returns the write results recorded so far.
     pub fn recorded_write_results(&self) -> Vec<(i32, Vec<WriteResult>)> {
         self.write_results.lock().unwrap().clone()
     }
 
+    pub fn target_metadata_snapshot(&self, target_id: i32) -> Option<TargetMetadataSnapshot> {
+        self.target_metadata
+            .lock()
+            .unwrap()
+            .get(&target_id)
+            .cloned()
+    }
+
+    pub fn limbo_documents_snapshot(&self) -> BTreeSet<DocumentKey> {
+        self.limbo_documents.lock().unwrap().clone()
+    }
+
+    pub async fn overlays_snapshot(&self) -> BTreeMap<DocumentKey, Vec<WriteOperation>> {
+        self.overlays.lock().await.clone()
+    }
+
+    pub fn track_limbo_document(&self, key: DocumentKey) {
+        self.limbo_documents.lock().unwrap().insert(key);
+    }
+
     async fn clear_all(&self) {
-        self.documents.lock().await.clear();
-        self.remote_events.lock().await.clear();
-        self.rejected_targets.lock().await.clear();
-        self.successful_writes.lock().await.clear();
-        self.failed_writes.lock().await.clear();
-        self.outstanding_batches.lock().await.clear();
+        let overlay_keys = {
+            let mut documents = self.documents.lock().await;
+            documents.clear();
+            self.remote_events.lock().await.clear();
+            self.rejected_targets.lock().await.clear();
+            self.successful_writes.lock().await.clear();
+            self.failed_writes.lock().await.clear();
+            self.outstanding_batches.lock().await.clear();
+            let mut overlays = self.overlays.lock().await;
+            let keys = overlays.keys().cloned().collect::<Vec<_>>();
+            overlays.clear();
+            keys
+        };
+
+        if let Some(persistence) = &self.persistence {
+            for key in overlay_keys {
+                persistence.clear_document_overlay(&key);
+            }
+        }
+
+        let cleared_targets = {
+            let mut targets = self.target_metadata.lock().unwrap();
+            let ids = targets.keys().copied().collect::<Vec<_>>();
+            targets.clear();
+            ids
+        };
+
+        if let Some(persistence) = &self.persistence {
+            for target_id in cleared_targets {
+                persistence.clear_target_metadata(target_id);
+            }
+        }
+
+        self.limbo_documents.lock().unwrap().clear();
+
         if let Ok(mut token) = self.last_stream_token.lock() {
             *token = None;
         }
@@ -162,7 +283,53 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
             }
         }
 
-        self.remote_events.lock().await.push(event);
+        self.remote_events.lock().await.push(event.clone());
+
+        if !event.document_updates.is_empty() {
+            let persistence = self.persistence.as_ref().map(Arc::clone);
+            let keys: Vec<_> = event.document_updates.keys().cloned().collect();
+            let mut overlays = self.overlays.lock().await;
+            let cleared: Vec<_> = keys
+                .into_iter()
+                .filter(|key| overlays.remove(key).is_some())
+                .collect();
+            if let Some(persistence) = persistence {
+                for key in cleared {
+                    persistence.clear_document_overlay(&key);
+                }
+            }
+        }
+
+        if !event.resolved_limbo_documents.is_empty() {
+            let mut limbo = self.limbo_documents.lock().unwrap();
+            for key in &event.resolved_limbo_documents {
+                limbo.remove(key);
+            }
+        }
+
+        if let Some(snapshot) = event.snapshot_version {
+            let persistence = self.persistence.as_ref().map(Arc::clone);
+            let mut pending = Vec::new();
+            {
+                let mut targets = self.target_metadata.lock().unwrap();
+                for (target_id, change) in &event.target_changes {
+                    let entry = targets
+                        .entry(*target_id)
+                        .or_insert_with(|| TargetMetadataSnapshot::new(*target_id));
+                    entry.snapshot_version = Some(snapshot);
+                    if change.current {
+                        entry.current = true;
+                    }
+                    pending.push(entry.clone());
+                }
+            }
+            if let Some(persistence) = persistence {
+                for snapshot in pending {
+                    persistence.save_target_metadata(snapshot);
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -183,7 +350,22 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
                 outstanding.remove(pos);
             }
         }
-        self.successful_writes.lock().await.push(result);
+        self.successful_writes.lock().await.push(result.clone());
+
+        let persistence = self.persistence.as_ref().map(Arc::clone);
+        let keys = result.batch.document_keys();
+        if !keys.is_empty() {
+            let mut overlays = self.overlays.lock().await;
+            let cleared: Vec<_> = keys
+                .into_iter()
+                .filter(|key| overlays.remove(key).is_some())
+                .collect();
+            if let Some(persistence) = persistence {
+                for key in cleared {
+                    persistence.clear_document_overlay(&key);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -199,6 +381,16 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
             }
         }
         self.failed_writes.lock().await.push((batch_id, error));
+
+        let persistence = self.persistence.as_ref().map(Arc::clone);
+        let mut overlays = self.overlays.lock().await;
+        let cleared: Vec<_> = overlays.keys().cloned().collect();
+        overlays.clear();
+        if let Some(persistence) = persistence {
+            for key in cleared {
+                persistence.clear_document_overlay(&key);
+            }
+        }
         Ok(())
     }
 
@@ -218,6 +410,75 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
             guard.push((batch_id, results.to_vec()));
         }
     }
+
+    fn update_target_metadata(&self, target_id: i32, update: TargetMetadataUpdate) {
+        let TargetMetadataUpdate {
+            resume_token,
+            snapshot_version,
+            current,
+            added_documents,
+            modified_documents,
+            removed_documents,
+        } = update;
+
+        let persistence = self.persistence.as_ref().map(Arc::clone);
+        let snapshot = {
+            let mut targets = self.target_metadata.lock().unwrap();
+            let entry = targets
+                .entry(target_id)
+                .or_insert_with(|| TargetMetadataSnapshot::new(target_id));
+            if let Some(token) = resume_token {
+                if !token.is_empty() {
+                    entry.resume_token = Some(token);
+                }
+            }
+            if let Some(version) = snapshot_version {
+                entry.snapshot_version = Some(version);
+            }
+            entry.current = current;
+            for key in removed_documents {
+                entry.remote_keys.remove(&key);
+            }
+            for key in added_documents
+                .into_iter()
+                .chain(modified_documents.into_iter())
+            {
+                entry.remote_keys.insert(key);
+            }
+            entry.clone()
+        };
+
+        if let Some(persistence) = persistence {
+            persistence.save_target_metadata(snapshot);
+        }
+    }
+
+    fn reset_target_metadata(&self, target_id: i32) {
+        let persistence = self.persistence.as_ref().map(Arc::clone);
+        let snapshot = {
+            let mut targets = self.target_metadata.lock().unwrap();
+            let entry = targets
+                .entry(target_id)
+                .or_insert_with(|| TargetMetadataSnapshot::new(target_id));
+            entry.remote_keys.clear();
+            entry.resume_token = None;
+            entry.snapshot_version = None;
+            entry.current = false;
+            entry.clone()
+        };
+
+        if let Some(persistence) = persistence {
+            persistence.clear_target_metadata(target_id);
+            persistence.save_target_metadata(snapshot);
+        }
+    }
+
+    fn record_resolved_limbo_documents(&self, documents: &BTreeSet<DocumentKey>) {
+        let mut limbo = self.limbo_documents.lock().unwrap();
+        for key in documents {
+            limbo.remove(key);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -228,7 +489,6 @@ mod tests {
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use base64::Engine;
     use serde_json::json;
-    use std::sync::Arc;
 
     use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::network::NetworkLayer;
@@ -295,7 +555,6 @@ mod tests {
             .await
             .expect("listen stream");
 
-        // Consume addTarget handshake
         let add_target = listen_stream
             .next()
             .await
@@ -304,7 +563,6 @@ mod tests {
         let add_json: serde_json::Value = serde_json::from_slice(&add_target).unwrap();
         assert!(add_json.get("addTarget").is_some());
 
-        // Deliver a document change
         let change = json!({
             "documentChange": {
                 "document": {
@@ -324,7 +582,9 @@ mod tests {
         let key = DocumentKey::from_string("cities/sf").unwrap();
         assert!(local_store.document(&key).await.is_some());
 
-        // Queue a delete write
+        let metadata = local_store.target_metadata_snapshot(1).unwrap();
+        assert!(metadata.remote_keys.contains(&key));
+
         let batch_id = local_store
             .queue_mutation_batch(&bridge, vec![delete_operation_for(&key)])
             .await
@@ -390,5 +650,6 @@ mod tests {
         let recorded = local_store.recorded_write_results();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].0, batch_id);
+        assert!(local_store.overlays_snapshot().await.is_empty());
     }
 }

@@ -213,9 +213,10 @@ async fn example_with_converter(
   surface to Rust, tracking remote keys per target, managing the mutation batch queue, and delegating watch/write events
   through wasm-friendly futures so higher layers (local store, query views) can plug in incrementally.
 - **Memory local store** – `firestore::local::MemoryLocalStore` implements the new `RemoteSyncerDelegate`, letting tests
-  and prototype sync engines observe document state, pending batches, and stream metadata without depending on the future
-  persistence layer. It already coordinates with the remote store for both listen and write pipelines across native and
-  wasm targets.
+  and prototype sync engines observe document state, pending batches, stream metadata, overlays, and limbo resolutions
+  without depending on the future persistence layer. It now mirrors the JS LocalStore’s target bookkeeping (remote keys,
+  resume tokens, snapshot versions) while coordinating with the remote store for both listen and write pipelines across
+  native and wasm targets.
 
 ## Still to do
 
@@ -232,8 +233,8 @@ majority of the Firestore feature set.
 ## Next steps - Detailed completion plan
 
 1. **Sync engine hookup**
-   - Expand `MemoryLocalStore` into the real local store abstraction (with persistence hooks and limbo resolution) so the
-     bridge feeds durable target metadata, overlay documents, and resume tokens identical to the JS SDK.
+   - Wire the enriched `MemoryLocalStore` into the higher-level sync engine so query views consume its metadata snapshots,
+     persistence hooks, and limbo tracking in the same way the JS LocalStore powers SyncEngine.
    - Connect query views/listeners to the delegate callbacks so view snapshots, latency-compensated overlays, and limbo
      documents update immediately after remote events and write acknowledgements.
    - Port the existence-filter mismatch, credential swap, and write retry specs from the JS test suite to validate the
