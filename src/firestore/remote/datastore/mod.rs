@@ -38,6 +38,17 @@ pub enum WriteOperation {
     },
 }
 
+impl WriteOperation {
+    /// Returns the document key targeted by this write.
+    pub fn key(&self) -> &DocumentKey {
+        match self {
+            WriteOperation::Set { key, .. }
+            | WriteOperation::Update { key, .. }
+            | WriteOperation::Delete { key } => key,
+        }
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 pub type StreamingFuture<'a, T> = LocalBoxFuture<'a, T>;
 #[cfg(not(target_arch = "wasm32"))]

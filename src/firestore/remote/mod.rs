@@ -10,6 +10,7 @@ pub mod serializer;
 pub mod stream;
 pub mod streams;
 pub(crate) mod structured_query;
+pub mod syncer_bridge;
 pub mod watch_change;
 pub mod watch_change_aggregator;
 
@@ -32,6 +33,7 @@ pub use streams::{
     ListenStream, ListenStreamDelegate, ListenTarget, TargetPayload, WriteStream,
     WriteStreamDelegate,
 };
+pub use syncer_bridge::{RemoteSyncerBridge, RemoteSyncerDelegate};
 pub use watch_change::{
     DocumentChange, DocumentDelete, DocumentRemove, ExistenceFilterChange, TargetChangeState,
     WatchChange, WatchDocument, WatchTargetChange,

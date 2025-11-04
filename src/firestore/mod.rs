@@ -34,10 +34,10 @@ pub use remote::{
     JsonProtoSerializer, ListenStream, ListenStreamDelegate, ListenTarget, MultiplexedConnection,
     MultiplexedStream, MutationBatch, MutationBatchResult, NetworkLayer, NetworkLayerBuilder,
     NetworkStreamHandler, NoopTokenProvider, RemoteEvent, RemoteStore, RemoteStoreFuture,
-    RemoteSyncer, RequestContext, RetrySettings, StreamCredentials, StreamHandle, StreamTransport,
-    StreamingDatastore, StreamingDatastoreImpl, StreamingFuture, TargetChange, TargetChangeState,
-    TargetMetadataProvider, TargetPayload, TokenProviderArc, WatchChange, WatchChangeAggregator,
-    WatchDocument, WatchTargetChange,
+    RemoteSyncer, RemoteSyncerBridge, RemoteSyncerDelegate, RequestContext, RetrySettings,
+    StreamCredentials, StreamHandle, StreamTransport, StreamingDatastore, StreamingDatastoreImpl,
+    StreamingFuture, TargetChange, TargetChangeState, TargetMetadataProvider, TargetPayload,
+    TokenProviderArc, WatchChange, WatchChangeAggregator, WatchDocument, WatchTargetChange,
 };
 
 #[doc(inline)]

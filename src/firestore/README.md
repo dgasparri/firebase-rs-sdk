@@ -209,6 +209,9 @@ async fn example_with_converter(
 - **Remote store façade** – `firestore::remote::remote_store::RemoteStore` now owns listen/write stream lifecycles,
   feeds watch events into `RemoteSyncer` implementors, keeps per-target metadata via `TargetMetadataProvider`, and
   drains mutation batches over the write stream with wasm-friendly future aliases.
+- **Remote syncer bridge** – `firestore::remote::syncer_bridge::RemoteSyncerBridge` brings the JS `RemoteSyncer`
+  surface to Rust, tracking remote keys per target, managing the mutation batch queue, and delegating watch/write events
+  through wasm-friendly futures so higher layers (local store, query views) can plug in incrementally.
 
 ## Still to do
 
@@ -224,13 +227,13 @@ majority of the Firestore feature set.
 
 ## Next steps - Detailed completion plan
 
-1. **Remote syncer bridge**
-   - Implement a concrete `RemoteSyncer` backed by the (forthcoming) local store so `RemoteStore` can resolve target
-     metadata, deliver `RemoteEvent`s into query views, and surface rejected listens.
-   - Extend mutation batching to carry base mutations and overlay metadata required for latency compensation, keeping
-     the wasm-friendly future aliases introduced for the syncer.
-   - Add reconnection tests covering existence-filter mismatches, credential swaps, and write-stream retries to
-     validate the new façade across edge cases.
+1. **Sync engine hookup**
+   - Wire `RemoteSyncerBridge` into the evolving local store so cached target data seeds remote keys, limbo resolution
+     state persists, and resume tokens survive reconnects.
+   - Expose delegate callbacks that translate remote events into view updates, ensuring latency-compensated overlays and
+     local mutations stay in sync with write acknowledgements.
+   - Port the existence-filter mismatch, credential swap, and write retry specs from the JS test suite to validate the
+     end-to-end pipeline against the bridge on both native and wasm builds.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.

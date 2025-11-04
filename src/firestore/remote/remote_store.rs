@@ -414,7 +414,7 @@ impl RemoteStoreInner {
             .notify_stream_token_change(Some(response.stream_token.clone()));
 
         let result =
-            MutationBatchResult::new(batch.batch_id, response.commit_time, response.write_results);
+            MutationBatchResult::from(batch, response.commit_time, response.write_results)?;
         self.remote_syncer.apply_successful_write(result).await?;
         self.fill_write_pipeline().await
     }
