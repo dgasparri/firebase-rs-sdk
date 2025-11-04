@@ -2,6 +2,7 @@
 pub mod api;
 mod constants;
 pub mod error;
+pub mod local;
 pub mod model;
 pub mod remote;
 pub mod value;
@@ -24,6 +25,9 @@ pub use constants::{DEFAULT_DATABASE_ID, FIRESTORE_COMPONENT_NAME};
 
 #[doc(inline)]
 pub use model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, ResourcePath, Timestamp};
+
+#[doc(inline)]
+pub use local::MemoryLocalStore;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use remote::WebSocketTransport;
