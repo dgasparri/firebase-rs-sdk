@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use async_lock::Mutex;
@@ -19,6 +19,7 @@ use base64::Engine;
 ))]
 use serde_json::{json, Value};
 
+use crate::firestore::api::{DocumentSnapshot, Query, QuerySnapshot, SnapshotMetadata};
 use crate::firestore::error::{invalid_argument, FirestoreError, FirestoreResult};
 use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::remote::datastore::WriteOperation;
@@ -59,6 +60,15 @@ pub trait LocalStorePersistence: Send + Sync {
     fn schedule_initial_load(&self, _store: Arc<MemoryLocalStore>) {}
 }
 
+type QueryListenerCallback = Arc<dyn Fn(QuerySnapshot) + Send + Sync>;
+
+#[derive(Clone)]
+struct QueryListenerEntry {
+    id: u64,
+    query: Query,
+    callback: QueryListenerCallback,
+}
+
 /// In-memory store that mirrors the responsibilities of the Firestore JS LocalStore.
 ///
 /// The implementation keeps per-target metadata (remote keys, resume tokens, snapshot
@@ -80,6 +90,8 @@ pub struct MemoryLocalStore {
     target_metadata: StdMutex<BTreeMap<i32, TargetMetadataSnapshot>>,
     limbo_documents: StdMutex<BTreeSet<DocumentKey>>,
     persistence: Option<Arc<dyn LocalStorePersistence>>,
+    query_listeners: StdMutex<BTreeMap<i32, Vec<QueryListenerEntry>>>,
+    listener_counter: AtomicU64,
 }
 
 impl Debug for MemoryLocalStore {
@@ -104,6 +116,8 @@ impl MemoryLocalStore {
             target_metadata: StdMutex::new(BTreeMap::new()),
             limbo_documents: StdMutex::new(BTreeSet::new()),
             persistence,
+            query_listeners: StdMutex::new(BTreeMap::new()),
+            listener_counter: AtomicU64::new(1),
         }
     }
 
@@ -161,6 +175,8 @@ impl MemoryLocalStore {
                 persistence.save_document_overlay(&key, &overlay);
             }
         }
+
+        self.emit_all_query_snapshots().await?;
 
         Ok(batch_id)
     }
@@ -240,6 +256,10 @@ impl MemoryLocalStore {
         self.overlays.lock().await.clone()
     }
 
+    pub async fn overlay_keys(&self) -> BTreeSet<DocumentKey> {
+        self.overlays.lock().await.keys().cloned().collect()
+    }
+
     pub fn track_limbo_document(&self, key: DocumentKey) {
         self.limbo_documents.lock().unwrap().insert(key);
     }
@@ -263,6 +283,111 @@ impl MemoryLocalStore {
             .or_insert_with(Vec::new);
     }
 
+    async fn document_snapshot_for_key(&self, key: &DocumentKey) -> DocumentSnapshot {
+        let maybe_doc = self.documents.lock().await.get(key).cloned().flatten();
+        let data = maybe_doc.map(|doc| doc.fields.clone());
+        let has_overlay = self.overlays.lock().await.contains_key(key);
+        let metadata = SnapshotMetadata::new(true, has_overlay);
+        DocumentSnapshot::new(key.clone(), data, metadata)
+    }
+
+    async fn build_query_snapshot(
+        &self,
+        target_id: i32,
+        query: &Query,
+    ) -> FirestoreResult<QuerySnapshot> {
+        let mut keys = BTreeSet::new();
+        if let Some(snapshot) = self.target_metadata_snapshot(target_id) {
+            keys.extend(snapshot.remote_keys.into_iter());
+        }
+
+        let definition = query.definition();
+        for overlay_key in self.overlay_keys().await {
+            if definition.matches_collection(&overlay_key) {
+                keys.insert(overlay_key);
+            }
+        }
+
+        let mut documents = Vec::new();
+        for key in keys {
+            documents.push(self.document_snapshot_for_key(&key).await);
+        }
+
+        Ok(QuerySnapshot::new(query.clone(), documents))
+    }
+
+    async fn emit_query_snapshot(&self, target_id: i32) -> FirestoreResult<()> {
+        let listeners = {
+            let guard = self.query_listeners.lock().unwrap();
+            guard.get(&target_id).cloned()
+        };
+
+        if let Some(entries) = listeners {
+            for entry in entries {
+                let snapshot = self.build_query_snapshot(target_id, &entry.query).await?;
+                (entry.callback)(snapshot);
+            }
+        }
+        Ok(())
+    }
+
+    async fn emit_all_query_snapshots(&self) -> FirestoreResult<()> {
+        let targets: Vec<i32> = {
+            let guard = self.query_listeners.lock().unwrap();
+            guard.keys().cloned().collect()
+        };
+        for target_id in targets {
+            self.emit_query_snapshot(target_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn notify_query_listeners_for_event(&self, event: &RemoteEvent) -> FirestoreResult<()> {
+        let mut target_ids: BTreeSet<i32> = event.target_changes.keys().cloned().collect();
+        target_ids.extend(event.target_resets.iter().cloned());
+        for target_id in target_ids {
+            self.emit_query_snapshot(target_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn register_query_listener_internal(
+        self: &Arc<Self>,
+        target_id: i32,
+        query: Query,
+        callback: QueryListenerCallback,
+    ) -> FirestoreResult<QueryListenerRegistration> {
+        let id = self.listener_counter.fetch_add(1, Ordering::SeqCst);
+        {
+            let mut guard = self.query_listeners.lock().unwrap();
+            guard
+                .entry(target_id)
+                .or_insert_with(Vec::new)
+                .push(QueryListenerEntry {
+                    id,
+                    query: query.clone(),
+                    callback,
+                });
+        }
+
+        self.emit_query_snapshot(target_id).await?;
+        Ok(QueryListenerRegistration::new(
+            Arc::clone(self),
+            target_id,
+            id,
+        ))
+    }
+
+    fn remove_query_listener(&self, target_id: i32, listener_id: u64) {
+        let mut guard = self.query_listeners.lock().unwrap();
+        if let Some(entries) = guard.get_mut(&target_id) {
+            entries.retain(|entry| entry.id != listener_id);
+            if entries.is_empty() {
+                guard.remove(&target_id);
+            }
+        }
+    }
+
     pub fn synchronize_remote_keys(&self, bridge: &RemoteSyncerBridge<MemoryLocalStore>) {
         let snapshots = self.target_metadata.lock().unwrap().clone();
         for (target_id, snapshot) in snapshots {
@@ -270,6 +395,16 @@ impl MemoryLocalStore {
                 bridge.seed_remote_keys(target_id, snapshot.remote_keys.clone());
             }
         }
+    }
+
+    pub async fn register_query_listener(
+        self: &Arc<Self>,
+        target_id: i32,
+        query: Query,
+        callback: QueryListenerCallback,
+    ) -> FirestoreResult<QueryListenerRegistration> {
+        self.register_query_listener_internal(target_id, query, callback)
+            .await
     }
 
     async fn clear_all(&self) {
@@ -313,6 +448,41 @@ impl MemoryLocalStore {
         }
         if let Ok(mut results) = self.write_results.lock() {
             results.clear();
+        }
+    }
+}
+
+pub struct QueryListenerRegistration {
+    store: Arc<MemoryLocalStore>,
+    target_id: i32,
+    listener_id: u64,
+    detached: bool,
+}
+
+impl QueryListenerRegistration {
+    fn new(store: Arc<MemoryLocalStore>, target_id: i32, listener_id: u64) -> Self {
+        Self {
+            store,
+            target_id,
+            listener_id,
+            detached: false,
+        }
+    }
+
+    pub fn detach(&mut self) {
+        if !self.detached {
+            self.store
+                .remove_query_listener(self.target_id, self.listener_id);
+            self.detached = true;
+        }
+    }
+}
+
+impl Drop for QueryListenerRegistration {
+    fn drop(&mut self) {
+        if !self.detached {
+            self.store
+                .remove_query_listener(self.target_id, self.listener_id);
         }
     }
 }
@@ -386,6 +556,8 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
             }
         }
 
+        self.notify_query_listeners_for_event(&event).await?;
+
         Ok(())
     }
 
@@ -422,6 +594,7 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
                 }
             }
         }
+        self.emit_all_query_snapshots().await?;
         Ok(())
     }
 
@@ -447,11 +620,13 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
                 persistence.clear_document_overlay(&key);
             }
         }
+        self.emit_all_query_snapshots().await?;
         Ok(())
     }
 
     async fn handle_credential_change(&self) -> FirestoreResult<()> {
         self.clear_all().await;
+        self.emit_all_query_snapshots().await?;
         Ok(())
     }
 
@@ -585,18 +760,6 @@ impl IndexedDbPersistence {
         wasm_bindgen_futures::spawn_local(future);
     }
 
-    async fn open_store(
-        &self,
-        store: &str,
-    ) -> crate::platform::browser::indexed_db::IndexedDbResult<web_sys::IdbDatabase> {
-        crate::platform::browser::indexed_db::open_database_with_store(
-            &self.db_name,
-            self.version,
-            store,
-        )
-        .await
-    }
-
     fn encode_target_snapshot(snapshot: &TargetMetadataSnapshot) -> String {
         let resume_token = snapshot
             .resume_token
@@ -714,6 +877,67 @@ impl IndexedDbPersistence {
         let key_path = value.get("key")?.as_str()?;
         DocumentKey::from_string(key_path).ok()
     }
+
+    fn schedule_initial_load_internal(&self, store: Arc<MemoryLocalStore>) {
+        let db_name = self.db_name.clone();
+        let targets_store = self.targets_store.clone();
+        let overlays_store = self.overlays_store.clone();
+        let version = self.version;
+
+        self.spawn(async move {
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name,
+                version,
+                &targets_store,
+            )
+            .await
+            {
+                if let Ok(catalog) =
+                    Self::get_catalog(&db, &targets_store, TARGETS_CATALOG_KEY).await
+                {
+                    for target_key in catalog {
+                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
+                            &db,
+                            &targets_store,
+                            &target_key,
+                        )
+                        .await
+                        {
+                            if let Some(snapshot) = Self::decode_target_snapshot(&payload) {
+                                store.restore_target_snapshot(snapshot);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name,
+                version,
+                &overlays_store,
+            )
+            .await
+            {
+                if let Ok(catalog) =
+                    Self::get_catalog(&db, &overlays_store, OVERLAYS_CATALOG_KEY).await
+                {
+                    for key_path in catalog {
+                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
+                            &db,
+                            &overlays_store,
+                            &key_path,
+                        )
+                        .await
+                        {
+                            if let Some(key) = Self::decode_overlay(&payload) {
+                                store.restore_overlay_key(key).await;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 #[cfg(all(
@@ -821,64 +1045,7 @@ impl LocalStorePersistence for IndexedDbPersistence {
     }
 
     fn schedule_initial_load(&self, store: Arc<MemoryLocalStore>) {
-        let db_name = self.db_name.clone();
-        let targets_store = self.targets_store.clone();
-        let overlays_store = self.overlays_store.clone();
-        let version = self.version;
-
-        self.spawn(async move {
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name,
-                version,
-                &targets_store,
-            )
-            .await
-            {
-                if let Ok(catalog) =
-                    Self::get_catalog(&db, &targets_store, TARGETS_CATALOG_KEY).await
-                {
-                    for target_key in catalog {
-                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
-                            &db,
-                            &targets_store,
-                            &target_key,
-                        )
-                        .await
-                        {
-                            if let Some(snapshot) = Self::decode_target_snapshot(&payload) {
-                                store.restore_target_snapshot(snapshot);
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name,
-                version,
-                &overlays_store,
-            )
-            .await
-            {
-                if let Ok(catalog) =
-                    Self::get_catalog(&db, &overlays_store, OVERLAYS_CATALOG_KEY).await
-                {
-                    for key_path in catalog {
-                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
-                            &db,
-                            &overlays_store,
-                            &key_path,
-                        )
-                        .await
-                        {
-                            if let Some(key) = Self::decode_overlay(&payload) {
-                                store.restore_overlay_key(key).await;
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        self.schedule_initial_load_internal(store);
     }
 }
 

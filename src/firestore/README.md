@@ -221,6 +221,9 @@ async fn example_with_converter(
 - **Sync engine scaffold** – `firestore::local::SyncEngine` wires `MemoryLocalStore` and `RemoteStore` together, seeding
   restored target metadata into the remote bridge and exposing a façade that mirrors the JS SyncEngine API for
   registering listens, pumping writes, and toggling network state.
+- **Query listeners** – `SyncEngine::listen_query` now hooks query/view updates into the sync engine. Registered
+  listeners receive live `QuerySnapshot`s when remote events or overlay changes land in `MemoryLocalStore`, and
+  `QueryListenerRegistration` handles make it easy to stop listening.
 
 ## Still to do
 
