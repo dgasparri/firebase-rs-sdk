@@ -1917,3 +1917,135 @@ Thinking
   Next steps: 1) plug the enhanced MemoryLocalStore into the sync engine so query views consume its metadata/overlay
   snapshots and persistence hooks on both native and wasm builds; 2) teach the IndexedDB adapter to reload stored
   targets/overlays during startup to keep resumed sessions consistent.
+
+
+ Built an initial SyncEngine façade and wired the local store to hydrate the remote bridge while adding IndexedDB-
+  backed persistence hooks.
+
+  - src/firestore/local/memory.rs now exposes snapshots (target_metadata_map, restore_target_snapshot, overlay_keys)
+  and optional persistence via LocalStorePersistence, including a WASM IndexedDbPersistence that stores per-target JSON
+  snapshots/overlay catalogs and restores them asynchronously at startup (schedule_initial_load).
+  - src/firestore/remote/syncer_bridge.rs gained seed/inspection helpers so restored metadata can populate the bridge
+  before network traffic begins.
+  - New SyncEngine (src/firestore/local/sync_engine.rs) wraps MemoryLocalStore + RemoteStore, seeding remote keys
+  immediately and exposing listen/unlisten/network methods for upcoming query/view listeners.
+  - Exports updated for the new API (src/firestore/local/mod.rs, src/firestore/mod.rs), README documents the IndexedDB
+  path and SyncEngine scaffold.
+
+  Tests:
+
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+  - cargo test local::memory
+  - cargo test local::sync_engine
+  - cargo test remote::syncer_bridge
+  - cargo test remote::remote_store
+
+  Next steps:
+
+  1. Hook query/views into SyncEngine, replaying overlays/limbo updates via listeners and port JS existence-filter/
+  credential-swap specs.
+  2. Expand IndexedDB persistence to serialize overlay write operations so latency-compensated batches survive restarts.
+
+
+   can you clarify what hook query/views into syncengine means?
+
+> When I say “hook query/views into SyncEngine,” I mean the next step is to let higher-level read APIs (queries,
+  snapshots, listeners) hang off the sync engine instead of talking straight to the remote bridge. In the JS SDK,
+  SyncEngine owns:
+
+  - The set of active queries/listeners (QueryView/View objects).
+  - The mapping from user listeners → target IDs → local documents.
+  - Flow of RemoteEvents and write acknowledgements into those views so they emit ViewSnapshots.
+  - Listener callbacks when a query’s snapshot changes, or when user-facing metadata (offline/online state, limbo
+  resolution) needs to fire.
+
+  Our Rust SyncEngine currently just connects MemoryLocalStore and RemoteStore, seeds restored metadata, and exposes
+  basic listen/unlisten/network toggles. “Hooking query/views in” means adding the glue so:
+
+  1. Creating a query registers a view with SyncEngine, which assigns/allocates a target ID, tracks listeners, and tells
+  RemoteStore to listen.
+  2. Incoming RemoteEvents (already flowing through MemoryLocalStore) are transformed into query snapshots that
+  SyncEngine can hand to user callbacks.
+  3. Latency-compensated overlays, limbo tracking, and online/offline state get surfaced consistently through these
+  listeners—just like JS SyncEngine broadcasts to the EventManager.
+
+  In short, it’s about wiring the view/listener layer on top of the SyncEngine we just built so read-side behaviour
+  matches the JS architecture.
+
+
+  Thinking
+  I'm refining the next steps to reflect recent progress hooking query listeners and identifying outstanding tasks
+  like wiring QueryView to the aggregator and integrating converters. I’ll confirm code style is applied and verify
+  SyncEngine properly manages MemoryLocalStore references, then prepare a final summary including line references and
+  test results before running git status to check changes.
+
+• Ran git status -sb
+
+> Thinking
+  I'll explain how query listeners are hooked into the SyncEngine and mention the new test coverage, including specific
+  commands like cargo test local::memory and cargo test remote::syncer_bridge. I'll highlight key code areas such
+  as memory.rs, sync_engine.rs, and related module files, reference the overlay emission mechanism, and note current
+  limitations like filter and ordering enforcement still being future work. I'll also suggest verifying with cargo tests
+  and mention the importance of detaching the query listener handle to stop updates.
+
+> Hooked Query Listeners
+
+  - Added query-listener infrastructure to MemoryLocalStore so watch/bridge events now fan out to per-target callbacks.
+  New listener storage, overlay-aware snapshot helpers, and public registration/registration handles live in src/
+  firestore/local/memory.rs:63-486. Pending overlays now trigger snapshot refreshes (queue_mutation_batch and write
+  handlers call emit_all_query_snapshots).
+  - Extended the IndexedDB persistence adapter to catalogue target/overlay entries, restore them on startup, and expose
+  the logic through the LocalStorePersistence trait (src/firestore/local/memory.rs:746-1059). Persisted snapshots
+  repopulate the local store before the remote bridge seeds existing remote keys.
+  - Introduced SyncEngine::listen_query / unlisten_query to register query listeners and forward snapshots via the
+  bridge (src/firestore/local/sync_engine.rs:83-122). Added a regression test that wires a real listen target, applies
+  a RemoteEvent, and asserts the listener receives incremental QuerySnapshots (src/firestore/local/sync_engine.rs:184-
+  236).
+  - Re-exported the new APIs (src/firestore/local/mod.rs:1-9, src/firestore/mod.rs:24-33) and documented the new sync
+  capabilities in the README (src/firestore/README.md:208-226).
+
+  Tests
+
+  - cargo test local::memory
+  - cargo test local::sync_engine
+  - cargo test remote::syncer_bridge
+  - cargo test remote::remote_store
+  - cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
+
+  Next Steps
+
+  1. Finish full query/view evaluation inside listeners (apply filters, ordering, limits) and surface listener metadata/
+  resume tokens for parity with the JS EventManager.
+  2. Expand source-of-truth persistence so overlays restore complete write operations rather than just keys, enabling
+  accurate latency-compensated snapshots after restart.
+
+
+> PROMPT: explain "Finish full query/view evaluation inside listeners (apply filters, ordering, limits) and surface listener
+▌ metadata/ resume tokens for parity with the JS EventManager"
+
+> Right now the new listener path takes every document in the target’s remote-key set, merges any overlay hits, and
+  hands back a QuerySnapshot. That gets a basic view working, but it doesn’t yet mirror the full behaviour of the JS
+  SyncEngine/EventManager. “Finish full query/view evaluation” means:
+
+  1. Apply the query definition locally
+      - Filter out documents that don’t match where clauses.
+      - Sort by the query’s orderBy definition (including cursor semantics).
+      - Enforce limit / limitToLast rules after ordering.
+      - Respect startAt / endAt bounds and projections.
+
+     This work usually lives in a “view” type (the JS code uses View to transform the target’s document set and produce
+  change events). We need the Rust equivalent so listener callbacks only see the documents that truly satisfy the query.
+  2. Surface listener metadata
+     The JS EventManager emits:
+      - ViewSnapshot metadata (from cache / sync state / hasPendingWrites).
+      - Resume token updates and isFromCache/hasPendingWrites flags.
+
+     Our callback currently receives just QuerySnapshot. For parity we should include metadata fields similar to
+  JS ViewSnapshot, so clients can tell when they’re seeing cached data, latency-compensated writes, or fresh server
+  snapshots.
+  3. Resume tokens
+     Listen responses carry resume tokens per target. The SyncEngine should expose them (and refresh them when
+  RemoteEvent carries a new token) so higher layers can resume a query after reconnect just like the JS client does.
+
+  In short: build the view layer atop SyncEngine so it reenacts the full JS SyncEngine + EventManager behaviour, not
+  just the document union, and propagate the metadata listeners expect.

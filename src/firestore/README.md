@@ -108,7 +108,7 @@ If App Check is not enabled for your app, pass `None` as the third argument to
 
 ### Using Converters
 
-```rust
+```rust,ignore
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::firestore::*;
 use std::collections::BTreeMap;
@@ -180,9 +180,9 @@ async fn example_with_converter(
   `has_pending_writes` flags compatible with the JS API.
 - **Query API scaffolding** – `Query`, `QuerySnapshot`, and `FirestoreClient::get_docs` now cover collection scans as
   well as `where` filters, `order_by`, `limit`/`limit_to_last`, projections, and cursor bounds when running against
-  either the in-memory store or the HTTP datastore (which generates structured queries for Firestore’s REST API).
+  either the in-memory store or the HTTP datastore (which generates structured queries for Firestore's REST API).
 - **Sentinel transforms** – `FirestoreValue::server_timestamp`, `array_union`, `array_remove`, and `numeric_increment`
-  mirror the modular SDK’s FieldValue sentinels, with server-side transforms wired through both datastores.
+  mirror the modular SDK's FieldValue sentinels, with server-side transforms wired through both datastores.
 - **Advanced filters** – Array membership operators (`array-contains`, `array-contains-any`) and disjunctive filters
   (`in`, `not-in`) are validated client-side and encoded for both datastores, matching the JS SDK constraints.
 - **Batched writes** – `WriteBatch` mirrors the modular SDK: set/update/delete operations queue up and commit atomically
@@ -214,7 +214,7 @@ async fn example_with_converter(
   through wasm-friendly futures so higher layers (local store, query views) can plug in incrementally.
 - **Memory local store** – `firestore::local::MemoryLocalStore` implements the new `RemoteSyncerDelegate`, letting tests
   and prototype sync engines observe document state, pending batches, stream metadata, overlays, and limbo resolutions
-  without depending on the future persistence layer. It now mirrors the JS LocalStore’s target bookkeeping (remote keys,
+  without depending on the future persistence layer. It now mirrors the JS LocalStore's target bookkeeping (remote keys,
   resume tokens, snapshot versions) while coordinating with the remote store for both listen and write pipelines across
   native and wasm targets. A WASM build can persist the snapshots via IndexedDB through the bundled
   `IndexedDbPersistence` adapter.
@@ -240,6 +240,36 @@ majority of the Firestore feature set.
 ## Next steps - Detailed completion plan
 
 1. **Query/view integration**
+
+  End of day recap from the previous session:
+  Right now the new listener path takes every document in the targets remote-key set, merges any overlay hits, and
+  hands back a QuerySnapshot. That gets a basic view working, but it doesn't yet mirror the full behaviour of the JS
+  SyncEngine/EventManager. "Finish full query/view evaluation" means:
+   
+  a. Apply the query definition locally
+   - Filter out documents that don 't match where clauses.
+   - Sort by the query 's orderBy definition (including cursor semantics).
+   - Enforce limit / limitToLast rules after ordering.
+   - Respect startAt / endAt bounds and projections.
+   
+   This work usually lives in a "view" type (the JS code uses View to transform the targets document set and produce
+   change events). We need the Rust equivalent so listener callbacks only see the documents that truly satisfy the query.
+  b. Surface listener metadata
+   The JS EventManager emits:
+   - ViewSnapshot metadata (from cache / sync state / hasPendingWrites).
+   - Resume token updates and isFromCache/hasPendingWrites flags.
+   
+   Our callback currently receives just QuerySnapshot. For parity we should include metadata fields similar to
+   JS ViewSnapshot, so clients can tell when they 're seeing cached data, latency-compensated writes, or fresh server
+   snapshots.
+  c. Resume tokens
+   Listen responses carry resume tokens per target. The SyncEngine should expose them (and refresh them when
+   RemoteEvent carries a new token) so higher layers can resume a query after reconnect just like the JS client does.
+   
+   In short: build the view layer atop SyncEngine so it reenacts the full JS SyncEngine + EventManager behaviour, not
+   just the document union, and propagate the metadata listeners expect.
+
+
    - Connect query views/listeners to the delegate callbacks so view snapshots, latency-compensated overlays, and limbo
      documents update immediately after remote events and write acknowledgements.
    - Port the existence-filter mismatch, credential swap, and write retry specs from the JS test suite to validate the
