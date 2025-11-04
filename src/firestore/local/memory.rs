@@ -6,6 +6,13 @@ use std::sync::{Arc, Mutex as StdMutex};
 use async_lock::Mutex;
 use async_trait::async_trait;
 
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+use base64::Engine;
+
 use crate::firestore::error::{invalid_argument, FirestoreError, FirestoreResult};
 use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::remote::datastore::WriteOperation;
@@ -98,6 +105,16 @@ impl MemoryLocalStore {
             persistence: Some(persistence),
             ..Self::new()
         }
+    }
+
+    #[cfg(all(
+        feature = "wasm-web",
+        feature = "experimental-indexed-db",
+        target_arch = "wasm32"
+    ))]
+    pub fn new_with_indexed_db(db_name: impl Into<String>) -> Self {
+        let persistence = IndexedDbPersistence::new(db_name);
+        Self::new_with_persistence(Arc::new(persistence))
     }
 
     pub async fn queue_mutation_batch(
@@ -478,6 +495,172 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
         for key in documents {
             limbo.remove(key);
         }
+    }
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+#[derive(Clone, Debug)]
+struct IndexedDbPersistence {
+    db_name: String,
+    targets_store: String,
+    overlays_store: String,
+    version: u32,
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+impl IndexedDbPersistence {
+    fn new(db_name: impl Into<String>) -> Self {
+        Self {
+            db_name: db_name.into(),
+            targets_store: "firestore_targets".into(),
+            overlays_store: "firestore_overlays".into(),
+            version: 1,
+        }
+    }
+
+    fn spawn<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + 'static,
+    {
+        wasm_bindgen_futures::spawn_local(future);
+    }
+
+    async fn open_store(
+        &self,
+        store: &str,
+    ) -> crate::platform::browser::indexed_db::IndexedDbResult<web_sys::IdbDatabase> {
+        crate::platform::browser::indexed_db::open_database_with_store(
+            &self.db_name,
+            self.version,
+            store,
+        )
+        .await
+    }
+
+    fn encode_target_snapshot(snapshot: &TargetMetadataSnapshot) -> String {
+        let resume_token = snapshot
+            .resume_token
+            .as_ref()
+            .map(|token| base64::engine::general_purpose::STANDARD.encode(token));
+        let remote_keys: Vec<String> = snapshot
+            .remote_keys
+            .iter()
+            .map(|key| key.path().canonical_string())
+            .collect();
+        let snapshot_version = snapshot.snapshot_version.map(|ts| {
+            serde_json::json!({
+                "seconds": ts.seconds,
+                "nanos": ts.nanos,
+            })
+        });
+
+        serde_json::json!({
+            "targetId": snapshot.target_id,
+            "resumeToken": resume_token,
+            "snapshotVersion": snapshot_version,
+            "current": snapshot.current,
+            "remoteKeys": remote_keys,
+        })
+        .to_string()
+    }
+
+    fn encode_overlay(key: &DocumentKey, overlay: &[WriteOperation]) -> String {
+        let write_paths: Vec<String> = overlay
+            .iter()
+            .map(|write| write.key().path().canonical_string())
+            .collect();
+        serde_json::json!({
+            "key": key.path().canonical_string(),
+            "writes": write_paths,
+        })
+        .to_string()
+    }
+}
+
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+impl LocalStorePersistence for IndexedDbPersistence {
+    fn save_target_metadata(&self, snapshot: TargetMetadataSnapshot) {
+        let store = self.targets_store.clone();
+        let db_name = self.db_name.clone();
+        let version = self.version;
+        let payload = Self::encode_target_snapshot(&snapshot);
+        let key = snapshot.target_id.to_string();
+        self.spawn(async move {
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name, version, &store,
+            )
+            .await
+            {
+                let _ =
+                    crate::platform::browser::indexed_db::put_string(&db, &store, &key, &payload)
+                        .await;
+            }
+        });
+    }
+
+    fn clear_target_metadata(&self, target_id: i32) {
+        let store = self.targets_store.clone();
+        let db_name = self.db_name.clone();
+        let version = self.version;
+        let key = target_id.to_string();
+        self.spawn(async move {
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name, version, &store,
+            )
+            .await
+            {
+                let _ = crate::platform::browser::indexed_db::delete_key(&db, &store, &key).await;
+            }
+        });
+    }
+
+    fn save_document_overlay(&self, key: &DocumentKey, overlay: &[WriteOperation]) {
+        let store = self.overlays_store.clone();
+        let db_name = self.db_name.clone();
+        let version = self.version;
+        let key_path = key.path().canonical_string();
+        let payload = Self::encode_overlay(key, overlay);
+        self.spawn(async move {
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name, version, &store,
+            )
+            .await
+            {
+                let _ = crate::platform::browser::indexed_db::put_string(
+                    &db, &store, &key_path, &payload,
+                )
+                .await;
+            }
+        });
+    }
+
+    fn clear_document_overlay(&self, key: &DocumentKey) {
+        let store = self.overlays_store.clone();
+        let db_name = self.db_name.clone();
+        let version = self.version;
+        let key_path = key.path().canonical_string();
+        self.spawn(async move {
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name, version, &store,
+            )
+            .await
+            {
+                let _ =
+                    crate::platform::browser::indexed_db::delete_key(&db, &store, &key_path).await;
+            }
+        });
     }
 }
 

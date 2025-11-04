@@ -1,4 +1,4 @@
 pub mod memory;
 
 #[doc(inline)]
-pub use memory::MemoryLocalStore;
+pub use memory::{LocalStorePersistence, MemoryLocalStore, TargetMetadataSnapshot};

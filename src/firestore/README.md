@@ -216,7 +216,8 @@ async fn example_with_converter(
   and prototype sync engines observe document state, pending batches, stream metadata, overlays, and limbo resolutions
   without depending on the future persistence layer. It now mirrors the JS LocalStore’s target bookkeeping (remote keys,
   resume tokens, snapshot versions) while coordinating with the remote store for both listen and write pipelines across
-  native and wasm targets.
+  native and wasm targets. A WASM build can persist the snapshots via IndexedDB through the bundled
+  `IndexedDbPersistence` adapter.
 
 ## Still to do
 

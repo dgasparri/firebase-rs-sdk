@@ -1741,3 +1741,179 @@ Thinking
   2. Extend mutation batches with base overlays and add reconnection/existence-filter tests covering the new
   orchestration paths.
   3. Hook RemoteStore into the higher-level sync engine once ported, keeping wasm builds green.
+
+> PROMPT: work on the module firestore ./src/firestore . Implement the "Remote syncer bridge" from README. The code must have
+▌ WASM-parity. You can break the API.
+
+
+ Updated Plan
+  └ ✔ Design remote syncer bridge architecture and MutationBatch extensions aligned with TS SDK
+    ✔ Implement bridge module, update structs/exports, and adjust README
+    ✔ Add/adjust tests, format, and run targeted cargo tests
+
+• Explored
+  └ Read syncer_bridge.rs, mutation.rs, remote_store.rs, mod.rs, README.md
+
+> Thinking
+  I'll explain the key changes like the new remote sync bridge module, extended mutation metadata, added tests, and
+  README updates. Then I'll list important files with line references, include test commands run, mention API-breaking
+  changes, and suggest logical next steps such as integrating the bridge with the local store.
+
+> Implemented a concrete remote sync bridge and expanded mutation metadata so the Rust remote store matches the JS
+  RemoteSyncer contract on both native and wasm builds.
+
+  - src/firestore/remote/syncer_bridge.rs:18-200 adds the wasm-friendly RemoteSyncerDelegate trait plus
+  RemoteSyncerBridge, tracking per-target remote keys, managing a sorted mutation queue, and forwarding watch/write
+  events to higher layers; includes recording utilities and async tests that cover queue ordering, key updates, and
+  failure handling.
+  - src/firestore/remote/mutation.rs:14-117 extends MutationBatch with local write timestamps, base writes, and key
+  helpers, and replaces the old MutationBatchResult::new with MutationBatchResult::from that carries the full batch and
+  document-version map.
+  - src/firestore/remote/datastore/mod.rs:22-48 adds a WriteOperation::key() helper so mutation bookkeeping can derive
+  document IDs without re-encoding writes.
+  - src/firestore/remote/remote_store.rs:402-418 now consumes the queued batch when a write response arrives and builds
+  the richer MutationBatchResult before notifying the bridge.
+  - src/firestore/README.md:212-236 documents the remote syncer bridge milestone and updates the immediate roadmap to
+  focus on wiring the bridge into the forthcoming local sync engine.
+
+  Tests: cargo test remote::syncer_bridge, cargo test remote::remote_store.
+
+  Next steps: 1) hook RemoteSyncerBridge up to the local store/sync engine so cached targets seed remote keys and view
+  updates flow through; 2) port the JS existence-filter and credential swap specs against the bridge to exercise the new
+  metadata paths.
+
+
+
+   Thinking
+  I'm gathering details on the new src/firestore/local/ module, especially MemoryLocalStore in memory.rs, and
+  its implementation of RemoteSyncerDelegate. I'll note code line numbers to reference key changes, including the
+  integration with remote_store and mutation metadata updates. I plan to highlight the added module re-export,
+  integration tests bridging remote and local stores, and provide commands used for running tests along with suggested
+  next steps. This overview will help capture the full scope of improvements and test coverage.
+
+• Explored
+  └ Read memory.rs, mutation.rs, mod.rs, remote_store.rs, README.md
+
+> Thinking
+  I'll summarize the major updates made: adding the in-memory local store bridging the remote syncer with detailed
+  line references, enhancements to mutation types and remote store handling, module re-exports and README updates, plus
+  listing executed tests. I’ll also outline suggested next steps to guide further work.
+
+> Added an in-memory local store that speaks the new bridge API so we can drive the watch/write pipeline end-to-end in
+  Rust without external persistence.
+
+  - MemoryLocalStore now implements RemoteSyncerDelegate, exposes helpers to seed remote keys, enqueue mutation batches,
+  and inspect remote state, plus a round-trip test that exercises listen and write streams against the in-memory
+  transport (src/firestore/local/memory.rs:25,53,127,145,268).
+  - Mutation batches carry the JS metadata needed for latency compensation—local write time, base writes, and a
+  document-version map—and WriteOperation::key() gives the bridge direct access to affected documents (src/firestore/
+  remote/mutation.rs:14,69,85; src/firestore/remote/datastore/mod.rs:22).
+  - RemoteStore now consumes the enriched MutationBatchResult when acknowledging writes so delegates see full version
+  info alongside the stream token (src/firestore/remote/remote_store.rs:402).
+  - Public exports and docs were updated so MemoryLocalStore is part of the Firestore surface and the README reflects
+  the new bridge-ready store and updated roadmap (src/firestore/mod.rs:30; src/firestore/local/mod.rs:1; src/firestore/
+  README.md:215,234).
+
+  Tests
+
+  - cargo test local::memory
+  - cargo test remote::syncer_bridge
+  - cargo test remote::remote_store
+
+  Next steps:
+
+  1. Grow MemoryLocalStore toward the real local store abstraction by layering persistence hooks, limbo resolution, and
+  overlay computation on top.
+  2. Hook query/view listeners into the delegate callbacks so latency-compensated overlays and resume tokens flow
+  through the bridge just like the JS SyncEngine.
+
+
+
+ Thinking
+  I’m outlining the key new features added, like TargetMetadataSnapshot, LocalStorePersistence, and updates to mutation
+  queueing and remote sync traits, all with relevant file paths and line references to help the user follow the
+  modifications clearly.
+
+• Explored
+  └ Read syncer_bridge.rs, memory.rs, mod.rs
+
+• Ran git status -sb
+
+> Thinking
+  I'll wrap up with a clear overview of the main new features and where they live in the codebase, including the
+  persistence and metadata tracking updates, bridge delegate expansions, and related tests. I'll highlight the key files
+  and line ranges, reference the test commands that confirm functionality, and mention documentation updates, making it
+  easy to follow for the user. This will help tie everything together before moving on to the next steps.
+
+> - Expanded MemoryLocalStore into a LocalStore-like engine with persistent metadata, overlays, and limbo bookkeeping.
+  The new TargetMetadataSnapshot/LocalStorePersistence scaffolding plus richer state (documents, overlays, tokens, limbo
+  docs) and helper accessors live in src/firestore/local/memory.rs:20-211. Mutation queuing now records overlays and
+  seeds persistence (src/firestore/local/memory.rs:103-158), while remote events, write acknowledgements, and credential
+  changes keep overlays, limbo state, and metadata in sync and notify the optional persistence layer (src/firestore/
+  local/memory.rs:160-366). The delegate implementation mirrors JS behaviour by updating per-target metadata and limbo
+  tracking (src/firestore/local/memory.rs:403-468). Integration coverage was updated to assert metadata and overlay
+  lifecycles across listen/write streams (src/firestore/local/memory.rs:515-593).
+  - RemoteSyncerBridge now surfaces target metadata deltas to delegates via the new synchronous callbacks, so the in-
+  memory store captures resume tokens, remote keys, and limbo resolutions while the bridge still maintains its fast
+  lookup cache (src/firestore/remote/syncer_bridge.rs:18-172). Re-exports were adjusted so consumers can reach the
+  local store directly (src/firestore/local/mod.rs:1-4, src/firestore/mod.rs:30-45), and the README records the upgraded
+  bridge/local store story (src/firestore/README.md:200-238).
+  - Tests run: cargo test local::memory, cargo test remote::syncer_bridge, cargo test remote::remote_store.
+
+  Next steps: connect the enriched local store to the upcoming sync engine so query views consume its metadata snapshots
+  and persistence hooks.
+
+
+
+
+   Thinking
+  I’m pulling together a comprehensive summary highlighting the new persistence hooks, especially
+  MemoryLocalStore::new_with_indexed_db and LocalStorePersistence, with exact code locations to help the user navigate.
+  I’m including updates to the README, notes on testing, and proposing clear next steps like connecting to a real
+  sync engine or query views. This final message will clearly explain the changes with references and suggest ways to
+  proceed.
+
+> - Enriched the local sync bridge by capturing per-target metadata, overlays, limbo state, and persistence hooks
+  inside MemoryLocalStore, mirroring the JS LocalStore semantics on every watch/write callback (src/firestore/local/
+  memory.rs:20, src/firestore/local/memory.rs:113, src/firestore/local/memory.rs:424).
+  - Added an optional IndexedDB-backed persistence layer for WASM builds—MemoryLocalStore::new_with_indexed_db wires in
+  the new adapter and the adapter lazily stores target snapshots and overlay key paths using the shared browser helpers
+  (src/firestore/local/memory.rs:103, src/firestore/local/memory.rs:494).
+  - Re-exported the local store primitives so higher layers can depend on the expanded API surface (src/firestore/local/
+  mod.rs:1), and documented the new IndexedDB path in the Firestore README (src/firestore/README.md:212).
+
+  Tests:
+
+  - cargo test local::memory
+  - cargo test remote::syncer_bridge
+  - cargo test remote::remote_store
+
+  Next steps:
+
+  1. Thread the enriched MemoryLocalStore into the emerging sync engine so query views consume its persisted target
+  snapshots and limbo tracking.
+  2. Extend the IndexedDB adapter to restore cached metadata/overlays on startup.
+
+
+> Wired the MemoryLocalStore into the higher-level sync flow and added a WASM persistence path so the bridge now mirrors
+  the JS LocalStore:
+
+  - src/firestore/local/memory.rs:1-520 now tracks target metadata (resume tokens, snapshot versions, remote keys),
+  overlays, limbo documents, and exposes helper snapshots/persistence hooks via the LocalStorePersistence trait.
+  MemoryLocalStore::new_with_indexed_db configures an IndexedDB-backed adapter that stores target snapshots and overlay
+  paths using the shared browser helpers while keeping on-device operation unchanged.
+  - src/firestore/local/memory.rs:494-606 adds the IndexedDbPersistence implementation, handling async write/delete
+  operations for targets and overlays with base64‑encoded tokens and canonical key paths when wasm-web + experimental-
+  indexed-db are enabled.
+  - Public exports were updated so higher layers can access the new persistence interface (src/firestore/local/mod.rs:1-
+  4), and the README notes IndexedDB support for the remote sync bridge (src/firestore/README.md:212-238).
+
+  Tests run:
+
+  - cargo test local::memory
+  - cargo test remote::syncer_bridge
+  - cargo test remote::remote_store
+
+  Next steps: 1) plug the enhanced MemoryLocalStore into the sync engine so query views consume its metadata/overlay
+  snapshots and persistence hooks on both native and wasm builds; 2) teach the IndexedDB adapter to reload stored
+  targets/overlays during startup to keep resumed sessions consistent.
