@@ -32,27 +32,3 @@ pub struct TargetChange {
     pub modified_documents: BTreeSet<DocumentKey>,
     pub removed_documents: BTreeSet<DocumentKey>,
 }
-
-impl TargetChange {
-    pub fn new(resume_token: Option<Vec<u8>>, current: bool) -> Self {
-        Self {
-            resume_token,
-            current,
-            added_documents: BTreeSet::new(),
-            modified_documents: BTreeSet::new(),
-            removed_documents: BTreeSet::new(),
-        }
-    }
-
-    pub fn record_add(&mut self, key: DocumentKey) {
-        self.added_documents.insert(key);
-    }
-
-    pub fn record_modify(&mut self, key: DocumentKey) {
-        self.modified_documents.insert(key);
-    }
-
-    pub fn record_remove(&mut self, key: DocumentKey) {
-        self.removed_documents.insert(key);
-    }
-}

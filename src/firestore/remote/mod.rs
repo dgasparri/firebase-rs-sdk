@@ -1,7 +1,10 @@
 pub mod connection;
 pub mod datastore;
+pub mod mutation;
 pub mod network;
 pub mod remote_event;
+pub mod remote_store;
+pub mod remote_syncer;
 pub mod rpc_error;
 pub mod serializer;
 pub mod stream;
@@ -15,8 +18,11 @@ pub use datastore::{
     Datastore, HttpDatastore, InMemoryDatastore, NoopTokenProvider, RetrySettings, StreamHandle,
     StreamingDatastore, StreamingDatastoreImpl, StreamingFuture, TokenProviderArc,
 };
+pub use mutation::{MutationBatch, MutationBatchResult};
 pub use network::{NetworkLayer, NetworkLayerBuilder, NetworkStreamHandler, StreamCredentials};
 pub use remote_event::{RemoteEvent, TargetChange};
+pub use remote_store::RemoteStore;
+pub use remote_syncer::{box_remote_store_future, RemoteStoreFuture, RemoteSyncer};
 pub use rpc_error::map_http_error;
 pub use serializer::JsonProtoSerializer;
 #[cfg(not(target_arch = "wasm32"))]

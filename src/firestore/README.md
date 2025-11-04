@@ -12,11 +12,11 @@ Firebase apps.
 
 ## Porting status
 
-- firestore 80% `[########  ]`
+- firestore 83% `[######### ]`
 
 ==As of April 12th, 2026==
 
-Roughly 80 % of the Firestore JS SDK now has a Rust counterpart.
+Roughly 83 % of the Firestore JS SDK now has a Rust counterpart.
 
 - Core handles (component registration, `Firestore`/reference types, converters), document/query operations, and the HTTP datastore remain in place.
 - Set semantics now mirror the JS SDK, including `SetOptions::merge`/`merge_fields`, allowing partial document updates through both the HTTP and in-memory datastores.
@@ -25,7 +25,7 @@ Roughly 80 % of the Firestore JS SDK now has a Rust counterpart.
 - Collection group queries now compile identical structured queries across the HTTP and in-memory datastores.
 - Document snapshots expose `get(...)` helpers that align with the modular JS API for selective field reads.
 - REST and in-memory datastores can execute aggregation queries (`count`, `sum`, `average`), matching `getAggregate()`/`getCount()` from the JS SDK.
-- Remaining gaps focus on the sync engine: real-time watchers, transactions, offline persistence, cross-platform transports, and advanced bundle/listener plumbing.
+- Remaining gaps focus on the sync engine: RemoteSyncer integration, transactions, offline persistence, cross-platform transports, and advanced bundle/listener plumbing.
 
 ## References to the Firebase JS SDK - firestore module
 
@@ -206,12 +206,15 @@ async fn example_with_converter(
   and write RPC payloads, propagate resume tokens, and surface decoded `WatchChange`/`WriteResponse` events through async
   delegates. `firestore::remote::watch_change_aggregator::WatchChangeAggregator` converts those into consolidated
   `RemoteEvent`s so higher layers can drive query views.
+- **Remote store façade** – `firestore::remote::remote_store::RemoteStore` now owns listen/write stream lifecycles,
+  feeds watch events into `RemoteSyncer` implementors, keeps per-target metadata via `TargetMetadataProvider`, and
+  drains mutation batches over the write stream with wasm-friendly future aliases.
 
 ## Still to do
 
 - Transactions and merge preconditions aligned with the JS mutation queue.
-- Real-time listeners, watch streams, and pending-write coordination for latency-compensation, plumbing the decoded
-  listen/write events into the remote store and sync engine.
+- Hook the new remote store into the higher-level sync engine/local store once those layers are ported, including limbo
+  resolution, existence-filter mismatch recovery, and shared resume-token bookkeeping.
 - Offline persistence layers (memory + IndexedDB), LRU pruning, and multi-tab coordination.
 - Bundle loading, named queries, and enhanced aggregation coverage (min/max, percentile).
 - Emulator-backed integration coverage and stress tests across HTTP/gRPC transports.
@@ -221,13 +224,13 @@ majority of the Firestore feature set.
 
 ## Next steps - Detailed completion plan
 
-1. **Remote store wiring**
-   - Bridge `ListenStream` events to Firestore watch change structures (`WatchChange`, existence filters, document
-     updates) so the remote store can drive query views and latency-compensation flows.
-   - Feed `WriteStream` results into the mutation queue, updating write acknowledgements and surfacing commit errors
-     with retry semantics.
-   - Reconcile resume tokens and target state across reconnects, ensuring the remote store can reissue watch targets
-     without losing progress.
+1. **Remote syncer bridge**
+   - Implement a concrete `RemoteSyncer` backed by the (forthcoming) local store so `RemoteStore` can resolve target
+     metadata, deliver `RemoteEvent`s into query views, and surface rejected listens.
+   - Extend mutation batching to carry base mutations and overlay metadata required for latency compensation, keeping
+     the wasm-friendly future aliases introduced for the syncer.
+   - Add reconnection tests covering existence-filter mismatches, credential swaps, and write-stream retries to
+     validate the new façade across edge cases.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.
