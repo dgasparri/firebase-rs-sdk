@@ -102,6 +102,11 @@ where
         Arc::clone(&self.delegate)
     }
 
+    pub fn seed_remote_keys(&self, target_id: i32, keys: BTreeSet<DocumentKey>) {
+        let mut guard = self.remote_keys.lock().unwrap();
+        guard.insert(target_id, keys);
+    }
+
     pub fn replace_remote_keys(&self, target_id: i32, keys: BTreeSet<DocumentKey>) {
         {
             let mut guard = self.remote_keys.lock().unwrap();
@@ -129,6 +134,15 @@ where
     pub async fn pending_batch_ids(&self) -> Vec<i32> {
         let guard = self.mutation_queue.lock().await;
         guard.batches.iter().map(|batch| batch.batch_id).collect()
+    }
+
+    pub fn remote_keys_for_target(&self, target_id: i32) -> BTreeSet<DocumentKey> {
+        self.remote_keys
+            .lock()
+            .unwrap()
+            .get(&target_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn update_remote_keys_from_event(&self, event: &RemoteEvent) {

@@ -27,7 +27,7 @@ pub use constants::{DEFAULT_DATABASE_ID, FIRESTORE_COMPONENT_NAME};
 pub use model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, ResourcePath, Timestamp};
 
 #[doc(inline)]
-pub use local::MemoryLocalStore;
+pub use local::{LocalStorePersistence, MemoryLocalStore, SyncEngine, TargetMetadataSnapshot};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use remote::WebSocketTransport;

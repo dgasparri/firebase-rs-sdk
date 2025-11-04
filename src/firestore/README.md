@@ -218,6 +218,9 @@ async fn example_with_converter(
   resume tokens, snapshot versions) while coordinating with the remote store for both listen and write pipelines across
   native and wasm targets. A WASM build can persist the snapshots via IndexedDB through the bundled
   `IndexedDbPersistence` adapter.
+- **Sync engine scaffold** – `firestore::local::SyncEngine` wires `MemoryLocalStore` and `RemoteStore` together, seeding
+  restored target metadata into the remote bridge and exposing a façade that mirrors the JS SyncEngine API for
+  registering listens, pumping writes, and toggling network state.
 
 ## Still to do
 
@@ -233,13 +236,12 @@ majority of the Firestore feature set.
 
 ## Next steps - Detailed completion plan
 
-1. **Sync engine hookup**
-   - Wire the enriched `MemoryLocalStore` into the higher-level sync engine so query views consume its metadata snapshots,
-     persistence hooks, and limbo tracking in the same way the JS LocalStore powers SyncEngine.
+1. **Query/view integration**
    - Connect query views/listeners to the delegate callbacks so view snapshots, latency-compensated overlays, and limbo
      documents update immediately after remote events and write acknowledgements.
    - Port the existence-filter mismatch, credential swap, and write retry specs from the JS test suite to validate the
      end-to-end pipeline across native and wasm builds.
+   - Restore persisted overlays into actionable write batches so latency-compensated mutations survive restarts.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.

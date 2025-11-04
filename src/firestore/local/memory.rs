@@ -12,6 +12,12 @@ use async_trait::async_trait;
     target_arch = "wasm32"
 ))]
 use base64::Engine;
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+use serde_json::{json, Value};
 
 use crate::firestore::error::{invalid_argument, FirestoreError, FirestoreResult};
 use crate::firestore::model::{DocumentKey, Timestamp};
@@ -34,7 +40,7 @@ pub struct TargetMetadataSnapshot {
 }
 
 impl TargetMetadataSnapshot {
-    fn new(target_id: i32) -> Self {
+    pub fn new(target_id: i32) -> Self {
         Self {
             target_id,
             resume_token: None,
@@ -50,6 +56,7 @@ pub trait LocalStorePersistence: Send + Sync {
     fn clear_target_metadata(&self, _target_id: i32) {}
     fn save_document_overlay(&self, _key: &DocumentKey, _overlay: &[WriteOperation]) {}
     fn clear_document_overlay(&self, _key: &DocumentKey) {}
+    fn schedule_initial_load(&self, _store: Arc<MemoryLocalStore>) {}
 }
 
 /// In-memory store that mirrors the responsibilities of the Firestore JS LocalStore.
@@ -82,7 +89,7 @@ impl Debug for MemoryLocalStore {
 }
 
 impl MemoryLocalStore {
-    pub fn new() -> Self {
+    fn new_internal(persistence: Option<Arc<dyn LocalStorePersistence>>) -> Self {
         Self {
             documents: Mutex::new(BTreeMap::new()),
             remote_events: Mutex::new(Vec::new()),
@@ -96,15 +103,19 @@ impl MemoryLocalStore {
             write_results: StdMutex::new(Vec::new()),
             target_metadata: StdMutex::new(BTreeMap::new()),
             limbo_documents: StdMutex::new(BTreeSet::new()),
-            persistence: None,
+            persistence,
         }
     }
 
-    pub fn new_with_persistence(persistence: Arc<dyn LocalStorePersistence>) -> Self {
-        Self {
-            persistence: Some(persistence),
-            ..Self::new()
-        }
+    pub fn new() -> Self {
+        Self::new_internal(None)
+    }
+
+    pub fn with_persistence(persistence: Arc<dyn LocalStorePersistence>) -> Arc<Self> {
+        let store =
+            Arc::new(Self::new_internal(Some(Arc::clone(&persistence)))) as Arc<MemoryLocalStore>;
+        persistence.schedule_initial_load(Arc::clone(&store));
+        store
     }
 
     #[cfg(all(
@@ -112,9 +123,9 @@ impl MemoryLocalStore {
         feature = "experimental-indexed-db",
         target_arch = "wasm32"
     ))]
-    pub fn new_with_indexed_db(db_name: impl Into<String>) -> Self {
-        let persistence = IndexedDbPersistence::new(db_name);
-        Self::new_with_persistence(Arc::new(persistence))
+    pub fn new_with_indexed_db(db_name: impl Into<String>) -> Arc<Self> {
+        let persistence = Arc::new(IndexedDbPersistence::new(db_name));
+        Self::with_persistence(persistence)
     }
 
     pub async fn queue_mutation_batch(
@@ -231,6 +242,34 @@ impl MemoryLocalStore {
 
     pub fn track_limbo_document(&self, key: DocumentKey) {
         self.limbo_documents.lock().unwrap().insert(key);
+    }
+
+    pub fn target_metadata_map(&self) -> BTreeMap<i32, TargetMetadataSnapshot> {
+        self.target_metadata.lock().unwrap().clone()
+    }
+
+    pub fn restore_target_snapshot(&self, snapshot: TargetMetadataSnapshot) {
+        self.target_metadata
+            .lock()
+            .unwrap()
+            .insert(snapshot.target_id, snapshot);
+    }
+
+    pub async fn restore_overlay_key(&self, key: DocumentKey) {
+        self.overlays
+            .lock()
+            .await
+            .entry(key)
+            .or_insert_with(Vec::new);
+    }
+
+    pub fn synchronize_remote_keys(&self, bridge: &RemoteSyncerBridge<MemoryLocalStore>) {
+        let snapshots = self.target_metadata.lock().unwrap().clone();
+        for (target_id, snapshot) in snapshots {
+            if !snapshot.remote_keys.is_empty() {
+                bridge.seed_remote_keys(target_id, snapshot.remote_keys.clone());
+            }
+        }
     }
 
     async fn clear_all(&self) {
@@ -516,6 +555,19 @@ struct IndexedDbPersistence {
     feature = "experimental-indexed-db",
     target_arch = "wasm32"
 ))]
+const TARGETS_CATALOG_KEY: &str = "__targets_catalog__";
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+const OVERLAYS_CATALOG_KEY: &str = "__overlays_catalog__";
+
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
 impl IndexedDbPersistence {
     fn new(db_name: impl Into<String>) -> Self {
         Self {
@@ -556,13 +608,13 @@ impl IndexedDbPersistence {
             .map(|key| key.path().canonical_string())
             .collect();
         let snapshot_version = snapshot.snapshot_version.map(|ts| {
-            serde_json::json!({
+            json!({
                 "seconds": ts.seconds,
                 "nanos": ts.nanos,
             })
         });
 
-        serde_json::json!({
+        json!({
             "targetId": snapshot.target_id,
             "resumeToken": resume_token,
             "snapshotVersion": snapshot_version,
@@ -577,11 +629,90 @@ impl IndexedDbPersistence {
             .iter()
             .map(|write| write.key().path().canonical_string())
             .collect();
-        serde_json::json!({
+        json!({
             "key": key.path().canonical_string(),
             "writes": write_paths,
         })
         .to_string()
+    }
+
+    async fn get_catalog(
+        db: &web_sys::IdbDatabase,
+        store: &str,
+        catalog_key: &str,
+    ) -> crate::platform::browser::indexed_db::IndexedDbResult<BTreeSet<String>> {
+        let existing =
+            crate::platform::browser::indexed_db::get_string(db, store, catalog_key).await?;
+        if let Some(json) = existing {
+            let parsed: Value = serde_json::from_str(&json).unwrap_or_else(|_| json!([]));
+            if let Some(array) = parsed.as_array() {
+                let entries = array
+                    .iter()
+                    .filter_map(|value| value.as_str().map(|s| s.to_string()))
+                    .collect();
+                Ok(entries)
+            } else {
+                Ok(BTreeSet::new())
+            }
+        } else {
+            Ok(BTreeSet::new())
+        }
+    }
+
+    async fn save_catalog(
+        db: &web_sys::IdbDatabase,
+        store: &str,
+        catalog_key: &str,
+        entries: &BTreeSet<String>,
+    ) -> crate::platform::browser::indexed_db::IndexedDbResult<()> {
+        let payload = json!(entries.iter().collect::<Vec<_>>()).to_string();
+        crate::platform::browser::indexed_db::put_string(db, store, catalog_key, &payload).await
+    }
+
+    fn decode_target_snapshot(payload: &str) -> Option<TargetMetadataSnapshot> {
+        let value: Value = serde_json::from_str(payload).ok()?;
+        let target_id = value.get("targetId")?.as_i64()? as i32;
+        let resume_token = value
+            .get("resumeToken")
+            .and_then(Value::as_str)
+            .and_then(|token| base64::engine::general_purpose::STANDARD.decode(token).ok());
+        let snapshot_version = value.get("snapshotVersion").and_then(|json| {
+            let seconds = json.get("seconds")?.as_i64()?;
+            let nanos = json.get("nanos")?.as_i64()? as i32;
+            Some(Timestamp::new(seconds, nanos))
+        });
+        let current = value
+            .get("current")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let remote_keys = value
+            .get("remoteKeys")
+            .and_then(Value::as_array)
+            .map(|array| {
+                array
+                    .iter()
+                    .filter_map(|entry| {
+                        entry
+                            .as_str()
+                            .and_then(|path| DocumentKey::from_string(path).ok())
+                    })
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+
+        Some(TargetMetadataSnapshot {
+            target_id,
+            resume_token,
+            snapshot_version,
+            current,
+            remote_keys,
+        })
+    }
+
+    fn decode_overlay(payload: &str) -> Option<DocumentKey> {
+        let value: Value = serde_json::from_str(payload).ok()?;
+        let key_path = value.get("key")?.as_str()?;
+        DocumentKey::from_string(key_path).ok()
     }
 }
 
@@ -606,6 +737,12 @@ impl LocalStorePersistence for IndexedDbPersistence {
                 let _ =
                     crate::platform::browser::indexed_db::put_string(&db, &store, &key, &payload)
                         .await;
+                if let Ok(mut catalog) = Self::get_catalog(&db, &store, TARGETS_CATALOG_KEY).await {
+                    if catalog.insert(key.clone()) {
+                        let _ =
+                            Self::save_catalog(&db, &store, TARGETS_CATALOG_KEY, &catalog).await;
+                    }
+                }
             }
         });
     }
@@ -622,6 +759,12 @@ impl LocalStorePersistence for IndexedDbPersistence {
             .await
             {
                 let _ = crate::platform::browser::indexed_db::delete_key(&db, &store, &key).await;
+                if let Ok(mut catalog) = Self::get_catalog(&db, &store, TARGETS_CATALOG_KEY).await {
+                    if catalog.remove(&key) {
+                        let _ =
+                            Self::save_catalog(&db, &store, TARGETS_CATALOG_KEY, &catalog).await;
+                    }
+                }
             }
         });
     }
@@ -642,6 +785,13 @@ impl LocalStorePersistence for IndexedDbPersistence {
                     &db, &store, &key_path, &payload,
                 )
                 .await;
+                if let Ok(mut catalog) = Self::get_catalog(&db, &store, OVERLAYS_CATALOG_KEY).await
+                {
+                    if catalog.insert(key_path.clone()) {
+                        let _ =
+                            Self::save_catalog(&db, &store, OVERLAYS_CATALOG_KEY, &catalog).await;
+                    }
+                }
             }
         });
     }
@@ -659,6 +809,74 @@ impl LocalStorePersistence for IndexedDbPersistence {
             {
                 let _ =
                     crate::platform::browser::indexed_db::delete_key(&db, &store, &key_path).await;
+                if let Ok(mut catalog) = Self::get_catalog(&db, &store, OVERLAYS_CATALOG_KEY).await
+                {
+                    if catalog.remove(&key_path) {
+                        let _ =
+                            Self::save_catalog(&db, &store, OVERLAYS_CATALOG_KEY, &catalog).await;
+                    }
+                }
+            }
+        });
+    }
+
+    fn schedule_initial_load(&self, store: Arc<MemoryLocalStore>) {
+        let db_name = self.db_name.clone();
+        let targets_store = self.targets_store.clone();
+        let overlays_store = self.overlays_store.clone();
+        let version = self.version;
+
+        self.spawn(async move {
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name,
+                version,
+                &targets_store,
+            )
+            .await
+            {
+                if let Ok(catalog) =
+                    Self::get_catalog(&db, &targets_store, TARGETS_CATALOG_KEY).await
+                {
+                    for target_key in catalog {
+                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
+                            &db,
+                            &targets_store,
+                            &target_key,
+                        )
+                        .await
+                        {
+                            if let Some(snapshot) = Self::decode_target_snapshot(&payload) {
+                                store.restore_target_snapshot(snapshot);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name,
+                version,
+                &overlays_store,
+            )
+            .await
+            {
+                if let Ok(catalog) =
+                    Self::get_catalog(&db, &overlays_store, OVERLAYS_CATALOG_KEY).await
+                {
+                    for key_path in catalog {
+                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
+                            &db,
+                            &overlays_store,
+                            &key_path,
+                        )
+                        .await
+                        {
+                            if let Some(key) = Self::decode_overlay(&payload) {
+                                store.restore_overlay_key(key).await;
+                            }
+                        }
+                    }
+                }
             }
         });
     }
