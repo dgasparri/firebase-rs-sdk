@@ -76,6 +76,14 @@ struct QueryListenerEntry {
     last_documents: Vec<DocumentSnapshot>,
 }
 
+struct QueryViewState {
+    documents: Vec<DocumentSnapshot>,
+    has_pending_writes: bool,
+    resume_token: Option<Vec<u8>>,
+    snapshot_version: Option<Timestamp>,
+    from_cache: bool,
+}
+
 /// In-memory store that mirrors the responsibilities of the Firestore JS LocalStore.
 ///
 /// The implementation keeps per-target metadata (remote keys, resume tokens, snapshot
@@ -321,13 +329,11 @@ impl MemoryLocalStore {
         Ok(DocumentSnapshot::new(key.clone(), data, metadata))
     }
 
-    async fn build_query_snapshot(
+    async fn compute_query_state(
         &self,
         target_id: i32,
         query: &Query,
-        previous_metadata: Option<&QuerySnapshotMetadata>,
-        previous_documents: Option<&[DocumentSnapshot]>,
-    ) -> FirestoreResult<QuerySnapshot> {
+    ) -> FirestoreResult<QueryViewState> {
         let target_snapshot = self.target_metadata_snapshot(target_id);
         let from_cache = target_snapshot
             .as_ref()
@@ -357,23 +363,41 @@ impl MemoryLocalStore {
             }
         }
 
-        let mut documents = Vec::new();
+        let mut docs = Vec::new();
         for key in keys {
-            documents.push(self.document_snapshot_for_key(&key, from_cache).await?);
+            docs.push(self.document_snapshot_for_key(&key, from_cache).await?);
         }
 
-        let documents = apply_query_to_documents(documents, &definition);
-        let previous_documents =
-            previous_documents.and_then(|docs| if docs.is_empty() { None } else { Some(docs) });
-        let doc_changes = compute_doc_changes(previous_documents, &documents);
+        let documents = apply_query_to_documents(docs, &definition);
         let has_pending_writes = documents.iter().any(|doc| doc.has_pending_writes());
 
-        let mut metadata = QuerySnapshotMetadata::new(
-            from_cache,
+        Ok(QueryViewState {
+            documents,
             has_pending_writes,
-            false,
             resume_token,
             snapshot_version,
+            from_cache,
+        })
+    }
+
+    async fn build_query_snapshot(
+        &self,
+        target_id: i32,
+        query: &Query,
+        previous_metadata: Option<&QuerySnapshotMetadata>,
+        previous_documents: Option<&[DocumentSnapshot]>,
+    ) -> FirestoreResult<QuerySnapshot> {
+        let state = self.compute_query_state(target_id, query).await?;
+        let previous_documents =
+            previous_documents.and_then(|docs| if docs.is_empty() { None } else { Some(docs) });
+        let doc_changes = compute_doc_changes(previous_documents, &state.documents);
+
+        let mut metadata = QuerySnapshotMetadata::new(
+            state.from_cache,
+            state.has_pending_writes,
+            false,
+            state.resume_token.clone(),
+            state.snapshot_version,
         );
 
         if let Some(previous) = previous_metadata {
@@ -386,7 +410,7 @@ impl MemoryLocalStore {
 
         Ok(QuerySnapshot::new(
             query.clone(),
-            documents,
+            state.documents,
             metadata,
             doc_changes,
         ))
@@ -468,6 +492,26 @@ impl MemoryLocalStore {
         callback: QueryListenerCallback,
     ) -> FirestoreResult<QueryListenerRegistration> {
         let id = self.listener_counter.fetch_add(1, Ordering::SeqCst);
+        let mut seed_metadata = None;
+        let mut seed_documents = Vec::new();
+        let should_seed = self
+            .target_metadata_snapshot(target_id)
+            .map(|snapshot| snapshot.current && snapshot.resume_token.is_some())
+            .unwrap_or(false);
+
+        if should_seed {
+            let state = self.compute_query_state(target_id, &query).await?;
+            let metadata = QuerySnapshotMetadata::new(
+                state.from_cache,
+                state.has_pending_writes,
+                false,
+                state.resume_token.clone(),
+                state.snapshot_version,
+            );
+            seed_metadata = Some(metadata);
+            seed_documents = state.documents;
+        }
+
         {
             let mut guard = self.query_listeners.lock().unwrap();
             guard
@@ -477,8 +521,8 @@ impl MemoryLocalStore {
                     id,
                     query: query.clone(),
                     callback,
-                    last_metadata: None,
-                    last_documents: Vec::new(),
+                    last_metadata: seed_metadata.clone(),
+                    last_documents: seed_documents.clone(),
                 });
         }
 

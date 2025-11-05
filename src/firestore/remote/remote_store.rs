@@ -607,7 +607,9 @@ mod tests {
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_syncer::{box_remote_store_future, RemoteStoreFuture};
-    use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};
+    use crate::firestore::remote::stream::{
+        InMemoryTransport, MultiplexedConnection, MultiplexedStream,
+    };
     use crate::firestore::remote::JsonProtoSerializer;
     use crate::platform::runtime;
     use async_trait::async_trait;
@@ -841,5 +843,80 @@ mod tests {
             events.iter().any(|event| event.target_resets.contains(&1)),
             "expected remote event with target reset"
         );
+    }
+
+    #[tokio::test]
+    async fn existence_filter_resets_multiple_targets() {
+        let syncer = TestRemoteSyncer::new();
+        let (store, server_connection) = setup_remote_store(Arc::clone(&syncer));
+
+        let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));
+        let target1 = ListenTarget::for_query(&serializer, 1, &sample_query_definition())
+            .expect("query target 1");
+        let target2 = ListenTarget::for_query(&serializer, 2, &sample_query_definition())
+            .expect("query target 2");
+
+        store.enable_network().await.expect("enable network");
+        store.listen(target1.clone()).await.expect("listen target1");
+        store.listen(target2.clone()).await.expect("listen target2");
+
+        let server_stream = server_connection
+            .open_stream()
+            .await
+            .expect("server open listen");
+
+        // Drain initial addTarget frames.
+        for _ in 0..2 {
+            let _ = server_stream.next().await.expect("initial frame");
+        }
+
+        let filter = |target_id: i32| {
+            serde_json::json!({
+                "filter": {
+                    "targetId": target_id,
+                    "count": 0
+                }
+            })
+        };
+
+        server_stream
+            .send(serde_json::to_vec(&filter(1)).unwrap())
+            .await
+            .expect("send existence filter 1");
+
+        runtime::sleep(std::time::Duration::from_millis(50)).await;
+        wait_for_add_target(&server_stream, 1).await;
+
+        server_stream
+            .send(serde_json::to_vec(&filter(2)).unwrap())
+            .await
+            .expect("send existence filter 2");
+
+        runtime::sleep(std::time::Duration::from_millis(50)).await;
+        wait_for_add_target(&server_stream, 2).await;
+
+        let events = syncer.events.lock().await.clone();
+        assert!(events.iter().any(|event| event.target_resets.contains(&1)));
+        assert!(events.iter().any(|event| event.target_resets.contains(&2)));
+    }
+
+    async fn wait_for_add_target(stream: &MultiplexedStream, expected_target: i32) {
+        for _ in 0..8 {
+            if let Some(frame) = stream.next().await {
+                if let Ok(payload) = frame {
+                    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&payload) {
+                        if json
+                            .get("addTarget")
+                            .and_then(|v| v.get("targetId"))
+                            .and_then(|v| v.as_i64())
+                            == Some(expected_target as i64)
+                        {
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        panic!("did not observe addTarget for {expected_target}");
     }
 }
