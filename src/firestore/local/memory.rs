@@ -829,6 +829,23 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
             }
         }
 
+        if !event.document_updates.is_empty() || !event.target_changes.is_empty() {
+            let mut limbo = self.limbo_documents.lock().unwrap();
+            for key in event.document_updates.keys() {
+                limbo.remove(key);
+            }
+            for change in event.target_changes.values() {
+                for key in change
+                    .added_documents
+                    .iter()
+                    .chain(change.modified_documents.iter())
+                    .chain(change.removed_documents.iter())
+                {
+                    limbo.remove(key);
+                }
+            }
+        }
+
         if !event.resolved_limbo_documents.is_empty() {
             let mut limbo = self.limbo_documents.lock().unwrap();
             for key in &event.resolved_limbo_documents {
@@ -989,17 +1006,33 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
 
     fn reset_target_metadata(&self, target_id: i32) {
         let persistence = self.persistence.as_ref().map(Arc::clone);
-        let (prior_remote_keys, snapshot) = {
+        let (prior_remote_keys, snapshot, other_remote_keys) = {
             let mut targets = self.target_metadata.lock().unwrap();
-            let entry = targets
-                .entry(target_id)
-                .or_insert_with(|| TargetMetadataSnapshot::new(target_id));
-            let prior = entry.remote_keys.clone();
-            entry.remote_keys.clear();
-            entry.resume_token = None;
-            entry.snapshot_version = None;
-            entry.current = false;
-            (prior, entry.clone())
+            let (prior_remote_keys, snapshot) = {
+                let entry = targets
+                    .entry(target_id)
+                    .or_insert_with(|| TargetMetadataSnapshot::new(target_id));
+                let prior = entry.remote_keys.clone();
+                entry.remote_keys.clear();
+                entry.resume_token = None;
+                entry.snapshot_version = None;
+                entry.current = false;
+                (prior, entry.clone())
+            };
+            let other_remote_keys = targets
+                .iter()
+                .filter_map(|(&id, meta)| {
+                    if id == target_id {
+                        None
+                    } else {
+                        Some(meta.remote_keys.clone())
+                    }
+                })
+                .fold(BTreeSet::new(), |mut acc, keys| {
+                    acc.extend(keys);
+                    acc
+                });
+            (prior_remote_keys, snapshot, other_remote_keys)
         };
 
         if let Some(persistence) = persistence {
@@ -1009,7 +1042,11 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
 
         if !prior_remote_keys.is_empty() {
             let mut limbo = self.limbo_documents.lock().unwrap();
-            limbo.extend(prior_remote_keys);
+            for key in prior_remote_keys {
+                if !other_remote_keys.contains(&key) {
+                    limbo.insert(key);
+                }
+            }
         }
     }
 
@@ -1587,7 +1624,8 @@ mod tests {
 
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use crate::firestore::api::{get_firestore, Firestore};
+    use crate::firestore::api::query::DocumentChangeType;
+    use crate::firestore::api::{get_firestore, Firestore, Query};
     use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_event::RemoteEvent;
@@ -1849,6 +1887,136 @@ mod tests {
 
         let limbo = store.limbo_documents_snapshot();
         assert!(limbo.contains(&key));
+    }
+
+    #[tokio::test]
+    async fn target_reset_skips_shared_documents() {
+        let store = Arc::new(MemoryLocalStore::new());
+        let key = DocumentKey::from_string("cities/sf").unwrap();
+
+        let mut primary_snapshot = TargetMetadataSnapshot::new(1);
+        primary_snapshot.remote_keys.insert(key.clone());
+        store.restore_target_snapshot(primary_snapshot);
+
+        let mut secondary_snapshot = TargetMetadataSnapshot::new(2);
+        secondary_snapshot.remote_keys.insert(key.clone());
+        store.restore_target_snapshot(secondary_snapshot);
+
+        let bridge = Arc::new(RemoteSyncerBridge::new(Arc::clone(&store)));
+        store.synchronize_remote_keys(&bridge);
+
+        let mut event = RemoteEvent::default();
+        event.target_resets.insert(1);
+        RemoteSyncer::apply_remote_event(&*bridge, event)
+            .await
+            .expect("apply event");
+
+        let limbo = store.limbo_documents_snapshot();
+        assert!(limbo.is_empty());
+    }
+
+    #[tokio::test]
+    async fn overlay_documents_survive_target_reset() {
+        let store = Arc::new(MemoryLocalStore::new());
+        let bridge = Arc::new(RemoteSyncerBridge::new(Arc::clone(&store)));
+        store.synchronize_remote_keys(&bridge);
+
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_app_settings()))
+            .await
+            .expect("initialize app");
+        let firestore_arc = get_firestore(Some(app.clone())).await.expect("firestore");
+        let firestore = Firestore::from_arc(firestore_arc);
+        let path = ResourcePath::from_string("cities").expect("collection path");
+        let query = Query::new(firestore, path).expect("query");
+
+        let key = DocumentKey::from_string("cities/sf").unwrap();
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "name".to_string(),
+            FirestoreValue::from_string("San Francisco"),
+        );
+        let data = MapValue::new(fields);
+        let write = WriteOperation::Set {
+            key: key.clone(),
+            data,
+            mask: None,
+            transforms: Vec::new(),
+        };
+        store
+            .queue_mutation_batch(&bridge, vec![write])
+            .await
+            .expect("queue batch");
+
+        let snapshots = Arc::new(StdMutex::new(Vec::new()));
+        let callback_snapshots = Arc::clone(&snapshots);
+        let registration = store
+            .register_query_listener(
+                1,
+                query.clone(),
+                Arc::new(move |snapshot| {
+                    callback_snapshots.lock().unwrap().push(snapshot);
+                }),
+            )
+            .await
+            .expect("register listener");
+
+        {
+            let guard = snapshots.lock().unwrap();
+            assert_eq!(guard.len(), 1);
+            let snapshot = guard.last().unwrap();
+            assert_eq!(snapshot.documents().len(), 1);
+        }
+
+        let mut event = RemoteEvent::default();
+        event.target_resets.insert(1);
+        RemoteSyncer::apply_remote_event(&*bridge, event)
+            .await
+            .expect("apply reset");
+
+        {
+            let guard = snapshots.lock().unwrap();
+            assert!(guard.len() >= 2);
+            let snapshot = guard.last().unwrap();
+            assert_eq!(snapshot.documents().len(), 1);
+            assert!(snapshot
+                .doc_changes()
+                .iter()
+                .all(|change| change.change_type() != DocumentChangeType::Removed));
+        }
+
+        drop(registration);
+    }
+
+    #[tokio::test]
+    async fn limbo_documents_cleared_on_follow_up_updates() {
+        let store = Arc::new(MemoryLocalStore::new());
+        let key = DocumentKey::from_string("cities/sf").unwrap();
+        let mut snapshot = TargetMetadataSnapshot::new(1);
+        snapshot.remote_keys.insert(key.clone());
+        store.restore_target_snapshot(snapshot);
+
+        let bridge = Arc::new(RemoteSyncerBridge::new(Arc::clone(&store)));
+        store.synchronize_remote_keys(&bridge);
+
+        let mut reset = RemoteEvent::default();
+        reset.target_resets.insert(1);
+        RemoteSyncer::apply_remote_event(&*bridge, reset)
+            .await
+            .expect("apply reset");
+
+        assert!(store.limbo_documents_snapshot().contains(&key));
+
+        let mut event = RemoteEvent::default();
+        event.document_updates.insert(key.clone(), None);
+        RemoteSyncer::apply_remote_event(&*bridge, event)
+            .await
+            .expect("apply update");
+
+        assert!(!store.limbo_documents_snapshot().contains(&key));
     }
 
     #[tokio::test]

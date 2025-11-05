@@ -13,7 +13,7 @@ mod mfa;
 mod phone;
 pub mod token;
 
-use crate::app::{AppError, FirebaseApp, LOGGER as APP_LOGGER};
+use crate::app::{registry, AppError, FirebaseApp, LOGGER as APP_LOGGER};
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::MfaEnrollmentInfo;
 use crate::auth::model::{
@@ -2631,7 +2631,7 @@ pub fn register_auth_component() {
     static REGISTERED: LazyLock<()> = LazyLock::new(|| {
         let component = Component::new("auth", Arc::new(auth_factory), ComponentType::Public)
             .with_instantiation_mode(InstantiationMode::Lazy);
-        let _ = crate::component::register_component(component);
+        let _ = registry::register_component(component);
     });
     LazyLock::force(&REGISTERED);
 }

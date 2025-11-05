@@ -2564,3 +2564,23 @@ what files are affected? Where are the original ts file in the JS SDK?
   local/local_store.test.ts that exercise multi-target and overlay-heavy scenarios.
 
   Those TS files show the guard rails and specs we still need to port into the Rust side.
+
+> PROMPT: work on the "View diffing polish & resilience" section in the file ./src/firestore/README.md until it's completed.
+▌ WASM-parity must be maintained. You can break the API
+
+ Changes
+
+  - Hardened limbo tracking so watcher updates immediately clear resolved keys (and target change deltas do too) in src/
+  firestore/local/memory.rs:832-854.
+  - Prevented existence-filter resets from flagging docs still owned by sibling targets by filtering shared keys before
+  limbo insertion in src/firestore/local/memory.rs:1007-1049.
+  - Added async coverage for multi-target overlaps, overlay-backed queries, and limbo resolution churn in src/firestore/
+  local/memory.rs:1893-2020.
+  - Documented the completed view diffing resilience work in src/firestore/README.md:232-235 and pruned the finished
+  item from the next-steps plan (src/firestore/README.md:266-288).
+
+  Tests
+
+  - cargo test target_reset_skips_shared_documents --lib
+  - cargo test overlay_documents_survive_target_reset --lib
+  - cargo test limbo_documents_cleared_on_follow_up_updates --lib

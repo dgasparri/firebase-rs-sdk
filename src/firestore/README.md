@@ -12,7 +12,7 @@ Firebase apps.
 
 ## Porting status
 
-- firestore 83% `[######### ]`
+- firestore 85% `[######### ]`
 
 ==As of April 12th, 2026==
 
@@ -229,89 +229,56 @@ async fn example_with_converter(
   so consumers can persist listen state across disconnects, apply pending write overlays so latency-compensated data
   matches local user edits, emit JS-style doc change sets (`added`/`modified`/`removed`) with positional indices, and seed
   restored views from persisted state so resumptions avoid spurious change notifications.
-
-### Implemented 2
-
- - Persist listener view state (last documents/metadata) across persistence restores so change sets remain monotonic
-   after IndexedDB reloads or app restarts.
-
-  - ✅ Query view snapshots now persist through `LocalStorePersistence::save_query_view_state`, with
-    `IndexedDbPersistence` writing JSON blobs that capture target ids, resume tokens, snapshot versions, cache flags,
-    pending-write metadata, and the cached documents so WASM builds reload identical listener state.
-  - ✅ `MemoryLocalStore` seeds listeners from restored view state, dispatching an immediate, change-free snapshot on
-    re-registration and keeping the latest state current after each emission while pruning persistence when the last
-    listener detaches or the store resets.
-  - ✅ Restart flows are covered by `restores_view_state_from_persistence` (mock-backed) to ensure resume tokens,
-    metadata, and document sets survive a simulated IndexedDB reload without emitting spurious `docChanges()`.
+- **View diffing resilience** – Existence-filter resets now only flag documents as limbo when no sibling targets still
+  reference them, overlay-backed documents remain visible across resets, and limbo markers clear automatically when
+  follow-up watch updates arrive. New async tests cover multi-target overlap, overlay-heavy queues, and limbo resolution
+  to keep behaviour consistent across native and WASM builds.
+- **Persisted query view state** – `LocalStorePersistence::save_query_view_state` writes IndexedDB blobs (target id,
+  resume token, snapshot version, cache flags, pending-write metadata, cached documents) so WASM restores snapshots; the
+  local store seeds listeners from those snapshots, dispatches change-free replays on re-registration, and prunes
+  persistence when listeners detach. `restores_view_state_from_persistence` ensures the reload path keeps doc changes
+  stable and preserves metadata.
 
 
 ## Still to do
 
-- Transactions and merge preconditions aligned with the JS mutation queue.
-- Hook the new remote store into the higher-level sync engine/local store once those layers are ported, including limbo
-  resolution, existence-filter mismatch recovery, and overlay diff reconciliation across targets.
-- Offline persistence layers (memory + IndexedDB), LRU pruning, and multi-tab coordination.
+- Snapshot/converter polish to cover remaining metadata options, server timestamp behaviour, and typed helpers that are
+  still JS-only.
+- Transactions and merge preconditions aligned with the JS mutation queue, including retries and mutation queue wiring.
+- Query builder completion (composite/OR filters, nested orderings, cursor helpers, limit-to-last validation) wired
+  through structured query generation and watch responses.
+- Complete sync engine parity by finishing existence-filter mismatch recovery, limbo orchestration, and overlay diff
+  reconciliation across persistence-backed targets.
+- Offline persistence layers (memory + IndexedDB), LRU pruning, multi-tab coordination, and platform-specific feature
+  gating for wasm/web targets.
 - Bundle loading, named queries, and enhanced aggregation coverage (min/max, percentile).
 - Emulator-backed integration coverage and stress tests across HTTP/gRPC transports.
 
-This is enough to explore API ergonomics and stand up tests, but it lacks real network, persistence, query logic, and the
-majority of the Firestore feature set.
 
 ## Next steps - Detailed completion plan
 
-1. **View diffing polish & resilience**
- - Expand limbo/existence-filter coverage with multi-target scenarios and overlay-heavy queues, mirroring the
-   SyncEngine specs that guard against false positives.
-  This item is about hardening the listener/view layer when Firestore enters “limbo” states or receives existence-
-  filter mismatches—cases where the backend thinks a target should contain fewer documents than the client currently has
-  cached. We already track limbo keys and basic resets, but coverage is still thin around:
-  - multiple concurrent targets watching overlapping collections,
-  - views where many local overlays (pending writes) hide the true backend state, and
-  - the transitions that happen when the backend reports mismatches, forcing the sync engine to re-verify documents.
-  “Expanding coverage” means writing the missing integration tests and edge-case handling so our Rust port mirrors the
-  JS SyncEngine specs: confirming that we drop the right documents from limbo, re-run existence filters per target,
-  and don’t surface false removals when only overlays are responsible for the discrepancy. Essentially, it’s a focused
-  validation of multi-target limbo resolution under heavy pending-write pressure so we can be confident the rebuilt view
-  diffing stays correct in those stress paths.
-  Affected files are:
-  - src/firestore/local/memory.rs — the in-memory LocalStore keeps limbo docs, target metadata, overlays, and applies
-  remote events/existence filters.
-  - src/firestore/local/sync_engine.rs — wires the LocalStore into the RemoteStore, orchestrates limbo resolution, and
-  broadcasts listener snapshots.
-  - src/firestore/remote/watch_change_aggregator.rs, src/firestore/remote/remote_store.rs, and related remote modules —
-  surface existence-filter updates and target changes that drive limbo handling.
-  - Tests that live alongside those modules (e.g. new integration-style cases under src/firestore/local/memory.rs tests
-  or cross-module tests in tests/firestore/…).
-  For reference in the original JS SDK, the behaviour you’re mirroring is driven by:
-  - packages/firestore/src/core/sync_engine.ts — main limbo/existence-filter logic.
-  - packages/firestore/src/local/local_store_impl.ts — manages pending overlays, remote keys, existence-filter mismatch
-  recovery.
-  - The associated tests under packages/firestore/test/unit/core/sync_engine.test.ts and packages/firestore/test/unit/
-  local/local_store.test.ts that exercise multi-target and overlay-heavy scenarios.
-  Those TS files show the guard rails and specs we still need to port into the Rust side.
-
-2. **Snapshot & converter parity**
+1. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.
-3. **Write operations**
+2. **Write operations**
    - Build client-side transactions (retries, preconditions, mutation queue) atop the shared commit + transform
      pipeline.
-4. **Query engine**
+3. **Query engine**
    - Finish porting the remaining query builder surface (composite/OR filters, `orderBy` on nested/transform fields,
      cursor helpers such as `startAfter`/`endBefore`, limit-to-last validation) so it mirrors `packages/firestore/src/core/query.ts`.
-   - Implement target serialization and comparator logic shared by the local store and the remote watch layer so
-     listen responses can be applied to views.
-   - Connect the normalised query definitions to the remote listen stream once gRPC/WebChannel support lands, ensuring
-     resume tokens, ordering, and backfill handling behave identically to the JS SDK.
-5. **Local persistence**
+     - Implement target serialization and comparator logic shared by the local store and the remote watch layer so
+       listen responses can be applied to views.
+     - Connect the normalised query definitions to the remote listen stream once gRPC/WebChannel support lands, ensuring
+       resume tokens, ordering, and backfill handling behave identically to the JS SDK.
+4. **Local persistence**
    - Introduce the local cache layers (memory, IndexedDB-like, LRU pruning) and multi-tab coordination, matching the JS
      architecture.
-6. **Bundles & advanced aggregates**
+5. **Bundles & advanced aggregates**
    - Port bundle loading, named queries, and extended aggregate functions (min/max, percentile) once core querying is
      functional.
-7. **Platform-specific plumbing**
+6. **Platform-specific plumbing**
    - Mirror browser/node differences (e.g., persistence availability checks, WebChannel vs gRPC) via `platform/` modules.
-8. **Testing & parity checks**
+7. **Testing & parity checks**
    - Translate the TS unit/integration tests, add coverage for conversions and query logic, and validate against Firebase
      emulators where possible.
 
@@ -334,21 +301,3 @@ majority of the Firestore feature set.
 5. **Integration staging**
    - Plan emulator-backed integration tests once REST/gRPC networking is wired; gate them behind cargo features to avoid
      CI flakiness.
-
-### Immediate Porting Focus
-
-| Priority | JS source | Target Rust module | Scope | Key dependencies |
-|----------|-----------|--------------------|-------|------------------|
-| P0 | `packages/firestore/src/remote/persistent_stream.ts`, `remote/datastore.ts` | New `src/firestore/remote/grpc/` plus updates to `remote/datastore/mod.rs` | Implement gRPC/WebChannel listen & write streaming alongside REST, sharing auth/backoff logic. | Requires platform stream adapters (native + wasm) and watch change parsing. |
-| P0 | `packages/firestore/src/remote/datastore.ts` (credentials, emulator) | `src/firestore/remote/datastore/http.rs`, `mod.rs` | Expand token refresh/emulator header handling and unify transform-aware commits across transports. | Depends on auth/App Check providers, heartbeat storage, and gRPC transport availability. |
-| P1 | `packages/firestore/src/api/transaction.ts`, `core/transaction_runner.ts` | `src/firestore/api/transaction.rs`, `src/firestore/core/transaction.rs` | Build transactions/retries and precondition support atop the new commit pipeline. | Needs gRPC commit parity and mutation queue abstractions. |
-| P1 | `packages/firestore/src/api/snapshot.ts`, `api/reference_impl.ts` | `src/firestore/api/snapshot.rs`, `src/firestore/api/mod.rs` | Polish snapshot metadata/converters and align API surface with modular JS (`withConverter`, typed snapshots). | Requires gRPC listen results and converter parity. |
-| P1 | `packages/firestore/src/api/filter.ts`, `core/query.ts`, `core/view.ts`, `remote/watch_change.ts` | `src/firestore/api/query.rs`, `src/firestore/core/query/` | Port query builders, bounds, ordering, and attach them to real listen results. | Requires streaming remote store, target serialization, and comparator logic. |
-| P2 | `packages/firestore/src/local/indexeddb_*`, `local/persistence.ts`, `local/remote_document_cache.ts` | `src/firestore/local/` | Establish trait-based persistence with in-memory baseline, paving the way for disk-backed stores later. | Requires query engine integration and watch pipeline parity. |
-
-Follow this order so that the network-backed datastore unblocks richer snapshots and transactional APIs before layering on
-query/watch streaming and persistence. As each Rust module solidifies, port the matching TS unit tests from
-`packages/firestore/test/unit/` to ensure behavioural parity.
-
-Working through these steps in order will gradually move the port from a stubbed implementation to a fully compatible
-Firestore client suitable for real workloads.
