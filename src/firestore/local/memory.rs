@@ -19,6 +19,7 @@ use base64::Engine;
 ))]
 use serde_json::{json, Value};
 
+use crate::firestore::api::query::compute_doc_changes;
 use crate::firestore::api::{
     DocumentSnapshot, Query, QuerySnapshot, QuerySnapshotMetadata, SnapshotMetadata,
 };
@@ -72,6 +73,7 @@ struct QueryListenerEntry {
     query: Query,
     callback: QueryListenerCallback,
     last_metadata: Option<QuerySnapshotMetadata>,
+    last_documents: Vec<DocumentSnapshot>,
 }
 
 /// In-memory store that mirrors the responsibilities of the Firestore JS LocalStore.
@@ -324,6 +326,7 @@ impl MemoryLocalStore {
         target_id: i32,
         query: &Query,
         previous_metadata: Option<&QuerySnapshotMetadata>,
+        previous_documents: Option<&[DocumentSnapshot]>,
     ) -> FirestoreResult<QuerySnapshot> {
         let target_snapshot = self.target_metadata_snapshot(target_id);
         let from_cache = target_snapshot
@@ -360,6 +363,9 @@ impl MemoryLocalStore {
         }
 
         let documents = apply_query_to_documents(documents, &definition);
+        let previous_documents =
+            previous_documents.and_then(|docs| if docs.is_empty() { None } else { Some(docs) });
+        let doc_changes = compute_doc_changes(previous_documents, &documents);
         let has_pending_writes = documents.iter().any(|doc| doc.has_pending_writes());
 
         let mut metadata = QuerySnapshotMetadata::new(
@@ -378,7 +384,12 @@ impl MemoryLocalStore {
             metadata.set_sync_state_changed(true);
         }
 
-        Ok(QuerySnapshot::new(query.clone(), documents, metadata))
+        Ok(QuerySnapshot::new(
+            query.clone(),
+            documents,
+            metadata,
+            doc_changes,
+        ))
     }
 
     async fn emit_query_snapshot(&self, target_id: i32) -> FirestoreResult<()> {
@@ -388,24 +399,36 @@ impl MemoryLocalStore {
         };
 
         if let Some(entries) = listeners {
-            let mut updates = Vec::new();
+            let mut updates: Vec<(u64, QuerySnapshotMetadata, Vec<DocumentSnapshot>)> = Vec::new();
             let mut callbacks = Vec::new();
 
             for entry in entries {
+                let previous_docs = if entry.last_documents.is_empty() {
+                    None
+                } else {
+                    Some(entry.last_documents.as_slice())
+                };
                 let snapshot = self
-                    .build_query_snapshot(target_id, &entry.query, entry.last_metadata.as_ref())
+                    .build_query_snapshot(
+                        target_id,
+                        &entry.query,
+                        entry.last_metadata.as_ref(),
+                        previous_docs,
+                    )
                     .await?;
                 let metadata = snapshot.metadata().clone();
-                updates.push((entry.id, metadata));
+                let documents = snapshot.documents().to_vec();
+                updates.push((entry.id, metadata, documents));
                 callbacks.push((Arc::clone(&entry.callback), snapshot));
             }
 
             {
                 let mut guard = self.query_listeners.lock().unwrap();
                 if let Some(entries_mut) = guard.get_mut(&target_id) {
-                    for (id, metadata) in &updates {
-                        if let Some(entry) = entries_mut.iter_mut().find(|entry| entry.id == *id) {
-                            entry.last_metadata = Some(metadata.clone());
+                    for (id, metadata, documents) in updates {
+                        if let Some(entry) = entries_mut.iter_mut().find(|entry| entry.id == id) {
+                            entry.last_metadata = Some(metadata);
+                            entry.last_documents = documents;
                         }
                     }
                 }
@@ -455,6 +478,7 @@ impl MemoryLocalStore {
                     query: query.clone(),
                     callback,
                     last_metadata: None,
+                    last_documents: Vec::new(),
                 });
         }
 

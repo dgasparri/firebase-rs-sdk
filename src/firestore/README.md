@@ -226,8 +226,8 @@ async fn example_with_converter(
   `QueryListenerRegistration` handles make it easy to stop listening.
 - **Query view integration** – Listener snapshots now evaluate filters, ordering, bounds, and limits locally, surface
   ViewSnapshot-style metadata (`from_cache`, `has_pending_writes`, `sync_state_changed`), expose per-target resume tokens
-  so consumers can persist listen state across disconnects, and apply pending write overlays so latency-compensated data
-  matches local user edits.
+  so consumers can persist listen state across disconnects, apply pending write overlays so latency-compensated data
+  matches local user edits, and emit JS-style doc change sets (`added`/`modified`/`removed`) with positional indices.
 
 ## Still to do
 

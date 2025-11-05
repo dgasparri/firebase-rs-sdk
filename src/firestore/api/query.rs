@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
@@ -569,8 +570,11 @@ mod tests {
     use crate::app::FirebaseAppConfig;
     use crate::app::FirebaseOptions;
     use crate::component::ComponentContainer;
+    use crate::firestore::api::snapshot::SnapshotMetadata;
     use crate::firestore::api::Firestore;
     use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
+    use crate::firestore::value::MapValue;
+    use std::collections::BTreeMap;
 
     fn build_firestore() -> Firestore {
         let options = FirebaseOptions {
@@ -586,6 +590,17 @@ mod tests {
     fn build_query() -> Query {
         let firestore = build_firestore();
         Query::new(firestore, ResourcePath::from_string("cities").unwrap()).unwrap()
+    }
+
+    fn snapshot_for(id: &str, population: i64) -> DocumentSnapshot {
+        let key = DocumentKey::from_string(&format!("cities/{id}")).unwrap();
+        let mut map = BTreeMap::new();
+        map.insert(
+            "population".into(),
+            FirestoreValue::from_integer(population),
+        );
+        let metadata = SnapshotMetadata::new(false, false);
+        DocumentSnapshot::new(key, Some(MapValue::new(map)), metadata)
     }
 
     #[test]
@@ -673,6 +688,44 @@ mod tests {
         let non_matching = DocumentKey::from_string("cities/sf/attractions/golden_gate").unwrap();
         assert!(definition.matches_collection(&matching));
         assert!(!definition.matches_collection(&non_matching));
+    }
+
+    #[test]
+    fn compute_doc_changes_tracks_add_modify_remove() {
+        let previous = vec![snapshot_for("sf", 100), snapshot_for("la", 200)];
+        let current = vec![
+            snapshot_for("la", 200),
+            snapshot_for("sf", 150),
+            snapshot_for("ny", 50),
+        ];
+
+        let changes = compute_doc_changes(Some(&previous), &current);
+        assert_eq!(changes.len(), 3);
+
+        assert_eq!(changes[0].change_type(), DocumentChangeType::Modified);
+        assert_eq!(changes[0].old_index(), 1);
+        assert_eq!(changes[0].new_index(), 0);
+
+        assert_eq!(changes[1].change_type(), DocumentChangeType::Modified);
+        assert_eq!(changes[1].old_index(), 0);
+        assert_eq!(changes[1].new_index(), 1);
+
+        assert_eq!(changes[2].change_type(), DocumentChangeType::Added);
+        assert_eq!(changes[2].old_index(), -1);
+        assert_eq!(changes[2].new_index(), 2);
+    }
+
+    #[test]
+    fn compute_doc_changes_handles_removals() {
+        let previous = vec![snapshot_for("sf", 100)];
+        let current = Vec::new();
+
+        let changes = compute_doc_changes(Some(&previous), &current);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].change_type(), DocumentChangeType::Removed);
+        assert_eq!(changes[0].old_index(), 0);
+        assert_eq!(changes[0].new_index(), -1);
+        assert_eq!(changes[0].doc().id(), "sf");
     }
 }
 
@@ -898,6 +951,7 @@ pub struct QuerySnapshot {
     query: Query,
     documents: Vec<DocumentSnapshot>,
     metadata: QuerySnapshotMetadata,
+    doc_changes: Vec<QueryDocumentChange>,
 }
 
 impl QuerySnapshot {
@@ -905,11 +959,13 @@ impl QuerySnapshot {
         query: Query,
         documents: Vec<DocumentSnapshot>,
         metadata: QuerySnapshotMetadata,
+        doc_changes: Vec<QueryDocumentChange>,
     ) -> Self {
         Self {
             query,
             documents,
             metadata,
+            doc_changes,
         }
     }
 
@@ -949,6 +1005,10 @@ impl QuerySnapshot {
         self.metadata.snapshot_version()
     }
 
+    pub fn doc_changes(&self) -> &[QueryDocumentChange] {
+        &self.doc_changes
+    }
+
     pub fn into_documents(self) -> Vec<DocumentSnapshot> {
         self.documents
     }
@@ -961,6 +1021,122 @@ impl IntoIterator for QuerySnapshot {
     fn into_iter(self) -> Self::IntoIter {
         self.documents.into_iter()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DocumentChangeType {
+    Added,
+    Modified,
+    Removed,
+}
+
+#[derive(Clone, Debug)]
+pub struct QueryDocumentChange {
+    change_type: DocumentChangeType,
+    doc: DocumentSnapshot,
+    old_index: i32,
+    new_index: i32,
+}
+
+impl QueryDocumentChange {
+    fn added(doc: DocumentSnapshot, new_index: usize) -> Self {
+        Self {
+            change_type: DocumentChangeType::Added,
+            doc,
+            old_index: -1,
+            new_index: new_index as i32,
+        }
+    }
+
+    fn modified(doc: DocumentSnapshot, old_index: usize, new_index: usize) -> Self {
+        Self {
+            change_type: DocumentChangeType::Modified,
+            doc,
+            old_index: old_index as i32,
+            new_index: new_index as i32,
+        }
+    }
+
+    fn removed(doc: DocumentSnapshot, old_index: usize) -> Self {
+        Self {
+            change_type: DocumentChangeType::Removed,
+            doc,
+            old_index: old_index as i32,
+            new_index: -1,
+        }
+    }
+
+    pub fn change_type(&self) -> DocumentChangeType {
+        self.change_type
+    }
+
+    pub fn doc(&self) -> &DocumentSnapshot {
+        &self.doc
+    }
+
+    pub fn old_index(&self) -> i32 {
+        self.old_index
+    }
+
+    pub fn new_index(&self) -> i32 {
+        self.new_index
+    }
+}
+
+pub(crate) fn compute_doc_changes(
+    previous: Option<&[DocumentSnapshot]>,
+    current: &[DocumentSnapshot],
+) -> Vec<QueryDocumentChange> {
+    match previous {
+        None => current
+            .iter()
+            .enumerate()
+            .map(|(index, doc)| QueryDocumentChange::added(doc.clone(), index))
+            .collect(),
+        Some(prev_docs) => {
+            if prev_docs.is_empty() {
+                return current
+                    .iter()
+                    .enumerate()
+                    .map(|(index, doc)| QueryDocumentChange::added(doc.clone(), index))
+                    .collect();
+            }
+
+            let mut previous_map: BTreeMap<DocumentKey, usize> = BTreeMap::new();
+            for (index, doc) in prev_docs.iter().enumerate() {
+                previous_map.insert(doc.document_key().clone(), index);
+            }
+
+            let mut changes = Vec::new();
+
+            for (new_index, doc) in current.iter().enumerate() {
+                let key = doc.document_key().clone();
+                if let Some(old_index) = previous_map.remove(&key) {
+                    let prev_doc = &prev_docs[old_index];
+                    if !document_snapshots_equal(prev_doc, doc) || old_index != new_index {
+                        changes.push(QueryDocumentChange::modified(
+                            doc.clone(),
+                            old_index,
+                            new_index,
+                        ));
+                    }
+                } else {
+                    changes.push(QueryDocumentChange::added(doc.clone(), new_index));
+                }
+            }
+
+            for (_, old_index) in previous_map.into_iter() {
+                let prev_doc = prev_docs[old_index].clone();
+                changes.push(QueryDocumentChange::removed(prev_doc, old_index));
+            }
+
+            changes
+        }
+    }
+}
+
+fn document_snapshots_equal(left: &DocumentSnapshot, right: &DocumentSnapshot) -> bool {
+    left.map_value() == right.map_value() && left.metadata() == right.metadata()
 }
 
 #[derive(Clone)]
@@ -994,6 +1170,24 @@ where
             .collect()
     }
 
+    pub fn doc_changes(&self) -> Vec<TypedQueryDocumentChange<C>> {
+        let converter = Arc::clone(&self.converter);
+        self.base
+            .doc_changes()
+            .iter()
+            .cloned()
+            .map(|change| {
+                let typed_doc = change.doc.clone().into_typed(Arc::clone(&converter));
+                TypedQueryDocumentChange::new(
+                    change.change_type,
+                    typed_doc,
+                    change.old_index,
+                    change.new_index,
+                )
+            })
+            .collect()
+    }
+
     pub fn metadata(&self) -> &QuerySnapshotMetadata {
         self.base.metadata()
     }
@@ -1014,5 +1208,51 @@ where
             .map(|snapshot| snapshot.into_typed(Arc::clone(&converter)))
             .collect::<Vec<_>>()
             .into_iter()
+    }
+}
+
+#[derive(Clone)]
+pub struct TypedQueryDocumentChange<C>
+where
+    C: FirestoreDataConverter,
+{
+    change_type: DocumentChangeType,
+    doc: TypedDocumentSnapshot<C>,
+    old_index: i32,
+    new_index: i32,
+}
+
+impl<C> TypedQueryDocumentChange<C>
+where
+    C: FirestoreDataConverter,
+{
+    fn new(
+        change_type: DocumentChangeType,
+        doc: TypedDocumentSnapshot<C>,
+        old_index: i32,
+        new_index: i32,
+    ) -> Self {
+        Self {
+            change_type,
+            doc,
+            old_index,
+            new_index,
+        }
+    }
+
+    pub fn change_type(&self) -> DocumentChangeType {
+        self.change_type
+    }
+
+    pub fn doc(&self) -> &TypedDocumentSnapshot<C> {
+        &self.doc
+    }
+
+    pub fn old_index(&self) -> i32 {
+        self.old_index
+    }
+
+    pub fn new_index(&self) -> i32 {
+        self.new_index
     }
 }

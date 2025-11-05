@@ -14,8 +14,9 @@ pub use database::{get_firestore, register_firestore_component, Firestore};
 pub use document::FirestoreClient;
 pub use operations::SetOptions;
 pub use query::{
-    ConvertedQuery, FilterOperator, LimitType, OrderDirection, Query, QuerySnapshot,
-    QuerySnapshotMetadata, TypedQuerySnapshot,
+    ConvertedQuery, DocumentChangeType, FilterOperator, LimitType, OrderDirection, Query,
+    QueryDocumentChange, QuerySnapshot, QuerySnapshotMetadata, TypedQueryDocumentChange,
+    TypedQuerySnapshot,
 };
 pub use reference::{
     CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,

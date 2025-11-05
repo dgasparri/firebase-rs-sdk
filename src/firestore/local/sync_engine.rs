@@ -137,7 +137,7 @@ impl SyncEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::api::query::{FilterOperator, OrderDirection};
+    use crate::firestore::api::query::{DocumentChangeType, FilterOperator, OrderDirection};
     use crate::firestore::api::{Firestore, QuerySnapshotMetadata};
     use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
     use crate::firestore::remote::datastore::WriteOperation;
@@ -376,8 +376,16 @@ mod tests {
         let definition = query.definition();
         let target = ListenTarget::for_query(&serializer, 3, &definition).expect("target");
 
-        let records: Arc<Mutex<Vec<(usize, Option<i64>, QuerySnapshotMetadata)>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let records: Arc<
+            Mutex<
+                Vec<(
+                    usize,
+                    Option<i64>,
+                    QuerySnapshotMetadata,
+                    Vec<(DocumentChangeType, i32, i32)>,
+                )>,
+            >,
+        > = Arc::new(Mutex::new(Vec::new()));
         let callback_records = Arc::clone(&records);
         let mut registration = engine
             .listen_query(target.clone(), query.clone(), move |snapshot| {
@@ -390,10 +398,16 @@ mod tests {
                         ValueKind::Double(f) => Some(*f as i64),
                         _ => None,
                     });
+                let changes = snapshot
+                    .doc_changes()
+                    .iter()
+                    .map(|change| (change.change_type(), change.old_index(), change.new_index()))
+                    .collect();
                 callback_records.lock().unwrap().push((
                     snapshot.len(),
                     born,
                     snapshot.metadata().clone(),
+                    changes,
                 ));
             })
             .await
@@ -426,6 +440,8 @@ mod tests {
         assert_eq!(snapshot_records[1].0, 1);
         assert_eq!(snapshot_records[1].1, None);
         assert!(!snapshot_records[1].2.has_pending_writes());
+        assert_eq!(snapshot_records[1].3.len(), 1);
+        assert_eq!(snapshot_records[1].3[0], (DocumentChangeType::Added, -1, 0));
 
         let bridge = engine.remote_bridge();
         let overlay_write = WriteOperation::Update {
@@ -445,9 +461,11 @@ mod tests {
 
         let snapshot_records = records.lock().unwrap().clone();
         assert_eq!(snapshot_records.len(), 3);
-        let (_len, born, metadata) = &snapshot_records[2];
+        let (_len, born, metadata, changes) = &snapshot_records[2];
         assert_eq!(born, &Some(1900));
         assert!(metadata.has_pending_writes());
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0], (DocumentChangeType::Modified, 0, 0));
 
         engine
             .unlisten_query(3, &mut registration)

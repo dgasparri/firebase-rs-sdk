@@ -12,10 +12,11 @@ pub mod value;
 pub use api::{
     get_firestore, register_firestore_component, AggregateField, AggregateQuerySnapshot,
     AggregateSpec, CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,
-    ConvertedQuery, DocumentReference, DocumentSnapshot, FilterOperator, Firestore,
-    FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection, PassthroughConverter,
-    Query, QuerySnapshot, QuerySnapshotMetadata, SetOptions, SnapshotMetadata,
-    TypedDocumentSnapshot, TypedQuerySnapshot, WriteBatch,
+    ConvertedQuery, DocumentChangeType, DocumentReference, DocumentSnapshot, FilterOperator,
+    Firestore, FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection,
+    PassthroughConverter, Query, QueryDocumentChange, QuerySnapshot, QuerySnapshotMetadata,
+    SetOptions, SnapshotMetadata, TypedDocumentSnapshot, TypedQueryDocumentChange,
+    TypedQuerySnapshot, WriteBatch,
 };
 
 #[doc(inline)]
