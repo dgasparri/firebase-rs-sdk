@@ -2479,3 +2479,88 @@ focus on extending IndexedDB persistence to reload view state, what needs to be 
 
   Once these pieces are in place, listeners will resume with accurate view state across IndexedDB restores, eliminating
   spurious change sets and keeping resume tokens coherent.
+
+
+  • Updated Plan
+  └ ✔ Extend MemoryLocalStore and persistence trait to support persisted query view state caching and seeding
+    ✔ Implement IndexedDbPersistence serialization/loading for view state with wasm-safe JSON format
+    ✔ Add tests exercising resumed view state behaviour and update firestore README section
+
+• Ran cd /mnt/c/Users/dmg/repositories/firebase-rs-sdk && git status -sb
+
+• Ran cd /mnt/c/Users/dmg/repositories/firebase-rs-sdk && git diff src/firestore/local/memory.rs
+
+• Explored
+  └ Read memory.rs, README.md
+
+> Thinking
+  I'm putting together a concise final message explaining how Firestore view state persistence was enhanced across
+  multiple components. I'll highlight trait extensions and memory store updates with line references, outline the new
+  IndexedDbPersistence store and encoding, mention the added restore test, and note README documentation updates. I’ll
+  also include the cargo test restores_view_state_from_persistence command run and suggest verifying with wasm-target
+  tests as a next step.
+
+> Persisted Firestore query view state through the local store and IndexedDB so listeners resume without false diffs.
+
+  - Expanded LocalStorePersistence to understand query view snapshots and taught MemoryLocalStore to cache, restore,
+  and prune them via restored_query_views so resumed listeners reuse metadata/documents instead of recomputing fresh
+  snapshots (src/firestore/local/memory.rs:72, src/firestore/local/memory.rs:338, src/firestore/local/memory.rs:353).
+  - Adjusted emit_query_snapshot and register_query_listener_internal to feed the shared cache, persist the first
+  snapshot, and dispatch a change-free seed when a stored view exists, while cleaning up persistence when the
+  last listener drops (src/firestore/local/memory.rs:533, src/firestore/local/memory.rs:611, src/firestore/local/
+  memory.rs:670).
+  - Upgraded the WASM IndexedDB backend with a dedicated firestore_view_states store plus JSON encode/decode helpers so
+  resume tokens, versions, flags, and cached docs survive reloads; initial load now hydrates memory from those records
+  and new persistence hooks write/remove them on change (src/firestore/local/memory.rs:1030, src/firestore/local/
+  memory.rs:1080, src/firestore/local/memory.rs:1520).
+  - Added restores_view_state_from_persistence to exercise the restart flow with a mock persistence layer, covering
+  metadata/doc reuse and docChanges stability (src/firestore/local/memory.rs:1605, src/firestore/local/memory.rs:1876).
+  - Captured the finished work in the module roadmap so “View diffing polish & resilience” now documents the persistent
+  snapshot support and regression test (src/firestore/README.md:252).
+
+  Tests: cargo test restores_view_state_from_persistence
+
+  Next step suggestion: run the WASM-targeted suite once available to ensure the new IndexedDB path behaves identically
+  in-browser.
+
+
+can you explain in more detail the next step in README.md "Expand limbo/existence-filter coverage with multi-target
+▌ scenarios and overlay-heavy queues, mirroring the SyncEngine specs that guard against false positives."
+
+> That item is about hardening the listener/view layer when Firestore enters “limbo” states or receives existence-
+  filter mismatches—cases where the backend thinks a target should contain fewer documents than the client currently has
+  cached. We already track limbo keys and basic resets, but coverage is still thin around:
+
+  - multiple concurrent targets watching overlapping collections,
+  - views where many local overlays (pending writes) hide the true backend state, and
+  - the transitions that happen when the backend reports mismatches, forcing the sync engine to re-verify documents.
+
+  “Expanding coverage” means writing the missing integration tests and edge-case handling so our Rust port mirrors the
+  JS SyncEngine specs: confirming that we drop the right documents from limbo, re-run existence filters per target,
+  and don’t surface false removals when only overlays are responsible for the discrepancy. Essentially, it’s a focused
+  validation of multi-target limbo resolution under heavy pending-write pressure so we can be confident the rebuilt view
+  diffing stays correct in those stress paths.
+
+what files are affected? Where are the original ts file in the JS SDK?
+
+> You’d touch the Firestore sync engine and local-store plumbing that already handle limbo bookkeeping. In this repo
+  that means:
+
+  - src/firestore/local/memory.rs — the in-memory LocalStore keeps limbo docs, target metadata, overlays, and applies
+  remote events/existence filters.
+  - src/firestore/local/sync_engine.rs — wires the LocalStore into the RemoteStore, orchestrates limbo resolution, and
+  broadcasts listener snapshots.
+  - src/firestore/remote/watch_change_aggregator.rs, src/firestore/remote/remote_store.rs, and related remote modules —
+  surface existence-filter updates and target changes that drive limbo handling.
+  - Tests that live alongside those modules (e.g. new integration-style cases under src/firestore/local/memory.rs tests
+  or cross-module tests in tests/firestore/…).
+
+  For reference in the original JS SDK, the behaviour you’re mirroring is driven by:
+
+  - packages/firestore/src/core/sync_engine.ts — main limbo/existence-filter logic.
+  - packages/firestore/src/local/local_store_impl.ts — manages pending overlays, remote keys, existence-filter mismatch
+  recovery.
+  - The associated tests under packages/firestore/test/unit/core/sync_engine.test.ts and packages/firestore/test/unit/
+  local/local_store.test.ts that exercise multi-target and overlay-heavy scenarios.
+
+  Those TS files show the guard rails and specs we still need to port into the Rust side.

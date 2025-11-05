@@ -230,6 +230,21 @@ async fn example_with_converter(
   matches local user edits, emit JS-style doc change sets (`added`/`modified`/`removed`) with positional indices, and seed
   restored views from persisted state so resumptions avoid spurious change notifications.
 
+### Implemented 2
+
+ - Persist listener view state (last documents/metadata) across persistence restores so change sets remain monotonic
+   after IndexedDB reloads or app restarts.
+
+  - ✅ Query view snapshots now persist through `LocalStorePersistence::save_query_view_state`, with
+    `IndexedDbPersistence` writing JSON blobs that capture target ids, resume tokens, snapshot versions, cache flags,
+    pending-write metadata, and the cached documents so WASM builds reload identical listener state.
+  - ✅ `MemoryLocalStore` seeds listeners from restored view state, dispatching an immediate, change-free snapshot on
+    re-registration and keeping the latest state current after each emission while pruning persistence when the last
+    listener detaches or the store resets.
+  - ✅ Restart flows are covered by `restores_view_state_from_persistence` (mock-backed) to ensure resume tokens,
+    metadata, and document sets survive a simulated IndexedDB reload without emitting spurious `docChanges()`.
+
+
 ## Still to do
 
 - Transactions and merge preconditions aligned with the JS mutation queue.
@@ -245,21 +260,36 @@ majority of the Firestore feature set.
 ## Next steps - Detailed completion plan
 
 1. **View diffing polish & resilience**
-
- - Persist listener view state (last documents/metadata) across persistence restores so change sets remain monotonic
-   after IndexedDB reloads or app restarts.
-
-  - ✅ Query view snapshots now persist through `LocalStorePersistence::save_query_view_state`, with
-    `IndexedDbPersistence` writing JSON blobs that capture target ids, resume tokens, snapshot versions, cache flags,
-    pending-write metadata, and the cached documents so WASM builds reload identical listener state.
-  - ✅ `MemoryLocalStore` seeds listeners from restored view state, dispatching an immediate, change-free snapshot on
-    re-registration and keeping the latest state current after each emission while pruning persistence when the last
-    listener detaches or the store resets.
-  - ✅ Restart flows are covered by `restores_view_state_from_persistence` (mock-backed) to ensure resume tokens,
-    metadata, and document sets survive a simulated IndexedDB reload without emitting spurious `docChanges()`.
-
  - Expand limbo/existence-filter coverage with multi-target scenarios and overlay-heavy queues, mirroring the
    SyncEngine specs that guard against false positives.
+  This item is about hardening the listener/view layer when Firestore enters “limbo” states or receives existence-
+  filter mismatches—cases where the backend thinks a target should contain fewer documents than the client currently has
+  cached. We already track limbo keys and basic resets, but coverage is still thin around:
+  - multiple concurrent targets watching overlapping collections,
+  - views where many local overlays (pending writes) hide the true backend state, and
+  - the transitions that happen when the backend reports mismatches, forcing the sync engine to re-verify documents.
+  “Expanding coverage” means writing the missing integration tests and edge-case handling so our Rust port mirrors the
+  JS SyncEngine specs: confirming that we drop the right documents from limbo, re-run existence filters per target,
+  and don’t surface false removals when only overlays are responsible for the discrepancy. Essentially, it’s a focused
+  validation of multi-target limbo resolution under heavy pending-write pressure so we can be confident the rebuilt view
+  diffing stays correct in those stress paths.
+  Affected files are:
+  - src/firestore/local/memory.rs — the in-memory LocalStore keeps limbo docs, target metadata, overlays, and applies
+  remote events/existence filters.
+  - src/firestore/local/sync_engine.rs — wires the LocalStore into the RemoteStore, orchestrates limbo resolution, and
+  broadcasts listener snapshots.
+  - src/firestore/remote/watch_change_aggregator.rs, src/firestore/remote/remote_store.rs, and related remote modules —
+  surface existence-filter updates and target changes that drive limbo handling.
+  - Tests that live alongside those modules (e.g. new integration-style cases under src/firestore/local/memory.rs tests
+  or cross-module tests in tests/firestore/…).
+  For reference in the original JS SDK, the behaviour you’re mirroring is driven by:
+  - packages/firestore/src/core/sync_engine.ts — main limbo/existence-filter logic.
+  - packages/firestore/src/local/local_store_impl.ts — manages pending overlays, remote keys, existence-filter mismatch
+  recovery.
+  - The associated tests under packages/firestore/test/unit/core/sync_engine.test.ts and packages/firestore/test/unit/
+  local/local_store.test.ts that exercise multi-target and overlay-heavy scenarios.
+  Those TS files show the guard rails and specs we still need to port into the Rust side.
+
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.
