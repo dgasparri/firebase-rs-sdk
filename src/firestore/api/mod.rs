@@ -15,7 +15,7 @@ pub use document::FirestoreClient;
 pub use operations::SetOptions;
 pub use query::{
     ConvertedQuery, FilterOperator, LimitType, OrderDirection, Query, QuerySnapshot,
-    TypedQuerySnapshot,
+    QuerySnapshotMetadata, TypedQuerySnapshot,
 };
 pub use reference::{
     CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,

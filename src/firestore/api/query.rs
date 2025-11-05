@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::{DocumentKey, FieldPath, ResourcePath};
+use crate::firestore::model::{DocumentKey, FieldPath, ResourcePath, Timestamp};
 use crate::firestore::value::{FirestoreValue, ValueKind};
 
 use super::snapshot::DocumentSnapshot;
@@ -842,15 +842,75 @@ where
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuerySnapshotMetadata {
+    from_cache: bool,
+    has_pending_writes: bool,
+    sync_state_changed: bool,
+    resume_token: Option<Vec<u8>>,
+    snapshot_version: Option<Timestamp>,
+}
+
+impl QuerySnapshotMetadata {
+    pub fn new(
+        from_cache: bool,
+        has_pending_writes: bool,
+        sync_state_changed: bool,
+        resume_token: Option<Vec<u8>>,
+        snapshot_version: Option<Timestamp>,
+    ) -> Self {
+        Self {
+            from_cache,
+            has_pending_writes,
+            sync_state_changed,
+            resume_token,
+            snapshot_version,
+        }
+    }
+
+    pub fn from_cache(&self) -> bool {
+        self.from_cache
+    }
+
+    pub fn has_pending_writes(&self) -> bool {
+        self.has_pending_writes
+    }
+
+    pub fn sync_state_changed(&self) -> bool {
+        self.sync_state_changed
+    }
+
+    pub fn resume_token(&self) -> Option<&[u8]> {
+        self.resume_token.as_deref()
+    }
+
+    pub fn snapshot_version(&self) -> Option<&Timestamp> {
+        self.snapshot_version.as_ref()
+    }
+
+    pub(crate) fn set_sync_state_changed(&mut self, value: bool) {
+        self.sync_state_changed = value;
+    }
+}
+
+#[derive(Clone)]
 pub struct QuerySnapshot {
     query: Query,
     documents: Vec<DocumentSnapshot>,
+    metadata: QuerySnapshotMetadata,
 }
 
 impl QuerySnapshot {
-    pub fn new(query: Query, documents: Vec<DocumentSnapshot>) -> Self {
-        Self { query, documents }
+    pub fn new(
+        query: Query,
+        documents: Vec<DocumentSnapshot>,
+        metadata: QuerySnapshotMetadata,
+    ) -> Self {
+        Self {
+            query,
+            documents,
+            metadata,
+        }
     }
 
     pub fn query(&self) -> &Query {
@@ -867,6 +927,26 @@ impl QuerySnapshot {
 
     pub fn len(&self) -> usize {
         self.documents.len()
+    }
+
+    pub fn metadata(&self) -> &QuerySnapshotMetadata {
+        &self.metadata
+    }
+
+    pub fn from_cache(&self) -> bool {
+        self.metadata.from_cache()
+    }
+
+    pub fn has_pending_writes(&self) -> bool {
+        self.metadata.has_pending_writes()
+    }
+
+    pub fn resume_token(&self) -> Option<&[u8]> {
+        self.metadata.resume_token()
+    }
+
+    pub fn snapshot_version(&self) -> Option<&Timestamp> {
+        self.metadata.snapshot_version()
     }
 
     pub fn into_documents(self) -> Vec<DocumentSnapshot> {
@@ -912,6 +992,10 @@ where
             .cloned()
             .map(|snapshot| snapshot.into_typed(Arc::clone(&converter)))
             .collect()
+    }
+
+    pub fn metadata(&self) -> &QuerySnapshotMetadata {
+        self.base.metadata()
     }
 }
 

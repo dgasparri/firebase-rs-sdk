@@ -224,12 +224,15 @@ async fn example_with_converter(
 - **Query listeners** – `SyncEngine::listen_query` now hooks query/view updates into the sync engine. Registered
   listeners receive live `QuerySnapshot`s when remote events or overlay changes land in `MemoryLocalStore`, and
   `QueryListenerRegistration` handles make it easy to stop listening.
+- **Query view integration** – Listener snapshots now evaluate filters, ordering, bounds, and limits locally, surface
+  ViewSnapshot-style metadata (`from_cache`, `has_pending_writes`, `sync_state_changed`), and expose per-target resume
+  tokens so consumers can persist listen state across disconnects.
 
 ## Still to do
 
 - Transactions and merge preconditions aligned with the JS mutation queue.
 - Hook the new remote store into the higher-level sync engine/local store once those layers are ported, including limbo
-  resolution, existence-filter mismatch recovery, and shared resume-token bookkeeping.
+  resolution, existence-filter mismatch recovery, and overlay diff reconciliation across targets.
 - Offline persistence layers (memory + IndexedDB), LRU pruning, and multi-tab coordination.
 - Bundle loading, named queries, and enhanced aggregation coverage (min/max, percentile).
 - Emulator-backed integration coverage and stress tests across HTTP/gRPC transports.
@@ -239,42 +242,14 @@ majority of the Firestore feature set.
 
 ## Next steps - Detailed completion plan
 
-1. **Query/view integration**
+1. **View diffing & overlay reconciliation**
 
-  End of day recap from the previous session:
-  Right now the new listener path takes every document in the targets remote-key set, merges any overlay hits, and
-  hands back a QuerySnapshot. That gets a basic view working, but it doesn't yet mirror the full behaviour of the JS
-  SyncEngine/EventManager. "Finish full query/view evaluation" means:
-   
-  a. Apply the query definition locally
-   - Filter out documents that don 't match where clauses.
-   - Sort by the query 's orderBy definition (including cursor semantics).
-   - Enforce limit / limitToLast rules after ordering.
-   - Respect startAt / endAt bounds and projections.
-   
-   This work usually lives in a "view" type (the JS code uses View to transform the targets document set and produce
-   change events). We need the Rust equivalent so listener callbacks only see the documents that truly satisfy the query.
-  b. Surface listener metadata
-   The JS EventManager emits:
-   - ViewSnapshot metadata (from cache / sync state / hasPendingWrites).
-   - Resume token updates and isFromCache/hasPendingWrites flags.
-   
-   Our callback currently receives just QuerySnapshot. For parity we should include metadata fields similar to
-   JS ViewSnapshot, so clients can tell when they 're seeing cached data, latency-compensated writes, or fresh server
-   snapshots.
-  c. Resume tokens
-   Listen responses carry resume tokens per target. The SyncEngine should expose them (and refresh them when
-   RemoteEvent carries a new token) so higher layers can resume a query after reconnect just like the JS client does.
-   
-   In short: build the view layer atop SyncEngine so it reenacts the full JS SyncEngine + EventManager behaviour, not
-   just the document union, and propagate the metadata listeners expect.
-
-
-   - Connect query views/listeners to the delegate callbacks so view snapshots, latency-compensated overlays, and limbo
-     documents update immediately after remote events and write acknowledgements.
-   - Port the existence-filter mismatch, credential swap, and write retry specs from the JS test suite to validate the
-     end-to-end pipeline across native and wasm builds.
-   - Restore persisted overlays into actionable write batches so latency-compensated mutations survive restarts.
+   - Compute document change sets (`added`/`modified`/`removed`) plus mutated-key tracking so higher layers can surface
+     JS-style `docChanges` without re-walking entire snapshots.
+   - Apply pending write overlays when constructing view snapshots (including delete overlays) so latency-compensated
+     writes update query results immediately with the expected field values.
+   - Track limbo documents and existence-filter mismatches, triggering target resets and recovery listens when watch
+     responses signal inconsistent remote state.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.

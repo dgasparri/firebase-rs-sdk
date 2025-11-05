@@ -137,8 +137,9 @@ impl SyncEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::api::Firestore;
-    use crate::firestore::model::{DatabaseId, DocumentKey, ResourcePath};
+    use crate::firestore::api::query::{FilterOperator, OrderDirection};
+    use crate::firestore::api::{Firestore, QuerySnapshotMetadata};
+    use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
     use crate::firestore::remote::remote_event::{RemoteEvent, TargetChange};
     use crate::firestore::remote::watch_change::WatchDocument;
     use crate::firestore::remote::NoopTokenProvider;
@@ -146,7 +147,7 @@ mod tests {
         InMemoryTransport, JsonProtoSerializer, MultiplexedConnection, NetworkLayer,
         StreamingDatastore, StreamingDatastoreImpl, TokenProviderArc,
     };
-    use crate::firestore::value::MapValue;
+    use crate::firestore::value::{FirestoreValue, MapValue};
     use crate::test_support::firebase::test_firebase_app_with_api_key;
     use std::collections::BTreeMap;
     use std::sync::Mutex;
@@ -198,11 +199,15 @@ mod tests {
         let definition = query.definition();
         let target = ListenTarget::for_query(&serializer, 1, &definition).expect("listen target");
 
-        let records = Arc::new(Mutex::new(Vec::new()));
+        let records: Arc<Mutex<Vec<(usize, QuerySnapshotMetadata)>>> =
+            Arc::new(Mutex::new(Vec::new()));
         let callback_records = Arc::clone(&records);
         let mut registration = engine
             .listen_query(target.clone(), query.clone(), move |snapshot| {
-                callback_records.lock().unwrap().push(snapshot.len());
+                callback_records
+                    .lock()
+                    .unwrap()
+                    .push((snapshot.len(), snapshot.metadata().clone()));
             })
             .await
             .expect("listen");
@@ -210,6 +215,8 @@ mod tests {
         let key = DocumentKey::from_string("cities/sf").unwrap();
         let mut change = TargetChange::default();
         change.added_documents.insert(key.clone());
+        change.current = true;
+        change.resume_token = Some(vec![1, 2, 3]);
         let watch_doc = WatchDocument {
             key: key.clone(),
             fields: MapValue::new(BTreeMap::new()),
@@ -227,11 +234,133 @@ mod tests {
             .await
             .expect("apply event");
 
-        let snapshot_counts = records.lock().unwrap().clone();
-        assert_eq!(snapshot_counts, vec![0, 1]);
+        let snapshot_records = records.lock().unwrap().clone();
+        assert_eq!(snapshot_records.len(), 2);
+
+        let (initial_count, initial_meta) = &snapshot_records[0];
+        assert_eq!(*initial_count, 0);
+        assert!(initial_meta.from_cache());
+        assert!(!initial_meta.has_pending_writes());
+        assert!(initial_meta.resume_token().is_none());
+        assert!(initial_meta.sync_state_changed());
+
+        let (second_count, second_meta) = &snapshot_records[1];
+        assert_eq!(*second_count, 1);
+        assert!(!second_meta.from_cache());
+        assert!(!second_meta.has_pending_writes());
+        assert_eq!(second_meta.resume_token(), Some(&[1, 2, 3][..]));
+        assert!(second_meta.sync_state_changed());
 
         engine
             .unlisten_query(1, &mut registration)
+            .await
+            .expect("unlisten");
+    }
+
+    #[tokio::test]
+    async fn query_listener_applies_filters_and_ordering() {
+        let store = Arc::new(MemoryLocalStore::new());
+        let (network, serializer, _server_connection) = sample_network();
+        let engine = SyncEngine::new(Arc::clone(&store), network, serializer.clone());
+
+        let base_query = build_query();
+        let query = base_query
+            .where_field(
+                FieldPath::from_dot_separated("last").unwrap(),
+                FilterOperator::Equal,
+                FirestoreValue::from_string("Turing"),
+            )
+            .unwrap()
+            .order_by(
+                FieldPath::from_dot_separated("born").unwrap(),
+                OrderDirection::Ascending,
+            )
+            .unwrap();
+        let definition = query.definition();
+        let target = ListenTarget::for_query(&serializer, 2, &definition).expect("target");
+
+        let doc_records: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let callback_records = Arc::clone(&doc_records);
+        let mut registration = engine
+            .listen_query(target.clone(), query.clone(), move |snapshot| {
+                let ids = snapshot
+                    .documents()
+                    .iter()
+                    .map(|doc| doc.id().to_string())
+                    .collect::<Vec<_>>();
+                callback_records.lock().unwrap().push(ids);
+            })
+            .await
+            .expect("listen");
+
+        let alan_key = DocumentKey::from_string("cities/alan").unwrap();
+        let charles_key = DocumentKey::from_string("cities/charles").unwrap();
+        let grace_key = DocumentKey::from_string("cities/grace").unwrap();
+
+        let mut change = TargetChange::default();
+        change.added_documents.insert(alan_key.clone());
+        change.added_documents.insert(charles_key.clone());
+        change.added_documents.insert(grace_key.clone());
+        change.current = true;
+
+        let alan_doc = WatchDocument {
+            key: alan_key.clone(),
+            fields: MapValue::new(BTreeMap::from([
+                ("last".into(), FirestoreValue::from_string("Turing")),
+                ("born".into(), FirestoreValue::from_integer(1912)),
+            ])),
+            update_time: None,
+            create_time: None,
+        };
+
+        let charles_doc = WatchDocument {
+            key: charles_key.clone(),
+            fields: MapValue::new(BTreeMap::from([
+                ("last".into(), FirestoreValue::from_string("Turing")),
+                ("born".into(), FirestoreValue::from_integer(1812)),
+            ])),
+            update_time: None,
+            create_time: None,
+        };
+
+        let grace_doc = WatchDocument {
+            key: grace_key.clone(),
+            fields: MapValue::new(BTreeMap::from([
+                ("last".into(), FirestoreValue::from_string("Hopper")),
+                ("born".into(), FirestoreValue::from_integer(1906)),
+            ])),
+            update_time: None,
+            create_time: None,
+        };
+
+        let mut event = RemoteEvent::default();
+        event.target_changes.insert(2, change);
+        event
+            .document_updates
+            .insert(alan_key.clone(), Some(alan_doc));
+        event
+            .document_updates
+            .insert(charles_key.clone(), Some(charles_doc));
+        event
+            .document_updates
+            .insert(grace_key.clone(), Some(grace_doc));
+
+        engine
+            .remote_bridge
+            .apply_remote_event(event)
+            .await
+            .expect("apply event");
+
+        let snapshots = doc_records.lock().unwrap().clone();
+        assert_eq!(snapshots.len(), 2);
+        assert!(snapshots[0].is_empty());
+        assert_eq!(
+            snapshots[1],
+            vec!["charles".to_string(), "alan".to_string()]
+        );
+
+        engine
+            .unlisten_query(2, &mut registration)
             .await
             .expect("unlisten");
     }

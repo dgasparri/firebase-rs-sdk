@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::firestore::api::aggregate::{AggregateField, AggregateQuerySnapshot, AggregateSpec};
 use crate::firestore::api::operations::{self, SetOptions};
 use crate::firestore::api::query::{
-    ConvertedQuery, LimitType, Query, QuerySnapshot, TypedQuerySnapshot,
+    ConvertedQuery, LimitType, Query, QuerySnapshot, QuerySnapshotMetadata, TypedQuerySnapshot,
 };
 use crate::firestore::api::snapshot::{DocumentSnapshot, TypedDocumentSnapshot};
 use crate::firestore::error::{internal_error, invalid_argument, FirestoreResult};
@@ -223,7 +223,8 @@ impl FirestoreClient {
         if definition.limit_type() == LimitType::Last {
             documents.reverse();
         }
-        Ok(QuerySnapshot::new(query.clone(), documents))
+        let metadata = QuerySnapshotMetadata::new(false, false, false, None, None);
+        Ok(QuerySnapshot::new(query.clone(), documents, metadata))
     }
 
     /// Executes a converted query, producing typed snapshots.

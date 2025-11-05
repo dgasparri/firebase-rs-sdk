@@ -19,9 +19,12 @@ use base64::Engine;
 ))]
 use serde_json::{json, Value};
 
-use crate::firestore::api::{DocumentSnapshot, Query, QuerySnapshot, SnapshotMetadata};
+use crate::firestore::api::{
+    DocumentSnapshot, Query, QuerySnapshot, QuerySnapshotMetadata, SnapshotMetadata,
+};
 use crate::firestore::error::{invalid_argument, FirestoreError, FirestoreResult};
 use crate::firestore::model::{DocumentKey, Timestamp};
+use crate::firestore::query_evaluator::apply_query_to_documents;
 use crate::firestore::remote::datastore::WriteOperation;
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_event::RemoteEvent;
@@ -67,6 +70,7 @@ struct QueryListenerEntry {
     id: u64,
     query: Query,
     callback: QueryListenerCallback,
+    last_metadata: Option<QuerySnapshotMetadata>,
 }
 
 /// In-memory store that mirrors the responsibilities of the Firestore JS LocalStore.
@@ -283,11 +287,15 @@ impl MemoryLocalStore {
             .or_insert_with(Vec::new);
     }
 
-    async fn document_snapshot_for_key(&self, key: &DocumentKey) -> DocumentSnapshot {
+    async fn document_snapshot_for_key(
+        &self,
+        key: &DocumentKey,
+        from_cache: bool,
+    ) -> DocumentSnapshot {
         let maybe_doc = self.documents.lock().await.get(key).cloned().flatten();
         let data = maybe_doc.map(|doc| doc.fields.clone());
         let has_overlay = self.overlays.lock().await.contains_key(key);
-        let metadata = SnapshotMetadata::new(true, has_overlay);
+        let metadata = SnapshotMetadata::new(from_cache, has_overlay);
         DocumentSnapshot::new(key.clone(), data, metadata)
     }
 
@@ -295,13 +303,31 @@ impl MemoryLocalStore {
         &self,
         target_id: i32,
         query: &Query,
+        previous_metadata: Option<&QuerySnapshotMetadata>,
     ) -> FirestoreResult<QuerySnapshot> {
-        let mut keys = BTreeSet::new();
-        if let Some(snapshot) = self.target_metadata_snapshot(target_id) {
-            keys.extend(snapshot.remote_keys.into_iter());
-        }
+        let target_snapshot = self.target_metadata_snapshot(target_id);
+        let from_cache = target_snapshot
+            .as_ref()
+            .map(|snapshot| !snapshot.current)
+            .unwrap_or(true);
+        let resume_token = target_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.resume_token.clone());
+        let snapshot_version = target_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.snapshot_version);
 
         let definition = query.definition();
+
+        let mut keys = BTreeSet::new();
+        if let Some(snapshot) = target_snapshot.as_ref() {
+            for key in &snapshot.remote_keys {
+                if definition.matches_collection(key) {
+                    keys.insert(key.clone());
+                }
+            }
+        }
+
         for overlay_key in self.overlay_keys().await {
             if definition.matches_collection(&overlay_key) {
                 keys.insert(overlay_key);
@@ -310,10 +336,29 @@ impl MemoryLocalStore {
 
         let mut documents = Vec::new();
         for key in keys {
-            documents.push(self.document_snapshot_for_key(&key).await);
+            documents.push(self.document_snapshot_for_key(&key, from_cache).await);
         }
 
-        Ok(QuerySnapshot::new(query.clone(), documents))
+        let documents = apply_query_to_documents(documents, &definition);
+        let has_pending_writes = documents.iter().any(|doc| doc.has_pending_writes());
+
+        let mut metadata = QuerySnapshotMetadata::new(
+            from_cache,
+            has_pending_writes,
+            false,
+            resume_token,
+            snapshot_version,
+        );
+
+        if let Some(previous) = previous_metadata {
+            let sync_changed = previous.from_cache() != metadata.from_cache()
+                || previous.has_pending_writes() != metadata.has_pending_writes();
+            metadata.set_sync_state_changed(sync_changed);
+        } else {
+            metadata.set_sync_state_changed(true);
+        }
+
+        Ok(QuerySnapshot::new(query.clone(), documents, metadata))
     }
 
     async fn emit_query_snapshot(&self, target_id: i32) -> FirestoreResult<()> {
@@ -323,9 +368,31 @@ impl MemoryLocalStore {
         };
 
         if let Some(entries) = listeners {
+            let mut updates = Vec::new();
+            let mut callbacks = Vec::new();
+
             for entry in entries {
-                let snapshot = self.build_query_snapshot(target_id, &entry.query).await?;
-                (entry.callback)(snapshot);
+                let snapshot = self
+                    .build_query_snapshot(target_id, &entry.query, entry.last_metadata.as_ref())
+                    .await?;
+                let metadata = snapshot.metadata().clone();
+                updates.push((entry.id, metadata));
+                callbacks.push((Arc::clone(&entry.callback), snapshot));
+            }
+
+            {
+                let mut guard = self.query_listeners.lock().unwrap();
+                if let Some(entries_mut) = guard.get_mut(&target_id) {
+                    for (id, metadata) in &updates {
+                        if let Some(entry) = entries_mut.iter_mut().find(|entry| entry.id == *id) {
+                            entry.last_metadata = Some(metadata.clone());
+                        }
+                    }
+                }
+            }
+
+            for (callback, snapshot) in callbacks {
+                (callback)(snapshot);
             }
         }
         Ok(())
@@ -367,6 +434,7 @@ impl MemoryLocalStore {
                     id,
                     query: query.clone(),
                     callback,
+                    last_metadata: None,
                 });
         }
 

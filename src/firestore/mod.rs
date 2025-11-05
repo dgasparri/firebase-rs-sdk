@@ -4,6 +4,7 @@ mod constants;
 pub mod error;
 pub mod local;
 pub mod model;
+pub(crate) mod query_evaluator;
 pub mod remote;
 pub mod value;
 
@@ -13,8 +14,8 @@ pub use api::{
     AggregateSpec, CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,
     ConvertedQuery, DocumentReference, DocumentSnapshot, FilterOperator, Firestore,
     FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection, PassthroughConverter,
-    Query, QuerySnapshot, SetOptions, SnapshotMetadata, TypedDocumentSnapshot, TypedQuerySnapshot,
-    WriteBatch,
+    Query, QuerySnapshot, QuerySnapshotMetadata, SetOptions, SnapshotMetadata,
+    TypedDocumentSnapshot, TypedQuerySnapshot, WriteBatch,
 };
 
 #[doc(inline)]
