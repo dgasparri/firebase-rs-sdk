@@ -358,6 +358,10 @@ impl RemoteStoreInner {
         };
 
         if !event.is_empty() {
+            let target_resets: Vec<i32> = event.target_resets.iter().copied().collect();
+            if !target_resets.is_empty() {
+                self.handle_target_resets(&target_resets).await?;
+            }
             self.remote_syncer.apply_remote_event(event).await?;
         }
         Ok(())
@@ -486,6 +490,38 @@ impl RemoteStoreInner {
 
     fn can_use_network_locked(state: &RemoteStoreState) -> bool {
         state.offline_causes.is_empty()
+    }
+
+    async fn handle_target_resets(self: &Arc<Self>, target_ids: &[i32]) -> FirestoreResult<()> {
+        let (targets, stream_available) = {
+            let state = self.state.lock().await;
+            let stream = state.watch_stream.clone();
+            let targets: Vec<(i32, ListenTarget)> = target_ids
+                .iter()
+                .filter_map(|id| {
+                    state
+                        .listen_targets
+                        .get(id)
+                        .cloned()
+                        .map(|target| (*id, target))
+                })
+                .collect();
+            (targets, stream)
+        };
+
+        if targets.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(stream) = stream_available {
+            for (target_id, target) in targets {
+                stream.unwatch(target_id).await?;
+                stream.watch(target).await?;
+            }
+            Ok(())
+        } else {
+            self.start_watch_stream().await
+        }
     }
 }
 
@@ -737,5 +773,73 @@ mod tests {
 
         runtime::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(syncer.events.lock().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn existence_filter_triggers_target_reset_and_relisten() {
+        let syncer = TestRemoteSyncer::new();
+        let (store, server_connection) = setup_remote_store(Arc::clone(&syncer));
+
+        let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));
+        let target = ListenTarget::for_query(&serializer, 1, &sample_query_definition())
+            .expect("query target");
+
+        store.enable_network().await.expect("enable network");
+        store.listen(target.clone()).await.expect("listen target");
+
+        let server_stream = server_connection
+            .open_stream()
+            .await
+            .expect("server open listen");
+
+        let first_frame = server_stream.next().await.expect("handshake");
+        let payload = first_frame.expect("payload");
+        let json: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        assert!(json.get("addTarget").is_some());
+
+        let existence_filter = serde_json::json!({
+            "filter": {
+                "targetId": 1,
+                "count": 0
+            }
+        });
+        server_stream
+            .send(serde_json::to_vec(&existence_filter).unwrap())
+            .await
+            .expect("send existence filter");
+
+        runtime::sleep(std::time::Duration::from_millis(50)).await;
+
+        let mut saw_remove = false;
+        let mut saw_add = false;
+        for _ in 0..4 {
+            if let Some(frame) = server_stream.next().await {
+                if let Ok(payload) = frame {
+                    let json: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+                    if json.get("removeTarget").is_some() {
+                        saw_remove = true;
+                    }
+                    if json.get("addTarget").is_some() {
+                        saw_add = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        assert!(
+            saw_add,
+            "expected query to be re-listened after existence filter reset"
+        );
+
+        if !saw_remove {
+            log::debug!("re-listen completed without explicit removeTarget frame");
+        }
+
+        let events = syncer.events.lock().await;
+        assert!(
+            events.iter().any(|event| event.target_resets.contains(&1)),
+            "expected remote event with target reset"
+        );
     }
 }

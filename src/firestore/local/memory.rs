@@ -798,21 +798,27 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
 
     fn reset_target_metadata(&self, target_id: i32) {
         let persistence = self.persistence.as_ref().map(Arc::clone);
-        let snapshot = {
+        let (prior_remote_keys, snapshot) = {
             let mut targets = self.target_metadata.lock().unwrap();
             let entry = targets
                 .entry(target_id)
                 .or_insert_with(|| TargetMetadataSnapshot::new(target_id));
+            let prior = entry.remote_keys.clone();
             entry.remote_keys.clear();
             entry.resume_token = None;
             entry.snapshot_version = None;
             entry.current = false;
-            entry.clone()
+            (prior, entry.clone())
         };
 
         if let Some(persistence) = persistence {
             persistence.clear_target_metadata(target_id);
             persistence.save_target_metadata(snapshot);
+        }
+
+        if !prior_remote_keys.is_empty() {
+            let mut limbo = self.limbo_documents.lock().unwrap();
+            limbo.extend(prior_remote_keys);
         }
     }
 
@@ -1172,6 +1178,7 @@ mod tests {
 
     use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::network::NetworkLayer;
+    use crate::firestore::remote::remote_event::RemoteEvent;
     use crate::firestore::remote::remote_store::RemoteStore;
     use crate::firestore::remote::streams::ListenTarget;
     use crate::firestore::remote::syncer_bridge::RemoteSyncerBridge;
@@ -1331,5 +1338,27 @@ mod tests {
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].0, batch_id);
         assert!(local_store.overlays_snapshot().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn target_reset_marks_limbo_documents() {
+        let store = Arc::new(MemoryLocalStore::new());
+        let key = DocumentKey::from_string("cities/sf").unwrap();
+        let mut snapshot = TargetMetadataSnapshot::new(1);
+        snapshot.remote_keys.insert(key.clone());
+        store.restore_target_snapshot(snapshot);
+
+        let bridge = Arc::new(RemoteSyncerBridge::new(Arc::clone(&store)));
+        store.synchronize_remote_keys(&bridge);
+
+        let mut event = RemoteEvent::default();
+        event.target_resets.insert(1);
+
+        RemoteSyncer::apply_remote_event(&*bridge, event)
+            .await
+            .expect("apply event");
+
+        let limbo = store.limbo_documents_snapshot();
+        assert!(limbo.contains(&key));
     }
 }

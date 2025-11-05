@@ -243,14 +243,14 @@ majority of the Firestore feature set.
 
 ## Next steps - Detailed completion plan
 
-1. **View diffing & overlay reconciliation**
+1. **View diffing polish & resilience**
 
-   - Compute document change sets (`added`/`modified`/`removed`) plus mutated-key tracking so higher layers can surface
-     JS-style `docChanges` without re-walking entire snapshots.
-   - Apply pending write overlays when constructing view snapshots (including delete overlays) so latency-compensated
-     writes update query results immediately with the expected field values.
-   - Track limbo documents and existence-filter mismatches, triggering target resets and recovery listens when watch
-     responses signal inconsistent remote state.
+   - Port the JS query-view spec tests (limit-to-last, resume tokens, multi-ordering) to validate `doc_changes()` index
+     math and overlay diffing under edge cases.
+   - Persist listener view state (last documents/metadata) across persistence restores so change sets remain monotonic
+     after IndexedDB reloads or app restarts.
+   - Expand limbo/existence-filter coverage with multi-target scenarios and overlay-heavy queues, mirroring the
+     SyncEngine specs that guard against false positives.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.

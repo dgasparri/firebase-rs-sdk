@@ -727,6 +727,39 @@ mod tests {
         assert_eq!(changes[0].new_index(), -1);
         assert_eq!(changes[0].doc().id(), "sf");
     }
+
+    #[test]
+    fn compute_doc_changes_noop_is_empty() {
+        let previous = vec![snapshot_for("sf", 100), snapshot_for("la", 200)];
+        let current = previous.clone();
+
+        let changes = compute_doc_changes(Some(&previous), &current);
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn compute_doc_changes_handles_limit_to_last_reorder() {
+        let previous = vec![snapshot_for("a", 100), snapshot_for("b", 200)];
+        let current = vec![snapshot_for("b", 200), snapshot_for("c", 300)];
+
+        let changes = compute_doc_changes(Some(&previous), &current);
+        assert_eq!(changes.len(), 3);
+
+        assert_eq!(changes[0].change_type(), DocumentChangeType::Modified);
+        assert_eq!(changes[0].old_index(), 1);
+        assert_eq!(changes[0].new_index(), 0);
+        assert_eq!(changes[0].doc().id(), "b");
+
+        assert_eq!(changes[1].change_type(), DocumentChangeType::Added);
+        assert_eq!(changes[1].old_index(), -1);
+        assert_eq!(changes[1].new_index(), 1);
+        assert_eq!(changes[1].doc().id(), "c");
+
+        assert_eq!(changes[2].change_type(), DocumentChangeType::Removed);
+        assert_eq!(changes[2].old_index(), 0);
+        assert_eq!(changes[2].new_index(), -1);
+        assert_eq!(changes[2].doc().id(), "a");
+    }
 }
 
 #[derive(Clone, Debug)]
