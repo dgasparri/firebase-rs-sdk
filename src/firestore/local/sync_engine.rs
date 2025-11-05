@@ -472,4 +472,56 @@ mod tests {
             .await
             .expect("unlisten");
     }
+
+    #[tokio::test]
+    async fn resume_token_updates_without_doc_changes() {
+        let store = Arc::new(MemoryLocalStore::new());
+        let (network, serializer, _server_connection) = sample_network();
+        let engine = SyncEngine::new(Arc::clone(&store), network, serializer.clone());
+
+        let query = build_query();
+        let definition = query.definition();
+        let target = ListenTarget::for_query(&serializer, 4, &definition).expect("target");
+
+        let records: Arc<Mutex<Vec<(usize, Option<Vec<u8>>, QuerySnapshotMetadata, usize)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let callback_records = Arc::clone(&records);
+        let mut registration = engine
+            .listen_query(target.clone(), query.clone(), move |snapshot| {
+                callback_records.lock().unwrap().push((
+                    snapshot.len(),
+                    snapshot.resume_token().map(|token| token.to_vec()),
+                    snapshot.metadata().clone(),
+                    snapshot.doc_changes().len(),
+                ));
+            })
+            .await
+            .expect("listen");
+
+        let mut change = TargetChange::default();
+        change.current = true;
+        change.resume_token = Some(vec![7, 8, 9]);
+
+        let mut event = RemoteEvent::default();
+        event.target_changes.insert(4, change);
+
+        engine
+            .remote_bridge
+            .apply_remote_event(event)
+            .await
+            .expect("apply event");
+
+        let snapshot_records = records.lock().unwrap().clone();
+        assert_eq!(snapshot_records.len(), 2);
+
+        let (_len, resume_token, metadata, change_count) = &snapshot_records[1];
+        assert_eq!(change_count, &0);
+        assert_eq!(resume_token.as_deref(), Some(&[7, 8, 9][..]));
+        assert!(!metadata.from_cache());
+
+        engine
+            .unlisten_query(4, &mut registration)
+            .await
+            .expect("unlisten");
+    }
 }

@@ -245,8 +245,6 @@ majority of the Firestore feature set.
 
 1. **View diffing polish & resilience**
 
-   - Port the JS query-view spec tests (limit-to-last, resume tokens, multi-ordering) to validate `doc_changes()` index
-     math and overlay diffing under edge cases.
    - Persist listener view state (last documents/metadata) across persistence restores so change sets remain monotonic
      after IndexedDB reloads or app restarts.
    - Expand limbo/existence-filter coverage with multi-target scenarios and overlay-heavy queues, mirroring the

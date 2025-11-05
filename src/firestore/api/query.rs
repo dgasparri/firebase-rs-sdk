@@ -760,6 +760,47 @@ mod tests {
         assert_eq!(changes[2].new_index(), -1);
         assert_eq!(changes[2].doc().id(), "a");
     }
+
+    #[test]
+    fn compute_doc_changes_handles_multi_ordering() {
+        let doc = |id: &str, team: i64, score: i64| {
+            let key = DocumentKey::from_string(&format!("games/{id}")).unwrap();
+            let mut fields = BTreeMap::new();
+            fields.insert("team".into(), FirestoreValue::from_integer(team));
+            fields.insert("score".into(), FirestoreValue::from_integer(score));
+            DocumentSnapshot::new(
+                key,
+                Some(MapValue::new(fields)),
+                SnapshotMetadata::new(false, false),
+            )
+        };
+
+        let previous = vec![doc("a", 1, 10), doc("b", 1, 20), doc("c", 2, 5)];
+        let current = vec![doc("b", 1, 20), doc("c", 2, 5), doc("d", 2, 15)];
+
+        let changes = compute_doc_changes(Some(&previous), &current);
+        assert_eq!(changes.len(), 4);
+
+        assert_eq!(changes[0].change_type(), DocumentChangeType::Modified);
+        assert_eq!(changes[0].doc().id(), "b");
+        assert_eq!(changes[0].old_index(), 1);
+        assert_eq!(changes[0].new_index(), 0);
+
+        assert_eq!(changes[1].change_type(), DocumentChangeType::Modified);
+        assert_eq!(changes[1].doc().id(), "c");
+        assert_eq!(changes[1].old_index(), 2);
+        assert_eq!(changes[1].new_index(), 1);
+
+        assert_eq!(changes[2].change_type(), DocumentChangeType::Added);
+        assert_eq!(changes[2].doc().id(), "d");
+        assert_eq!(changes[2].old_index(), -1);
+        assert_eq!(changes[2].new_index(), 2);
+
+        assert_eq!(changes[3].change_type(), DocumentChangeType::Removed);
+        assert_eq!(changes[3].doc().id(), "a");
+        assert_eq!(changes[3].old_index(), 0);
+        assert_eq!(changes[3].new_index(), -1);
+    }
 }
 
 #[derive(Clone, Debug)]
