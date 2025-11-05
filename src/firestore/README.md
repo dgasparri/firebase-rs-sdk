@@ -246,10 +246,47 @@ majority of the Firestore feature set.
 
 1. **View diffing polish & resilience**
 
-   - Persist listener view state (last documents/metadata) across persistence restores so change sets remain monotonic
-     after IndexedDB reloads or app restarts.
-   - Expand limbo/existence-filter coverage with multi-target scenarios and overlay-heavy queues, mirroring the
-     SyncEngine specs that guard against false positives.
+ - Persist listener view state (last documents/metadata) across persistence restores so change sets remain monotonic
+   after IndexedDB reloads or app restarts.
+
+  From the last session, in detail:
+  To reuse listener state after an IndexedDB-backed restart we need to persist, reload, and seed the per-query view
+  information that now lives only in memory. Concretely:
+
+  a. Extend the persistence schema
+   - Add a new store/record in IndexedDbPersistence (see src/firestore/local/memory.rs:738 onward) for query view
+   state. A record needs to capture the target id, resume token, snapshot version, from_cache flag, has_pending_writes,
+   and the list of documents with their cached data so they can be replayed exactly.
+  b. Write on change
+   - Every time MemoryLocalStore::emit_query_snapshot updates a listener (already where we compute last_documents/
+   last_metadata), serialize that state and save it via the persistence layer. Add a method to LocalStorePersistence
+   (e.g. save_query_view_state(target_id, &QueryViewState)) and implement it for IndexedDbPersistence to write the
+   encoded JSON blobs.
+  c. Load at startup
+   - When IndexedDbPersistence::schedule_initial_load runs, it already restores targets/overlays. Extend it to read
+   the view-state store and call a new hook on MemoryLocalStore (something like restore_query_view(target_id, documents,
+   metadata)) that pre-populates the query_listeners map for any active listeners and seeds last_documents/last_metadata.
+  d. Seed new listeners
+   - register_query_listener_internal already seeds from TargetMetadataSnapshot. Update it to check for a persisted
+   view state (in memory after restoration) and use that instead of recomputing from scratch, so resumed listeners emit
+   an empty docChanges() with the right resume token.
+  e. Cleanup on detach
+   - When a listener is removed (remove_query_listener), delete the persisted view-state record if no other listener
+   for that target id remains.
+  f. Encoding details
+   - Document snapshots can already serialize via MapValue + metadata. Reuse the existing overlay JSON utilities
+   (encode_target_snapshot, etc.) to store a concise representation (canonical key path + fields + metadata flags).
+   Ensure the format is wasm-safe (pure JSON / base64) to match the rest of the IndexedDB implementation.
+  g. Testing
+   - Add an IndexedDB-backed test (behind wasm-web feature or in a mock) that queues docs, persists state, simulates
+   a “restart” by constructing a new MemoryLocalStore with the same persistence, re-registers the listener, and asserts
+   doc_changes() is empty while resume token and metadata are preserved.
+
+   Once these pieces are in place, listeners will resume with accurate view state across IndexedDB restores, eliminating
+   spurious change sets and keeping resume tokens coherent.
+
+ - Expand limbo/existence-filter coverage with multi-target scenarios and overlay-heavy queues, mirroring the
+   SyncEngine specs that guard against false positives.
 2. **Snapshot & converter parity**
    - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
      snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.
@@ -281,6 +318,8 @@ majority of the Firestore feature set.
    - Mirror `packages/firestore/test/unit` suites module-by-module (model, value, api, remote, util). Build Rust helpers
      under `src/firestore/test_support` to replace `test/util/helpers.ts` and keep assertions ergonomic.
    - ✅ `model/path` translated (see `tests/firestore/model/resource_path_tests.rs`) alongside supporting helpers.
+   - 🔄 Port the `packages/firestore/test/unit/core/view.test.ts` doc-change scenarios (limit-to-last refills,
+     multi-order reorders, resume-token diffing) to validate `compute_doc_changes` and listener metadata.
 2. **Converter & snapshot coverage**
    - Port lite/api tests that exercise `withConverter`, snapshot metadata, and reference validation using the in-memory
      datastore.
