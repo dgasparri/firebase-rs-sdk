@@ -249,41 +249,14 @@ majority of the Firestore feature set.
  - Persist listener view state (last documents/metadata) across persistence restores so change sets remain monotonic
    after IndexedDB reloads or app restarts.
 
-  From the last session, in detail:
-  To reuse listener state after an IndexedDB-backed restart we need to persist, reload, and seed the per-query view
-  information that now lives only in memory. Concretely:
-
-  a. Extend the persistence schema
-   - Add a new store/record in IndexedDbPersistence (see src/firestore/local/memory.rs:738 onward) for query view
-   state. A record needs to capture the target id, resume token, snapshot version, from_cache flag, has_pending_writes,
-   and the list of documents with their cached data so they can be replayed exactly.
-  b. Write on change
-   - Every time MemoryLocalStore::emit_query_snapshot updates a listener (already where we compute last_documents/
-   last_metadata), serialize that state and save it via the persistence layer. Add a method to LocalStorePersistence
-   (e.g. save_query_view_state(target_id, &QueryViewState)) and implement it for IndexedDbPersistence to write the
-   encoded JSON blobs.
-  c. Load at startup
-   - When IndexedDbPersistence::schedule_initial_load runs, it already restores targets/overlays. Extend it to read
-   the view-state store and call a new hook on MemoryLocalStore (something like restore_query_view(target_id, documents,
-   metadata)) that pre-populates the query_listeners map for any active listeners and seeds last_documents/last_metadata.
-  d. Seed new listeners
-   - register_query_listener_internal already seeds from TargetMetadataSnapshot. Update it to check for a persisted
-   view state (in memory after restoration) and use that instead of recomputing from scratch, so resumed listeners emit
-   an empty docChanges() with the right resume token.
-  e. Cleanup on detach
-   - When a listener is removed (remove_query_listener), delete the persisted view-state record if no other listener
-   for that target id remains.
-  f. Encoding details
-   - Document snapshots can already serialize via MapValue + metadata. Reuse the existing overlay JSON utilities
-   (encode_target_snapshot, etc.) to store a concise representation (canonical key path + fields + metadata flags).
-   Ensure the format is wasm-safe (pure JSON / base64) to match the rest of the IndexedDB implementation.
-  g. Testing
-   - Add an IndexedDB-backed test (behind wasm-web feature or in a mock) that queues docs, persists state, simulates
-   a “restart” by constructing a new MemoryLocalStore with the same persistence, re-registers the listener, and asserts
-   doc_changes() is empty while resume token and metadata are preserved.
-
-   Once these pieces are in place, listeners will resume with accurate view state across IndexedDB restores, eliminating
-   spurious change sets and keeping resume tokens coherent.
+  - ✅ Query view snapshots now persist through `LocalStorePersistence::save_query_view_state`, with
+    `IndexedDbPersistence` writing JSON blobs that capture target ids, resume tokens, snapshot versions, cache flags,
+    pending-write metadata, and the cached documents so WASM builds reload identical listener state.
+  - ✅ `MemoryLocalStore` seeds listeners from restored view state, dispatching an immediate, change-free snapshot on
+    re-registration and keeping the latest state current after each emission while pruning persistence when the last
+    listener detaches or the store resets.
+  - ✅ Restart flows are covered by `restores_view_state_from_persistence` (mock-backed) to ensure resume tokens,
+    metadata, and document sets survive a simulated IndexedDB reload without emitting spurious `docChanges()`.
 
  - Expand limbo/existence-filter coverage with multi-target scenarios and overlay-heavy queues, mirroring the
    SyncEngine specs that guard against false positives.

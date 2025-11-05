@@ -11,6 +11,18 @@ use async_trait::async_trait;
     feature = "experimental-indexed-db",
     target_arch = "wasm32"
 ))]
+use crate::firestore::model::DatabaseId;
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+use crate::firestore::remote::serializer::JsonProtoSerializer;
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
 use base64::Engine;
 #[cfg(all(
     feature = "wasm-web",
@@ -62,6 +74,8 @@ pub trait LocalStorePersistence: Send + Sync {
     fn clear_target_metadata(&self, _target_id: i32) {}
     fn save_document_overlay(&self, _key: &DocumentKey, _overlay: &[WriteOperation]) {}
     fn clear_document_overlay(&self, _key: &DocumentKey) {}
+    fn save_query_view_state(&self, _target_id: i32, _state: &PersistedQueryViewState) {}
+    fn clear_query_view_state(&self, _target_id: i32) {}
     fn schedule_initial_load(&self, _store: Arc<MemoryLocalStore>) {}
 }
 
@@ -74,6 +88,35 @@ struct QueryListenerEntry {
     callback: QueryListenerCallback,
     last_metadata: Option<QuerySnapshotMetadata>,
     last_documents: Vec<DocumentSnapshot>,
+}
+
+#[derive(Clone)]
+pub struct PersistedQueryViewState {
+    metadata: QuerySnapshotMetadata,
+    documents: Vec<DocumentSnapshot>,
+}
+
+impl PersistedQueryViewState {
+    fn new(mut metadata: QuerySnapshotMetadata, documents: Vec<DocumentSnapshot>) -> Self {
+        metadata.set_sync_state_changed(false);
+        Self {
+            metadata,
+            documents,
+        }
+    }
+
+    fn metadata(&self) -> &QuerySnapshotMetadata {
+        &self.metadata
+    }
+
+    #[allow(dead_code)]
+    fn documents(&self) -> &[DocumentSnapshot] {
+        &self.documents
+    }
+
+    fn clone_documents(&self) -> Vec<DocumentSnapshot> {
+        self.documents.clone()
+    }
 }
 
 struct QueryViewState {
@@ -107,6 +150,7 @@ pub struct MemoryLocalStore {
     persistence: Option<Arc<dyn LocalStorePersistence>>,
     query_listeners: StdMutex<BTreeMap<i32, Vec<QueryListenerEntry>>>,
     listener_counter: AtomicU64,
+    restored_query_views: StdMutex<BTreeMap<i32, PersistedQueryViewState>>,
 }
 
 impl Debug for MemoryLocalStore {
@@ -133,6 +177,7 @@ impl MemoryLocalStore {
             persistence,
             query_listeners: StdMutex::new(BTreeMap::new()),
             listener_counter: AtomicU64::new(1),
+            restored_query_views: StdMutex::new(BTreeMap::new()),
         }
     }
 
@@ -290,6 +335,75 @@ impl MemoryLocalStore {
             .insert(snapshot.target_id, snapshot);
     }
 
+    pub fn restore_query_view_state(&self, target_id: i32, state: PersistedQueryViewState) {
+        self.restored_query_views
+            .lock()
+            .unwrap()
+            .insert(target_id, state);
+    }
+
+    fn stored_query_view_state(&self, target_id: i32) -> Option<PersistedQueryViewState> {
+        self.restored_query_views
+            .lock()
+            .unwrap()
+            .get(&target_id)
+            .cloned()
+    }
+
+    fn record_query_view_state(
+        &self,
+        target_id: i32,
+        metadata: QuerySnapshotMetadata,
+        documents: Vec<DocumentSnapshot>,
+    ) {
+        let state = PersistedQueryViewState::new(metadata, documents);
+        {
+            let mut guard = self.restored_query_views.lock().unwrap();
+            guard.insert(target_id, state.clone());
+        }
+        if let Some(persistence) = &self.persistence {
+            persistence.save_query_view_state(target_id, &state);
+        }
+    }
+
+    fn clear_persisted_query_view_state(&self, target_id: i32) {
+        {
+            let mut guard = self.restored_query_views.lock().unwrap();
+            guard.remove(&target_id);
+        }
+        if let Some(persistence) = &self.persistence {
+            persistence.clear_query_view_state(target_id);
+        }
+    }
+
+    fn dispatch_restored_snapshot(
+        &self,
+        target_id: i32,
+        listener_id: u64,
+        query: Query,
+        state: PersistedQueryViewState,
+    ) {
+        let callback = {
+            let guard = self.query_listeners.lock().unwrap();
+            guard.get(&target_id).and_then(|entries| {
+                entries
+                    .iter()
+                    .find(|entry| entry.id == listener_id)
+                    .map(|entry| Arc::clone(&entry.callback))
+            })
+        };
+
+        if let Some(callback) = callback {
+            let snapshot = QuerySnapshot::new(
+                query,
+                state.clone_documents(),
+                state.metadata().clone(),
+                Vec::new(),
+            );
+            (callback)(snapshot);
+        }
+    }
+
     pub async fn restore_overlay_key(&self, key: DocumentKey) {
         self.overlays
             .lock()
@@ -425,6 +539,8 @@ impl MemoryLocalStore {
         if let Some(entries) = listeners {
             let mut updates: Vec<(u64, QuerySnapshotMetadata, Vec<DocumentSnapshot>)> = Vec::new();
             let mut callbacks = Vec::new();
+            let mut state_for_persistence: Option<(QuerySnapshotMetadata, Vec<DocumentSnapshot>)> =
+                None;
 
             for entry in entries {
                 let previous_docs = if entry.last_documents.is_empty() {
@@ -442,6 +558,9 @@ impl MemoryLocalStore {
                     .await?;
                 let metadata = snapshot.metadata().clone();
                 let documents = snapshot.documents().to_vec();
+                if state_for_persistence.is_none() {
+                    state_for_persistence = Some((metadata.clone(), documents.clone()));
+                }
                 updates.push((entry.id, metadata, documents));
                 callbacks.push((Arc::clone(&entry.callback), snapshot));
             }
@@ -456,6 +575,10 @@ impl MemoryLocalStore {
                         }
                     }
                 }
+            }
+
+            if let Some((metadata, documents)) = state_for_persistence {
+                self.record_query_view_state(target_id, metadata, documents);
             }
 
             for (callback, snapshot) in callbacks {
@@ -494,22 +617,29 @@ impl MemoryLocalStore {
         let id = self.listener_counter.fetch_add(1, Ordering::SeqCst);
         let mut seed_metadata = None;
         let mut seed_documents = Vec::new();
-        let should_seed = self
-            .target_metadata_snapshot(target_id)
-            .map(|snapshot| snapshot.current && snapshot.resume_token.is_some())
-            .unwrap_or(false);
+        let mut restored_snapshot = None;
+        if let Some(state) = self.stored_query_view_state(target_id) {
+            seed_metadata = Some(state.metadata().clone());
+            seed_documents = state.clone_documents();
+            restored_snapshot = Some((query.clone(), state));
+        } else {
+            let should_seed = self
+                .target_metadata_snapshot(target_id)
+                .map(|snapshot| snapshot.current && snapshot.resume_token.is_some())
+                .unwrap_or(false);
 
-        if should_seed {
-            let state = self.compute_query_state(target_id, &query).await?;
-            let metadata = QuerySnapshotMetadata::new(
-                state.from_cache,
-                state.has_pending_writes,
-                false,
-                state.resume_token.clone(),
-                state.snapshot_version,
-            );
-            seed_metadata = Some(metadata);
-            seed_documents = state.documents;
+            if should_seed {
+                let state = self.compute_query_state(target_id, &query).await?;
+                let metadata = QuerySnapshotMetadata::new(
+                    state.from_cache,
+                    state.has_pending_writes,
+                    false,
+                    state.resume_token.clone(),
+                    state.snapshot_version,
+                );
+                seed_metadata = Some(metadata);
+                seed_documents = state.documents;
+            }
         }
 
         {
@@ -526,12 +656,15 @@ impl MemoryLocalStore {
                 });
         }
 
+        let registration = QueryListenerRegistration::new(Arc::clone(self), target_id, id);
+
+        if let Some((query, state)) = restored_snapshot {
+            self.dispatch_restored_snapshot(target_id, id, query, state);
+            return Ok(registration);
+        }
+
         self.emit_query_snapshot(target_id).await?;
-        Ok(QueryListenerRegistration::new(
-            Arc::clone(self),
-            target_id,
-            id,
-        ))
+        Ok(registration)
     }
 
     fn remove_query_listener(&self, target_id: i32, listener_id: u64) {
@@ -540,6 +673,7 @@ impl MemoryLocalStore {
             entries.retain(|entry| entry.id != listener_id);
             if entries.is_empty() {
                 guard.remove(&target_id);
+                self.clear_persisted_query_view_state(target_id);
             }
         }
     }
@@ -594,6 +728,19 @@ impl MemoryLocalStore {
         if let Some(persistence) = &self.persistence {
             for target_id in cleared_targets {
                 persistence.clear_target_metadata(target_id);
+            }
+        }
+
+        let cleared_views = {
+            let mut views = self.restored_query_views.lock().unwrap();
+            let ids = views.keys().copied().collect::<Vec<_>>();
+            views.clear();
+            ids
+        };
+
+        if let Some(persistence) = &self.persistence {
+            for target_id in cleared_views {
+                persistence.clear_query_view_state(target_id);
             }
         }
 
@@ -884,6 +1031,7 @@ struct IndexedDbPersistence {
     db_name: String,
     targets_store: String,
     overlays_store: String,
+    view_states_store: String,
     version: u32,
 }
 
@@ -899,6 +1047,12 @@ const TARGETS_CATALOG_KEY: &str = "__targets_catalog__";
     target_arch = "wasm32"
 ))]
 const OVERLAYS_CATALOG_KEY: &str = "__overlays_catalog__";
+#[cfg(all(
+    feature = "wasm-web",
+    feature = "experimental-indexed-db",
+    target_arch = "wasm32"
+))]
+const VIEW_STATES_CATALOG_KEY: &str = "__view_states_catalog__";
 
 #[cfg(all(
     feature = "wasm-web",
@@ -911,7 +1065,8 @@ impl IndexedDbPersistence {
             db_name: db_name.into(),
             targets_store: "firestore_targets".into(),
             overlays_store: "firestore_overlays".into(),
-            version: 1,
+            view_states_store: "firestore_view_states".into(),
+            version: 2,
         }
     }
 
@@ -920,6 +1075,132 @@ impl IndexedDbPersistence {
         F: std::future::Future<Output = ()> + 'static,
     {
         wasm_bindgen_futures::spawn_local(future);
+    }
+
+    fn serializer() -> JsonProtoSerializer {
+        JsonProtoSerializer::new(DatabaseId::default("offline"))
+    }
+
+    fn encode_view_metadata(metadata: &QuerySnapshotMetadata) -> Value {
+        let mut object = serde_json::Map::new();
+        object.insert("fromCache".into(), json!(metadata.from_cache()));
+        object.insert(
+            "hasPendingWrites".into(),
+            json!(metadata.has_pending_writes()),
+        );
+        if let Some(token) = metadata.resume_token() {
+            object.insert(
+                "resumeToken".into(),
+                json!(base64::engine::general_purpose::STANDARD.encode(token)),
+            );
+        }
+        if let Some(version) = metadata.snapshot_version() {
+            object.insert(
+                "snapshotVersion".into(),
+                json!({
+                    "seconds": version.seconds,
+                    "nanos": version.nanos,
+                }),
+            );
+        }
+        Value::Object(object)
+    }
+
+    fn encode_document(serializer: &JsonProtoSerializer, snapshot: &DocumentSnapshot) -> Value {
+        let mut object = serde_json::Map::new();
+        object.insert(
+            "key".into(),
+            json!(snapshot.document_key().path().canonical_string()),
+        );
+        object.insert("fromCache".into(), json!(snapshot.from_cache()));
+        object.insert(
+            "hasPendingWrites".into(),
+            json!(snapshot.has_pending_writes()),
+        );
+        if let Some(map) = snapshot.map_value() {
+            object.insert("fields".into(), serializer.encode_document_fields(map));
+        }
+        Value::Object(object)
+    }
+
+    fn encode_view_state(state: &PersistedQueryViewState) -> String {
+        let serializer = Self::serializer();
+        let documents = state
+            .documents()
+            .iter()
+            .map(|doc| Self::encode_document(&serializer, doc))
+            .collect::<Vec<_>>();
+        json!({
+            "metadata": Self::encode_view_metadata(state.metadata()),
+            "documents": documents,
+        })
+        .to_string()
+    }
+
+    fn decode_view_metadata(value: &Value) -> Option<QuerySnapshotMetadata> {
+        let object = value.as_object()?;
+        let from_cache = object
+            .get("fromCache")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let has_pending = object
+            .get("hasPendingWrites")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let resume_token = object
+            .get("resumeToken")
+            .and_then(Value::as_str)
+            .and_then(|token| base64::engine::general_purpose::STANDARD.decode(token).ok());
+        let snapshot_version = object.get("snapshotVersion").and_then(|json| {
+            let seconds = json.get("seconds")?.as_i64()?;
+            let nanos = json.get("nanos")?.as_i64()? as i32;
+            Some(Timestamp::new(seconds, nanos))
+        });
+        Some(QuerySnapshotMetadata::new(
+            from_cache,
+            has_pending,
+            false,
+            resume_token,
+            snapshot_version,
+        ))
+    }
+
+    fn decode_document(
+        serializer: &JsonProtoSerializer,
+        value: &Value,
+    ) -> Option<DocumentSnapshot> {
+        let object = value.as_object()?;
+        let key_str = object.get("key")?.as_str()?;
+        let key = DocumentKey::from_string(key_str).ok()?;
+        let from_cache = object
+            .get("fromCache")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let has_pending = object
+            .get("hasPendingWrites")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let data = if let Some(fields) = object.get("fields") {
+            serializer.decode_document_fields(fields).ok().flatten()
+        } else {
+            None
+        };
+        let metadata = SnapshotMetadata::new(from_cache, has_pending);
+        Some(DocumentSnapshot::new(key, data, metadata))
+    }
+
+    fn decode_view_state(payload: &str) -> Option<PersistedQueryViewState> {
+        let value: Value = serde_json::from_str(payload).ok()?;
+        let metadata_value = value.get("metadata")?;
+        let documents_value = value.get("documents")?.as_array()?;
+        let metadata = Self::decode_view_metadata(metadata_value)?;
+        let serializer = Self::serializer();
+        let mut documents = Vec::with_capacity(documents_value.len());
+        for entry in documents_value {
+            let doc = Self::decode_document(&serializer, entry)?;
+            documents.push(doc);
+        }
+        Some(PersistedQueryViewState::new(metadata, documents))
     }
 
     fn encode_target_snapshot(snapshot: &TargetMetadataSnapshot) -> String {
@@ -1044,6 +1325,7 @@ impl IndexedDbPersistence {
         let db_name = self.db_name.clone();
         let targets_store = self.targets_store.clone();
         let overlays_store = self.overlays_store.clone();
+        let view_states_store = self.view_states_store.clone();
         let version = self.version;
 
         self.spawn(async move {
@@ -1093,6 +1375,34 @@ impl IndexedDbPersistence {
                         {
                             if let Some(key) = Self::decode_overlay(&payload) {
                                 store.restore_overlay_key(key).await;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name,
+                version,
+                &view_states_store,
+            )
+            .await
+            {
+                if let Ok(catalog) =
+                    Self::get_catalog(&db, &view_states_store, VIEW_STATES_CATALOG_KEY).await
+                {
+                    for key in catalog {
+                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
+                            &db,
+                            &view_states_store,
+                            &key,
+                        )
+                        .await
+                        {
+                            if let Ok(target_id) = key.parse::<i32>() {
+                                if let Some(state) = Self::decode_view_state(&payload) {
+                                    store.restore_query_view_state(target_id, state);
+                                }
                             }
                         }
                     }
@@ -1206,6 +1516,57 @@ impl LocalStorePersistence for IndexedDbPersistence {
         });
     }
 
+    fn save_query_view_state(&self, target_id: i32, state: &PersistedQueryViewState) {
+        let store = self.view_states_store.clone();
+        let db_name = self.db_name.clone();
+        let version = self.version;
+        let key = target_id.to_string();
+        let payload = Self::encode_view_state(state);
+        self.spawn(async move {
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name, version, &store,
+            )
+            .await
+            {
+                let _ =
+                    crate::platform::browser::indexed_db::put_string(&db, &store, &key, &payload)
+                        .await;
+                if let Ok(mut catalog) =
+                    Self::get_catalog(&db, &store, VIEW_STATES_CATALOG_KEY).await
+                {
+                    if catalog.insert(key.clone()) {
+                        let _ = Self::save_catalog(&db, &store, VIEW_STATES_CATALOG_KEY, &catalog)
+                            .await;
+                    }
+                }
+            }
+        });
+    }
+
+    fn clear_query_view_state(&self, target_id: i32) {
+        let store = self.view_states_store.clone();
+        let db_name = self.db_name.clone();
+        let version = self.version;
+        let key = target_id.to_string();
+        self.spawn(async move {
+            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
+                &db_name, version, &store,
+            )
+            .await
+            {
+                let _ = crate::platform::browser::indexed_db::delete_key(&db, &store, &key).await;
+                if let Ok(mut catalog) =
+                    Self::get_catalog(&db, &store, VIEW_STATES_CATALOG_KEY).await
+                {
+                    if catalog.remove(&key) {
+                        let _ = Self::save_catalog(&db, &store, VIEW_STATES_CATALOG_KEY, &catalog)
+                            .await;
+                    }
+                }
+            }
+        });
+    }
+
     fn schedule_initial_load(&self, store: Arc<MemoryLocalStore>) {
         self.schedule_initial_load_internal(store);
     }
@@ -1220,6 +1581,13 @@ mod tests {
     use base64::Engine;
     use serde_json::json;
 
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex as StdMutex;
+
+    use crate::app::api::initialize_app;
+    use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use crate::firestore::api::{get_firestore, Firestore};
     use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_event::RemoteEvent;
@@ -1231,7 +1599,84 @@ mod tests {
         InMemoryTransport, MultiplexedConnection, StreamingDatastoreImpl,
     };
     use crate::firestore::remote::{JsonProtoSerializer, NoopTokenProvider, TokenProviderArc};
+    use crate::firestore::value::{FirestoreValue, MapValue};
     use crate::platform::runtime;
+
+    #[derive(Default)]
+    struct RecordingPersistence {
+        target_metadata: StdMutex<BTreeMap<i32, TargetMetadataSnapshot>>,
+        view_states: StdMutex<BTreeMap<i32, PersistedQueryViewState>>,
+    }
+
+    impl RecordingPersistence {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        fn view_state_for(&self, target_id: i32) -> Option<PersistedQueryViewState> {
+            self.view_states.lock().unwrap().get(&target_id).cloned()
+        }
+    }
+
+    impl LocalStorePersistence for RecordingPersistence {
+        fn save_target_metadata(&self, snapshot: TargetMetadataSnapshot) {
+            self.target_metadata
+                .lock()
+                .unwrap()
+                .insert(snapshot.target_id, snapshot);
+        }
+
+        fn clear_target_metadata(&self, target_id: i32) {
+            self.target_metadata.lock().unwrap().remove(&target_id);
+        }
+
+        fn save_document_overlay(&self, _: &DocumentKey, _: &[WriteOperation]) {}
+
+        fn clear_document_overlay(&self, _: &DocumentKey) {}
+
+        fn save_query_view_state(&self, target_id: i32, state: &PersistedQueryViewState) {
+            self.view_states
+                .lock()
+                .unwrap()
+                .insert(target_id, state.clone());
+        }
+
+        fn clear_query_view_state(&self, target_id: i32) {
+            self.view_states.lock().unwrap().remove(&target_id);
+        }
+
+        fn schedule_initial_load(&self, store: Arc<MemoryLocalStore>) {
+            let targets = {
+                let guard = self.target_metadata.lock().unwrap();
+                guard.values().cloned().collect::<Vec<_>>()
+            };
+            for snapshot in targets {
+                store.restore_target_snapshot(snapshot);
+            }
+
+            let view_states = {
+                let guard = self.view_states.lock().unwrap();
+                guard
+                    .iter()
+                    .map(|(target_id, state)| (*target_id, state.clone()))
+                    .collect::<Vec<_>>()
+            };
+            for (target_id, state) in view_states {
+                store.restore_query_view_state(target_id, state);
+            }
+        }
+    }
+
+    fn unique_app_settings() -> FirebaseAppSettings {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        FirebaseAppSettings {
+            name: Some(format!(
+                "firestore-memory-local-{}",
+                COUNTER.fetch_add(1, Ordering::SeqCst)
+            )),
+            ..Default::default()
+        }
+    }
 
     fn query_definition() -> crate::firestore::QueryDefinition {
         crate::firestore::QueryDefinition {
@@ -1404,5 +1849,114 @@ mod tests {
 
         let limbo = store.limbo_documents_snapshot();
         assert!(limbo.contains(&key));
+    }
+
+    #[tokio::test]
+    async fn restores_view_state_from_persistence() {
+        let raw_persistence = Arc::new(RecordingPersistence::new());
+        let persistence: Arc<dyn LocalStorePersistence> = raw_persistence.clone();
+        let store = MemoryLocalStore::with_persistence(persistence.clone());
+
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_app_settings()))
+            .await
+            .expect("initialize app");
+        let firestore_arc = get_firestore(Some(app.clone())).await.expect("firestore");
+        let firestore = Firestore::from_arc(firestore_arc);
+        let query = firestore.collection("cities").unwrap().query();
+
+        let target_id = 1;
+        let key = DocumentKey::from_string("cities/sf").unwrap();
+
+        let mut metadata_snapshot = TargetMetadataSnapshot::new(target_id);
+        metadata_snapshot.current = true;
+        metadata_snapshot.resume_token = Some(vec![1, 2, 3]);
+        metadata_snapshot.snapshot_version = Some(Timestamp::new(42, 0));
+        metadata_snapshot.remote_keys.insert(key.clone());
+        store.restore_target_snapshot(metadata_snapshot.clone());
+        raw_persistence.save_target_metadata(metadata_snapshot);
+
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "name".to_string(),
+            FirestoreValue::from_string("San Francisco"),
+        );
+        let map = MapValue::new(fields);
+        let watch_doc = WatchDocument {
+            key: key.clone(),
+            fields: map.clone(),
+            update_time: Some(Timestamp::new(42, 0)),
+            create_time: Some(Timestamp::new(40, 0)),
+        };
+        {
+            let mut docs = store.documents.lock().await;
+            docs.insert(key.clone(), Some(watch_doc.clone()));
+        }
+
+        let snapshots = Arc::new(StdMutex::new(Vec::new()));
+        let callback_snapshots = Arc::clone(&snapshots);
+        let registration = store
+            .register_query_listener(
+                target_id,
+                query.clone(),
+                Arc::new(move |snapshot| {
+                    callback_snapshots.lock().unwrap().push(snapshot);
+                }),
+            )
+            .await
+            .expect("register listener");
+
+        {
+            let guard = snapshots.lock().unwrap();
+            assert_eq!(guard.len(), 1);
+        }
+        assert!(raw_persistence.view_state_for(target_id).is_some());
+
+        let store_reloaded = MemoryLocalStore::with_persistence(persistence.clone());
+        {
+            let mut docs = store_reloaded.documents.lock().await;
+            docs.insert(key.clone(), Some(watch_doc.clone()));
+        }
+
+        let resumed_snapshots = Arc::new(StdMutex::new(Vec::new()));
+        let callback_resumed = Arc::clone(&resumed_snapshots);
+        let registration_reloaded = store_reloaded
+            .register_query_listener(
+                target_id,
+                query.clone(),
+                Arc::new(move |snapshot| {
+                    callback_resumed.lock().unwrap().push(snapshot);
+                }),
+            )
+            .await
+            .expect("re-register listener");
+
+        {
+            let guard = resumed_snapshots.lock().unwrap();
+            assert_eq!(guard.len(), 1);
+            let snapshot = guard[0].clone();
+            assert_eq!(snapshot.doc_changes().len(), 0);
+            assert_eq!(snapshot.documents().len(), 1);
+            assert_eq!(
+                snapshot.resume_token().map(|token| token.to_vec()),
+                Some(vec![1, 2, 3])
+            );
+            assert_eq!(
+                snapshot.snapshot_version().map(|ts| (ts.seconds, ts.nanos)),
+                Some((42, 0))
+            );
+            let doc = &snapshot.documents()[0];
+            let data = doc.data().expect("document data");
+            assert_eq!(
+                data.get("name").cloned(),
+                Some(FirestoreValue::from_string("San Francisco"))
+            );
+        }
+
+        drop(registration);
+        drop(registration_reloaded);
     }
 }
