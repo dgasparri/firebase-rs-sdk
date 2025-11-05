@@ -225,8 +225,9 @@ async fn example_with_converter(
   listeners receive live `QuerySnapshot`s when remote events or overlay changes land in `MemoryLocalStore`, and
   `QueryListenerRegistration` handles make it easy to stop listening.
 - **Query view integration** – Listener snapshots now evaluate filters, ordering, bounds, and limits locally, surface
-  ViewSnapshot-style metadata (`from_cache`, `has_pending_writes`, `sync_state_changed`), and expose per-target resume
-  tokens so consumers can persist listen state across disconnects.
+  ViewSnapshot-style metadata (`from_cache`, `has_pending_writes`, `sync_state_changed`), expose per-target resume tokens
+  so consumers can persist listen state across disconnects, and apply pending write overlays so latency-compensated data
+  matches local user edits.
 
 ## Still to do
 

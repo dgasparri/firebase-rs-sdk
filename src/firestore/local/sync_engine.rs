@@ -140,6 +140,7 @@ mod tests {
     use crate::firestore::api::query::{FilterOperator, OrderDirection};
     use crate::firestore::api::{Firestore, QuerySnapshotMetadata};
     use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
+    use crate::firestore::remote::datastore::WriteOperation;
     use crate::firestore::remote::remote_event::{RemoteEvent, TargetChange};
     use crate::firestore::remote::watch_change::WatchDocument;
     use crate::firestore::remote::NoopTokenProvider;
@@ -147,7 +148,7 @@ mod tests {
         InMemoryTransport, JsonProtoSerializer, MultiplexedConnection, NetworkLayer,
         StreamingDatastore, StreamingDatastoreImpl, TokenProviderArc,
     };
-    use crate::firestore::value::{FirestoreValue, MapValue};
+    use crate::firestore::value::{FirestoreValue, MapValue, ValueKind};
     use crate::test_support::firebase::test_firebase_app_with_api_key;
     use std::collections::BTreeMap;
     use std::sync::Mutex;
@@ -361,6 +362,95 @@ mod tests {
 
         engine
             .unlisten_query(2, &mut registration)
+            .await
+            .expect("unlisten");
+    }
+
+    #[tokio::test]
+    async fn overlays_surface_pending_mutations() {
+        let store = Arc::new(MemoryLocalStore::new());
+        let (network, serializer, _server_connection) = sample_network();
+        let engine = SyncEngine::new(Arc::clone(&store), network, serializer.clone());
+
+        let query = build_query();
+        let definition = query.definition();
+        let target = ListenTarget::for_query(&serializer, 3, &definition).expect("target");
+
+        let records: Arc<Mutex<Vec<(usize, Option<i64>, QuerySnapshotMetadata)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let callback_records = Arc::clone(&records);
+        let mut registration = engine
+            .listen_query(target.clone(), query.clone(), move |snapshot| {
+                let born = snapshot
+                    .documents()
+                    .first()
+                    .and_then(|doc| doc.get("born").ok().flatten())
+                    .and_then(|value| match value.kind() {
+                        ValueKind::Integer(i) => Some(*i),
+                        ValueKind::Double(f) => Some(*f as i64),
+                        _ => None,
+                    });
+                callback_records.lock().unwrap().push((
+                    snapshot.len(),
+                    born,
+                    snapshot.metadata().clone(),
+                ));
+            })
+            .await
+            .expect("listen");
+
+        let key = DocumentKey::from_string("cities/sf").unwrap();
+        let mut change = TargetChange::default();
+        change.added_documents.insert(key.clone());
+        change.current = true;
+        change.resume_token = Some(vec![9, 9, 9]);
+        let watch_doc = WatchDocument {
+            key: key.clone(),
+            fields: MapValue::new(BTreeMap::new()),
+            update_time: None,
+            create_time: None,
+        };
+
+        let mut event = RemoteEvent::default();
+        event.target_changes.insert(3, change);
+        event.document_updates.insert(key.clone(), Some(watch_doc));
+
+        engine
+            .remote_bridge
+            .apply_remote_event(event)
+            .await
+            .expect("apply event");
+
+        let snapshot_records = records.lock().unwrap().clone();
+        assert_eq!(snapshot_records.len(), 2);
+        assert_eq!(snapshot_records[1].0, 1);
+        assert_eq!(snapshot_records[1].1, None);
+        assert!(!snapshot_records[1].2.has_pending_writes());
+
+        let bridge = engine.remote_bridge();
+        let overlay_write = WriteOperation::Update {
+            key: key.clone(),
+            data: MapValue::new(BTreeMap::from([(
+                "born".into(),
+                FirestoreValue::from_integer(1900),
+            )])),
+            field_paths: vec![FieldPath::from_dot_separated("born").unwrap()],
+            transforms: Vec::new(),
+        };
+
+        store
+            .queue_mutation_batch(&bridge, vec![overlay_write])
+            .await
+            .expect("queue batch");
+
+        let snapshot_records = records.lock().unwrap().clone();
+        assert_eq!(snapshot_records.len(), 3);
+        let (_len, born, metadata) = &snapshot_records[2];
+        assert_eq!(born, &Some(1900));
+        assert!(metadata.has_pending_writes());
+
+        engine
+            .unlisten_query(3, &mut registration)
             .await
             .expect("unlisten");
     }

@@ -1,4 +1,5 @@
 pub mod memory;
+mod overlay;
 pub mod sync_engine;
 
 #[doc(inline)]

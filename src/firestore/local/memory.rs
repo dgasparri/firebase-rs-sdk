@@ -23,6 +23,7 @@ use crate::firestore::api::{
     DocumentSnapshot, Query, QuerySnapshot, QuerySnapshotMetadata, SnapshotMetadata,
 };
 use crate::firestore::error::{invalid_argument, FirestoreError, FirestoreResult};
+use crate::firestore::local::overlay::apply_document_overlays;
 use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::query_evaluator::apply_query_to_documents;
 use crate::firestore::remote::datastore::WriteOperation;
@@ -291,12 +292,31 @@ impl MemoryLocalStore {
         &self,
         key: &DocumentKey,
         from_cache: bool,
-    ) -> DocumentSnapshot {
-        let maybe_doc = self.documents.lock().await.get(key).cloned().flatten();
-        let data = maybe_doc.map(|doc| doc.fields.clone());
-        let has_overlay = self.overlays.lock().await.contains_key(key);
+    ) -> FirestoreResult<DocumentSnapshot> {
+        let maybe_doc = {
+            let guard = self.documents.lock().await;
+            guard.get(key).cloned().flatten()
+        };
+
+        let overlay_ops = {
+            let guard = self.overlays.lock().await;
+            guard.get(key).cloned()
+        };
+
+        let has_overlay = overlay_ops
+            .as_ref()
+            .map(|ops| !ops.is_empty())
+            .unwrap_or(false);
+
+        let mut data = maybe_doc.map(|doc| doc.fields.clone());
+        if let Some(ops) = overlay_ops.as_ref() {
+            if !ops.is_empty() {
+                data = apply_document_overlays(data, ops)?;
+            }
+        }
+
         let metadata = SnapshotMetadata::new(from_cache, has_overlay);
-        DocumentSnapshot::new(key.clone(), data, metadata)
+        Ok(DocumentSnapshot::new(key.clone(), data, metadata))
     }
 
     async fn build_query_snapshot(
@@ -336,7 +356,7 @@ impl MemoryLocalStore {
 
         let mut documents = Vec::new();
         for key in keys {
-            documents.push(self.document_snapshot_for_key(&key, from_cache).await);
+            documents.push(self.document_snapshot_for_key(&key, from_cache).await?);
         }
 
         let documents = apply_query_to_documents(documents, &definition);
