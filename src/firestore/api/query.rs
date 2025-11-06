@@ -8,9 +8,9 @@ use crate::firestore::model::ResourcePath;
 use crate::firestore::model::Timestamp;
 use crate::firestore::value::{FirestoreValue, ValueKind};
 
-use super::snapshot::DocumentSnapshot;
 use super::converter::FirestoreDataConverter;
 use super::database::Firestore;
+use super::snapshot::DocumentSnapshot;
 use super::snapshot::TypedDocumentSnapshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -577,8 +577,8 @@ mod tests {
     use crate::component::ComponentContainer;
     use crate::firestore::api::snapshot::SnapshotMetadata;
     use crate::firestore::Firestore;
-    use crate::firestore::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
     use crate::firestore::MapValue;
+    use crate::firestore::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
     use std::collections::BTreeMap;
 
     fn build_firestore() -> Firestore {

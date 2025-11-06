@@ -6,9 +6,9 @@ use std::sync::Arc;
 use crate::firestore::error::{invalid_argument, FirestoreResult};
 use crate::firestore::model::{DocumentKey, ResourcePath};
 
-use super::query::{ConvertedQuery, Query};
-use super::database::Firestore;
 use super::converter::FirestoreDataConverter;
+use super::database::Firestore;
+use super::query::{ConvertedQuery, Query};
 
 #[derive(Clone, Debug)]
 pub struct CollectionReference {

@@ -5,7 +5,6 @@ pub mod geo_point;
 pub mod resource_path;
 pub mod timestamp;
 
-
 pub use database_id::DatabaseId;
 pub use document_key::DocumentKey;
 pub use field_path::{FieldPath, IntoFieldPath};

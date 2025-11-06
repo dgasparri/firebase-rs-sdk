@@ -5,9 +5,9 @@ use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::{DocumentKey, IntoFieldPath};
 use crate::firestore::value::{FirestoreValue, MapValue};
 
-use super::reference::DocumentReference;
-use super::database::Firestore;
 use super::converter::FirestoreDataConverter;
+use super::database::Firestore;
+use super::reference::DocumentReference;
 
 /// Metadata about the state of a document snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

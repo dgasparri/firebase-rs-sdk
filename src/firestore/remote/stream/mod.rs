@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 pub mod persistent;
 
-
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
 use crate::platform::runtime;
 

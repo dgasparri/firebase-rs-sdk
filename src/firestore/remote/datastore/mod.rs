@@ -22,10 +22,8 @@ mod streaming;
 // Re-export public API
 pub use http::{HttpDatastore, HttpDatastoreBuilder, RetrySettings};
 pub use in_memory::InMemoryDatastore;
-pub use streaming::{StreamingDatastoreImpl, StreamingHandleImpl};
 pub(crate) use streaming::box_stream_future;
-
-
+pub use streaming::{StreamingDatastoreImpl, StreamingHandleImpl};
 
 #[derive(Clone, Debug)]
 pub enum WriteOperation {
@@ -125,4 +123,3 @@ impl TokenProvider for NoopTokenProvider {
 }
 
 pub type TokenProviderArc = Arc<dyn TokenProvider>;
-

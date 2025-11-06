@@ -33,7 +33,8 @@ use serde_json::{json, Value};
 
 use crate::firestore::api::query::compute_doc_changes;
 use crate::firestore::api::{
-    snapshot::DocumentSnapshot, query::Query, query::QuerySnapshot, query::QuerySnapshotMetadata, snapshot::SnapshotMetadata,
+    query::Query, query::QuerySnapshot, query::QuerySnapshotMetadata, snapshot::DocumentSnapshot,
+    snapshot::SnapshotMetadata,
 };
 use crate::firestore::error::{invalid_argument, FirestoreError, FirestoreResult};
 use crate::firestore::local::overlay::apply_document_overlays;
@@ -1627,17 +1628,17 @@ mod tests {
     use crate::firestore::api::database::{get_firestore, Firestore};
     use crate::firestore::api::query::{DocumentChangeType, Query};
     use crate::firestore::model::{DatabaseId, ResourcePath};
+    use crate::firestore::remote::datastore::{
+        NoopTokenProvider, StreamingDatastoreImpl, TokenProviderArc,
+    };
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_event::RemoteEvent;
     use crate::firestore::remote::remote_store::RemoteStore;
+    use crate::firestore::remote::remote_syncer::RemoteSyncer;
     use crate::firestore::remote::serializer::JsonProtoSerializer;
+    use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};
     use crate::firestore::remote::streams::listen::ListenTarget;
     use crate::firestore::remote::syncer_bridge::RemoteSyncerBridge;
-    use crate::firestore::remote::remote_syncer::RemoteSyncer;
-    use crate::firestore::remote::stream::{
-        InMemoryTransport, MultiplexedConnection,
-    };
-    use crate::firestore::remote::datastore::{StreamingDatastoreImpl, NoopTokenProvider, TokenProviderArc};
     use crate::firestore::value::{FirestoreValue, MapValue};
     use crate::platform::runtime;
 
@@ -1747,7 +1748,8 @@ mod tests {
         let server_connection = Arc::new(MultiplexedConnection::new(server_transport));
 
         let datastore = StreamingDatastoreImpl::new(Arc::clone(&client_connection));
-        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> = Arc::new(datastore);
+        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> =
+            Arc::new(datastore);
         let token_provider: TokenProviderArc = Arc::new(NoopTokenProvider::default());
         let network = NetworkLayer::builder(datastore, token_provider).build();
         let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));

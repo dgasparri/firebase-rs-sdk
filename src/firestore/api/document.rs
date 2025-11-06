@@ -17,9 +17,9 @@ use crate::firestore::value::FirestoreValue;
 
 use super::write_batch::WriteBatch;
 use super::{
-    reference::{ConvertedCollectionReference, ConvertedDocumentReference},
-    database::Firestore,
     converter::FirestoreDataConverter,
+    database::Firestore,
+    reference::{ConvertedCollectionReference, ConvertedDocumentReference},
 };
 
 const COUNT_ALIAS: &str = "count";

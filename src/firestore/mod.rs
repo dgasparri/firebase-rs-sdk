@@ -1,5 +1,5 @@
 #![doc = include_str!("README.md")]
-mod api; 
+mod api;
 mod constants;
 mod error;
 mod local;
@@ -8,11 +8,12 @@ mod query_evaluator;
 mod remote;
 mod value;
 
-
 pub(crate) use api::aggregate::AggregateOperation;
 
 #[doc(inline)]
-pub use api::aggregate::{AggregateDefinition, AggregateField, AggregateQuerySnapshot, AggregateSpec};
+pub use api::aggregate::{
+    AggregateDefinition, AggregateField, AggregateQuerySnapshot, AggregateSpec,
+};
 
 #[doc(inline)]
 pub use api::converter::{FirestoreDataConverter, PassthroughConverter};
@@ -38,7 +39,6 @@ pub use api::query::{
     TypedQuerySnapshot,
 };
 
-
 #[allow(unused_imports)]
 pub(crate) use api::query::{compute_doc_changes, Bound, FieldFilter, OrderBy, QueryDefinition};
 
@@ -59,15 +59,15 @@ pub use constants::{DEFAULT_DATABASE_ID, FIRESTORE_COMPONENT_NAME};
 
 #[doc(inline)]
 pub use error::{
-    invalid_argument, missing_project_id, internal_error, not_found, permission_denied, unauthenticated,
-    unavailable, deadline_exceeded, resource_exhausted,
-    FirestoreError, FirestoreErrorCode, FirestoreResult
+    deadline_exceeded, internal_error, invalid_argument, missing_project_id, not_found,
+    permission_denied, resource_exhausted, unauthenticated, unavailable, FirestoreError,
+    FirestoreErrorCode, FirestoreResult,
 };
-
 
 #[doc(inline)]
 pub use local::memory::{
-    LocalStorePersistence, MemoryLocalStore, PersistedQueryViewState, QueryListenerRegistration, TargetMetadataSnapshot,
+    LocalStorePersistence, MemoryLocalStore, PersistedQueryViewState, QueryListenerRegistration,
+    TargetMetadataSnapshot,
 };
 
 #[allow(unused_imports)]
@@ -77,31 +77,26 @@ pub(crate) use local::overlay::apply_document_overlays;
 pub use local::sync_engine::SyncEngine;
 
 #[doc(inline)]
-pub use model::{ 
-    DatabaseId,
-    DocumentKey,
-    FieldPath,
-    IntoFieldPath,
-    GeoPoint,
-    ResourcePath,
-    Timestamp,
+pub use model::{
+    DatabaseId, DocumentKey, FieldPath, GeoPoint, IntoFieldPath, ResourcePath, Timestamp,
 };
-
 
 #[allow(unused_imports)]
 pub(crate) use query_evaluator::apply_query_to_documents;
-
 
 #[doc(inline)]
 pub use remote::connection::{Connection, ConnectionBuilder, RequestContext};
 
 #[doc(inline)]
-pub use remote::network::{NetworkLayer, NetworkLayerBuilder, NetworkStreamHandler, StreamCredentials};
+pub use remote::network::{
+    NetworkLayer, NetworkLayerBuilder, NetworkStreamHandler, StreamCredentials,
+};
 
 #[doc(inline)]
 pub use remote::datastore::{
-    Datastore, HttpDatastore, HttpDatastoreBuilder, InMemoryDatastore, NoopTokenProvider, RetrySettings, StreamHandle,
-    StreamingDatastore, StreamingDatastoreImpl, StreamingHandleImpl, StreamingFuture, TokenProvider, TokenProviderArc, WriteOperation,
+    Datastore, HttpDatastore, HttpDatastoreBuilder, InMemoryDatastore, NoopTokenProvider,
+    RetrySettings, StreamHandle, StreamingDatastore, StreamingDatastoreImpl, StreamingFuture,
+    StreamingHandleImpl, TokenProvider, TokenProviderArc, WriteOperation,
 };
 
 #[allow(unused_imports)]
@@ -131,8 +126,8 @@ pub use remote::stream::WebSocketTransport;
 
 #[doc(inline)]
 pub use remote::stream::{
-    InMemoryTransport, MultiplexedConnection, MultiplexedConnectionHandle, MultiplexedStream, StreamTransport,
-    StreamId, FrameKind, TransportFrame,
+    FrameKind, InMemoryTransport, MultiplexedConnection, MultiplexedConnectionHandle,
+    MultiplexedStream, StreamId, StreamTransport, TransportFrame,
 };
 
 #[doc(inline)]
@@ -141,21 +136,23 @@ pub use remote::stream::persistent::{
 };
 
 #[doc(inline)]
-pub use remote::streams::listen::{ListenStream, ListenStreamDelegate, ListenTarget, TargetPayload};
+pub use remote::streams::listen::{
+    ListenStream, ListenStreamDelegate, ListenTarget, TargetPayload,
+};
 
 #[doc(inline)]
 pub use remote::streams::write::{WriteResponse, WriteResult, WriteStream, WriteStreamDelegate};
 
 #[allow(unused_imports)]
-pub(crate) use remote::structured_query::{encode_structured_query, encode_aggregation_body};
+pub(crate) use remote::structured_query::{encode_aggregation_body, encode_structured_query};
 
 #[doc(inline)]
 pub use remote::syncer_bridge::{RemoteSyncerBridge, RemoteSyncerDelegate, TargetMetadataUpdate};
 
 #[doc(inline)]
 pub use remote::watch_change::{
-    decode_watch_change, DocumentChange, DocumentDelete, DocumentRemove, ExistenceFilterChange, TargetChangeState,
-    WatchChange, WatchDocument, WatchTargetChange,
+    decode_watch_change, DocumentChange, DocumentDelete, DocumentRemove, ExistenceFilterChange,
+    TargetChangeState, WatchChange, WatchDocument, WatchTargetChange,
 };
 
 #[doc(inline)]
