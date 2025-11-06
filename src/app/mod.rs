@@ -8,7 +8,6 @@ mod heartbeat;
 mod logger;
 mod namespace;
 mod platform_logger;
-//pub mod private; // TODO
 mod registry;
 mod types;
 
@@ -63,7 +62,7 @@ pub use platform_logger::PlatformLoggerServiceImpl;
 #[doc(inline)]
 #[allow(unused_imports)]
 pub(crate) use registry::{
-    add_component, add_or_overwrite_component, get_provider, register_component,
+    add_component, add_or_overwrite_component, clear_components, get_provider, is_firebase_server_app, register_component,
     remove_service_instance, APPS, SERVER_APPS,
 };
 

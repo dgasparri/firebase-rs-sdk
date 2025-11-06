@@ -18,7 +18,7 @@ _As of October 24th, 2025_
 - Server-side apps support `release_on_deref` semantics via deferred deletion, matching the JS `FirebaseServerApp`'s
   FinalizationRegistry behaviour while continuing to validate auth/app-check tokens.
 - Internal component utilities (`add_component`, `add_or_overwrite_component`, `get_provider`, `remove_service_instance`,
-  `clear_components`, `register_component`) are re-exported through `app::private`, mirroring
+  `clear_components`, `register_component`) are re-exported through `app::registry`, mirroring
   `packages/app/src/internal.ts` for downstream modules.
 
 ## References to the Firebase JS SDK - firestore module
