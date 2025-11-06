@@ -4,21 +4,18 @@ mod provider;
 mod providers;
 mod redirect;
 
-
 // Re-export selected items for public use
 pub use credential::OAuthCredential;
 pub use pkce::PkcePair;
 pub use provider::OAuthProvider;
 pub use providers::{
-    oauth_access_token_map, AppleAuthProvider, FacebookAuthProvider, GitHubAuthProvider, GoogleAuthProvider,
-    MicrosoftAuthProvider, OAuthProviderFactory, TwitterAuthProvider, YahooAuthProvider,
-
+    oauth_access_token_map, AppleAuthProvider, FacebookAuthProvider, GitHubAuthProvider,
+    GoogleAuthProvider, MicrosoftAuthProvider, OAuthProviderFactory, TwitterAuthProvider,
+    YahooAuthProvider,
 };
 pub use redirect::{
-    InMemoryRedirectPersistence, RedirectOperation, RedirectPersistence, PendingRedirectEvent,
+    InMemoryRedirectPersistence, PendingRedirectEvent, RedirectOperation, RedirectPersistence,
 };
-
-
 
 use std::collections::HashMap;
 
@@ -103,4 +100,3 @@ pub trait OAuthRedirectHandler: Send + Sync {
     fn initiate_redirect(&self, request: OAuthRequest) -> AuthResult<()>;
     fn complete_redirect(&self) -> AuthResult<Option<AuthCredential>>;
 }
-

@@ -5,9 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::error::AuthResult;
 
-
-
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct PersistedAuthState {
     pub user_id: String,

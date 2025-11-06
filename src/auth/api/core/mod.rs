@@ -14,13 +14,8 @@ mod phone;
 mod token;
 
 // Re-export for public use
-pub use token::{RefreshTokenResponse, refresh_id_token, refresh_id_token_with_endpoint, };
 pub(crate) use token::DEFAULT_SECURE_TOKEN_ENDPOINT;
-
-
-
-
-
+pub use token::{refresh_id_token, refresh_id_token_with_endpoint, RefreshTokenResponse};
 
 use crate::app::{registry, AppError, FirebaseApp, LOGGER as APP_LOGGER};
 use crate::auth::error::{AuthError, AuthResult};
@@ -30,10 +25,6 @@ use crate::auth::model::{
     SignInWithCustomTokenRequest, SignInWithCustomTokenResponse, SignInWithEmailLinkRequest,
     SignInWithEmailLinkResponse, SignInWithPasswordRequest, SignInWithPasswordResponse,
     SignUpRequest, SignUpResponse, User, UserCredential, UserInfo,
-};
-use crate::auth::{
-    OAuthCredential, InMemoryRedirectPersistence, OAuthPopupHandler,
-    OAuthRedirectHandler, PendingRedirectEvent, RedirectOperation, RedirectPersistence,
 };
 #[cfg(all(
     feature = "wasm-web",
@@ -51,6 +42,10 @@ use crate::auth::types::{
     MultiFactorOperation, MultiFactorSession, MultiFactorSessionType, MultiFactorSignInContext,
     MultiFactorUser, TotpSecret, WebAuthnAssertionResponse, WebAuthnAttestationResponse,
     WebAuthnEnrollmentChallenge, WebAuthnSignInChallenge, WEBAUTHN_FACTOR_ID,
+};
+use crate::auth::{
+    InMemoryRedirectPersistence, OAuthCredential, OAuthPopupHandler, OAuthRedirectHandler,
+    PendingRedirectEvent, RedirectOperation, RedirectPersistence,
 };
 use crate::auth::{PhoneAuthCredential, PHONE_PROVIDER_ID};
 use crate::component::types::{
