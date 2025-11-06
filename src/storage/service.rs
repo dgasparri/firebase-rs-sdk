@@ -343,11 +343,11 @@ mod tests {
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::app_check::{
-        clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
-    };
-    use crate::app_check::{
         box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
         AppCheckToken,
+    };
+    use crate::app_check::{
+        clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
     };
     use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions};
     use crate::component::{Component, ComponentType};

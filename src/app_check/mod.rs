@@ -15,7 +15,6 @@ mod token_provider;
 mod types;
 mod util;
 
-
 //pub(super) fn on_token_stored
 #[doc(inline)]
 pub use api::{
@@ -29,12 +28,13 @@ pub(crate) use api::{clear_registry, clear_state_for_tests, test_guard};
 
 #[doc(inline)]
 pub use client::{
-    exchange_token, get_exchange_recaptcha_v3_request, get_exchange_recaptcha_enterprise_request, ExchangeRequest, 
+    exchange_token, get_exchange_recaptcha_enterprise_request, get_exchange_recaptcha_v3_request,
+    ExchangeRequest,
 };
 
 #[cfg(test)]
 #[allow(unused_imports)]
-pub(crate) use client::{set_exchange_override, clear_exchange_override, };
+pub(crate) use client::{clear_exchange_override, set_exchange_override};
 
 #[doc(inline)]
 pub use errors::{AppCheckError, AppCheckResult};
@@ -42,21 +42,17 @@ pub use errors::{AppCheckError, AppCheckResult};
 #[doc(inline)]
 pub use interop::FirebaseAppCheckInternal;
 
-
 #[doc(inline)]
 pub use providers::{
     CustomProvider, CustomProviderOptions, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider,
 };
-
 
 //#[cfg(feature = "firestore")]
 #[doc(inline)]
 pub use token_provider::{app_check_token_provider_arc, AppCheckTokenProvider};
 
 #[allow(unused_imports)]
-pub(crate) use types::{
-    box_app_check_future, AppCheckState, TokenListenerEntry,
-};
+pub(crate) use types::{box_app_check_future, AppCheckState, TokenListenerEntry};
 
 #[doc(inline)]
 pub use types::{
