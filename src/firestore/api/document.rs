@@ -119,7 +119,16 @@ impl FirestoreClient {
     /// `firestore/not-found` if the document does not exist.
     ///
     /// # Examples
-    /// ```ignore
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use firebase_rs_sdk::doctest_support::{firestore::get_mock_client};
+    /// # use firebase_rs_sdk::firestore::FirestoreResult;
+    /// # async fn run() -> FirestoreResult<()> {
+    /// # let client = get_mock_client(None).await;
+    /// use std::collections::BTreeMap;
+    /// 
+    /// use firebase_rs_sdk::firestore::FirestoreValue;
+    /// 
     /// client
     ///     .update_doc(
     ///         "cities/sf",
@@ -128,6 +137,7 @@ impl FirestoreClient {
     ///         ]),
     ///     )
     ///     .await?;
+    /// # Ok(()) }
     /// ```
     ///
     /// TypeScript reference: `updateDoc` in
@@ -195,8 +205,14 @@ impl FirestoreClient {
     /// not exist.
     ///
     /// # Examples
-    /// ```ignore
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use firebase_rs_sdk::doctest_support::{firestore::get_mock_client};
+    /// # use firebase_rs_sdk::firestore::FirestoreResult;
+    /// # async fn run() -> FirestoreResult<()> {
+    /// # let client = get_mock_client(None).await;
     /// client.delete_doc("cities/sf").await?;
+    /// # Ok(()) }
     /// ```
     ///
     /// TypeScript reference: `deleteDoc` in

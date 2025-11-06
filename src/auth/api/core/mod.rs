@@ -352,9 +352,14 @@ impl Auth {
     /// Exchanges a custom authentication token for Firebase credentials.
     ///
     /// # Examples
-    /// ```rust,ignore
-    /// let credential = auth.sign_in_with_custom_token(my_signed_jwt).await?;
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
+    /// let credential = auth.sign_in_with_custom_token("CUSTOM-TOKEN").await?;
     /// println!("Signed in as {}", credential.user.uid());
+    /// # Ok(()) }
     /// ```
     pub async fn sign_in_with_custom_token(&self, token: &str) -> AuthResult<UserCredential> {
         let api_key = self.api_key()?;
@@ -421,9 +426,14 @@ impl Auth {
     /// Signs the user in anonymously, creating an anonymous user if needed.
     ///
     /// # Examples
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
     /// let anon = auth.sign_in_anonymously().await?;
     /// assert!(anon.user.is_anonymous());
+    /// # Ok(()) }
     /// ```
     pub async fn sign_in_anonymously(&self) -> AuthResult<UserCredential> {
         if let Some(user) = self.current_user() {
@@ -486,10 +496,18 @@ impl Auth {
     /// Sends an SMS verification code and returns the verification identifier.
     ///
     /// # Examples
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use firebase_rs_sdk::doctest_support::{get_mock_auth, auth::MockVerifier};
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
+    /// # let verifier = Arc::new(MockVerifier{token: "verifier-token", kind: "verifier-kind"});
     /// let verification_id = auth
     ///     .send_phone_verification_code("+15551234567", verifier)
     ///     .await?;
+    /// println!("Sent verification code, id: {}", verification_id);
+    /// # Ok(()) }
     /// ```
     pub async fn send_phone_verification_code(
         &self,
@@ -530,9 +548,16 @@ impl Auth {
     /// Signs in using a credential produced by [`PhoneAuthProvider::credential`].
     ///
     /// # Examples
-    /// ```rust,ignore
-    /// let credential = PhoneAuthProvider::credential(verification_id, sms_code);
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
+    /// let verification_id = "verification-id-from-sms";
+    /// let sms_code = "123456";
+    /// let credential = firebase_rs_sdk::auth::PhoneAuthProvider::credential(verification_id, sms_code);
     /// let user = auth.sign_in_with_phone_credential(credential).await?;
+    /// # Ok(()) }
     /// ```
     pub async fn sign_in_with_phone_credential(
         self: &Arc<Self>,
@@ -556,9 +581,16 @@ impl Auth {
     /// Reauthenticates the current user with an SMS credential.
     ///
     /// # Examples
-    /// ```rust,ignore
-    /// let credential = PhoneAuthProvider::credential(verification_id, sms_code);
-    /// auth.reauthenticate_with_phone_credential(credential).await?;
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
+    /// let verification_id = "verification-id-from-sms";
+    /// let sms_code = "123456";
+    /// let credential = firebase_rs_sdk::auth::PhoneAuthProvider::credential(verification_id, sms_code);
+    /// let user = auth.reauthenticate_with_phone_credential(credential).await?;
+    /// # Ok(()) }
     /// ```
     pub async fn reauthenticate_with_phone_credential(
         self: &Arc<Self>,
@@ -1705,13 +1737,18 @@ impl Auth {
     /// Sends a sign-in link to the provided email address.
     ///
     /// # Examples
-    /// ```rust,ignore
-    /// let settings = ActionCodeSettings {
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
+    /// let settings = firebase_rs_sdk::auth::ActionCodeSettings {
     ///     url: "https://example.com/finish".into(),
     ///     handle_code_in_app: true,
     ///     ..Default::default()
     /// };
     /// auth.send_sign_in_link_to_email("user@example.com", &settings).await?;
+    /// # Ok(()) }
     /// ```
     pub async fn send_sign_in_link_to_email(
         &self,
@@ -1760,11 +1797,17 @@ impl Auth {
     /// Completes the email link sign-in flow for the given email address.
     ///
     /// # Examples
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
+    /// let link = "link-to-sign-in";
     /// if auth.is_sign_in_with_email_link(&link) {
     ///     let credential = auth.sign_in_with_email_link("user@example.com", &link).await?;
     ///     println!("Signed in as {}", credential.user.uid());
     /// }
+    /// # Ok(()) }
     /// ```
     pub async fn sign_in_with_email_link(
         &self,
@@ -1847,8 +1890,13 @@ impl Auth {
     /// Applies an out-of-band action code issued by Firebase Auth.
     ///
     /// # Examples
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
     /// auth.apply_action_code("ACTION_CODE_FROM_EMAIL").await?;
+    /// # Ok(()) }
     /// ```
     pub async fn apply_action_code(&self, oob_code: &str) -> AuthResult<()> {
         let api_key = self.api_key()?;
@@ -1859,9 +1907,14 @@ impl Auth {
     /// Retrieves metadata describing the provided action code.
     ///
     /// # Examples
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
     /// let info = auth.check_action_code("ACTION_CODE").await?;
     /// println!("Operation: {:?}", info.operation);
+    /// # Ok(()) }
     /// ```
     pub async fn check_action_code(&self, oob_code: &str) -> AuthResult<ActionCodeInfo> {
         let api_key = self.api_key()?;
@@ -1906,9 +1959,14 @@ impl Auth {
     /// Returns the email address associated with the provided password reset code.
     ///
     /// # Examples
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use firebase_rs_sdk::doctest_support::get_mock_auth;
+    /// # use firebase_rs_sdk::auth::AuthError;
+    /// # async fn run() -> Result<(), AuthError> {
+    /// # let auth = get_mock_auth(None).await;
     /// let email = auth.verify_password_reset_code("RESET_CODE").await?;
     /// println!("Reset applies to {email}");
+    /// # Ok(()) }
     /// ```
     pub async fn verify_password_reset_code(&self, oob_code: &str) -> AuthResult<String> {
         let info = self.check_action_code(oob_code).await?;

@@ -16,7 +16,7 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 | [auth]                   | 85% | `[#################   ]` |
 | [data_connect]   | 5%  | `[#                   ]` |
 | [database]           | 30% | `[######              ]` |
-| [firestore]         | 25% | `[#####               ]` |
+| [firestore]         | 85% | `[#################   ]` |
 | [functions]         | 25% | `[#####               ]` |
 | [installations] | 45% | `[#########           ]` |
 | [messaging]         | 40% | `[########            ]` |

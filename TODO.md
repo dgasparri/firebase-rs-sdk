@@ -2,13 +2,6 @@
 
 Dump file, ignore it
 
-## Blocking
-
-In README.md
-
-check app_check::types::box_app_check_future for 2 impl - WASM and non-WASM blocking
-
-check firestore::datastore::box_stream_future
 
 ## Public API export and maintenance
 
@@ -23,7 +16,7 @@ check firestore::datastore::box_stream_future
   - state:: - used outside of module?
   - token_provider:: - used only for firestore, gate behind firestore feature?
 - auth OK
-  - auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
+  - auth::api(core)::auth_for_app (core?) - is get_auth in JS SKD?
 - blocking
 - (component: internal)
 - data_connect
@@ -48,6 +41,17 @@ check firestore::datastore::box_stream_future
 Fare doctest_support in modo che gli esempi siano compilabili
 
 
+## Examples
+
+Implement more examples
+
+
+### unexpected feature
+
+Check what's inside cargo.toml[features]
+
+	"message": "unexpected `cfg` condition value: `doc-test-support`\nexpected values for `feature` are: `ai-http`, `default`, `experimental-indexed-db`, `firestore`, `js-sys`, `wasm-bindgen`, `wasm-bindgen-futures`, `wasm-web`, and `web-sys`\nconsider adding `doc-test-support` as a feature in `Cargo.toml`\nsee <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration\n`#[warn(unexpected_cfgs)]` on by default",
+
 ## WASM and async
 
 WASM parity 
@@ -55,14 +59,13 @@ Read ./AGENTS.md for context. Our focus now it to make the library and each modu
 ▌ eliminating all the blocks. Breaking the API is OK. Read the WASM_PLAN.md and work on the module Functions
 
 
-C'è _async in functions
+There is _async in some functions
 
-Check that there is adequate testing for wasm (see for example ./src/functions/api.rs che tutti i test sono dietro gate not wasm32)
-
-Fare anche un search per wasm32 per vedere quali parti di codice sono bloccate
+Check that there is adequate testing for wasm (see for example ./src/functions/api.rs all tests are gated not wasm32)
 
 
-## Failed cargo test - race condition? From time to time it fails
+
+## Failed cargo test - race condition? From time to time those fails
 
 failures:
 
@@ -109,37 +112,24 @@ failures:
 
 
 
-## examples ignored
-
-trasformarli in examples compiled-not run
 
 
-## contare linee di codice
+## count lines of code
 
 
-come posso contare le linee di codice in un progetto Rust? Ci sono tool o script (anche python)?
-
-Ecco i metodi più usati (da super veloce a più “su misura”) per contare le linee in un progetto Rust.
-
-Strumenti pronti (consigliati)
-
-1) tokei (Rust, velocissimo)
-
-# installazione
 cargo install tokei
-# uso nella root del repo
+
 tokei
-# per una singola cartella
+
+or, for a single folder:
+
 tokei src
 
 
-Mostra file, linguaggio, code/commenti/blank e rispetta in genere i pattern ignorati comuni.
-
-
-auth/README.md what's implemented
-
 
 ## Blocking
+
+feature experimental-blocking
 
 Reqwest blocking:
 
@@ -175,50 +165,23 @@ blocking::client::Client::ClientHandle
             };
 
 
-Da studiare blocking::wait::timeout(f, timeout)
+blocking::wait::timeout(f, timeout)
+
+To put a note in README.md
+
+check app_check::types::box_app_check_future for 2 impl - WASM and non-WASM blocking
+
+check firestore::datastore::box_stream_future
 
 
 
 
-
-## Create a RUSTDOC.md with extracts from README.md
-
+## Clean the README.md and give them a schema 
 
 Create a slimmer, less noisy RUSTDOC.md file for each module, with sections extracted from the official module's README.md (better if through a script) to be included as a DOC in the file, less crowded that the README.md file
 
 #![doc = include_str!("RUSTDOC.md")]
 
-
-## Async installations for messaging
-
- Added a detailed plan to src/installations/README.md outlining how to make Installations wasm-capable:
-
-  - split the REST client into native and window.fetch implementations, keep APIs async, and document the approach
-  - add IndexedDB + BroadcastChannel persistence for wasm while keeping file-backed storage for native
-  - expose installation credentials so messaging can call the FCM REST endpoints once the wasm client lands
-  - note follow-on parity tasks (onIdChange, retry/backoff, heartbeat, etc.)
-
-  We're ready to start fresh with that roadmap.
-
-
- cargo check
-  - cargo check --target wasm32-unknown-unknown --features wasm-web
-
-
- To run the new browser-based tests locally, build them with 
-  - cargo test --target wasm32-unknown-unknown --features wasm-web --no-run
-  
-  , then execute via wasm-bindgen-test e.g.: 
-   - wasm-pack test --headless --chrome -- --features wasm-web
-
-
-cargo test --target wasm32-unknown-unknown --features wasm-web -- --test wasm_smoke
-
-
-rustup target add wasm32-unknown-unknown        # once
-  cargo test --target wasm32-unknown-unknown --features wasm-web -- --test wasm_smoke
-
-  (or use wasm-pack test --headless --chrome --features wasm-web).
 
 
 ## how do I install the wasm-pack?
@@ -255,7 +218,5 @@ cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-ind
 
 ### Check for dead_code
 
-Fai un search for dead_code per capire se serve ancora, è stato messo per tenere pulito il porting
-
-#[allow(unused_imports)]
+Search for dead_code and unused_imports to understand if it's used. Sometimes it's dead code only in wasm32
 

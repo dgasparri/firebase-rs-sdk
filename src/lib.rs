@@ -21,3 +21,5 @@ pub mod util;
 
 #[cfg(test)]
 pub mod test_support;
+
+pub mod doctest_support;
