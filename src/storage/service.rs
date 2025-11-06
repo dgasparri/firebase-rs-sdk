@@ -342,7 +342,7 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use crate::app_check::api::{
+    use crate::app_check::{
         clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
     };
     use crate::app_check::{

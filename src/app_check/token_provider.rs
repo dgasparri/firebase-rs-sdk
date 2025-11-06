@@ -1,4 +1,4 @@
-#![cfg(feature = "firestore")]
+// #![cfg(feature = "firestore")]
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
