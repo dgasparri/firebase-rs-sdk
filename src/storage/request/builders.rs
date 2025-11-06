@@ -10,7 +10,7 @@ use url::form_urlencoded;
 use crate::storage::error::internal_error;
 use crate::storage::list::{build_list_options, ListOptions};
 use crate::storage::location::Location;
-use crate::storage::metadata::ObjectMetadata;
+use crate::storage::metadata::serde::ObjectMetadata;
 use crate::storage::service::FirebaseStorageImpl;
 use crate::storage::{SetMetadataRequest, UploadMetadata};
 
@@ -508,7 +508,7 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use crate::storage::metadata::{SetMetadataRequest, UploadMetadata};
+    use crate::storage::metadata::serde::{SetMetadataRequest, UploadMetadata};
     use crate::storage::request::{RequestBody, ResponsePayload};
     use reqwest::StatusCode;
 

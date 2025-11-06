@@ -3,7 +3,7 @@ use crate::storage::error::{
 };
 use crate::storage::list::{parse_list_result, ListOptions, ListResult};
 use crate::storage::location::Location;
-use crate::storage::metadata::ObjectMetadata;
+use crate::storage::metadata::serde::ObjectMetadata;
 use crate::storage::path::{child, last_component, parent};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::storage::request::StreamingResponse;

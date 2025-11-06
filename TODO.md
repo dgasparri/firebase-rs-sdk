@@ -48,14 +48,15 @@ check firestore::datastore::box_stream_future
 - ai
 - analytics
 - app
-- app_check OK
+- app_check Da riguardare
   - TODO: rifare col nuovo metodo
   - persistence:: - used outside of module?
   - recaptcha:: - used outside of module?
   - refresher:: - used outside of module?
   - state:: - used outside of module?
   - token_provider:: - used only for firestore, gate behind firestore feature?
-- auth OK
+  
+- auth Da riguardare
   - TODO: rifare col nuovo metodo
   -auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
 
@@ -63,7 +64,7 @@ check firestore::datastore::box_stream_future
 - (component: internal)
 - data_connect
 - database
-- firestore
+- firestore - OK
 
 Fatto:
 database_id:: DatabaseId

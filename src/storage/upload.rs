@@ -1,7 +1,7 @@
 use std::cmp;
 
 use crate::storage::error::{internal_error, invalid_argument, StorageError, StorageResult};
-use crate::storage::metadata::ObjectMetadata;
+use crate::storage::metadata::serde::ObjectMetadata;
 use crate::storage::reference::StorageReference;
 use crate::storage::request::{
     continue_resumable_upload_request, create_resumable_upload_request, multipart_upload_request,
