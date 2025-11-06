@@ -2,6 +2,77 @@
 
 Dump file, ignore it
 
+
+## Failed tests
+
+cargo test - su run separati
+
+---- functions::api::tests::https_callable_invokes_backend stdout ----
+
+thread 'functions::api::tests::https_callable_invokes_backend' panicked at src\functions\api.rs:424:14:
+called `Result::unwrap()` on an `Err` value: FunctionsError { code: Internal, message: "Service functions is not available", details: None }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    functions::api::tests::https_callable_invokes_backend
+
+
+---- child_added_listener_reports_new_children stdout ----
+
+thread 'child_added_listener_reports_new_children' panicked at tests\database_listeners.rs:60:49:
+called `Result::unwrap()` on an `Err` value: DatabaseError { code: Internal, message: "Database component not available" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    child_added_listener_reports_new_children
+
+## check tests
+
+
+       2. Check all targets, including unit tests:
+
+              cargo check --all-targets --profile=test
+
+## Blocking
+
+In README.md
+
+## API export
+
+- ai
+- analytics
+- app
+- app_check
+- auth OK
+
+TODO: auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
+
+
+
+- blocking
+- component NO
+- data_connect
+- database
+- firestore
+- functions
+- installations
+- logger
+- messaging
+- performance
+- platform NO
+- remote_config
+- storage
+- test_support NO
+- util NO
+
+
+## doctest_support
+
+Fare doctest_support in modo che gli esempi siano compilabili
+
+
 ## WASM and async
 
 WASM parity 

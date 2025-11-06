@@ -1,42 +1,100 @@
 #![doc = include_str!("README.md")]
-pub mod api;
-pub mod error;
-pub mod model;
-pub mod oauth;
-pub mod persistence;
-pub mod phone;
+mod api;
+mod error;
+mod model;
+mod oauth;
+mod persistence;
+mod phone;
 mod token_manager;
-#[cfg(all(not(target_arch = "wasm32"), feature = "firestore"))]
-pub mod token_provider;
-pub mod types;
+
+//#![cfg(feature = "firestore")]
+mod token_provider;
+mod types;
 
 #[doc(inline)]
-pub use api::{auth_for_app, register_auth_component, Auth, AuthBuilder};
+pub use api::{
+    auth_for_app, register_auth_component, Auth, AuthBuilder,
+    RefreshTokenResponse, refresh_id_token, refresh_id_token_with_endpoint,
+};
+
+
+#[allow(unused_imports)]
+pub(crate) use api::DEFAULT_SECURE_TOKEN_ENDPOINT;
 
 #[doc(inline)]
 pub use error::{AuthError, AuthResult, MultiFactorAuthError, MultiFactorAuthErrorCode};
 
+#[allow(unused_imports)]
+pub(crate) use error::map_mfa_error_code;
+
 #[doc(inline)]
-pub use model::{AuthConfig, AuthCredential, EmailAuthProvider, User, UserCredential};
+pub use model::{AccountInfoUser, AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider, GetAccountInfoResponse, MfaEnrollmentInfo, ProviderUserInfo, SignInWithCustomTokenRequest, SignInWithCustomTokenResponse, SignInWithEmailLinkRequest, SignInWithEmailLinkResponse,  SignInWithPasswordRequest, SignInWithPasswordResponse, SignUpRequest, SignUpResponse, User, UserInfo, UserCredential};
+
+
+
+
+#[doc(inline)]
+pub use oauth::{ oauth_access_token_map,  OAuthCredential, OAuthProvider, PkcePair,
+     OAuthPopupHandler, OAuthRedirectHandler , OAuthRequest,
+    AppleAuthProvider, FacebookAuthProvider, GitHubAuthProvider, GoogleAuthProvider,
+    MicrosoftAuthProvider, OAuthProviderFactory, TwitterAuthProvider, YahooAuthProvider,
+
+    InMemoryRedirectPersistence, RedirectOperation, RedirectPersistence, PendingRedirectEvent,
+};
+
+
+
+#[doc(inline)]
+pub use persistence::{
+    AuthPersistence, ClosurePersistence, InMemoryPersistence, PersistenceListener, PersistedAuthState, PersistenceSubscription
+};
+
+// persistence::indexed_db::IndexedDbPersistence;
+#[cfg(all(
+    feature = "wasm-web",
+    target_arch = "wasm32",
+    feature = "experimental-indexed-db"
+))]
+#[doc(inline)]
+pub use persistence::IndexedDbPersistence;
+
+// persistence::file::FilePersistence;
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
+#[doc(inline)]
+pub use persistence::FilePersistence;
+
+// persistence::web::{WebStorageDriver, WebStoragePersistence};
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+#[doc(inline)]
+pub use persistence::{WebStorageDriver, WebStoragePersistence};
 
 #[doc(inline)]
 pub use phone::{
     PhoneAuthCredential, PhoneAuthProvider, PhoneMultiFactorGenerator, PHONE_PROVIDER_ID,
 };
 
+
+
+
+
+
+//#![cfg(feature = "firestore")]
 #[doc(inline)]
-pub use oauth::{
-    OAuthCredential, OAuthPopupHandler, OAuthProvider, OAuthRedirectHandler, OAuthRequest,
+pub use token_provider::{auth_token_provider_arc, AuthTokenProvider };
+
+#[doc(inline)]
+pub use types::{get_multi_factor_resolver,
+    IdTokenResult, UserMetadata, ActionCodeSettings, IosSettings, AndroidSettings, ActionCodeOperation,
+    ActionCodeInfoData, ActionCodeInfo, ActionCodeUrl, AdditionalUserInfo,
+     ConfirmationResult, AuthSettings, AuthStateListener, ApplicationVerifier, FirebaseAuth,
+     MultiFactorError, MultiFactorInfo,
+      MultiFactorSessionType, MultiFactorOperation, MultiFactorSession,
+       MultiFactorResolver, MultiFactorUser,  Observer, PhoneMultiFactorAssertion, TotpSecret, TotpMultiFactorAssertion,
+       WebAuthnAssertionKind, WebAuthnMultiFactorAssertion, MultiFactorAssertion,
+       TotpMultiFactorGenerator, WebAuthnTransport, WebAuthnCredentialDescriptor,
+       WebAuthnMultiFactorGenerator, WebAuthnSignInChallenge, WebAuthnEnrollmentChallenge,
+        WebAuthnAssertionResponse, WebAuthnAttestationResponse, WEBAUTHN_FACTOR_ID,
 };
 
-#[doc(inline)]
-pub use persistence::{
-    AuthPersistence, ClosurePersistence, InMemoryPersistence, PersistedAuthState,
-};
-
-#[cfg(all(not(target_arch = "wasm32"), feature = "firestore"))]
-#[doc(inline)]
-pub use token_provider::AuthTokenProvider;
-
-#[doc(inline)]
-pub use types::*;
+#[allow(unused_imports)]
+pub(crate) use types::MultiFactorSignInContext;

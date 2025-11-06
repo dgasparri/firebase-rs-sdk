@@ -11,7 +11,16 @@ mod account;
 mod idp;
 mod mfa;
 mod phone;
-pub mod token;
+mod token;
+
+// Re-export for public use
+pub use token::{RefreshTokenResponse, refresh_id_token, refresh_id_token_with_endpoint, };
+pub(crate) use token::DEFAULT_SECURE_TOKEN_ENDPOINT;
+
+
+
+
+
 
 use crate::app::{registry, AppError, FirebaseApp, LOGGER as APP_LOGGER};
 use crate::auth::error::{AuthError, AuthResult};
@@ -22,8 +31,8 @@ use crate::auth::model::{
     SignInWithEmailLinkResponse, SignInWithPasswordRequest, SignInWithPasswordResponse,
     SignUpRequest, SignUpResponse, User, UserCredential, UserInfo,
 };
-use crate::auth::oauth::{
-    credential::OAuthCredential, InMemoryRedirectPersistence, OAuthPopupHandler,
+use crate::auth::{
+    OAuthCredential, InMemoryRedirectPersistence, OAuthPopupHandler,
     OAuthRedirectHandler, PendingRedirectEvent, RedirectOperation, RedirectPersistence,
 };
 #[cfg(all(

@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::error::AuthResult;
 
+
+
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct PersistedAuthState {
     pub user_id: String,
@@ -202,7 +205,7 @@ impl AuthPersistence for ClosurePersistence {
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
-pub mod web;
+mod web;
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 pub use web::{WebStorageDriver, WebStoragePersistence};

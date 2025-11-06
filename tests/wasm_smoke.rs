@@ -6,7 +6,7 @@ use firebase_rs_sdk::app_check::AppCheckOptions;
 use firebase_rs_sdk::app_check::{
     custom_provider, get_limited_use_token, get_token, initialize_app_check, token_with_ttl,
 };
-use firebase_rs_sdk::auth::api::Auth;
+use firebase_rs_sdk::auth::Auth;
 use std::time::Duration;
 use wasm_bindgen_test::*;
 

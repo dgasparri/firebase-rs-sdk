@@ -1,5 +1,4 @@
-#![cfg(feature = "firestore")]
-
+//#![cfg(feature = "firestore")]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -64,6 +63,8 @@ fn map_auth_error(error: AuthError) -> FirestoreError {
         AuthError::NotImplemented(feature) => {
             internal_error(format!("{feature} is not implemented"))
         }
+        AuthError::MultiFactorRequired(err) => unauthenticated(err.to_string()),
+        AuthError::MultiFactor(err) => unauthenticated(err.to_string()),
     }
 }
 

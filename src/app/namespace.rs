@@ -4,7 +4,7 @@ use crate::app::api;
 use crate::app::errors::AppResult;
 use crate::app::logger::{LogCallback, LogLevel, LogOptions};
 use crate::app::types::{FirebaseApp, FirebaseAppSettings, FirebaseOptions};
-use crate::auth::error::AuthError;
+use crate::auth::AuthError;
 use crate::auth::{auth_for_app, register_auth_component, Auth, AuthResult};
 
 pub struct FirebaseNamespace;

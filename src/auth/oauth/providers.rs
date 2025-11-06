@@ -58,9 +58,9 @@ impl OAuthProviderFactory for FacebookAuthProvider {
     }
 }
 
-pub struct GithubAuthProvider;
+pub struct GitHubAuthProvider;
 
-impl GithubAuthProvider {
+impl GitHubAuthProvider {
     /// Sets the GitHub `login` hint to pre-fill the username field.
     pub fn set_login_hint(provider: &mut OAuthProvider, login: &str) {
         let mut params = provider.custom_parameters().clone();
@@ -69,7 +69,7 @@ impl GithubAuthProvider {
     }
 }
 
-impl OAuthProviderFactory for GithubAuthProvider {
+impl OAuthProviderFactory for GitHubAuthProvider {
     fn provider_id() -> &'static str {
         "github.com"
     }
@@ -218,8 +218,8 @@ mod tests {
 
     #[test]
     fn github_login_hint() {
-        let mut provider = GithubAuthProvider::new();
-        GithubAuthProvider::set_login_hint(&mut provider, "octocat");
+        let mut provider = GitHubAuthProvider::new();
+        GitHubAuthProvider::set_login_hint(&mut provider, "octocat");
         assert_eq!(
             provider.custom_parameters().get("login"),
             Some(&"octocat".to_string())
