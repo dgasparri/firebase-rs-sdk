@@ -29,7 +29,7 @@ pub(crate) fn registered_components_guard() -> MutexGuard<'static, HashMap<Arc<s
         .unwrap_or_else(|poison| poison.into_inner())
 }
 
-/// Attaches a component to the given app, logging failures for debugging.
+/// Attaches a component to the given app, logging failures for debugging. Mirrors the JS `_addComponent` helper.
 pub fn add_component(app: &FirebaseApp, component: &Component) {
     if app.container().add_component(component.clone()).is_err() {
         LOGGER.debug(format!(

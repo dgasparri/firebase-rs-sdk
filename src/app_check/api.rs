@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
-use crate::app::registry;
 use crate::app::{get_app, AppError, FirebaseApp, HeartbeatService, HeartbeatServiceImpl};
+use crate::app::{get_provider, register_component};
 use crate::component::types::{
     ComponentError, ComponentType, DynService, InstanceFactoryOptions, InstantiationMode,
 };
@@ -44,7 +44,7 @@ static APP_CHECK_COMPONENT: LazyLock<()> = LazyLock::new(|| {
         ComponentType::Public,
     )
     .with_instantiation_mode(InstantiationMode::Explicit);
-    let _ = registry::register_component(component);
+    let _ = register_component(component);
 });
 
 static APP_CHECK_INTERNAL_COMPONENT: LazyLock<()> = LazyLock::new(|| {
@@ -54,7 +54,7 @@ static APP_CHECK_INTERNAL_COMPONENT: LazyLock<()> = LazyLock::new(|| {
         ComponentType::Private,
     )
     .with_instantiation_mode(InstantiationMode::Explicit);
-    let _ = registry::register_component(component);
+    let _ = register_component(component);
 });
 
 fn ensure_components_registered() {
@@ -153,7 +153,7 @@ pub async fn initialize_app_check(
 
     let app_name: Arc<str> = Arc::from(app.name().to_owned());
 
-    let heartbeat = registry::get_provider(&app, "heartbeat")
+    let heartbeat = get_provider(&app, "heartbeat")
         .get_immediate::<HeartbeatServiceImpl>()
         .map(|service| -> Arc<dyn HeartbeatService> { service });
 
@@ -513,7 +513,7 @@ pub(crate) fn test_guard() -> MutexGuard<'static, ()> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::app::api::delete_app;
+    use crate::app::delete_app;
     use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
     use crate::component::ComponentContainer;
     use std::sync::atomic::{AtomicUsize, Ordering};

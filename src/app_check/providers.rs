@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::app::{registry, FirebaseApp, HeartbeatService, HeartbeatServiceImpl};
+use crate::app::{get_provider, FirebaseApp, HeartbeatService, HeartbeatServiceImpl};
 use crate::util::calculate_backoff_millis;
 
 use super::errors::{AppCheckError, AppCheckResult};
@@ -112,7 +112,7 @@ impl RecaptchaProviderCore {
     }
 
     fn initialize(&self, app: &FirebaseApp) {
-        let heartbeat = registry::get_provider(app, "heartbeat")
+        let heartbeat = get_provider(app, "heartbeat")
             .get_immediate::<HeartbeatServiceImpl>()
             .map(|service| -> Arc<dyn HeartbeatService> { service });
 

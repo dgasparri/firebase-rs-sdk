@@ -299,7 +299,7 @@ static MESSAGING_COMPONENT: LazyLock<()> = LazyLock::new(|| {
         ComponentType::Public,
     )
     .with_instantiation_mode(InstantiationMode::Lazy);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn messaging_factory(
@@ -328,12 +328,12 @@ pub async fn get_messaging(app: Option<FirebaseApp>) -> MessagingResult<Arc<Mess
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None)
+        None => crate::app::get_app(None)
             .await
             .map_err(|err| internal_error(err.to_string()))?,
     };
 
-    let provider = app::registry::get_provider(&app, MESSAGING_COMPONENT_NAME);
+    let provider = app::get_provider(&app, MESSAGING_COMPONENT_NAME);
     if let Some(messaging) = provider.get_immediate::<Messaging>() {
         Ok(messaging)
     } else {
@@ -758,7 +758,7 @@ fn dummy_installation_info() -> InstallationInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     #[allow(unused_imports)]
     use std::task::Waker;

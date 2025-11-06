@@ -1,9 +1,9 @@
 use std::sync::{Arc, LazyLock};
 
 use crate::app;
-use crate::app::api::{get_app, register_version};
 use crate::app::FirebaseApp;
 use crate::app::SDK_VERSION;
+use crate::app::{get_app, register_version};
 use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
@@ -96,7 +96,7 @@ static FIRESTORE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
     .with_instantiation_mode(InstantiationMode::Lazy)
     .with_multiple_instances(true);
 
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn firestore_factory(
@@ -169,7 +169,7 @@ pub async fn get_firestore(app: Option<FirebaseApp>) -> FirestoreResult<Arc<Fire
             .map_err(|err| internal_error(err.to_string()))?,
     };
 
-    let provider = app::registry::get_provider(&app, FIRESTORE_COMPONENT_NAME);
+    let provider = app::get_provider(&app, FIRESTORE_COMPONENT_NAME);
     provider
         .get_immediate_with_options::<Firestore>(None, false)
         .map_err(|err| internal_error(err.to_string()))?
@@ -179,7 +179,7 @@ pub async fn get_firestore(app: Option<FirebaseApp>) -> FirestoreResult<Arc<Fire
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
 
     fn unique_settings() -> FirebaseAppSettings {
@@ -218,7 +218,7 @@ mod tests {
         let app = initialize_app(options, Some(unique_settings()))
             .await
             .unwrap();
-        let provider = app::registry::get_provider(&app, FIRESTORE_COMPONENT_NAME);
+        let provider = app::get_provider(&app, FIRESTORE_COMPONENT_NAME);
         let instance = provider
             .initialize::<Firestore>(
                 serde_json::Value::Null,

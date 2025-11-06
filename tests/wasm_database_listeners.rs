@@ -1,6 +1,6 @@
 #![cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 
-use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::database::{get_database, DatabaseResult};
 use serde_json::{json, Value};

@@ -16,7 +16,7 @@ October 20th, 2025.)
 ## Quick Start Example
 
 ```rust,no_run
-use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::functions::{get_functions, register_functions_component};
 use serde_json::{json, Value as JsonValue};

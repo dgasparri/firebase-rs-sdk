@@ -107,7 +107,7 @@ static PERFORMANCE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
         ComponentType::Public,
     )
     .with_instantiation_mode(InstantiationMode::Lazy);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn performance_factory(
@@ -136,17 +136,17 @@ pub fn register_performance_component() {
 /// Resolves (or lazily creates) the [`Performance`] instance associated with the provided app.
 ///
 /// This mirrors the behaviour of the JavaScript SDK's `getPerformance` helper. When `app` is
-/// `None`, the default app is resolved asynchronously via [`get_app`](crate::app::api::get_app).
+/// `None`, the default app is resolved asynchronously via [`get_app`](crate::app::get_app).
 pub async fn get_performance(app: Option<FirebaseApp>) -> PerformanceResult<Arc<Performance>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None)
+        None => crate::app::get_app(None)
             .await
             .map_err(|err| internal_error(err.to_string()))?,
     };
 
-    let provider = app::registry::get_provider(&app, PERFORMANCE_COMPONENT_NAME);
+    let provider = app::get_provider(&app, PERFORMANCE_COMPONENT_NAME);
     if let Some(perf) = provider.get_immediate::<Performance>() {
         return Ok(perf);
     }
@@ -163,7 +163,7 @@ pub async fn get_performance(app: Option<FirebaseApp>) -> PerformanceResult<Arc<
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use tokio::time::sleep;
 

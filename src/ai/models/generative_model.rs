@@ -91,7 +91,7 @@ mod tests {
     use super::*;
     use crate::ai::backend::Backend;
     use crate::ai::public_types::AiOptions;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use serde_json::json;
     use std::time::Duration;

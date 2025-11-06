@@ -354,7 +354,7 @@ impl FirestoreClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::firestore::api::aggregate::{AggregateField, AggregateSpec};
     use crate::firestore::api::database::get_firestore;

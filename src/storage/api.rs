@@ -1,8 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
-use crate::app::api::{get_app, SDK_VERSION};
-use crate::app::registry;
 use crate::app::FirebaseApp;
+use crate::app::{get_app, get_provider, register_component, SDK_VERSION};
 use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
@@ -21,7 +20,7 @@ static STORAGE_COMPONENT_REGISTERED: LazyLock<()> = LazyLock::new(|| {
     )
     .with_instantiation_mode(InstantiationMode::Lazy)
     .with_multiple_instances(true);
-    let _ = registry::register_component(component);
+    let _ = register_component(component);
 });
 
 fn storage_factory(
@@ -73,7 +72,7 @@ pub async fn get_storage_for_app(
             .map_err(|err| internal_error(err.to_string()))?,
     };
 
-    let provider = registry::get_provider(&app, STORAGE_TYPE);
+    let provider = get_provider(&app, STORAGE_TYPE);
     let storage = provider
         .get_immediate_with_options::<FirebaseStorageImpl>(bucket_url, false)
         .map_err(|err| internal_error(err.to_string()))?

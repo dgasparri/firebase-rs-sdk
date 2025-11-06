@@ -46,7 +46,7 @@ fn missing_value_error(value_name: &str) -> crate::installations::error::Install
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use std::sync::atomic::{AtomicUsize, Ordering};
 

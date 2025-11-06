@@ -80,7 +80,7 @@ static DATA_CONNECT_COMPONENT: LazyLock<()> = LazyLock::new(|| {
     )
     .with_instantiation_mode(InstantiationMode::Lazy)
     .with_multiple_instances(true);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn data_connect_factory(
@@ -119,7 +119,7 @@ pub async fn get_data_connect_service(
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None)
+        None => crate::app::get_app(None)
             .await
             .map_err(|err| internal_error(err.to_string()))?,
     };
@@ -130,7 +130,7 @@ pub async fn get_data_connect_service(
         return Ok(service);
     }
 
-    let provider = app::registry::get_provider(&app, DATA_CONNECT_COMPONENT_NAME);
+    let provider = app::get_provider(&app, DATA_CONNECT_COMPONENT_NAME);
     if let Some(service) = match endpoint {
         Some(id) => provider
             .get_immediate_with_options::<DataConnectService>(Some(id), true)
@@ -189,7 +189,7 @@ pub async fn get_data_connect_service(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
 
     fn unique_settings() -> FirebaseAppSettings {

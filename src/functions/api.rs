@@ -67,7 +67,7 @@ impl Functions {
     /// ```ignore
     /// # use firebase_rs_sdk::functions::{get_functions, register_functions_component};
     /// # use firebase_rs_sdk::functions::error::FunctionsResult;
-    /// # use firebase_rs_sdk::app::api::initialize_app;
+    /// # use firebase_rs_sdk::app::initialize_app;
     /// # use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
     /// # async fn demo() -> firebase_rs_sdk::functions::error::FunctionsResult<()> {
     /// # register_functions_component();
@@ -312,7 +312,7 @@ static FUNCTIONS_COMPONENT: LazyLock<()> = LazyLock::new(|| {
     )
     .with_instantiation_mode(InstantiationMode::Lazy)
     .with_multiple_instances(true);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn functions_factory(
@@ -355,12 +355,12 @@ pub async fn get_functions(
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None)
+        None => crate::app::get_app(None)
             .await
             .map_err(|err| internal_error(err.to_string()))?,
     };
 
-    let provider = app::registry::get_provider(&app, FUNCTIONS_COMPONENT_NAME);
+    let provider = app::get_provider(&app, FUNCTIONS_COMPONENT_NAME);
     if let Some(identifier) = region_or_domain {
         provider
             .initialize::<Functions>(serde_json::Value::Null, Some(identifier))
@@ -375,7 +375,7 @@ pub async fn get_functions(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use httpmock::Method::POST;
     use httpmock::MockServer;

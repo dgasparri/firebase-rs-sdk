@@ -4,7 +4,7 @@
 //! Provide your own API key/project/app id (and optionally set the `FIREBASE_INSTALLATIONS_CACHE_DIR`
 //! environment variable if you want to control where the cache lives).
 
-use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::installations::InstallationToken;
 use firebase_rs_sdk::installations::{delete_installations, get_installations};

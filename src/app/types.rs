@@ -321,13 +321,11 @@ pub fn deep_equal_options(a: &FirebaseOptions, b: &FirebaseOptions) -> bool {
     a == b
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct FirebaseAuthTokenData {
     pub access_token: String,
 }
 
-#[allow(dead_code)]
 pub trait FirebaseServiceInternals: Send + Sync {
     fn delete(&self) -> AppResult<()>;
 }

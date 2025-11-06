@@ -39,7 +39,7 @@ Natural next steps: 1) Implement real transports (REST/emulator) with auth/App C
 ```rust,no_run
 use std::collections::BTreeMap;
 
-use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::data_connect::{
     get_data_connect_service, QueryRequest

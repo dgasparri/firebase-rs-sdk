@@ -1623,7 +1623,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex as StdMutex;
 
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::firestore::api::database::{get_firestore, Firestore};
     use crate::firestore::api::query::{DocumentChangeType, Query};

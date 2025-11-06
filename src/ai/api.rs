@@ -543,7 +543,7 @@ static AI_COMPONENT: LazyLock<()> = LazyLock::new(|| {
     )
     .with_instantiation_mode(InstantiationMode::Lazy)
     .with_multiple_instances(true);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn ai_factory(
@@ -638,7 +638,7 @@ pub fn register_ai_component() {
 /// # use firebase_rs_sdk::ai::backend::Backend;
 /// # use firebase_rs_sdk::ai::public_types::AiOptions;
 /// # use firebase_rs_sdk::ai::get_ai;
-/// # use firebase_rs_sdk::app::api::initialize_app;
+/// # use firebase_rs_sdk::app::initialize_app;
 /// # use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 /// # async fn example() {
 /// let options = FirebaseOptions {
@@ -665,7 +665,7 @@ pub async fn get_ai(
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None)
+        None => crate::app::get_app(None)
             .await
             .map_err(|err| internal_error(err.to_string()))?,
     };
@@ -683,7 +683,7 @@ pub async fn get_ai(
         return Ok(service);
     }
 
-    let provider = app::registry::get_provider(&app, AI_COMPONENT_NAME);
+    let provider = app::get_provider(&app, AI_COMPONENT_NAME);
 
     if let Some(service) = provider
         .get_immediate_with_options::<AiService>(Some(&identifier), true)
@@ -743,7 +743,7 @@ mod tests {
     use crate::ai::backend::Backend;
     use crate::ai::error::AiErrorCode;
     use crate::ai::public_types::AiOptions;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use async_trait::async_trait;
     use serde_json::json;

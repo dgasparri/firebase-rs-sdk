@@ -48,6 +48,14 @@ check firestore::datastore::box_stream_future
 - ai
 - analytics
 - app
+
+ mod.rs: mod component; -> component.rs: pub use crate::component::*;
+
+// ./src/app/private.rs has some useful public method, why are they really private? ARe they used internally? It is indeed public the mod
+
+./src/app/registry.rs is imported as pub(crate), but some methods are only pub and others are pub(crate) - is it useful as public API?
+
+
 - app_check Da riguardare
   - TODO: rifare col nuovo metodo
   - persistence:: - used outside of module?
@@ -55,7 +63,7 @@ check firestore::datastore::box_stream_future
   - refresher:: - used outside of module?
   - state:: - used outside of module?
   - token_provider:: - used only for firestore, gate behind firestore feature?
-  
+
 - auth Da riguardare
   - TODO: rifare col nuovo metodo
   -auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
@@ -85,7 +93,7 @@ pub use value::{array_value::ArrayValue, bytes_value::BytesValue, FirestoreValue
 - performance
 - platform NO
 - remote_config
-- storage
+- storage - OK
 - test_support NO
 - util NO
 

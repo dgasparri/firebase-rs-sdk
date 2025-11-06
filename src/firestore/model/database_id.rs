@@ -42,7 +42,7 @@ impl DatabaseId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::FirebaseAppSettings;
     use crate::app::FirebaseOptions;
 

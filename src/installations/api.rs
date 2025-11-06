@@ -464,7 +464,7 @@ static INSTALLATIONS_COMPONENT: LazyLock<()> = LazyLock::new(|| {
         ComponentType::Public,
     )
     .with_instantiation_mode(InstantiationMode::Lazy);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 static INSTALLATIONS_INTERNAL_COMPONENT: LazyLock<()> = LazyLock::new(|| {
@@ -474,7 +474,7 @@ static INSTALLATIONS_INTERNAL_COMPONENT: LazyLock<()> = LazyLock::new(|| {
         ComponentType::Private,
     )
     .with_instantiation_mode(InstantiationMode::Lazy);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn installations_factory(
@@ -518,7 +518,7 @@ pub fn get_installations(app: Option<FirebaseApp>) -> InstallationsResult<Arc<In
             #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
             {
                 use futures::executor::block_on;
-                block_on(crate::app::api::get_app(None))
+                block_on(crate::app::get_app(None))
                     .map_err(|err| internal_error(err.to_string()))?
             }
         }
@@ -528,7 +528,7 @@ pub fn get_installations(app: Option<FirebaseApp>) -> InstallationsResult<Arc<In
         return Ok(service);
     }
 
-    let provider = app::registry::get_provider(&app, INSTALLATIONS_COMPONENT_NAME);
+    let provider = app::get_provider(&app, INSTALLATIONS_COMPONENT_NAME);
     if let Some(installations) = provider.get_immediate::<Installations>() {
         INSTALLATIONS_CACHE
             .lock()
@@ -589,13 +589,13 @@ pub fn get_installations_internal(
             #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
             {
                 use futures::executor::block_on;
-                block_on(crate::app::api::get_app(None))
+                block_on(crate::app::get_app(None))
                     .map_err(|err| internal_error(err.to_string()))?
             }
         }
     };
 
-    let provider = app::registry::get_provider(&app, INSTALLATIONS_INTERNAL_COMPONENT_NAME);
+    let provider = app::get_provider(&app, INSTALLATIONS_INTERNAL_COMPONENT_NAME);
     if let Some(internal) = provider.get_immediate::<InstallationsInternal>() {
         return Ok(internal);
     }
@@ -635,7 +635,7 @@ fn installations_internal_factory(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use httpmock::prelude::*;
     use serde_json::json;

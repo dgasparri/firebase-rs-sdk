@@ -4,7 +4,7 @@
 //! This example mimics the way Remote Config / Messaging consume Installations.
 //! It requires network access and valid Firebase credentials.
 
-use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::installations::{
     delete_installations, get_installations_internal, InstallationToken,

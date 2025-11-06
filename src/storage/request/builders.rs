@@ -506,7 +506,7 @@ fn header_value<'a>(headers: &'a HashMap<String, String>, name: &str) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::storage::metadata::serde::{SetMetadataRequest, UploadMetadata};
     use crate::storage::request::{RequestBody, ResponsePayload};

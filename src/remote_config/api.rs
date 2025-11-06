@@ -142,7 +142,7 @@ impl RemoteConfig {
     /// ```
     /// use firebase_rs_sdk::remote_config::settings::RemoteConfigSettingsUpdate;
     /// # use firebase_rs_sdk::remote_config::get_remote_config;
-    /// # use firebase_rs_sdk::app::api::initialize_app;
+    /// # use firebase_rs_sdk::app::initialize_app;
     /// # use firebase_rs_sdk::app::{FirebaseOptions, FirebaseAppSettings};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let app = initialize_app(FirebaseOptions::default(), Some(FirebaseAppSettings::default())).await?;
@@ -562,7 +562,7 @@ static REMOTE_CONFIG_COMPONENT: LazyLock<()> = LazyLock::new(|| {
         ComponentType::Public,
     )
     .with_instantiation_mode(InstantiationMode::Lazy);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn remote_config_factory(
@@ -599,7 +599,7 @@ pub async fn get_remote_config(app: Option<FirebaseApp>) -> RemoteConfigResult<A
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None)
+        None => crate::app::get_app(None)
             .await
             .map_err(|err| internal_error(err.to_string()))?,
     };
@@ -608,7 +608,7 @@ pub async fn get_remote_config(app: Option<FirebaseApp>) -> RemoteConfigResult<A
         return Ok(rc);
     }
 
-    let provider = app::registry::get_provider(&app, REMOTE_CONFIG_COMPONENT_NAME);
+    let provider = app::get_provider(&app, REMOTE_CONFIG_COMPONENT_NAME);
     if let Some(rc) = provider.get_immediate::<RemoteConfig>() {
         REMOTE_CONFIG_CACHE
             .lock()
@@ -648,7 +648,7 @@ pub async fn get_remote_config(app: Option<FirebaseApp>) -> RemoteConfigResult<A
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseApp, FirebaseAppSettings, FirebaseOptions};
     use crate::remote_config::constants::{
         RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH, RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH,

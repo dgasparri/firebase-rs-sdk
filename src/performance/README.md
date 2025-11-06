@@ -21,7 +21,7 @@ remain to be implemented.
 ```rust,no_run
 use std::time::Duration;
 
-use firebase_rs_sdk::app::api::initialize_app;
+use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::performance::get_performance;
 

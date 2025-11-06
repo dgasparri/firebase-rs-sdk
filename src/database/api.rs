@@ -1923,7 +1923,7 @@ static DATABASE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
         ComponentType::Public,
     )
     .with_instantiation_mode(InstantiationMode::Lazy);
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 });
 
 fn database_factory(
@@ -1962,14 +1962,14 @@ pub async fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Databa
             }
             #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
             {
-                crate::app::api::get_app(None)
+                crate::app::get_app(None)
                     .await
                     .map_err(|err| internal_error(err.to_string()))?
             }
         }
     };
 
-    let provider = app::registry::get_provider(&app, DATABASE_COMPONENT_NAME);
+    let provider = app::get_provider(&app, DATABASE_COMPONENT_NAME);
     if let Some(database) = provider.get_immediate::<Database>() {
         return Ok(database);
     }
@@ -1986,7 +1986,7 @@ pub async fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Databa
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::database::{
         equal_to_with_key, increment, limit_to_first, limit_to_last, order_by_child, order_by_key,

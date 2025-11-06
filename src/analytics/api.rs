@@ -357,7 +357,7 @@ fn analytics_factory(
 
 fn ensure_registered() {
     let component = LazyLock::force(&ANALYTICS_COMPONENT).clone();
-    let _ = app::registry::register_component(component);
+    let _ = app::register_component(component);
 }
 
 fn generate_client_id() -> String {
@@ -379,12 +379,12 @@ pub async fn get_analytics(app: Option<FirebaseApp>) -> AnalyticsResult<Arc<Anal
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => crate::app::api::get_app(None)
+        None => crate::app::get_app(None)
             .await
             .map_err(|err| internal_error(err.to_string()))?,
     };
 
-    let provider = app::registry::get_provider(&app, ANALYTICS_COMPONENT_NAME);
+    let provider = app::get_provider(&app, ANALYTICS_COMPONENT_NAME);
     provider
         .get_immediate::<Analytics>()
         .ok_or_else(|| internal_error("Analytics component not available"))
@@ -394,7 +394,7 @@ pub async fn get_analytics(app: Option<FirebaseApp>) -> AnalyticsResult<Arc<Anal
 mod tests {
     use super::*;
     use crate::analytics::gtag::GlobalGtagRegistry;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use std::collections::BTreeMap;
     use std::sync::{Arc, LazyLock, Mutex};

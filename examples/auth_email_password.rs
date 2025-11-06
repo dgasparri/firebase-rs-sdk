@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     auth.sign_out();
     println!("Signed out.");
 
-    firebase_rs_sdk::app::api::delete_app(&app).await?;
+    firebase_rs_sdk::app::delete_app(&app).await?;
     println!("App deleted.");
 
     Ok(())

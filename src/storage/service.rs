@@ -340,7 +340,7 @@ fn extract_bucket(host: &str, app: &FirebaseApp) -> StorageResult<Option<Locatio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::api::initialize_app;
+    use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::app_check::{
         box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,

@@ -17,7 +17,7 @@ mod token;
 pub(crate) use token::DEFAULT_SECURE_TOKEN_ENDPOINT;
 pub use token::{refresh_id_token, refresh_id_token_with_endpoint, RefreshTokenResponse};
 
-use crate::app::{registry, AppError, FirebaseApp, LOGGER as APP_LOGGER};
+use crate::app::{register_component, AppError, FirebaseApp, LOGGER as APP_LOGGER};
 use crate::auth::error::{AuthError, AuthResult};
 use crate::auth::model::MfaEnrollmentInfo;
 use crate::auth::model::{
@@ -2635,7 +2635,7 @@ pub fn register_auth_component() {
     static REGISTERED: LazyLock<()> = LazyLock::new(|| {
         let component = Component::new("auth", Arc::new(auth_factory), ComponentType::Public)
             .with_instantiation_mode(InstantiationMode::Lazy);
-        let _ = registry::register_component(component);
+        let _ = register_component(component);
     });
     LazyLock::force(&REGISTERED);
 }

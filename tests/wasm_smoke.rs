@@ -1,6 +1,6 @@
 #![cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 
-use firebase_rs_sdk::app::api::{delete_app, initialize_app};
+use firebase_rs_sdk::app::{delete_app, initialize_app};
 use firebase_rs_sdk::app::{AppError, FirebaseApp, FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::app_check::AppCheckOptions;
 use firebase_rs_sdk::app_check::{
