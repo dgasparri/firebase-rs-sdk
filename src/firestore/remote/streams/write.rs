@@ -12,7 +12,7 @@ use crate::firestore::model::Timestamp;
 use crate::firestore::remote::datastore::{StreamHandle, WriteOperation};
 use crate::firestore::remote::network::{NetworkLayer, NetworkStreamHandler, StreamCredentials};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
-use crate::firestore::remote::stream::PersistentStreamHandle;
+use crate::firestore::remote::stream::persistent::PersistentStreamHandle;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -297,7 +297,7 @@ mod tests {
     use super::BASE64_STANDARD;
     use super::*;
     use crate::firestore::model::{DatabaseId, DocumentKey};
-    use crate::firestore::remote::datastore::streaming::StreamingDatastoreImpl;
+    use crate::firestore::remote::datastore::StreamingDatastoreImpl;
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};
     use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};
     use crate::firestore::FirestoreValue;

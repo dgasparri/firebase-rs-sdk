@@ -3,11 +3,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::firestore::error::{FirestoreError, FirestoreErrorCode, FirestoreResult};
-use crate::firestore::remote::datastore::streaming::box_stream_future;
+use crate::firestore::remote::datastore::box_stream_future;
 use crate::firestore::remote::datastore::{
     NoopTokenProvider, RetrySettings, StreamHandle, StreamingDatastore, TokenProviderArc,
 };
-use crate::firestore::remote::stream::{
+use crate::firestore::remote::stream::persistent::{
     PersistentStream, PersistentStreamDelegate, PersistentStreamHandle, StreamKind,
 };
 
@@ -258,7 +258,7 @@ impl NetworkLayerBuilder {
 mod tests {
     use super::*;
     use crate::firestore::error::FirestoreResult;
-    use crate::firestore::remote::datastore::streaming::StreamingDatastoreImpl;
+    use crate::firestore::remote::datastore::StreamingDatastoreImpl;
     use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};
     use crate::platform::runtime;
     use std::sync::atomic::{AtomicBool, Ordering};

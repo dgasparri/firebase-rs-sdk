@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::value::{FirestoreValue, MapValue};
+use crate::firestore::value::{FirestoreValue, map_value::MapValue};
 
 /// Trait describing how to convert between user models and Firestore maps.
 ///

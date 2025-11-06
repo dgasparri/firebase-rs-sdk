@@ -7,17 +7,25 @@ use futures::future::BoxFuture;
 #[cfg(target_arch = "wasm32")]
 use futures::future::LocalBoxFuture;
 
-use crate::firestore::api::DocumentSnapshot;
+use crate::firestore::api::snapshot::DocumentSnapshot;
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::model::{DocumentKey, FieldPath};
+use crate::firestore::model::{document_key::DocumentKey, field_path::FieldPath};
 use crate::firestore::value::{FirestoreValue, MapValue};
 use crate::firestore::AggregateDefinition;
 use crate::firestore::FieldTransform;
 use crate::firestore::QueryDefinition;
 
-pub mod http;
-pub mod in_memory;
-pub mod streaming;
+mod http;
+mod in_memory;
+mod streaming;
+
+// Re-export public API
+pub use http::{HttpDatastore, HttpDatastoreBuilder, RetrySettings};
+pub use in_memory::InMemoryDatastore;
+pub use streaming::{StreamingDatastoreImpl, StreamingHandleImpl};
+pub(crate) use streaming::box_stream_future;
+
+
 
 #[derive(Clone, Debug)]
 pub enum WriteOperation {
@@ -118,6 +126,3 @@ impl TokenProvider for NoopTokenProvider {
 
 pub type TokenProviderArc = Arc<dyn TokenProvider>;
 
-pub use http::{HttpDatastore, RetrySettings};
-pub use in_memory::InMemoryDatastore;
-pub use streaming::StreamingDatastoreImpl;

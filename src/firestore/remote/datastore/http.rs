@@ -7,7 +7,7 @@ use reqwest::Method;
 
 use async_trait::async_trait;
 
-use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
+use crate::firestore::api::snapshot::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{
     internal_error, invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
 };
@@ -470,7 +470,7 @@ mod tests {
     use super::*;
     use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
     use crate::component::ComponentContainer;
-    use crate::firestore::api::Firestore;
+    use crate::firestore::api::database::Firestore;
     use crate::firestore::error::{internal_error, unauthenticated};
     use crate::firestore::model::DatabaseId;
     use crate::firestore::value::ValueKind;

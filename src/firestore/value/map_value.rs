@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::firestore::model::FieldPath;
+use crate::firestore::model::field_path::FieldPath;
 use crate::firestore::value::{FirestoreValue, ValueKind};
 
 #[derive(Clone, Debug, PartialEq)]

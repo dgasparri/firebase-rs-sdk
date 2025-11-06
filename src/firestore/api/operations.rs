@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::{DocumentKey, FieldPath};
+use crate::firestore::model::{document_key::DocumentKey, field_path::FieldPath};
 use crate::firestore::value::{FirestoreValue, MapValue, SentinelValue, ValueKind};
 
 /// Options that configure the behaviour of `set_doc`/`set_doc_with_converter` writes.
@@ -380,7 +380,7 @@ fn set_value_at_segments(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::model::FieldPath;
+    use crate::firestore::model::field_path::FieldPath;
 
     #[test]
     fn merge_collects_sentinel_paths() {

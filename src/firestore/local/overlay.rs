@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use crate::firestore::api::{
+use crate::firestore::api::operations::{
     set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation,
 };
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::{FieldPath, Timestamp};
+use crate::firestore::model::{field_path::FieldPath, timestamp::Timestamp};
 use crate::firestore::remote::datastore::WriteOperation;
 use crate::firestore::value::{FirestoreValue, MapValue, ValueKind};
 

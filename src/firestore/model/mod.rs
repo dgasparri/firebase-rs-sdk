@@ -1,9 +1,10 @@
-mod database_id;
-mod document_key;
-mod field_path;
-mod geo_point;
-mod resource_path;
-mod timestamp;
+pub mod database_id;
+pub mod document_key;
+pub mod field_path;
+pub mod geo_point;
+pub mod resource_path;
+pub mod timestamp;
+
 
 pub use database_id::DatabaseId;
 pub use document_key::DocumentKey;

@@ -39,23 +39,40 @@ failures:
 
 In README.md
 
-## API export
+check app_check::types::box_app_check_future for 2 impl - WASM and non-WASM blocking
+
+check firestore::datastore::box_stream_future
+
+## Public API export and maintenance
 
 - ai
 - analytics
 - app
-- app_check
+- app_check OK
+  - persistence:: - used outside of module?
+  - recaptcha:: - used outside of module?
+  - refresher:: - used outside of module?
+  - state:: - used outside of module?
+  - token_provider:: - used only for firestore, gate behind firestore feature?
 - auth OK
-
-TODO: auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
-
-
+  -auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
 
 - blocking
-- component NO
+- (component: internal)
 - data_connect
 - database
 - firestore
+
+database_id::DatabaseId
+document_key::DocumentKey;
+field_path::{FieldPath, IntoFieldPath};
+geo_point::GeoPoint;
+resource_path::ResourcePath;
+timestamp::Timestamp;
+
+
+  - query::QueryDefinition is public but its methods are pub(crate)
+  - there are some pub(crate) that might be public API instead
 - functions
 - installations
 - logger

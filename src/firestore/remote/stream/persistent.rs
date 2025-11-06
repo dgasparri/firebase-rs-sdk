@@ -189,7 +189,7 @@ impl BackoffState {
 mod tests {
     use super::*;
     use crate::firestore::remote::datastore::{
-        streaming::box_stream_future, StreamingDatastore, StreamingDatastoreImpl,
+        box_stream_future, StreamingDatastore, StreamingDatastoreImpl,
     };
     use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};
     use std::sync::Mutex;

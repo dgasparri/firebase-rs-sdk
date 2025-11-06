@@ -1,7 +1,7 @@
 use serde_json::{json, Value as JsonValue};
 
-use crate::firestore::api::{AggregateDefinition, AggregateOperation};
-use crate::firestore::api::{Bound, FieldFilter, QueryDefinition};
+use crate::firestore::api::aggregate::{AggregateDefinition, AggregateOperation};
+use crate::firestore::api::query::{Bound, FieldFilter, QueryDefinition};
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::remote::serializer::JsonProtoSerializer;
 

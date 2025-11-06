@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::{FieldPath, IntoFieldPath};
+use crate::firestore::model::field_path::{FieldPath, IntoFieldPath};
 use crate::firestore::value::{FirestoreValue, ValueKind};
 
 use super::query::Query;

@@ -2,11 +2,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::{DocumentKey, FieldPath, ResourcePath, Timestamp};
+use crate::firestore::model::document_key::DocumentKey;
+use crate::firestore::model::field_path::FieldPath;
+use crate::firestore::model::resource_path::ResourcePath;
+use crate::firestore::model::timestamp::Timestamp;
 use crate::firestore::value::{FirestoreValue, ValueKind};
 
 use super::snapshot::DocumentSnapshot;
-use super::{Firestore, FirestoreDataConverter, TypedDocumentSnapshot};
+use super::converter::FirestoreDataConverter;
+use super::database::Firestore;
+use super::snapshot::TypedDocumentSnapshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilterOperator {
@@ -571,9 +576,9 @@ mod tests {
     use crate::app::FirebaseOptions;
     use crate::component::ComponentContainer;
     use crate::firestore::api::snapshot::SnapshotMetadata;
-    use crate::firestore::api::Firestore;
-    use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
-    use crate::firestore::value::MapValue;
+    use crate::firestore::Firestore;
+    use crate::firestore::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
+    use crate::firestore::MapValue;
     use std::collections::BTreeMap;
 
     fn build_firestore() -> Firestore {

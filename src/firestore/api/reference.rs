@@ -4,11 +4,11 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::{DocumentKey, ResourcePath};
+use crate::firestore::model::{document_key::DocumentKey, resource_path::ResourcePath};
 
 use super::query::{ConvertedQuery, Query};
-use super::Firestore;
-use super::FirestoreDataConverter;
+use super::database::Firestore;
+use super::converter::FirestoreDataConverter;
 
 #[derive(Clone, Debug)]
 pub struct CollectionReference {
@@ -268,7 +268,7 @@ mod tests {
     use super::*;
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use crate::firestore::api::get_firestore;
+    use crate::firestore::api::database::get_firestore;
 
     fn unique_settings() -> FirebaseAppSettings {
         use std::sync::atomic::{AtomicUsize, Ordering};

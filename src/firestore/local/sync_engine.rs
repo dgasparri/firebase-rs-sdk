@@ -1,16 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use crate::firestore::api::{Query, QuerySnapshot};
+use crate::firestore::api::query::{Query, QuerySnapshot};
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::local::memory::{
     MemoryLocalStore, QueryListenerRegistration, TargetMetadataSnapshot,
 };
-use crate::firestore::model::DocumentKey;
+use crate::firestore::model::document_key::DocumentKey;
 use crate::firestore::remote::syncer_bridge::RemoteSyncerBridge;
-use crate::firestore::remote::{
-    JsonProtoSerializer, ListenTarget, NetworkLayer, RemoteStore, RemoteSyncer,
-};
+use crate::firestore::remote::network::NetworkLayer;
+use crate::firestore::remote::remote_store::RemoteStore;
+use crate::firestore::remote::remote_syncer::RemoteSyncer;
+use crate::firestore::remote::serializer::JsonProtoSerializer;
+use crate::firestore::remote::streams::listen::ListenTarget;
 
 /// Coordinates the local and remote stores, mirroring the responsibilities of the
 /// Firestore JS SyncEngine.
@@ -137,17 +139,20 @@ impl SyncEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::api::{DocumentChangeType, FilterOperator, OrderDirection};
-    use crate::firestore::api::{Firestore, QuerySnapshotMetadata};
-    use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
+    use crate::firestore::api::query::{DocumentChangeType, FilterOperator, OrderDirection};
+    use crate::firestore::api::{database::Firestore, query::QuerySnapshotMetadata};
+    use crate::firestore::model::{database_id::DatabaseId, document_key::DocumentKey, field_path::FieldPath, resource_path::ResourcePath};
     use crate::firestore::remote::datastore::WriteOperation;
     use crate::firestore::remote::remote_event::{RemoteEvent, TargetChange};
     use crate::firestore::remote::watch_change::WatchDocument;
-    use crate::firestore::remote::NoopTokenProvider;
-    use crate::firestore::remote::{
-        InMemoryTransport, JsonProtoSerializer, MultiplexedConnection, NetworkLayer,
-        StreamingDatastore, StreamingDatastoreImpl, TokenProviderArc,
+    use crate::firestore::remote::datastore::{
+        NoopTokenProvider, StreamingDatastore,StreamingDatastoreImpl,TokenProviderArc
     };
+    use crate::firestore::remote::network::NetworkLayer;
+    use crate::firestore::remote::stream::{
+        InMemoryTransport, MultiplexedConnection, 
+    };
+    use crate::firestore::remote::serializer::JsonProtoSerializer;
     use crate::firestore::value::{FirestoreValue, MapValue, ValueKind};
     use crate::test_support::firebase::test_firebase_app_with_api_key;
     use std::collections::BTreeMap;

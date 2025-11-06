@@ -11,7 +11,7 @@ use async_trait::async_trait;
     feature = "experimental-indexed-db",
     target_arch = "wasm32"
 ))]
-use crate::firestore::model::DatabaseId;
+use crate::firestore::model::database_id::DatabaseId;
 #[cfg(all(
     feature = "wasm-web",
     feature = "experimental-indexed-db",
@@ -31,18 +31,18 @@ use base64::Engine;
 ))]
 use serde_json::{json, Value};
 
-use crate::firestore::api::compute_doc_changes;
+use crate::firestore::api::query::compute_doc_changes;
 use crate::firestore::api::{
-    DocumentSnapshot, Query, QuerySnapshot, QuerySnapshotMetadata, SnapshotMetadata,
+    snapshot::DocumentSnapshot, query::Query, query::QuerySnapshot, query::QuerySnapshotMetadata, snapshot::SnapshotMetadata,
 };
 use crate::firestore::error::{invalid_argument, FirestoreError, FirestoreResult};
 use crate::firestore::local::overlay::apply_document_overlays;
-use crate::firestore::model::{DocumentKey, Timestamp};
+use crate::firestore::model::{document_key::DocumentKey, timestamp::Timestamp};
 use crate::firestore::query_evaluator::apply_query_to_documents;
 use crate::firestore::remote::datastore::WriteOperation;
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_event::RemoteEvent;
-use crate::firestore::remote::streams::WriteResult;
+use crate::firestore::remote::streams::write::WriteResult;
 use crate::firestore::remote::syncer_bridge::{
     RemoteSyncerBridge, RemoteSyncerDelegate, TargetMetadataUpdate,
 };
@@ -1624,19 +1624,20 @@ mod tests {
 
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use crate::firestore::api::DocumentChangeType;
-    use crate::firestore::api::{get_firestore, Firestore, Query};
-    use crate::firestore::model::{DatabaseId, ResourcePath};
+    use crate::firestore::api::database::{get_firestore, Firestore};
+    use crate::firestore::api::query::{DocumentChangeType, Query};
+    use crate::firestore::model::{database_id::DatabaseId, resource_path::ResourcePath};
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_event::RemoteEvent;
     use crate::firestore::remote::remote_store::RemoteStore;
-    use crate::firestore::remote::streams::ListenTarget;
+    use crate::firestore::remote::serializer::JsonProtoSerializer;
+    use crate::firestore::remote::streams::listen::ListenTarget;
     use crate::firestore::remote::syncer_bridge::RemoteSyncerBridge;
-    use crate::firestore::remote::RemoteSyncer;
-    use crate::firestore::remote::{
-        InMemoryTransport, MultiplexedConnection, StreamingDatastoreImpl,
+    use crate::firestore::remote::remote_syncer::RemoteSyncer;
+    use crate::firestore::remote::stream::{
+        InMemoryTransport, MultiplexedConnection,
     };
-    use crate::firestore::remote::{JsonProtoSerializer, NoopTokenProvider, TokenProviderArc};
+    use crate::firestore::remote::datastore::{StreamingDatastoreImpl, NoopTokenProvider, TokenProviderArc};
     use crate::firestore::value::{FirestoreValue, MapValue};
     use crate::platform::runtime;
 
@@ -1746,7 +1747,7 @@ mod tests {
         let server_connection = Arc::new(MultiplexedConnection::new(server_transport));
 
         let datastore = StreamingDatastoreImpl::new(Arc::clone(&client_connection));
-        let datastore: Arc<dyn crate::firestore::remote::StreamingDatastore> = Arc::new(datastore);
+        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> = Arc::new(datastore);
         let token_provider: TokenProviderArc = Arc::new(NoopTokenProvider::default());
         let network = NetworkLayer::builder(datastore, token_provider).build();
         let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));

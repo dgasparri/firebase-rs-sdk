@@ -5,19 +5,21 @@ use async_lock::Mutex;
 use async_trait::async_trait;
 
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
-use crate::firestore::model::Timestamp;
+use crate::firestore::model::timestamp::Timestamp;
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_syncer::RemoteSyncer;
-use crate::firestore::remote::streams::{
-    ListenStream, ListenStreamDelegate, ListenTarget, WriteResponse, WriteStream,
+use crate::firestore::remote::streams::listen::{
+    ListenStream, ListenStreamDelegate, ListenTarget};
+use crate::firestore::remote::streams::write::{
+ WriteResponse, WriteStream,
     WriteStreamDelegate,
 };
 use crate::firestore::remote::watch_change::{
     DocumentDelete, DocumentRemove, WatchChange, WatchTargetChange,
 };
-use crate::firestore::remote::{
-    JsonProtoSerializer, NetworkLayer, TargetMetadataProvider, WatchChangeAggregator,
-};
+use crate::firestore::remote::serializer::JsonProtoSerializer;
+use crate::firestore::remote::network::NetworkLayer;
+use crate::firestore::remote::watch_change_aggregator::{TargetMetadataProvider, WatchChangeAggregator};
 
 #[cfg(test)]
 use crate::firestore::remote::remote_event::RemoteEvent;
@@ -45,7 +47,7 @@ impl SyncerMetadataProvider {
 }
 
 impl TargetMetadataProvider for SyncerMetadataProvider {
-    fn get_remote_keys(&self, target_id: i32) -> BTreeSet<crate::firestore::model::DocumentKey> {
+    fn get_remote_keys(&self, target_id: i32) -> BTreeSet<crate::firestore::model::document_key::DocumentKey> {
         self.syncer.get_remote_keys_for_target(target_id)
     }
 }
@@ -601,15 +603,15 @@ fn snapshot_version_for_change(change: &WatchChange) -> Option<Timestamp> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::model::{DatabaseId, ResourcePath};
-    use crate::firestore::remote::datastore::streaming::StreamingDatastoreImpl;
+    use crate::firestore::model::{database_id::DatabaseId, resource_path::ResourcePath};
+    use crate::firestore::remote::datastore::StreamingDatastoreImpl;
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_syncer::{box_remote_store_future, RemoteStoreFuture};
     use crate::firestore::remote::stream::{
         InMemoryTransport, MultiplexedConnection, MultiplexedStream,
     };
-    use crate::firestore::remote::JsonProtoSerializer;
+    use crate::firestore::remote::serializer::JsonProtoSerializer;
     use crate::firestore::{LimitType, QueryDefinition};
     use crate::platform::runtime;
     use async_trait::async_trait;
@@ -621,7 +623,7 @@ mod tests {
         rejected: Mutex<Vec<i32>>,
         writes: Mutex<Vec<MutationBatchResult>>,
         batches: Mutex<Vec<MutationBatch>>,
-        remote_keys: StdMutex<BTreeMap<i32, BTreeSet<crate::firestore::model::DocumentKey>>>,
+        remote_keys: StdMutex<BTreeMap<i32, BTreeSet<crate::firestore::model::document_key::DocumentKey>>>,
     }
 
     impl TestRemoteSyncer {
@@ -678,7 +680,7 @@ mod tests {
         fn get_remote_keys_for_target(
             &self,
             target_id: i32,
-        ) -> BTreeSet<crate::firestore::model::DocumentKey> {
+        ) -> BTreeSet<crate::firestore::model::document_key::DocumentKey> {
             self.remote_keys
                 .lock()
                 .unwrap()

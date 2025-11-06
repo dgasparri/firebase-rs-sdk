@@ -11,7 +11,7 @@ use crate::firestore::remote::remote_event::RemoteEvent;
 use crate::firestore::remote::remote_syncer::{
     box_remote_store_future, RemoteStoreFuture, RemoteSyncer,
 };
-use crate::firestore::remote::streams::WriteResult;
+use crate::firestore::remote::streams::write::WriteResult;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]

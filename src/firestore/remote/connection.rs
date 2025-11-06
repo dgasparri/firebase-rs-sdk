@@ -4,7 +4,7 @@ use reqwest::{Client, Method, RequestBuilder, StatusCode};
 use serde_json::Value as JsonValue;
 
 use crate::firestore::error::{internal_error, FirestoreResult};
-use crate::firestore::model::DatabaseId;
+use crate::firestore::model::database_id::DatabaseId;
 
 use super::rpc_error::map_http_error;
 

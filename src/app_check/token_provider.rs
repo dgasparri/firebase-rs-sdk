@@ -4,10 +4,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::app_check::errors::AppCheckError;
 use crate::app_check::FirebaseAppCheckInternal;
-use crate::firestore::error::{
+use crate::firestore::{
     internal_error, invalid_argument, unauthenticated, unavailable, FirestoreError, FirestoreResult,
 };
-use crate::firestore::remote::datastore::{TokenProvider, TokenProviderArc};
+use crate::firestore::{TokenProvider, TokenProviderArc};
 
 /// Bridges App Check token retrieval into Firestore's [`TokenProvider`] trait.
 pub struct AppCheckTokenProvider {
@@ -183,7 +183,7 @@ mod tests {
         let error = provider.get_token().await.unwrap_err();
         assert_eq!(
             error.code,
-            crate::firestore::error::FirestoreErrorCode::Unavailable
+            crate::firestore::FirestoreErrorCode::Unavailable
         );
     }
 }

@@ -8,12 +8,12 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use serde_json::{json, Value as JsonValue};
 
-use crate::firestore::api::QueryDefinition;
+use crate::firestore::api::query::QueryDefinition;
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
 use crate::firestore::remote::datastore::StreamHandle;
 use crate::firestore::remote::network::{NetworkLayer, NetworkStreamHandler, StreamCredentials};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
-use crate::firestore::remote::stream::PersistentStreamHandle;
+use crate::firestore::remote::stream::persistent::PersistentStreamHandle;
 use crate::firestore::remote::structured_query::encode_structured_query;
 use crate::firestore::remote::watch_change::{decode_watch_change, WatchChange};
 
@@ -347,8 +347,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::model::{DatabaseId, ResourcePath};
-    use crate::firestore::remote::datastore::streaming::StreamingDatastoreImpl;
+    use crate::firestore::model::{database_id::DatabaseId, resource_path::ResourcePath};
+    use crate::firestore::remote::datastore::StreamingDatastoreImpl;
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};
     use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};
     use crate::firestore::remote::watch_change::WatchChange;
@@ -391,7 +391,7 @@ mod tests {
             request_order_by: Vec::new(),
             result_order_by: Vec::new(),
             limit: None,
-            limit_type: crate::firestore::api::LimitType::First,
+            limit_type: crate::firestore::api::query::LimitType::First,
             request_start_at: None,
             request_end_at: None,
             result_start_at: None,

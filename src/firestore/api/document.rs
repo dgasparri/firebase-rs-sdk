@@ -17,7 +17,9 @@ use crate::firestore::value::FirestoreValue;
 
 use super::write_batch::WriteBatch;
 use super::{
-    ConvertedCollectionReference, ConvertedDocumentReference, Firestore, FirestoreDataConverter,
+    reference::{ConvertedCollectionReference, ConvertedDocumentReference},
+    database::Firestore,
+    converter::FirestoreDataConverter,
 };
 
 const COUNT_ALIAS: &str = "count";
@@ -355,8 +357,8 @@ mod tests {
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::firestore::api::aggregate::{AggregateField, AggregateSpec};
-    use crate::firestore::api::get_firestore;
-    use crate::firestore::model::FieldPath;
+    use crate::firestore::api::database::get_firestore;
+    use crate::firestore::model::field_path::FieldPath;
     use crate::firestore::value::MapValue;
     use crate::firestore::value::ValueKind;
     use crate::firestore::FilterOperator;

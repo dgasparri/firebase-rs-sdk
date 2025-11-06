@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use crate::auth::error::AuthError;
 use crate::auth::Auth;
-use crate::firestore::error::{
+use crate::firestore::{
     internal_error, unauthenticated, unavailable, FirestoreError, FirestoreResult,
 };
-use crate::firestore::remote::datastore::{TokenProvider, TokenProviderArc};
+use crate::firestore::{TokenProvider, TokenProviderArc};
 
 pub struct AuthTokenProvider {
     auth: Arc<Auth>,
