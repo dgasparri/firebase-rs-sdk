@@ -2,39 +2,6 @@
 
 Dump file, ignore it
 
-
-## Failed tests
-
-cargo test - su run separati
-
----- functions::api::tests::https_callable_invokes_backend stdout ----
-
-thread 'functions::api::tests::https_callable_invokes_backend' panicked at src\functions\api.rs:424:14:
-called `Result::unwrap()` on an `Err` value: FunctionsError { code: Internal, message: "Service functions is not available", details: None }
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
-
-failures:
-    functions::api::tests::https_callable_invokes_backend
-
-
----- child_added_listener_reports_new_children stdout ----
-
-thread 'child_added_listener_reports_new_children' panicked at tests\database_listeners.rs:60:49:
-called `Result::unwrap()` on an `Err` value: DatabaseError { code: Internal, message: "Database component not available" }
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
-
-failures:
-    child_added_listener_reports_new_children
-
-## check tests
-
-
-       2. Check all targets, including unit tests:
-
-              cargo check --all-targets --profile=test
-
 ## Blocking
 
 In README.md
@@ -47,52 +14,30 @@ check firestore::datastore::box_stream_future
 
 - ai
 - analytics
-- app
-
- mod.rs: mod component; -> component.rs: pub use crate::component::*;
-
-// ./src/app/private.rs has some useful public method, why are they really private? ARe they used internally? It is indeed public the mod
-
-./src/app/registry.rs is imported as pub(crate), but some methods are only pub and others are pub(crate) - is it useful as public API?
-
-
-- app_check Da riguardare
-  - TODO: rifare col nuovo metodo
+- app OK
+  - ./src/app/registry.rs is imported as pub(crate), but some methods are only pub and others are pub(crate) - is it useful as public API?
+- app_check OK
   - persistence:: - used outside of module?
   - recaptcha:: - used outside of module?
   - refresher:: - used outside of module?
   - state:: - used outside of module?
   - token_provider:: - used only for firestore, gate behind firestore feature?
-
-- auth Da riguardare
-  - TODO: rifare col nuovo metodo
-  -auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
-
+- auth OK
+  - auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
 - blocking
 - (component: internal)
 - data_connect
 - database
 - firestore - OK
-
-Fatto:
-database_id:: DatabaseId
-document_key:: DocumentKey;
-field_path::{FieldPath, IntoFieldPath};
-geo_point::GeoPoint;
-resource_path::ResourcePath;
-timestamp::Timestamp;
-pub use value::{array_value::ArrayValue, bytes_value::BytesValue, FirestoreValue, map_value::MapValue, SentinelValue, valueValueKind};
-
-
   - query::QueryDefinition is public but its methods are pub(crate)
   - there are some pub(crate) that might be public API instead
 - functions
-- installations
+- installations - OK
 - logger
-- messaging
+- messaging - OK
 - performance
 - platform NO
-- remote_config
+- remote_config 
 - storage - OK
 - test_support NO
 - util NO
@@ -117,7 +62,7 @@ Check that there is adequate testing for wasm (see for example ./src/functions/a
 Fare anche un search per wasm32 per vedere quali parti di codice sono bloccate
 
 
-## Test fallito forse race condition perché ogni tanto fallisce ogni tanto no
+## Failed cargo test - race condition? From time to time it fails
 
 failures:
 
@@ -126,6 +71,42 @@ failures:
 thread 'functions::api::tests::https_callable_includes_context_headers' panicked at src\functions\api.rs:460:14:
 called `Result::unwrap()` on an `Err` value: FunctionsError { code: Internal, message: "Service functions is not available", details: None }
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+cargo test - su run separati
+
+---- functions::api::tests::https_callable_invokes_backend stdout ----
+
+thread 'functions::api::tests::https_callable_invokes_backend' panicked at src\functions\api.rs:424:14:
+called `Result::unwrap()` on an `Err` value: FunctionsError { code: Internal, message: "Service functions is not available", details: None }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    functions::api::tests::https_callable_invokes_backend
+
+
+---- child_added_listener_reports_new_children stdout ----
+
+thread 'child_added_listener_reports_new_children' panicked at tests\database_listeners.rs:60:49:
+called `Result::unwrap()` on an `Err` value: DatabaseError { code: Internal, message: "Database component not available" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    child_added_listener_reports_new_children
+
+
+
+---- value_listener_emits_initial_and_updates stdout ----
+
+thread 'value_listener_emits_initial_and_updates' panicked at tests\database_listeners.rs:32:49:
+called `Result::unwrap()` on an `Err` value: DatabaseError { code: Internal, message: "Database component not available" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+failures:
+    value_listener_emits_initial_and_updates
+
 
 
 ## examples ignored
@@ -277,12 +258,4 @@ cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-ind
 Fai un search for dead_code per capire se serve ancora, è stato messo per tenere pulito il porting
 
 #[allow(unused_imports)]
-
-### Conditional, some of them are not ok
-
-
-./src/functions/context.rs:98
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-
-Non so perché quel pezzo di codice non viene letto, contiene errori ma non viene segnalato da nessun cargo check
 
