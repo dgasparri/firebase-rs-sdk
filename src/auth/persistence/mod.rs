@@ -172,20 +172,10 @@ impl ClosurePersistence {
     target_arch = "wasm32",
     feature = "experimental-indexed-db"
 ))]
-mod indexed_db;
-
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
-pub use indexed_db::IndexedDbPersistence;
+pub mod indexed_db;
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-mod file;
-
-#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-pub use file::FilePersistence;
+pub mod file;
 
 impl AuthPersistence for ClosurePersistence {
     fn set(&self, state: Option<PersistedAuthState>) -> AuthResult<()> {
@@ -202,7 +192,4 @@ impl AuthPersistence for ClosurePersistence {
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
-mod web;
-
-#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
-pub use web::{WebStorageDriver, WebStoragePersistence};
+pub mod web;

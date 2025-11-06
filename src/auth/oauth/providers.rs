@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::OAuthProvider;
+use super::provider::OAuthProvider;
 
 pub trait OAuthProviderFactory {
     fn provider_id() -> &'static str;

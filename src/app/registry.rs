@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use crate::app::component::{self, Component, Provider};
-use crate::component::constants::DEFAULT_ENTRY_NAME;
 use crate::app::heartbeat::HeartbeatServiceImpl;
 use crate::app::logger::LOGGER;
 use crate::app::types::{FirebaseApp, FirebaseServerApp, HeartbeatService};
+use crate::component::constants::DEFAULT_ENTRY_NAME;
 use crate::platform::runtime;
 
 pub static APPS: LazyLock<Mutex<HashMap<String, FirebaseApp>>> =
@@ -30,7 +30,7 @@ pub(crate) fn registered_components_guard() -> MutexGuard<'static, HashMap<Arc<s
         .unwrap_or_else(|poison| poison.into_inner())
 }
 
-/// Attaches a component to the given app, logging failures for debugging. 
+/// Attaches a component to the given app, logging failures for debugging.
 /// Mirrors the JS `_addComponent` helper.
 pub fn add_component(app: &FirebaseApp, component: &Component) {
     if app.container().add_component(component.clone()).is_err() {
@@ -49,14 +49,12 @@ pub fn add_or_overwrite_component(app: &FirebaseApp, component: Component) {
     app.container().add_or_overwrite_component(component);
 }
 
-
 /// Clears globally registered components
 /// Mirrors the JS `_clearComponents` helper.
 #[allow(dead_code)]
 pub fn clear_components() {
     registered_components_guard().clear();
 }
-
 
 /// Registers a global component and propagates it to already-initialized apps.
 pub fn register_component(component: Component) -> bool {
@@ -103,7 +101,6 @@ pub fn get_provider(app: &FirebaseApp, name: &str) -> Provider {
     container.get_provider(name)
 }
 
-
 /// Removes a cached service instance from the given app by provider name.
 /// Mirrors the JS `_removeServiceInstance` helper.
 #[allow(dead_code)]
@@ -112,15 +109,11 @@ pub fn remove_service_instance(app: &FirebaseApp, name: &str, instance_identifie
     get_provider(app, name).clear_instance(instance_identifier);
 }
 
-
 /// Returns true when the supplied app corresponds to a server-side Firebase app instance.
 #[allow(dead_code)]
 pub fn is_firebase_server_app(app: &FirebaseApp) -> bool {
     server_apps_guard().contains_key(app.name())
 }
-
-
-
 
 #[cfg(test)]
 mod tests {

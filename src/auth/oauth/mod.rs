@@ -1,21 +1,10 @@
-mod credential;
-mod pkce;
-mod provider;
-mod providers;
-mod redirect;
+pub mod credential;
+pub mod pkce;
+pub mod provider;
+pub mod providers;
+pub mod redirect;
 
-// Re-export selected items for public use
-pub use credential::OAuthCredential;
-pub use pkce::PkcePair;
-pub use provider::OAuthProvider;
-pub use providers::{
-    oauth_access_token_map, AppleAuthProvider, FacebookAuthProvider, GitHubAuthProvider,
-    GoogleAuthProvider, MicrosoftAuthProvider, OAuthProviderFactory, TwitterAuthProvider,
-    YahooAuthProvider,
-};
-pub use redirect::{
-    InMemoryRedirectPersistence, PendingRedirectEvent, RedirectOperation, RedirectPersistence,
-};
+use pkce::PkcePair;
 
 use std::collections::HashMap;
 

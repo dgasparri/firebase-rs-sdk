@@ -31,7 +31,7 @@ use crate::auth::model::{
     feature = "experimental-indexed-db",
     target_arch = "wasm32"
 ))]
-use crate::auth::persistence::IndexedDbPersistence;
+use crate::auth::persistence::indexed_db::IndexedDbPersistence;
 use crate::auth::persistence::{
     AuthPersistence, InMemoryPersistence, PersistedAuthState, PersistenceListener,
     PersistenceSubscription,

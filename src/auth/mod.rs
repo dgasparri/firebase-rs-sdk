@@ -37,11 +37,18 @@ pub use model::{
 
 #[doc(inline)]
 pub use oauth::{
-    oauth_access_token_map, AppleAuthProvider, FacebookAuthProvider, GitHubAuthProvider,
-    GoogleAuthProvider, InMemoryRedirectPersistence, MicrosoftAuthProvider, OAuthCredential,
-    OAuthPopupHandler, OAuthProvider, OAuthProviderFactory, OAuthRedirectHandler, OAuthRequest,
-    PendingRedirectEvent, PkcePair, RedirectOperation, RedirectPersistence, TwitterAuthProvider,
-    YahooAuthProvider,
+    credential::OAuthCredential,
+    pkce::PkcePair,
+    provider::OAuthProvider,
+    providers::{
+        oauth_access_token_map, AppleAuthProvider, FacebookAuthProvider, GitHubAuthProvider,
+        GoogleAuthProvider, MicrosoftAuthProvider, OAuthProviderFactory, TwitterAuthProvider,
+        YahooAuthProvider,
+    },
+    redirect::{
+        InMemoryRedirectPersistence, PendingRedirectEvent, RedirectOperation, RedirectPersistence,
+    },
+    OAuthPopupHandler, OAuthRedirectHandler, OAuthRequest,
 };
 
 #[doc(inline)]
@@ -57,17 +64,17 @@ pub use persistence::{
     feature = "experimental-indexed-db"
 ))]
 #[doc(inline)]
-pub use persistence::IndexedDbPersistence;
+pub use persistence::indexed_db::IndexedDbPersistence;
 
 // persistence::file::FilePersistence;
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 #[doc(inline)]
-pub use persistence::FilePersistence;
+pub use persistence::file::FilePersistence;
 
 // persistence::web::{WebStorageDriver, WebStoragePersistence};
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 #[doc(inline)]
-pub use persistence::{WebStorageDriver, WebStoragePersistence};
+pub use persistence::web::{WebStorageDriver, WebStoragePersistence};
 
 #[doc(inline)]
 pub use phone::{
