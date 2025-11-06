@@ -52,8 +52,8 @@ use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentContainer, ComponentType};
-#[cfg(feature = "firestore")]
-use crate::firestore::remote::datastore::TokenProviderArc;
+//#[cfg(feature = "firestore")]
+use crate::firestore::TokenProviderArc;
 use crate::platform::runtime::{sleep as runtime_sleep, spawn_detached};
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::PartialObserver;
@@ -1641,7 +1641,7 @@ impl Auth {
     }
 
     /// Exposes this auth instance as a Firestore token provider.
-    #[cfg(feature = "firestore")]
+    //#[cfg(feature = "firestore")]
     pub fn token_provider(self: &Arc<Self>) -> TokenProviderArc {
         crate::auth::token_provider::auth_token_provider_arc(self.clone())
     }

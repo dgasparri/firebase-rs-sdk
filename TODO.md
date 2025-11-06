@@ -44,6 +44,22 @@ Fare doctest_support in modo che gli esempi siano compilabili
 ## Examples
 
 Implement more examples
+firestore real live
+
+
+[[example]]
+name = "app_basic"
+path = "examples/app_basic.rs"
+doc-scrape-examples = true
+# facoltativo, se l’esempio richiede feature:
+# required-features = ["my-feature"]
+
+[[example]]
+name = "app_check_custom_provider"
+path = "examples/app_check_custom_provider.rs"
+doc-scrape-examples = true
+# required-features = ["my-feature"]
+# then cargo doc --features my-feature
 
 
 ### unexpected feature

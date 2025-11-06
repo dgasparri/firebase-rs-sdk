@@ -24,9 +24,9 @@ include = [
 [features]
 default = []
 wasm-web = ["wasm-bindgen", "js-sys", "web-sys", "wasm-bindgen-futures"]
-ai-http = []
+# ai-http = []
 experimental-indexed-db = []
-firestore = []
+# firestore = []
 
 [dependencies]
 chrono = { version = "0.4", features = ["clock"] }
