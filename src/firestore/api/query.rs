@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::document_key::DocumentKey;
-use crate::firestore::model::field_path::FieldPath;
-use crate::firestore::model::resource_path::ResourcePath;
-use crate::firestore::model::timestamp::Timestamp;
+use crate::firestore::model::DocumentKey;
+use crate::firestore::model::FieldPath;
+use crate::firestore::model::ResourcePath;
+use crate::firestore::model::Timestamp;
 use crate::firestore::value::{FirestoreValue, ValueKind};
 
 use super::snapshot::DocumentSnapshot;

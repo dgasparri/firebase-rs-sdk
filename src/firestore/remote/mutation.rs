@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::firestore::model::{document_key::DocumentKey, timestamp::Timestamp};
+use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::remote::datastore::WriteOperation;
 use crate::firestore::remote::streams::write::WriteResult;
 use crate::firestore::FirestoreResult;

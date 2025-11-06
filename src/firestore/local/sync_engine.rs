@@ -6,7 +6,7 @@ use crate::firestore::error::FirestoreResult;
 use crate::firestore::local::memory::{
     MemoryLocalStore, QueryListenerRegistration, TargetMetadataSnapshot,
 };
-use crate::firestore::model::document_key::DocumentKey;
+use crate::firestore::model::DocumentKey;
 use crate::firestore::remote::syncer_bridge::RemoteSyncerBridge;
 use crate::firestore::remote::network::NetworkLayer;
 use crate::firestore::remote::remote_store::RemoteStore;
@@ -141,7 +141,7 @@ mod tests {
     use super::*;
     use crate::firestore::api::query::{DocumentChangeType, FilterOperator, OrderDirection};
     use crate::firestore::api::{database::Firestore, query::QuerySnapshotMetadata};
-    use crate::firestore::model::{database_id::DatabaseId, document_key::DocumentKey, field_path::FieldPath, resource_path::ResourcePath};
+    use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
     use crate::firestore::remote::datastore::WriteOperation;
     use crate::firestore::remote::remote_event::{RemoteEvent, TargetChange};
     use crate::firestore::remote::watch_change::WatchDocument;

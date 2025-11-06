@@ -11,7 +11,7 @@ use async_trait::async_trait;
     feature = "experimental-indexed-db",
     target_arch = "wasm32"
 ))]
-use crate::firestore::model::database_id::DatabaseId;
+use crate::firestore::model::DatabaseId;
 #[cfg(all(
     feature = "wasm-web",
     feature = "experimental-indexed-db",
@@ -37,7 +37,7 @@ use crate::firestore::api::{
 };
 use crate::firestore::error::{invalid_argument, FirestoreError, FirestoreResult};
 use crate::firestore::local::overlay::apply_document_overlays;
-use crate::firestore::model::{document_key::DocumentKey, timestamp::Timestamp};
+use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::query_evaluator::apply_query_to_documents;
 use crate::firestore::remote::datastore::WriteOperation;
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
@@ -1626,7 +1626,7 @@ mod tests {
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::firestore::api::database::{get_firestore, Firestore};
     use crate::firestore::api::query::{DocumentChangeType, Query};
-    use crate::firestore::model::{database_id::DatabaseId, resource_path::ResourcePath};
+    use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_event::RemoteEvent;
     use crate::firestore::remote::remote_store::RemoteStore;

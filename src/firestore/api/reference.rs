@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::{document_key::DocumentKey, resource_path::ResourcePath};
+use crate::firestore::model::{DocumentKey, ResourcePath};
 
 use super::query::{ConvertedQuery, Query};
 use super::database::Firestore;

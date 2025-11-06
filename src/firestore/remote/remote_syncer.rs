@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use futures::FutureExt;
 
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::model::document_key::DocumentKey;
+use crate::firestore::model::DocumentKey;
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_event::RemoteEvent;
 use crate::firestore::remote::streams::write::WriteResult;

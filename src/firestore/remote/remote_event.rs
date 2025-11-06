@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::firestore::model::{document_key::DocumentKey, timestamp::Timestamp};
+use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::remote::watch_change::WatchDocument;
 
 /// Aggregated result of applying a batch of watch and write responses coming

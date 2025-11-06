@@ -12,7 +12,7 @@ use crate::firestore::constants::FIRESTORE_COMPONENT_NAME;
 use crate::firestore::error::{
     internal_error, invalid_argument, missing_project_id, FirestoreResult,
 };
-use crate::firestore::model::{database_id::DatabaseId, resource_path::ResourcePath};
+use crate::firestore::model::{DatabaseId, ResourcePath};
 
 use super::query::Query;
 use super::reference::{CollectionReference, DocumentReference};

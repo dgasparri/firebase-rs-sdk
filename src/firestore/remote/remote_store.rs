@@ -5,7 +5,7 @@ use async_lock::Mutex;
 use async_trait::async_trait;
 
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
-use crate::firestore::model::timestamp::Timestamp;
+use crate::firestore::model::Timestamp;
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_syncer::RemoteSyncer;
 use crate::firestore::remote::streams::listen::{
@@ -47,7 +47,7 @@ impl SyncerMetadataProvider {
 }
 
 impl TargetMetadataProvider for SyncerMetadataProvider {
-    fn get_remote_keys(&self, target_id: i32) -> BTreeSet<crate::firestore::model::document_key::DocumentKey> {
+    fn get_remote_keys(&self, target_id: i32) -> BTreeSet<crate::firestore::model::DocumentKey> {
         self.syncer.get_remote_keys_for_target(target_id)
     }
 }
@@ -603,7 +603,7 @@ fn snapshot_version_for_change(change: &WatchChange) -> Option<Timestamp> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::model::{database_id::DatabaseId, resource_path::ResourcePath};
+    use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::datastore::StreamingDatastoreImpl;
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};
     use crate::firestore::remote::network::NetworkLayer;
@@ -623,7 +623,7 @@ mod tests {
         rejected: Mutex<Vec<i32>>,
         writes: Mutex<Vec<MutationBatchResult>>,
         batches: Mutex<Vec<MutationBatch>>,
-        remote_keys: StdMutex<BTreeMap<i32, BTreeSet<crate::firestore::model::document_key::DocumentKey>>>,
+        remote_keys: StdMutex<BTreeMap<i32, BTreeSet<crate::firestore::model::DocumentKey>>>,
     }
 
     impl TestRemoteSyncer {
@@ -680,7 +680,7 @@ mod tests {
         fn get_remote_keys_for_target(
             &self,
             target_id: i32,
-        ) -> BTreeSet<crate::firestore::model::document_key::DocumentKey> {
+        ) -> BTreeSet<crate::firestore::model::DocumentKey> {
             self.remote_keys
                 .lock()
                 .unwrap()

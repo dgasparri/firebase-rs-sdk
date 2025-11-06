@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::model::{document_key::DocumentKey, field_path::IntoFieldPath};
+use crate::firestore::model::{DocumentKey, IntoFieldPath};
 use crate::firestore::value::{FirestoreValue, MapValue};
 
 use super::reference::DocumentReference;
@@ -202,7 +202,7 @@ where
 mod tests {
     use super::*;
     use crate::firestore::api::converter::{FirestoreDataConverter, PassthroughConverter};
-    use crate::firestore::model::{document_key::DocumentKey, field_path::FieldPath};
+    use crate::firestore::model::{DocumentKey, FieldPath};
     use crate::firestore::value::ValueKind;
     use std::collections::BTreeMap;
 

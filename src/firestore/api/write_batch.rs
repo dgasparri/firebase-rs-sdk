@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::firestore::api::operations::{self, SetOptions};
 use crate::firestore::api::{reference::ConvertedDocumentReference, database::Firestore, converter::FirestoreDataConverter};
 use crate::firestore::error::{invalid_argument, resource_exhausted, FirestoreResult};
-use crate::firestore::model::document_key::DocumentKey;
+use crate::firestore::model::DocumentKey;
 use crate::firestore::remote::datastore::{Datastore, WriteOperation};
 use crate::firestore::value::FirestoreValue;
 

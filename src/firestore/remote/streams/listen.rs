@@ -347,7 +347,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::model::{database_id::DatabaseId, resource_path::ResourcePath};
+    use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::datastore::StreamingDatastoreImpl;
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};
     use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};

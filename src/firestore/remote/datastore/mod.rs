@@ -9,7 +9,7 @@ use futures::future::LocalBoxFuture;
 
 use crate::firestore::api::snapshot::DocumentSnapshot;
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::model::{document_key::DocumentKey, field_path::FieldPath};
+use crate::firestore::model::{DocumentKey, FieldPath};
 use crate::firestore::value::{FirestoreValue, MapValue};
 use crate::firestore::AggregateDefinition;
 use crate::firestore::FieldTransform;

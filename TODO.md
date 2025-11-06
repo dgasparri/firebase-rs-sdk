@@ -49,12 +49,14 @@ check firestore::datastore::box_stream_future
 - analytics
 - app
 - app_check OK
+  - TODO: rifare col nuovo metodo
   - persistence:: - used outside of module?
   - recaptcha:: - used outside of module?
   - refresher:: - used outside of module?
   - state:: - used outside of module?
   - token_provider:: - used only for firestore, gate behind firestore feature?
 - auth OK
+  - TODO: rifare col nuovo metodo
   -auth::api(core)::auth_for_app (core?) - è tipo get_auth in JS SKD
 
 - blocking
@@ -63,12 +65,14 @@ check firestore::datastore::box_stream_future
 - database
 - firestore
 
-database_id::DatabaseId
-document_key::DocumentKey;
+Fatto:
+database_id:: DatabaseId
+document_key:: DocumentKey;
 field_path::{FieldPath, IntoFieldPath};
 geo_point::GeoPoint;
 resource_path::ResourcePath;
 timestamp::Timestamp;
+pub use value::{array_value::ArrayValue, bytes_value::BytesValue, FirestoreValue, map_value::MapValue, SentinelValue, valueValueKind};
 
 
   - query::QueryDefinition is public but its methods are pub(crate)

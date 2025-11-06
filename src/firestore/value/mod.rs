@@ -11,7 +11,7 @@ pub use map_value::MapValue;
 
 use std::collections::BTreeMap;
 
-use crate::firestore::model::{geo_point::GeoPoint, timestamp::Timestamp};
+use crate::firestore::model::{GeoPoint, Timestamp};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FirestoreValue {

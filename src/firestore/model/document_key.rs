@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use crate::firestore::error::{invalid_argument, FirestoreResult};
-use crate::firestore::model::resource_path::ResourcePath;
+use crate::firestore::model::ResourcePath;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DocumentKey {
