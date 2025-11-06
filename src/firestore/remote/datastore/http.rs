@@ -7,9 +7,6 @@ use reqwest::Method;
 
 use async_trait::async_trait;
 
-use crate::firestore::AggregateDefinition;
-use crate::firestore::FieldTransform;
-use crate::firestore::QueryDefinition;
 use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{
     internal_error, invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
@@ -21,6 +18,9 @@ use crate::firestore::remote::structured_query::{
     encode_aggregation_body, encode_structured_query,
 };
 use crate::firestore::value::{FirestoreValue, MapValue};
+use crate::firestore::AggregateDefinition;
+use crate::firestore::FieldTransform;
+use crate::firestore::QueryDefinition;
 use serde_json::{json, Value as JsonValue};
 
 use crate::platform::runtime::sleep as runtime_sleep;
@@ -470,12 +470,12 @@ mod tests {
     use super::*;
     use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
     use crate::component::ComponentContainer;
-    use crate::firestore::{AggregateField, AggregateSpec};
     use crate::firestore::api::Firestore;
     use crate::firestore::error::{internal_error, unauthenticated};
     use crate::firestore::model::DatabaseId;
     use crate::firestore::value::ValueKind;
     use crate::firestore::FirestoreValue;
+    use crate::firestore::{AggregateField, AggregateSpec};
     use crate::test_support::start_mock_server;
     use httpmock::prelude::*;
     use serde_json::json;

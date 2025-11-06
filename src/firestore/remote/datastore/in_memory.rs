@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 
-use crate::firestore::{AggregateDefinition, AggregateOperation};
-use crate::firestore::{
-    set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation,
-};
-use crate::firestore::QueryDefinition;
-use crate::firestore::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{internal_error, invalid_argument, not_found, FirestoreResult};
 use crate::firestore::model::{DocumentKey, FieldPath, Timestamp};
 use crate::firestore::query_evaluator::apply_query_to_documents;
 use crate::firestore::value::{FirestoreValue, MapValue, ValueKind};
+use crate::firestore::QueryDefinition;
+use crate::firestore::{
+    set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation,
+};
+use crate::firestore::{AggregateDefinition, AggregateOperation};
+use crate::firestore::{DocumentSnapshot, SnapshotMetadata};
 
 use async_trait::async_trait;
 

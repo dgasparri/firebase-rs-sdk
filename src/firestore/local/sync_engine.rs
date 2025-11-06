@@ -386,7 +386,16 @@ mod tests {
                 )>,
             >,
         > = Arc::new(Mutex::new(Vec::new()));
-        let callback_records: Arc<Mutex<Vec<(usize, Option<i64>, QuerySnapshotMetadata, Vec<(DocumentChangeType, i32, i32)>)>>> = Arc::clone(&records);
+        let callback_records: Arc<
+            Mutex<
+                Vec<(
+                    usize,
+                    Option<i64>,
+                    QuerySnapshotMetadata,
+                    Vec<(DocumentChangeType, i32, i32)>,
+                )>,
+            >,
+        > = Arc::clone(&records);
         let mut registration = engine
             .listen_query(target.clone(), query.clone(), move |snapshot| {
                 let born = snapshot

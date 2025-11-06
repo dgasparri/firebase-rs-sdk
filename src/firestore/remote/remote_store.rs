@@ -601,7 +601,6 @@ fn snapshot_version_for_change(change: &WatchChange) -> Option<Timestamp> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::{LimitType, QueryDefinition};
     use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::datastore::streaming::StreamingDatastoreImpl;
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};
@@ -611,6 +610,7 @@ mod tests {
         InMemoryTransport, MultiplexedConnection, MultiplexedStream,
     };
     use crate::firestore::remote::JsonProtoSerializer;
+    use crate::firestore::{LimitType, QueryDefinition};
     use crate::platform::runtime;
     use async_trait::async_trait;
     use std::sync::Mutex as StdMutex;

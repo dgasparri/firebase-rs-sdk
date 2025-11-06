@@ -10,25 +10,22 @@ pub mod value;
 
 #[doc(inline)]
 pub use api::{
-    encode_document_data, encode_set_data, encode_update_document_data,
-    validate_document_path, EncodedSetData, EncodedUpdateData, FieldTransform, TransformOperation, 
-    get_firestore, register_firestore_component, AggregateDefinition, AggregateField, AggregateQuerySnapshot,
-    AggregateSpec, CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,
-    ConvertedQuery, DocumentChangeType, DocumentReference, DocumentSnapshot, FilterOperator,
-    Firestore, FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection,
-    PassthroughConverter, Query, QueryDocumentChange, QuerySnapshot, QuerySnapshotMetadata,
-    SetOptions, SnapshotMetadata, TypedDocumentSnapshot, TypedQueryDocumentChange,
-    TypedQuerySnapshot, WriteBatch,
+    encode_document_data, encode_set_data, encode_update_document_data, get_firestore,
+    register_firestore_component, validate_document_path, AggregateDefinition, AggregateField,
+    AggregateQuerySnapshot, AggregateSpec, CollectionReference, ConvertedCollectionReference,
+    ConvertedDocumentReference, ConvertedQuery, DocumentChangeType, DocumentReference,
+    DocumentSnapshot, EncodedSetData, EncodedUpdateData, FieldTransform, FilterOperator, Firestore,
+    FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection, PassthroughConverter,
+    Query, QueryDocumentChange, QuerySnapshot, QuerySnapshotMetadata, SetOptions, SnapshotMetadata,
+    TransformOperation, TypedDocumentSnapshot, TypedQueryDocumentChange, TypedQuerySnapshot,
+    WriteBatch,
 };
 
 #[allow(unused_imports)]
 pub(crate) use api::{
-    value_for_field_path, set_value_at_field_path, 
-    AggregateOperation,
-    compute_doc_changes, 
-    Bound, FieldFilter, QueryDefinition, OrderBy
+    compute_doc_changes, set_value_at_field_path, value_for_field_path, AggregateOperation, Bound,
+    FieldFilter, OrderBy, QueryDefinition,
 };
-
 
 #[doc(inline)]
 pub use constants::{DEFAULT_DATABASE_ID, FIRESTORE_COMPONENT_NAME};

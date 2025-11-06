@@ -7,13 +7,13 @@ use futures::future::BoxFuture;
 #[cfg(target_arch = "wasm32")]
 use futures::future::LocalBoxFuture;
 
-use crate::firestore::AggregateDefinition;
-use crate::firestore::FieldTransform;
-use crate::firestore::QueryDefinition;
 use crate::firestore::api::DocumentSnapshot;
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::{DocumentKey, FieldPath};
 use crate::firestore::value::{FirestoreValue, MapValue};
+use crate::firestore::AggregateDefinition;
+use crate::firestore::FieldTransform;
+use crate::firestore::QueryDefinition;
 
 pub mod http;
 pub mod in_memory;
