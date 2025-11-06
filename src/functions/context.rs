@@ -111,13 +111,13 @@ impl ContextProvider {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            use crate::messaging::token_store;
+            use crate::messaging::read_token;
 
             const MESSAGING_TOKEN_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
             let messaging = self.ensure_messaging()?;
             let store_key = messaging.app().name().to_string();
-            if let Ok(Some(record)) = token_store::read_token(&store_key) {
+            if let Ok(Some(record)) = read_token(&store_key) {
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|duration| duration.as_millis() as u64)

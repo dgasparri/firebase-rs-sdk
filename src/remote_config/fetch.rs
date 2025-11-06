@@ -9,8 +9,8 @@ use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
-use crate::installations::error::InstallationsResult;
 use crate::installations::Installations;
+use crate::installations::InstallationsResult;
 use crate::remote_config::error::{internal_error, RemoteConfigResult};
 use serde::Deserialize;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};

@@ -85,12 +85,12 @@ fn parse_expires_in(raw: &str) -> InstallationsResult<Duration> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-mod native;
+pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::RestClient;
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
-mod wasm;
+pub mod wasm;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 pub use wasm::RestClient;
 
