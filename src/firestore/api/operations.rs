@@ -117,7 +117,7 @@ pub enum TransformOperation {
     NumericIncrement(FirestoreValue),
 }
 
-#[allow(dead_code)]
+//#[allow(dead_code)]
 pub fn encode_document_data(data: BTreeMap<String, FirestoreValue>) -> FirestoreResult<MapValue> {
     Ok(MapValue::new(data))
 }
@@ -179,7 +179,7 @@ pub fn encode_update_document_data(
     })
 }
 
-#[allow(dead_code)]
+//#[allow(dead_code)]
 pub fn validate_document_path(path: &str) -> FirestoreResult<DocumentKey> {
     let key = DocumentKey::from_string(path)?;
     Ok(key)

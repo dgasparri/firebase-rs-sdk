@@ -7,9 +7,9 @@ use futures::future::BoxFuture;
 #[cfg(target_arch = "wasm32")]
 use futures::future::LocalBoxFuture;
 
-use crate::firestore::api::aggregate::AggregateDefinition;
-use crate::firestore::api::operations::FieldTransform;
-use crate::firestore::api::query::QueryDefinition;
+use crate::firestore::AggregateDefinition;
+use crate::firestore::FieldTransform;
+use crate::firestore::QueryDefinition;
 use crate::firestore::api::DocumentSnapshot;
 use crate::firestore::error::FirestoreResult;
 use crate::firestore::model::{DocumentKey, FieldPath};

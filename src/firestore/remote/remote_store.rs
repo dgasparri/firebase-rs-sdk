@@ -601,7 +601,7 @@ fn snapshot_version_for_change(change: &WatchChange) -> Option<Timestamp> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::api::query::{LimitType, QueryDefinition};
+    use crate::firestore::{LimitType, QueryDefinition};
     use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::datastore::streaming::StreamingDatastoreImpl;
     use crate::firestore::remote::datastore::{NoopTokenProvider, TokenProviderArc};

@@ -6,7 +6,7 @@ use base64::Engine;
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde_json::{json, Value as JsonValue};
 
-use crate::firestore::api::operations::{FieldTransform, TransformOperation};
+use crate::firestore::api::{FieldTransform, TransformOperation};
 use crate::firestore::error::{invalid_argument, FirestoreResult};
 use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, Timestamp};
 use crate::firestore::remote::datastore::WriteOperation;

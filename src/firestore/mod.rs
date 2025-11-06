@@ -1,5 +1,5 @@
 #![doc = include_str!("README.md")]
-pub mod api;
+mod api;
 mod constants;
 pub mod error;
 pub mod local;
@@ -10,7 +10,9 @@ pub mod value;
 
 #[doc(inline)]
 pub use api::{
-    get_firestore, register_firestore_component, AggregateField, AggregateQuerySnapshot,
+    encode_document_data, encode_set_data, encode_update_document_data,
+    validate_document_path, EncodedSetData, EncodedUpdateData, FieldTransform, TransformOperation, 
+    get_firestore, register_firestore_component, AggregateDefinition, AggregateField, AggregateQuerySnapshot,
     AggregateSpec, CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,
     ConvertedQuery, DocumentChangeType, DocumentReference, DocumentSnapshot, FilterOperator,
     Firestore, FirestoreClient, FirestoreDataConverter, LimitType, OrderDirection,
@@ -19,8 +21,14 @@ pub use api::{
     TypedQuerySnapshot, WriteBatch,
 };
 
-#[doc(inline)]
-pub use api::query::QueryDefinition;
+#[allow(unused_imports)]
+pub(crate) use api::{
+    value_for_field_path, set_value_at_field_path, 
+    AggregateOperation,
+    compute_doc_changes, 
+    Bound, FieldFilter, QueryDefinition, OrderBy
+};
+
 
 #[doc(inline)]
 pub use constants::{DEFAULT_DATABASE_ID, FIRESTORE_COMPONENT_NAME};

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::firestore::api::operations::{
+use crate::firestore::api::{
     set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation,
 };
 use crate::firestore::error::{invalid_argument, FirestoreResult};

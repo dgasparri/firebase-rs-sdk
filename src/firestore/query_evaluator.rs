@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::firestore::api::query::{
+use crate::firestore::{
     Bound, FieldFilter, FilterOperator, LimitType, OrderBy, OrderDirection, QueryDefinition,
 };
 use crate::firestore::api::DocumentSnapshot;
@@ -227,7 +227,7 @@ fn compare_snapshot_to_bound(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::api::query::OrderDirection;
+    use crate::firestore::OrderDirection;
     use crate::firestore::api::{Firestore, Query, SnapshotMetadata};
     use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath, ResourcePath};
     use crate::firestore::value::{FirestoreValue, MapValue};

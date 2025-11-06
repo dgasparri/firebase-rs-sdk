@@ -8,7 +8,7 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use serde_json::{json, Value as JsonValue};
 
-use crate::firestore::api::query::QueryDefinition;
+use crate::firestore::api::QueryDefinition;
 use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
 use crate::firestore::remote::datastore::StreamHandle;
 use crate::firestore::remote::network::{NetworkLayer, NetworkStreamHandler, StreamCredentials};
@@ -391,7 +391,7 @@ mod tests {
             request_order_by: Vec::new(),
             result_order_by: Vec::new(),
             limit: None,
-            limit_type: crate::firestore::api::query::LimitType::First,
+            limit_type: crate::firestore::api::LimitType::First,
             request_start_at: None,
             request_end_at: None,
             result_start_at: None,

@@ -31,7 +31,7 @@ use base64::Engine;
 ))]
 use serde_json::{json, Value};
 
-use crate::firestore::api::query::compute_doc_changes;
+use crate::firestore::api::compute_doc_changes;
 use crate::firestore::api::{
     DocumentSnapshot, Query, QuerySnapshot, QuerySnapshotMetadata, SnapshotMetadata,
 };
@@ -1624,7 +1624,7 @@ mod tests {
 
     use crate::app::api::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
-    use crate::firestore::api::query::DocumentChangeType;
+    use crate::firestore::api::DocumentChangeType;
     use crate::firestore::api::{get_firestore, Firestore, Query};
     use crate::firestore::model::{DatabaseId, ResourcePath};
     use crate::firestore::remote::network::NetworkLayer;

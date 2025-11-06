@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
-use crate::firestore::api::aggregate::{AggregateDefinition, AggregateOperation};
-use crate::firestore::api::operations::{
+use crate::firestore::{AggregateDefinition, AggregateOperation};
+use crate::firestore::{
     set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation,
 };
-use crate::firestore::api::query::QueryDefinition;
-use crate::firestore::api::{DocumentSnapshot, SnapshotMetadata};
+use crate::firestore::QueryDefinition;
+use crate::firestore::{DocumentSnapshot, SnapshotMetadata};
 use crate::firestore::error::{internal_error, invalid_argument, not_found, FirestoreResult};
 use crate::firestore::model::{DocumentKey, FieldPath, Timestamp};
 use crate::firestore::query_evaluator::apply_query_to_documents;
@@ -184,7 +184,7 @@ impl Datastore for InMemoryDatastore {
         query: &QueryDefinition,
         aggregations: &[AggregateDefinition],
     ) -> FirestoreResult<BTreeMap<String, FirestoreValue>> {
-        let documents = self.run_query(query).await?;
+        let documents: Vec<DocumentSnapshot> = self.run_query(query).await?;
         let mut results = BTreeMap::new();
 
         for aggregate in aggregations {
