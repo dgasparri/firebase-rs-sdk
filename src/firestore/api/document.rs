@@ -126,9 +126,9 @@ impl FirestoreClient {
     /// # async fn run() -> FirestoreResult<()> {
     /// # let client = get_mock_client(None).await;
     /// use std::collections::BTreeMap;
-    /// 
+    ///
     /// use firebase_rs_sdk::firestore::FirestoreValue;
-    /// 
+    ///
     /// client
     ///     .update_doc(
     ///         "cities/sf",

@@ -35,8 +35,6 @@ pub async fn get_mock_auth(app: Option<FirebaseApp>) -> Arc<Auth> {
     auth_for_app(app).expect("failed to resolve Auth component")
 }
 
-
-
 pub mod auth {
 
     use crate::auth::{ApplicationVerifier, AuthResult};
@@ -55,24 +53,24 @@ pub mod auth {
             self.kind
         }
     }
-
-
 }
 
-
 pub mod firestore {
-    use crate::firestore::{get_firestore, register_firestore_component, Firestore, FirestoreClient};
+    use crate::firestore::{
+        get_firestore, register_firestore_component, Firestore, FirestoreClient,
+    };
     use std::sync::Arc;
 
     pub async fn get_mock_firestore(app: Option<super::FirebaseApp>) -> Arc<Firestore> {
-        let app =  match app {
+        let app = match app {
             Some(a) => a,
-            None => super::get_mock_app().await
+            None => super::get_mock_app().await,
         };
 
         register_firestore_component();
-        get_firestore(Some(app)).await.expect("failed to resolve Firestore component")
-
+        get_firestore(Some(app))
+            .await
+            .expect("failed to resolve Firestore component")
     }
 
     pub async fn get_mock_client(app: Option<super::FirebaseApp>) -> FirestoreClient {
@@ -81,6 +79,3 @@ pub mod firestore {
             .expect("failed to create FirestoreClient")
     }
 }
-
-
-
