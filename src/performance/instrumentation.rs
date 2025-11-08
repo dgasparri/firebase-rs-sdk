@@ -99,7 +99,7 @@ mod wasm {
 
         let observer = PerformanceObserver::new(callback.as_ref().unchecked_ref())
             .map_err(|err| internal(&format!("observer init: {err:?}")))?;
-        let mut types = js_sys::Array::new();
+        let types = js_sys::Array::new();
         types.push(&JsValue::from_str("resource"));
         let types_value: JsValue = types.into();
         let init = PerformanceObserverInit::new(&types_value);

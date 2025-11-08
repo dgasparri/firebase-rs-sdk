@@ -1,16 +1,22 @@
 use std::collections::VecDeque;
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_lock::Mutex;
-use async_trait::async_trait;
+
 use serde::{Deserialize, Serialize};
 
 use crate::app::FirebaseApp;
 use crate::performance::api::{HttpMethod, NetworkRequestRecord, PerformanceTrace};
-use crate::performance::error::{internal_error, PerformanceResult};
+#[cfg(any(not(target_arch = "wasm32"), feature = "experimental-indexed-db"))]
+use crate::performance::error::internal_error;
+
+use crate::performance::error::PerformanceResult;
 
 #[cfg(all(
     feature = "wasm-web",
@@ -40,19 +46,19 @@ pub type TraceStoreHandle = Arc<dyn TraceStore>;
 #[cfg(not(target_arch = "wasm32"))]
 pub type TraceStoreHandle = Arc<dyn TraceStore + Send + Sync>;
 
-pub fn create_trace_store(app: &FirebaseApp) -> TraceStoreHandle {
+pub fn create_trace_store(_app: &FirebaseApp) -> TraceStoreHandle {
     #[cfg(all(
         feature = "wasm-web",
         target_arch = "wasm32",
         feature = "experimental-indexed-db"
     ))]
     {
-        return Arc::new(IndexedDbTraceStore::new(app.name()));
+        return Arc::new(IndexedDbTraceStore::new(_app.name()));
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        return Arc::new(FileTraceStore::new(app.name()));
+        return Arc::new(FileTraceStore::new(_app.name()));
     }
 
     #[allow(unreachable_code)]
@@ -200,12 +206,14 @@ impl TraceStore for IndexedDbTraceStore {
     }
 }
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "experimental-indexed-db"))]
 fn serialize_queue(queue: &VecDeque<TraceEnvelope>) -> PerformanceResult<String> {
     let serialized: Vec<SerializableTraceEnvelope> =
         queue.iter().map(SerializableTraceEnvelope::from).collect();
     serde_json::to_string(&serialized).map_err(|err| internal_error(err.to_string()))
 }
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "experimental-indexed-db"))]
 fn deserialize_queue(raw: &str) -> PerformanceResult<VecDeque<TraceEnvelope>> {
     let mut queue = VecDeque::new();
     let serialized: Vec<SerializableTraceEnvelope> =
