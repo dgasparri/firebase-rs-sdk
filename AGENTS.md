@@ -31,18 +31,39 @@ For that reason, we do not write Javascript code just to make the library 100% f
 ## File README.md for each module
 
 For each module there is a file `./src/{module}/README.md`. This file has 5 sections: 
- - Introduction 
- - Porting status
- - Quick Start Example
- - Implemented
- - Still to do
- - Next steps - Detailed completion plan
 
-The "Indroduction" section has a brief description of the module.
+ - Firebase {module}
+   - Features
+   - Quick Start Example
+    - Quick Start Example Using ... (multiple, optional)
+   - References to the Firebase JS SDK
+   - Intentional deviations from the JS SDK (optional)
+   - WASM Notes (optional)
 
-The "Porting status" section has a reference to the advancement status (in percentage) of the porting of functions/code from the Firebase JS SDK. This section is updated manually only when a cospicuous work has been done on the module. 
+The "Firebase {module}" section has a brief description of the module, and a line with the percentage of the porting status.
 
-The Quick STart Example has a quick example on how to use the APIs of the module.
+The "Quick Start Example" has a quick example on how to use the APIs of the module.
+
+Further quick start examples highliting certain features must go in separate subchapters named "Quick Start Example Using..." 
+
+The "References to the Firebase JS SDK" section has a list of links to documentation of other Firebase SDKs. 
+
+The "Intentional deviations from the JS SDK" section reports the cases where it was deemed useful to deviate from the behavior of the JS SDK public API. 
+
+The "WASM Notes" section contains any information that could be useful when compiling with target wasm32.
+
+The README.md file is updated manually, with the exceptions of the sections "Intentional deviations from the JS SDK" and "WASM Notes" that could be updated by AI when needed.
+
+## File PORTING_STATUS.md for each module
+
+For each module there is a file `./src/{module}/PORTING_STATUS.md`. This file has 4 sections: 
+
+- Porting status
+- Implemented
+- Still to do
+ - Next steps - detailed completion plan
+
+The "Porting status" section has a reference to the advancement status (in percentage) of the porting of functions/code from the Firebase JS SDK. This section is updated only when a cospicuous work has been done on the module. 
 
 The "Implemented" section has a description of the features that are already implemented for that module.
 
@@ -50,11 +71,11 @@ The "Still to do" section has a list of features that are yet to be implemented 
 
 The "Next Steps - Detailed Completion Plan" has a detailed plan to further the porting of the module. The plan can be partial, regarding only some of the features in the "Still to do" section, but it must contain detailed, actionable steps to move the porting forward.
 
-Refer to each module's  `./src/{module}/README.md` README.md file when working on a module. 
+Refer to each module's  `./src/{module}/PORTING_STATUS.md` README.md file when working on a module. 
 
-The README.md must be created for the modules that do not have it, and it must always be updated every time a feature is ported or a step is completed. In general, the README.md for each module must be kept up to date with all the relevan informations about that module.
+The PORTING_STATUS.md must must always be updated every time a feature is ported or a step is completed. In general, the PORTING_STATUS.md for each module must be kept up to date with all the relevan informations about that module.
 
-Ignore the files named LOG.md in any folder they are found, they are intended only for human recall and can provide false, inaccurate, irrelevant or not updated information.
+Ignore the files named AI_LOG.md and LOG.md in any folder they are found, they are intended only for human recall and can provide false, inaccurate, irrelevant or not updated information.
 
 ## Coding Style & Naming Conventions
 
@@ -69,10 +90,6 @@ The APIs documentation should be generated considering the `./packages/{module}`
 In the documentation of the APIs add a short usage example when it could help to clarify the usage of that function.
 
 When available, for private functions, modules and data types that correspond to analog JS code, write in a comment a reference to where the JS corresponding code would be. If more information on a function are needed, feel free to document also that function.
-
-## Examples
-
-Examples that cannot be contained in the rustdoc of a function should be placed in the `./example/{module}/` folder, one folder per module. Write a simple example whenever that could help the end user. 
 
 ## Testing Guidelines
 
@@ -92,7 +109,7 @@ History is minimal (`.gitignore`), so establish clarity: write imperative subjec
 
 You must analyse the typescript code of the relative module in `./packages/{module}` and `./packages/firebase/{module}`. When creating Rust code, try to adhere as much as possible to the names and methods used in the Typescript API so that it feels as natural as possible for the developer to switch from the JS SDK to the Rust SDK.
 
-A list of open features still to be ported from the Firebase JS SDK is in the README.md file inside of each module `./src/{module}/README.md`. Refer to that file, and keep it updated with the steps that have been taken, the features that have been implemented and the features that are still to be ported.
+A list of open features still to be ported from the Firebase JS SDK is in the README.md file inside of each module `./src/{module}/PORTING_STATUS.md`. Refer to that file, and keep it updated with the steps that have been taken, the features that have been implemented and the features that are still to be ported.
 
 ### Documenting the code
 
@@ -110,16 +127,15 @@ When possible, also write the reference to the original Typescript function you 
 
 Examples should be saved in the folder `./examples` and named as `{module}_{function implemented}.rs`. If a mock or a local copy of a service is used, write in the comments how the code should change if the actual Firebase service is used.
 
-Small examples relevant to only a function can also be placed in the rustdoc documentation. Those examples must be minimal, leaving out all the non-relevant code such as boilerplate, module initialization, display of results, etc. They are NOT expected to compile or to be run, but only as a reference for the programmer that wants to use that function 
+Small examples relevant to only a function can also be placed in the rustdoc documentation. Those examples must be minimal, leaving out all the non-relevant code such as boilerplate, module initialization, display of results, etc. Helper functions can be stored in the `./src/dotest_support.rs` file. They are NOT expected to run, but only as a reference for the programmer that wants to use that function 
 
 ### Testing and writing tests
 
 The code is tested using the standard rust testing engine and the `cargo test` command. For each module, review the tests of the original Firebase JS SDK in the Typescript code in ./packages/{module} and port the relevant tests to Rust. Check that the test does not fail.
 
+### Updating the module's PORTING_STATUS.md
 
-### Updating the module's README.md
-
-The README.md file for each module must follow the rules and layout set in the "File README.md for each module" section in this document. To update the README.md, review the Typescript code in ./packages/{module} and the Rust code in ./scr/{module}, and check if ./src/{module}/README.md is reporting correct and updated information. Check specifically for the features implemented and the feature still to be implemented. Make the necessary correction to bring the file up to date.
+The PORTING_STATUS.md file for each module must follow the rules and layout set in the "File PORTING_STATUS.md for each module" section in this document. To update the PORTING_STATUS.md, review the Typescript code in ./packages/{module} and the Rust code in ./scr/{module}, and check if ./src/{module}/PORTING_STATUS.md is reporting correct and updated information. Check specifically for the features implemented and the feature still to be implemented. Make the necessary correction to bring the file up to date.
 
 ### Messages for a PULL REQUEST
 

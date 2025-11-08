@@ -234,31 +234,6 @@ check firestore::datastore::box_stream_future
 
 
 
-## Clean the README.md and give them a schema 
-
-Create a slimmer, less noisy RUSTDOC.md file for each module, with sections extracted from the official module's README.md (better if through a script) to be included as a DOC in the file, less crowded that the README.md file
-
-#![doc = include_str!("RUSTDOC.md")]
-
-
-
-The chapters in the ./src/{module}/README.md file are:
-
- - Firebase {module}
-   (brief description)
-   (a line with the percentage of 'Porting status')
-   - Features
-   - Quick Start Example
-   - References to the Firebase JS SDK
-   - Intentional deviations from the JS SDK (optional)
-   - WASM Notes (optional)
-
-The chapters in the ./src/{module}/PORTING_STATUS.md are:
-
-- Porting status
-- Implemented
-- Still to do
- - Next steps - detailed completion plan
 
 
 
