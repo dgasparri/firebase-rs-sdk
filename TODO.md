@@ -6,32 +6,71 @@ Dump file, ignore it
 ## Public API export and maintenance
 
 - ai
+  - README - OK
+  - PORTING_STATUS - created
 - analytics
+  - README - OK
+  - PORTING STATUS - created
 - app OK
+  - README - OK
+  - PORTING STATUS - created
   - ./src/app/registry.rs is imported as pub(crate), but some methods are only pub and others are pub(crate) - is it useful as public API?
 - app_check OK
+  - README - OK
+  - PORTING STATUS - created
+
   - persistence:: - used outside of module?
   - recaptcha:: - used outside of module?
   - refresher:: - used outside of module?
   - state:: - used outside of module?
   - token_provider:: - used only for firestore, gate behind firestore feature?
 - auth OK
+  - README - OK
+  - PORTING STATUS - created
+
   - auth::api(core)::auth_for_app (core?) - is get_auth in JS SKD?
 - blocking
 - (component: internal)
 - data_connect
+  - README - OK
+  - PORTING STATUS - created
+
 - database
+  - README - OK
+  - PORTING STATUS - created
+
 - firestore - OK
+  - README - OK
+  - PORTING STATUS - created
+
   - query::QueryDefinition is public but its methods are pub(crate)
   - there are some pub(crate) that might be public API instead
 - functions
+  - README - OK
+  - PORTING STATUS - created
+
 - installations - OK
-- logger
+  - README - OK
+  - PORTING STATUS - created
+
+- logger - NO
 - messaging - OK
+  - README - OK
+  - PORTING STATUS - created
+
 - performance
+  - README - OK
+  - PORTING STATUS - created
+
 - platform NO
 - remote_config 
+  - README - OK
+  - PORTING STATUS - created
+
 - storage - OK
+  - README - OK
+  - PORTING STATUS - created
+
 - test_support NO
 - util NO
 
@@ -51,15 +90,15 @@ firestore real live
 name = "app_basic"
 path = "examples/app_basic.rs"
 doc-scrape-examples = true
-# facoltativo, se l’esempio richiede feature:
-# required-features = ["my-feature"]
+\# facoltativo, se l’esempio richiede feature:
+\# required-features = ["my-feature"]
 
 [[example]]
 name = "app_check_custom_provider"
 path = "examples/app_check_custom_provider.rs"
 doc-scrape-examples = true
-# required-features = ["my-feature"]
-# then cargo doc --features my-feature
+\# required-features = ["my-feature"]
+\# then cargo doc --features my-feature
 
 
 ### unexpected feature
@@ -128,6 +167,9 @@ failures:
 
 
 
+## API from docs-devsite
+
+Make a script that extracts APIS from docs-devside tables
 
 
 ## count lines of code
@@ -197,6 +239,27 @@ check firestore::datastore::box_stream_future
 Create a slimmer, less noisy RUSTDOC.md file for each module, with sections extracted from the official module's README.md (better if through a script) to be included as a DOC in the file, less crowded that the README.md file
 
 #![doc = include_str!("RUSTDOC.md")]
+
+
+
+The chapters in the ./src/{module}/README.md file are:
+
+ - Firebase {module}
+   (brief description)
+   (a line with the percentage of 'Porting status')
+   - Features
+   - Quick Start Example
+   - References to the Firebase JS SDK
+   - Intentional deviations from the JS SDK (optional)
+   - WASM Notes (optional)
+
+The chapters in the ./src/{module}/PORTING_STATUS.md are:
+
+- Porting status
+- Implemented
+- Still to do
+ - Next steps - detailed completion plan
+
 
 
 

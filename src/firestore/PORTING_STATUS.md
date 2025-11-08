@@ -1,0 +1,174 @@
+## Porting status
+
+- firestore 85% `[######### ]`
+
+==As of April 12th, 2026==
+
+Roughly 83 % of the Firestore JS SDK now has a Rust counterpart.
+
+- Core handles (component registration, `Firestore`/reference types, converters), document/query operations, and the HTTP datastore remain in place.
+- Set semantics now mirror the JS SDK, including `SetOptions::merge`/`merge_fields`, allowing partial document updates through both the HTTP and in-memory datastores.
+- All array/membership operators (`array-contains`, `array-contains-any`, `in`, `not-in`) are supported and validated; queries auto-normalise ordering just like the JS structured-query builder.
+- Batched writes (`WriteBatch`) are fully wired, sharing the commit pipeline across HTTP and in-memory datastores so atomic groups of set/update/delete mirror `writeBatch()` from the modular SDK.
+- Collection group queries now compile identical structured queries across the HTTP and in-memory datastores.
+- Document snapshots expose `get(...)` helpers that align with the modular JS API for selective field reads.
+- REST and in-memory datastores can execute aggregation queries (`count`, `sum`, `average`), matching `getAggregate()`/`getCount()` from the JS SDK.
+- Remaining gaps focus on the sync engine: RemoteSyncer integration, transactions, offline persistence, cross-platform transports, and advanced bundle/listener plumbing.
+
+
+## Development status as of 5th April 2026
+
+- Core functionalities: Mostly implemented (see this README for details)
+- Testing: 48 tests (covering merges, advanced filters, collection-group queries, aggregations, and existing update/delete flows)
+- Documentation: Public APIs documented with rustdoc (set/merge semantics, `WriteBatch`, queries, snapshot accessors, aggregations)
+- Examples: 3 examples
+
+DISCLAIMER: This is not an official Firebase product, nor it is guaranteed that it has no bugs or that it will work as intended.
+
+
+## Implemented
+
+- **Component wiring** – `firestore::api::register_firestore_component` hooks Firestore into the global component
+  registry so apps can lazily resolve `Firestore` instances via `get_firestore` (with per-database overrides).
+- **Model layer** – Core path primitives (`ResourcePath`, `FieldPath`, `DocumentKey`, `DatabaseId`) and basic value
+  types (`FirestoreValue`, `ArrayValue`, `MapValue`, `BytesValue`, `Timestamp`, `GeoPoint`) are ported with unit tests.
+- **Minimal references** – `CollectionReference`/`DocumentReference` mirror the modular JS API, including input
+  validation and auto-ID generation.
+- **Document façade** – A simple in-memory datastore backs
+  `FirestoreClient::get_doc/set_doc/add_doc/update_doc/delete_doc`, exercising the value encoding pipeline and
+  providing scaffolding for future network integration.
+- **Single-document writes** – The HTTP datastore now issues REST commits for `set_doc`, `set_doc_with_converter`,
+  `update_doc`, and `delete_doc` with retry/backoff and auth/App Check headers. `SetOptions` supports both
+  `merge` and `merge_fields`, matching JS semantics on HTTP and in-memory stores.
+- **Network scaffolding** – A retrying `HttpDatastore` now wraps the Firestore REST endpoints with JSON
+  serialization/deserialization, HTTP error mapping, and pluggable auth/App Check token providers. Auth and App Check
+  bridges now feed the HTTP client, including token invalidation/retry on `Unauthenticated` responses.
+- **App Check bridge** – `FirebaseAppCheckInternal::token_provider()` exposes App Check credentials as a Firestore
+  `TokenProvider`, making it straightforward to attach App Check headers when configuring the HTTP datastore.
+- **Typed converters** – Collection and document references accept `with_converter(...)`, and typed snapshots expose
+  converter-aware `data()` helpers that match the JS modular API.
+- **Snapshot metadata** – `DocumentSnapshot` now carries `SnapshotMetadata`, exposing `from_cache` and
+  `has_pending_writes` flags compatible with the JS API.
+- **Query API scaffolding** – `Query`, `QuerySnapshot`, and `FirestoreClient::get_docs` now cover collection scans as
+  well as `where` filters, `order_by`, `limit`/`limit_to_last`, projections, and cursor bounds when running against
+  either the in-memory store or the HTTP datastore (which generates structured queries for Firestore's REST API).
+- **Sentinel transforms** – `FirestoreValue::server_timestamp`, `array_union`, `array_remove`, and `numeric_increment`
+  mirror the modular SDK's FieldValue sentinels, with server-side transforms wired through both datastores.
+- **Advanced filters** – Array membership operators (`array-contains`, `array-contains-any`) and disjunctive filters
+  (`in`, `not-in`) are validated client-side and encoded for both datastores, matching the JS SDK constraints.
+- **Batched writes** – `WriteBatch` mirrors the modular SDK: set/update/delete operations queue up and commit atomically
+  via the shared datastore pipeline, enabling multi-document mutations over HTTP or the in-memory store.
+- **Collection-group queries** – `Firestore::collection_group` issues structured queries with `allDescendants`, and both
+  datastores respect the same validation/ordering semantics as the JS SDK.
+- **Snapshot field accessors** – `DocumentSnapshot::get` (and typed variants) accept `&str`/`FieldPath` inputs, returning
+  borrowed `FirestoreValue`s for selective field reads just like `DocumentSnapshot.get(...)` in the modular API.
+- **Aggregations** – `FirestoreClient::get_aggregate`/`get_count` surface REST `runAggregationQuery`, while the
+  in-memory datastore computes `count`, `sum`, and `average` locally for tests.
+- **Streaming scaffolding** – A multiplexed stream manager provides shared framing over arbitrary transports, with
+  in-memory and WebSocket transports plus tests validating multi-stream exchange and cooperative shutdown behaviour.
+- **Streaming datastore** – Exposed a generic `StreamingDatastore` over the multiplexed streams so listen/write state
+  machines can share connection management with concrete transports.
+- **Persistent stream runner** – Added a reusable state machine that re-opens listen/write streams with exponential
+  backoff and delegate callbacks, paving the way for the Firestore watch/write RPC loops.
+- **Network layer** – `firestore::remote::network::NetworkLayer` now coordinates credential-aware persistent listen
+  and write streams over the multiplexed transport, reusing backoff logic and compiling for both native and WASM
+  targets.
+- **Listen/write streaming** – `firestore::remote::streams::{ListenStream, WriteStream}` encode Firestore gRPC listen
+  and write RPC payloads, propagate resume tokens, and surface decoded `WatchChange`/`WriteResponse` events through async
+  delegates. `firestore::remote::watch_change_aggregator::WatchChangeAggregator` converts those into consolidated
+  `RemoteEvent`s so higher layers can drive query views.
+- **Remote store façade** – `firestore::remote::remote_store::RemoteStore` now owns listen/write stream lifecycles,
+  feeds watch events into `RemoteSyncer` implementors, keeps per-target metadata via `TargetMetadataProvider`, and
+  drains mutation batches over the write stream with wasm-friendly future aliases.
+- **Remote syncer bridge** – `firestore::remote::syncer_bridge::RemoteSyncerBridge` brings the JS `RemoteSyncer`
+  surface to Rust, tracking remote keys per target, managing the mutation batch queue, and delegating watch/write events
+  through wasm-friendly futures so higher layers (local store, query views) can plug in incrementally.
+- **Memory local store** – `firestore::local::MemoryLocalStore` implements the new `RemoteSyncerDelegate`, letting tests
+  and prototype sync engines observe document state, pending batches, stream metadata, overlays, and limbo resolutions
+  without depending on the future persistence layer. It now mirrors the JS LocalStore's target bookkeeping (remote keys,
+  resume tokens, snapshot versions) while coordinating with the remote store for both listen and write pipelines across
+  native and wasm targets. A WASM build can persist the snapshots via IndexedDB through the bundled
+  `IndexedDbPersistence` adapter.
+- **Sync engine scaffold** – `firestore::local::SyncEngine` wires `MemoryLocalStore` and `RemoteStore` together, seeding
+  restored target metadata into the remote bridge and exposing a façade that mirrors the JS SyncEngine API for
+  registering listens, pumping writes, and toggling network state.
+- **Query listeners** – `SyncEngine::listen_query` now hooks query/view updates into the sync engine. Registered
+  listeners receive live `QuerySnapshot`s when remote events or overlay changes land in `MemoryLocalStore`, and
+  `QueryListenerRegistration` handles make it easy to stop listening.
+- **Query view integration** – Listener snapshots now evaluate filters, ordering, bounds, and limits locally, surface
+  ViewSnapshot-style metadata (`from_cache`, `has_pending_writes`, `sync_state_changed`), expose per-target resume tokens
+  so consumers can persist listen state across disconnects, apply pending write overlays so latency-compensated data
+  matches local user edits, emit JS-style doc change sets (`added`/`modified`/`removed`) with positional indices, and seed
+  restored views from persisted state so resumptions avoid spurious change notifications.
+- **View diffing resilience** – Existence-filter resets now only flag documents as limbo when no sibling targets still
+  reference them, overlay-backed documents remain visible across resets, and limbo markers clear automatically when
+  follow-up watch updates arrive. New async tests cover multi-target overlap, overlay-heavy queues, and limbo resolution
+  to keep behaviour consistent across native and WASM builds.
+- **Persisted query view state** – `LocalStorePersistence::save_query_view_state` writes IndexedDB blobs (target id,
+  resume token, snapshot version, cache flags, pending-write metadata, cached documents) so WASM restores snapshots; the
+  local store seeds listeners from those snapshots, dispatches change-free replays on re-registration, and prunes
+  persistence when listeners detach. `restores_view_state_from_persistence` ensures the reload path keeps doc changes
+  stable and preserves metadata.
+
+
+## Still to do
+
+- Snapshot/converter polish to cover remaining metadata options, server timestamp behaviour, and typed helpers that are
+  still JS-only.
+- Transactions and merge preconditions aligned with the JS mutation queue, including retries and mutation queue wiring.
+- Query builder completion (composite/OR filters, nested orderings, cursor helpers, limit-to-last validation) wired
+  through structured query generation and watch responses.
+- Complete sync engine parity by finishing existence-filter mismatch recovery, limbo orchestration, and overlay diff
+  reconciliation across persistence-backed targets.
+- Offline persistence layers (memory + IndexedDB), LRU pruning, multi-tab coordination, and platform-specific feature
+  gating for wasm/web targets.
+- Bundle loading, named queries, and enhanced aggregation coverage (min/max, percentile).
+- Emulator-backed integration coverage and stress tests across HTTP/gRPC transports.
+
+
+## Next steps - Detailed completion plan
+
+1. **Snapshot & converter parity**
+   - Flesh out `DocumentSnapshot`, `QuerySnapshot`, and user data converters to cover remaining lossy conversions (e.g.,
+     snapshot options, server timestamps) and ensure typed snapshots expose all JS helpers.
+2. **Write operations**
+   - Build client-side transactions (retries, preconditions, mutation queue) atop the shared commit + transform
+     pipeline.
+3. **Query engine**
+   - Finish porting the remaining query builder surface (composite/OR filters, `orderBy` on nested/transform fields,
+     cursor helpers such as `startAfter`/`endBefore`, limit-to-last validation) so it mirrors `packages/firestore/src/core/query.ts`.
+     - Implement target serialization and comparator logic shared by the local store and the remote watch layer so
+       listen responses can be applied to views.
+     - Connect the normalised query definitions to the remote listen stream once gRPC/WebChannel support lands, ensuring
+       resume tokens, ordering, and backfill handling behave identically to the JS SDK.
+4. **Local persistence**
+   - Introduce the local cache layers (memory, IndexedDB-like, LRU pruning) and multi-tab coordination, matching the JS
+     architecture.
+5. **Bundles & advanced aggregates**
+   - Port bundle loading, named queries, and extended aggregate functions (min/max, percentile) once core querying is
+     functional.
+6. **Platform-specific plumbing**
+   - Mirror browser/node differences (e.g., persistence availability checks, WebChannel vs gRPC) via `platform/` modules.
+7. **Testing & parity checks**
+   - Translate the TS unit/integration tests, add coverage for conversions and query logic, and validate against Firebase
+     emulators where possible.
+
+### Test Porting Plan
+
+1. **Unit parity pass**
+   - Mirror `packages/firestore/test/unit` suites module-by-module (model, value, api, remote, util). Build Rust helpers
+     under `src/firestore/test_support` to replace `test/util/helpers.ts` and keep assertions ergonomic.
+   - ✅ `model/path` translated (see `tests/firestore/model/resource_path_tests.rs`) alongside supporting helpers.
+   - 🔄 Port the `packages/firestore/test/unit/core/view.test.ts` doc-change scenarios (limit-to-last refills,
+     multi-order reorders, resume-token diffing) to validate `compute_doc_changes` and listener metadata.
+2. **Converter & snapshot coverage**
+   - Port lite/api tests that exercise `withConverter`, snapshot metadata, and reference validation using the in-memory
+     datastore.
+3. **Serializer & remote edge cases**
+   - Translate JSON/proto serializer tests (`test/unit/remote`) and watch/change specs once equivalent Rust modules land.
+4. **Local/core engine tests**
+   - After local persistence and query engine exist, port `test/unit/local` and `test/unit/core`, reusing generated spec
+     JSON fixtures.
+5. **Integration staging**
+   - Plan emulator-backed integration tests once REST/gRPC networking is wired; gate them behind cargo features to avoid
+     CI flakiness.
