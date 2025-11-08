@@ -2,6 +2,9 @@
 mod api;
 pub mod constants;
 mod error;
+mod instrumentation;
+mod storage;
+mod transport;
 
 /// Resolves the lazily created [`Performance`](api::Performance) instance for the provided app.
 pub use api::get_performance;
@@ -29,5 +32,7 @@ pub use api::PerformanceTrace;
 pub use api::TraceHandle;
 /// Optional metrics/attributes bundle accepted by [`TraceHandle::record`](api::TraceHandle::record).
 pub use api::TraceRecordOptions;
+/// Transport configuration surface for batch uploads.
+pub use transport::TransportOptions;
 
 pub use error::{PerformanceError, PerformanceResult};

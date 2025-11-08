@@ -15,15 +15,20 @@ use crate::component::types::{
     ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
 };
 use crate::component::{Component, ComponentType};
+use crate::installations::get_installations;
 use crate::performance::constants::{
     MAX_ATTRIBUTE_NAME_LENGTH, MAX_ATTRIBUTE_VALUE_LENGTH, MAX_METRIC_NAME_LENGTH,
     OOB_TRACE_PAGE_LOAD_PREFIX, PERFORMANCE_COMPONENT_NAME, RESERVED_ATTRIBUTE_PREFIXES,
     RESERVED_METRIC_PREFIX,
 };
 use crate::performance::error::{internal_error, invalid_argument, PerformanceResult};
+use crate::performance::instrumentation;
+use crate::performance::storage::{create_trace_store, TraceEnvelope, TraceStoreHandle};
+use crate::performance::transport::{TransportController, TransportOptions};
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 use crate::platform::environment;
 use crate::platform::runtime;
+use log::debug;
 
 /// User provided configuration toggles mirroring the JavaScript SDK's
 /// [`PerformanceSettings`](https://github.com/firebase/firebase-js-sdk/blob/master/packages/performance/src/public_types.ts).
@@ -100,6 +105,10 @@ struct PerformanceInner {
     settings: RwLock<PerformanceRuntimeSettings>,
     app_check: StdMutex<Option<FirebaseAppCheckInternal>>,
     auth: StdMutex<Option<AuthContext>>,
+    trace_store: TraceStoreHandle,
+    transport: StdMutex<Option<Arc<TransportController>>>,
+    transport_options: Arc<RwLock<TransportOptions>>,
+    installation_id: Mutex<Option<String>>,
 }
 
 /// Builder for manual traces (`Trace` in the JS SDK).
@@ -128,7 +137,7 @@ pub struct NetworkTraceHandle {
 }
 
 /// Represents the HTTP verb associated with a [`NetworkTraceHandle`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HttpMethod {
     Get,
     Put,
@@ -237,15 +246,36 @@ impl AuthContext {
 impl Performance {
     fn new(app: FirebaseApp, settings: Option<PerformanceSettings>) -> Self {
         let resolved = PerformanceRuntimeSettings::resolve(&app, settings.as_ref());
-        Self {
-            inner: Arc::new(PerformanceInner {
-                app,
-                traces: Mutex::new(HashMap::new()),
-                network_requests: Mutex::new(Vec::new()),
-                settings: RwLock::new(resolved),
-                app_check: StdMutex::new(None),
-                auth: StdMutex::new(None),
-            }),
+        let trace_store = create_trace_store(&app);
+        let transport_options = Arc::new(RwLock::new(TransportOptions::default()));
+        let inner = PerformanceInner {
+            app,
+            traces: Mutex::new(HashMap::new()),
+            network_requests: Mutex::new(Vec::new()),
+            settings: RwLock::new(resolved),
+            app_check: StdMutex::new(None),
+            auth: StdMutex::new(None),
+            trace_store,
+            transport: StdMutex::new(None),
+            transport_options,
+            installation_id: Mutex::new(None),
+        };
+        let performance = Self {
+            inner: Arc::new(inner),
+        };
+        performance.initialize_background_tasks();
+        performance
+    }
+
+    fn initialize_background_tasks(&self) {
+        instrumentation::initialize(self);
+        let controller = TransportController::new(
+            self.clone(),
+            self.inner.trace_store.clone(),
+            self.inner.transport_options.clone(),
+        );
+        if let Ok(mut guard) = self.inner.transport.lock() {
+            *guard = Some(controller);
         }
     }
 
@@ -414,32 +444,130 @@ impl Performance {
             .cloned()
     }
 
-    async fn store_trace(&self, trace: PerformanceTrace) {
-        if !self.data_collection_enabled() {
-            return;
+    /// Overrides the transport configuration used for batching uploads.
+    pub fn configure_transport(&self, options: TransportOptions) {
+        if let Ok(mut guard) = self.inner.transport_options.write() {
+            *guard = options;
         }
+        if let Some(controller) = self.transport_controller() {
+            controller.trigger_flush();
+        }
+    }
+
+    /// Forces an immediate transport flush.
+    pub async fn flush_transport(&self) -> PerformanceResult<()> {
+        if let Some(controller) = self.transport_controller() {
+            controller.flush_once().await
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg_attr(
+        not(all(feature = "wasm-web", target_arch = "wasm32")),
+        allow(dead_code)
+    )]
+    pub(crate) async fn record_auto_trace(
+        self,
+        name: &str,
+        start_time_us: u128,
+        duration: Duration,
+        metrics: HashMap<String, i64>,
+        attributes: HashMap<String, String>,
+    ) -> PerformanceResult<()> {
+        let trace = PerformanceTrace {
+            name: Arc::from(name.to_string()),
+            start_time_us,
+            duration,
+            metrics,
+            attributes,
+            is_auto: true,
+            auth_uid: self.auth_uid(),
+        };
+        self.store_trace(trace).await
+    }
+
+    #[cfg_attr(
+        not(all(feature = "wasm-web", target_arch = "wasm32")),
+        allow(dead_code)
+    )]
+    pub(crate) async fn record_auto_network(
+        self,
+        record: NetworkRequestRecord,
+    ) -> PerformanceResult<()> {
+        self.store_network_request(record).await
+    }
+
+    pub(crate) async fn installation_id(&self) -> Option<String> {
+        if let Some(cached) = self.inner.installation_id.lock().await.clone() {
+            return Some(cached);
+        }
+        let installations = get_installations(Some(self.app().clone())).ok()?;
+        let fid = installations.get_id().await.ok()?;
+        let mut guard = self.inner.installation_id.lock().await;
+        *guard = Some(fid.clone());
+        Some(fid)
+    }
+
+    async fn store_trace(&self, trace: PerformanceTrace) -> PerformanceResult<()> {
+        if !self.data_collection_enabled() {
+            return Ok(());
+        }
+        let name = trace.name.to_string();
         self.inner
             .traces
             .lock()
             .await
-            .insert(trace.name.to_string(), trace);
+            .insert(name.clone(), trace.clone());
+        if let Err(err) = self
+            .inner
+            .trace_store
+            .push(TraceEnvelope::Trace(trace))
+            .await
+        {
+            debug!("failed to persist trace {name}: {}", err);
+        }
+        if let Some(controller) = self.transport_controller() {
+            controller.trigger_flush();
+        }
+        Ok(())
     }
 
-    async fn store_network_request(&self, record: NetworkRequestRecord) {
+    async fn store_network_request(&self, record: NetworkRequestRecord) -> PerformanceResult<()> {
         if !self.instrumentation_enabled() {
-            return;
+            return Ok(());
         }
         const MAX_HISTORY: usize = 50;
         let mut traces = self.inner.network_requests.lock().await;
         if traces.len() == MAX_HISTORY {
             traces.remove(0);
         }
-        traces.push(record);
+        traces.push(record.clone());
+        if let Err(err) = self
+            .inner
+            .trace_store
+            .push(TraceEnvelope::Network(record))
+            .await
+        {
+            debug!("failed to persist network trace: {}", err);
+        }
+        if let Some(controller) = self.transport_controller() {
+            controller.trigger_flush();
+        }
+        Ok(())
     }
 
     fn auth_uid(&self) -> Option<String> {
         let ctx = self.inner.auth.lock().ok().and_then(|guard| guard.clone());
         ctx.and_then(|ctx| ctx.current_uid())
+    }
+
+    fn transport_controller(&self) -> Option<Arc<TransportController>> {
+        self.inner
+            .transport
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned())
     }
 
     async fn app_check_token(&self) -> Option<String> {
@@ -582,7 +710,7 @@ impl TraceHandle {
             is_auto: self.is_auto,
             auth_uid: self.performance.auth_uid(),
         };
-        self.performance.store_trace(trace.clone()).await;
+        self.performance.store_trace(trace.clone()).await?;
         Ok(trace)
     }
 
@@ -608,7 +736,7 @@ impl TraceHandle {
             is_auto: self.is_auto,
             auth_uid: self.performance.auth_uid(),
         };
-        self.performance.store_trace(trace.clone()).await;
+        self.performance.store_trace(trace.clone()).await?;
         Ok(trace)
     }
 }
@@ -711,7 +839,9 @@ impl NetworkTraceHandle {
             response_content_type: self.response_content_type.clone(),
             app_check_token: self.performance.app_check_token().await,
         };
-        self.performance.store_network_request(record.clone()).await;
+        self.performance
+            .store_network_request(record.clone())
+            .await?;
         Ok(record)
     }
 }
@@ -902,8 +1032,14 @@ mod tests {
         box_app_check_future, initialize_app_check, AppCheckOptions, AppCheckProvider,
         AppCheckProviderFuture, AppCheckResult, AppCheckToken,
     };
+    use crate::performance::TransportOptions;
+    use httpmock::prelude::*;
     use std::sync::Arc;
     use tokio::time::sleep;
+
+    fn disable_transport() {
+        std::env::set_var("FIREBASE_PERF_DISABLE_TRANSPORT", "1");
+    }
 
     async fn test_app(name: &str) -> FirebaseApp {
         let options = FirebaseOptions {
@@ -923,6 +1059,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn trace_records_metrics_and_attributes() {
+        disable_transport();
         let app = test_app("perf-trace").await;
         let performance = get_performance(Some(app)).await.unwrap();
         let mut trace = performance.new_trace("load").unwrap();
@@ -938,6 +1075,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn record_api_stores_trace_once() {
+        disable_transport();
         let app = test_app("perf-record").await;
         let performance = get_performance(Some(app)).await.unwrap();
         let trace = performance.new_trace("bootstrap").unwrap();
@@ -953,6 +1091,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn network_request_collects_payload_and_status() {
+        disable_transport();
         let app = test_app("perf-network").await;
         let performance = get_performance(Some(app)).await.unwrap();
         let mut request = performance
@@ -992,6 +1131,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn network_request_includes_app_check_token() {
+        disable_transport();
         let app = test_app("perf-app-check").await;
         let performance = get_performance(Some(app.clone())).await.unwrap();
         attach_app_check(&performance, &app).await;
@@ -1005,6 +1145,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn initialize_performance_respects_settings() {
+        disable_transport();
         let app = test_app("perf-init").await;
         let settings = PerformanceSettings {
             data_collection_enabled: Some(false),
@@ -1020,5 +1161,33 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.code_str(), "performance/invalid-argument");
+    }
+
+    #[cfg_attr(target_os = "linux", ignore = "localhost sockets disabled in sandbox")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn transport_flushes_to_custom_endpoint() {
+        std::env::remove_var("FIREBASE_PERF_DISABLE_TRANSPORT");
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/upload");
+            then.status(200);
+        });
+
+        let app = test_app("perf-transport").await;
+        let performance = get_performance(Some(app)).await.unwrap();
+        performance.configure_transport(TransportOptions {
+            endpoint: Some(server.url("/upload")),
+            api_key: None,
+            flush_interval: Some(Duration::from_millis(10)),
+            max_batch_size: Some(1),
+        });
+
+        let mut trace = performance.new_trace("upload").unwrap();
+        trace.start().unwrap();
+        trace.stop().await.unwrap();
+        performance.flush_transport().await.unwrap();
+        sleep(Duration::from_millis(50)).await;
+        mock.assert_hits(1);
+        disable_transport();
     }
 }

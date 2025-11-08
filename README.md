@@ -20,7 +20,7 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 | [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)         | 25% | `[#####               ]` |
 | [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) | 45% | `[#########           ]` |
 | [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         | 40% | `[########            ]` |
-| [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     | 5%  | `[#                   ]` |
+| [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     | 70%  | `[#                   ]` |
 | [remote_config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config) | 25% | `[#####               ]` |
 | [storage](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage)             | 60% | `[############        ]` |
 
