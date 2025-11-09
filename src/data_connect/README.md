@@ -1,26 +1,27 @@
 # Firebase Data Connect
 
-This module contains the early-stage Rust port of Firebase Data Connect. The goal is to mirror the modular JS SDK
-(`@firebase/data-connect`) so applications can execute Data Connect queries asynchronously through the shared component
-framework.
+Rust port of the Firebase Data Connect SDK. The module mirrors the modular JS surface so apps can register connectors, execute queries or mutations, and hydrate caches both natively and in WASM builds.
 
-Porting status: 5% `[#         ]` ([details](https://github.com/dgasparri/firebase-rs-sdk/blob/main/src/data-connect/PORTING_STATUS.md))
+Porting status: 80% `[########  ]` ([details](https://github.com/dgasparri/firebase-rs-sdk/blob/main/src/data-connect/PORTING_STATUS.md))
 
 ## Quick Start Example
 
 ```rust,no_run
-use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::data_connect::{
-    get_data_connect_service, QueryRequest
+    connect_data_connect_emulator, execute_query, get_data_connect_service, query_ref, subscribe,
+    ConnectorConfig, QuerySubscriptionHandlers,
 };
+use serde_json::json;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FirebaseOptions {
         project_id: Some("demo-project".into()),
+        api_key: Some("demo-key".into()),
         ..Default::default()
     };
     let settings = FirebaseAppSettings {
@@ -28,20 +29,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     let app = initialize_app(options, Some(settings)).await?;
-    let service = get_data_connect_service(Some(app.clone()), Some("https://example/graphql"))
-        .await?;
 
-    let mut variables = BTreeMap::new();
-    variables.insert("id".into(), serde_json::json!(123));
+    let connector = ConnectorConfig::new("us-central1", "books", "catalog")?;
+    let service = get_data_connect_service(Some(app.clone()), connector).await?;
+    // Optional: route to the local emulator during development.
+    connect_data_connect_emulator(&service, "localhost", Some(9399), false)?;
 
-    let response = service
-        .execute(QueryRequest {
-            operation: "query GetItem($id: ID!) { item(id: $id) { id } }".into(),
-            variables,
-        })
-        .await?;
+    let query = query_ref(Arc::clone(&service), "ListBooks", json!({"limit": 25}));
+    let result = execute_query(&query).await?;
+    println!("{}", result.data);
 
-    println!("response payload: {}", response.data);
+    // Async subscriptions deliver cached data immediately when provided.
+    let handlers = QuerySubscriptionHandlers::new(Arc::new(|result| {
+        println!("cache update: {}", result.data);
+    }));
+    let _subscription = subscribe(query, handlers, None).await?;
 
     Ok(())
 }
@@ -53,3 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - API: <https://firebase.google.com/docs/reference/js/data-connect.md#data-connect_package>
 - Github Repo - Module: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/data-connect>
 - Github Repo - API: <https://github.com/firebase/firebase-js-sdk/tree/main/packages/firebase/data-connect>
+
+## WASM Notes
+
+- The transport layer uses `reqwest`’s fetch backend when targeting `wasm32-unknown-unknown`, so no additional shims are required.
+- `subscribe` and the query/mutation managers avoid `Send` bounds when compiling with the `wasm-web` feature so callbacks can capture browser-only types.

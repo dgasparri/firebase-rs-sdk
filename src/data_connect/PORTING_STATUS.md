@@ -1,60 +1,34 @@
 ## Porting status
 
-- data_connect 5% `[#         ]`
+- data_connect 80% `[########  ]`
 
-==As of October 21th, 2025== 
+## Implemented
 
-Prompt: Compare the original JS/Typescript files in ./packages/data_connect and the ported files in Rust in ./src/data_connect, and give me an estimated guess, in percentage, of how much of the features/code of the Firebase JS SDK has been ported to Rust for this module
+- **Connector lifecycle** – Component registration mirrors `_getProvider('data-connect')`, supporting multi-instance caching keyed by `ConnectorConfig` plus optional env-based emulator routing.
+- **Async service surface** – `DataConnectService` exposes async query/mutation execution, emulator toggling, and caller-sdk toggles with wasm-friendly futures.
+- **HTTP transport parity** – REST transport builds the real `firebasedataconnect.googleapis.com` endpoints, appending API keys, `X-Goog-Api-Client`, Auth, and App Check headers plus GraphQL error mapping (`DataConnectOperationError`).
+- **Query & mutation managers** – Rust versions of `QueryManager`/`MutationManager` track cache state, fan-out subscription callbacks, and hydrate from serialized snapshots.
+- **Public helpers** – `query_ref`, `mutation_ref`, `execute_query`, `execute_mutation`, `subscribe`, and `to_query_ref` replicate the JS ergonomic helpers, returning strongly typed handles.
+- **Tests** – Native integration tests use `httpmock` to verify query/mutation requests, subscription hydration, and emulator safeguards.
 
-Thinking
-  I’m putting together a clear final answer that highlights the limited cross-implementation coverage, estimating around
-  5% port completion based on comparing Rust and JS features. I'll reference exact file lines like src/data_connect/
-  api.rs:17 and packages/data-connect/src/api/DataConnect.ts:99 to back this up and mention major missing features,
-  wrapping it all nicely in bullet points. Next steps might come up naturally.
+## Still to do
 
-Port Estimate
+1. **Generated SDK utilities** – Hook `_useGeneratedSdk`/caller SDK types into higher-level generated bindings and expose public setters.
+2. **Argument validation helpers** – Port `validateArgs`/input coercion so generated SDKs can transparently accept either `DataConnect` instances or raw variables.
+3. **Streaming/subscription transports** – Implement websocket/subscription transports once the backend protocol is available.
+4. **Retry/backoff policies** – Align REST retries with the JS SDK (currently single attempt aside from token refresh retries).
+5. **Advanced logging & diagnostics** – Port `logDebug`/`logError` helpers and tie them into the shared logging framework.
 
-  - Roughly 5 % of the JS Data Connect SDK is represented in Rust. The current port stops at component registration and
-  a stubbed execution path (src/data_connect/api.rs:17), plus simple constants/errors (src/data_connect/constants.rs:1,
-  src/data_connect/error.rs:4).
-  - The JS package layers in full client behavior—instance management, emulator wiring, auth & App Check providers,
-  transport selection, query/mutation managers, caching, and subscription flows (packages/data-connect/src/api/
-  DataConnect.ts:99, packages/data-connect/src/core/QueryManager.ts:1, packages/data-connect/src/network/index.ts,
-  packages/data-connect/src/api/query.ts:52). None of these mechanics exist in Rust yet.
-  - Mutation helpers, serialization utilities, encoder/map tooling, and validation logic (packages/data-connect/src/
-  api/Mutation.ts, packages/data-connect/src/util/encoder.ts, packages/data-connect/src/util/validateArgs.ts) are also
-  unported, leaving the Rust API unable to mirror real backend calls or generated SDK hooks.
+## Next steps - detailed completion plan
 
-Natural next steps: 1) Implement real transports (REST/emulator) with auth/App Check headers so DataConnectService::execute can hit live endpoints; 2) Port QueryManager/MutationManager and supporting types to provide query refs, caching, and subscription semantics; 3) Mirror option validation and multi-instance handling so the Rust façade aligns with the JS modular API surface.
-
-
-## Current Functionality
-
-- **Component wiring** – `register_data_connect_component` registers a `data-connect` component allowing apps to
-  asynchronously retrieve a `DataConnectService` via `get_data_connect_service`.
-- **Async service stub** – `DataConnectService::execute` is async and returns a synthetic `QueryResponse` that echoes the
-  request and selected endpoint, making it safe to call from wasm and native event loops.
-- **Endpoint handling** – Supports per-endpoint instances via instance identifiers/options.
-- **Errors/constants** – Basic error codes (`data-connect/invalid-argument`, `data-connect/internal`) and component name
-  constant.
-- **Tests** – Async unit tests covering successful execution and empty-operation validation.
-
-The module currently provides structural integration but does not talk to the real Data Connect backend.
-
-## Work Remaining (vs `packages/data-connect`)
-
-1. **Backend transport**
-   - Implement network layer for GraphQL/REST calls, including authentication headers, retries, and result parsing.
-2. **Schema & type helpers**
-   - Port schema introspection, method generators, and request helpers from the JS SDK (`api/`, `core/`, `util/`).
-3. **Config handling**
-   - Support configuration fetch/refresh, project/endpoint resolution, and environment overrides.
-4. **Error mapping & logging**
-   - Mirror JS error handling, structured logging, and developer diagnostics.
-5. **Streaming/subscriptions**
-   - Implement subscription/websocket features once the base transport is in place.
-6. **Testing parity**
-   - Translate JS unit/integration tests (API, serializers, backend) and run against emulators/live endpoints.
-
-Completing these steps will move the Rust Data Connect port from a stub to a fully functional client aligned with the
-JavaScript SDK.
+1. **Expose generated SDK toggles**
+   - Add public `use_generated_sdk()` and `set_caller_sdk_type()` wrappers plus doc examples so higher-level bindings can flip telemetry bits without touching internals.
+   - Thread these settings through builder-style APIs so they can be set before the transport initializes.
+2. **Input validation helper parity**
+   - Port `validateArgs` from `packages/data-connect/src/util/validateArgs.ts`, accepting either a `DataConnectService` or raw variable map.
+   - Integrate the helper into future generated bindings and document its usage for manual consumers.
+3. **Transport robustness**
+   - Mirror JS retry policies (e.g., retry on UNAUTH with refreshed tokens, exponential backoff on transient errors).
+   - Add structured logging hooks around request/response boundaries to aid debugging, reusing the shared logging crate.
+4. **Preparatory streaming work**
+   - Define a trait for streaming transports so when subscriptions land we only need to plug implementations, keeping wasm/native parity in mind.
