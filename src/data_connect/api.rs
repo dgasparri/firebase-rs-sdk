@@ -55,6 +55,14 @@ pub struct DataConnectService {
     inner: Arc<DataConnectInner>,
 }
 
+/// Owns the cached `QueryManager` for a service, allowing callers to explicitly control when
+/// observer state is created or discarded.
+pub struct DataConnectQueryRuntime {
+    service: Arc<DataConnectService>,
+    manager: QueryManager,
+    released: bool,
+}
+
 impl fmt::Debug for DataConnectService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DataConnectService")
@@ -125,6 +133,14 @@ impl DataConnectService {
         }
     }
 
+    /// Builds a [`DataConnectQueryRuntime`] that keeps the query observer state alive for as long
+    /// as the handle is held. Dropping the runtime (or calling [`DataConnectQueryRuntime::close`])
+    /// releases the cached manager so a future runtime can start fresh.
+    pub async fn query_runtime(&self) -> DataConnectResult<DataConnectQueryRuntime> {
+        let service = Arc::new(self.clone());
+        DataConnectQueryRuntime::new(service).await
+    }
+
     /// Routes subsequent requests to the specified emulator endpoint.
     pub fn connect_emulator(
         &self,
@@ -191,6 +207,58 @@ impl DataConnectService {
     }
 }
 
+impl DataConnectQueryRuntime {
+    async fn new(service: Arc<DataConnectService>) -> DataConnectResult<Self> {
+        let manager = query_manager_for_service(&service).await?;
+        Ok(Self {
+            service,
+            manager,
+            released: false,
+        })
+    }
+
+    /// Returns the service associated with this runtime.
+    pub fn service(&self) -> &Arc<DataConnectService> {
+        &self.service
+    }
+
+    /// Executes the provided query reference using this runtime's cached manager.
+    pub async fn execute_query(&self, query_ref: &QueryRef) -> DataConnectResult<QueryResult> {
+        self.manager.execute_query(query_ref.clone()).await
+    }
+
+    /// Subscribes to a query using this runtime's cached manager.
+    pub async fn subscribe(
+        &self,
+        query_ref: QueryRef,
+        handlers: QuerySubscriptionHandlers,
+        initial_cache: Option<SerializedQuerySnapshot>,
+    ) -> DataConnectResult<QuerySubscriptionHandle> {
+        let cache = initial_cache
+            .as_ref()
+            .and_then(|snapshot| cache_from_serialized(snapshot));
+        self.manager.subscribe(query_ref, handlers, cache)
+    }
+
+    /// Releases the cached manager immediately. Dropping the runtime has the same effect.
+    pub fn close(mut self) {
+        self.release();
+    }
+
+    fn release(&mut self) {
+        if !self.released {
+            release_query_manager(&self.service);
+            self.released = true;
+        }
+    }
+}
+
+impl Drop for DataConnectQueryRuntime {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 fn service_cache_key(service: &Arc<DataConnectService>) -> usize {
     Arc::as_ptr(&service.inner) as usize
 }
@@ -227,6 +295,20 @@ async fn query_manager_for_service(
             .unwrap()
             .insert(key, manager.clone());
         Ok(manager)
+    }
+}
+
+fn release_query_manager(service: &Arc<DataConnectService>) {
+    let key = service_cache_key(service);
+
+    #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+    QUERY_MANAGER_CACHE.with(|cache| {
+        cache.borrow_mut().remove(&key);
+    });
+
+    #[cfg(not(all(target_arch = "wasm32", feature = "wasm-web")))]
+    {
+        QUERY_MANAGER_CACHE.lock().unwrap().remove(&key);
     }
 }
 
@@ -715,5 +797,50 @@ mod tests {
             .connect_emulator("127.0.0.1", Some(9000), false)
             .unwrap_err();
         assert_eq!(err.code(), DataConnectErrorCode::AlreadyInitialized);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn query_runtime_executes_and_releases() {
+        clear_caches();
+        let app = initialize_app(base_options(), Some(unique_settings("dc-runtime")))
+            .await
+            .unwrap();
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path(
+                "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
+            );
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "data": {"items": [{"id": "from-runtime"}]}
+                }));
+        });
+
+        let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
+        let service = get_data_connect_service(Some(app.clone()), config)
+            .await
+            .unwrap();
+        let host = server.host();
+        service
+            .connect_emulator(&host, Some(server.port()), false)
+            .unwrap();
+
+        let runtime = service.query_runtime().await.unwrap();
+        let query = query_ref(runtime.service().clone(), "ListItems", Value::Null);
+        let result = runtime.execute_query(&query).await.unwrap();
+        assert_eq!(result.data["items"][0]["id"], "from-runtime");
+        mock.assert();
+
+        let key = service_cache_key(runtime.service());
+        assert!(QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key));
+        runtime.close();
+        assert!(!QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key));
+
+        // A new runtime recreates the manager seamlessly.
+        let runtime2 = service.query_runtime().await.unwrap();
+        let key2 = service_cache_key(runtime2.service());
+        assert!(QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key2));
+        drop(runtime2);
     }
 }

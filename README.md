@@ -14,7 +14,7 @@ The Firebase rs SDK is composed of 14 modules to be used to access each service 
 | [app](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app)                     | 80% | `[################    ]` |
 | [app_check](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check)         | 70% | `[##############      ]` |
 | [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)                   | 85% | `[#################   ]` |
-| [data_connect](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/data_connect)   | 5%  | `[#                   ]` |
+| [data_connect](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/data_connect)   | 80% | `[################    ]` |
 | [database](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/database)           | 30% | `[######              ]` |
 | [firestore](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore)         | 85% | `[#################   ]` |
 | [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)         | 25% | `[#####               ]` |

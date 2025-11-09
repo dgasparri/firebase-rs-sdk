@@ -14,7 +14,7 @@ The Firebase rs SDK is composed of 14 modules to be used to access each service 
 | [app]                     | 80% | `[################    ]` |
 | [app_check]         | 70% | `[##############      ]` |
 | [auth]                   | 85% | `[#################   ]` |
-| [data_connect]   | 5%  | `[#                   ]` |
+| [data_connect]   | 80% | `[################    ]` |
 | [database]           | 30% | `[######              ]` |
 | [firestore]         | 85% | `[#################   ]` |
 | [functions]         | 25% | `[#####               ]` |
