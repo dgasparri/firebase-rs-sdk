@@ -30,4 +30,4 @@ jobs:
         env:
           WASM_BINDGEN_TEST_TIMEOUT: "30"
         run: |
-          wasm-pack test --node -- --features wasm-web --test wasm_smoke
+          wasm-pack test --node --features wasm-web --test wasm_smoke
