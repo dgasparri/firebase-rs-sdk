@@ -1,3 +1,5 @@
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
@@ -38,6 +40,15 @@ const EMULATOR_ENV: &str = "FIREBASE_DATA_CONNECT_EMULATOR_HOST";
 static DATA_CONNECT_CACHE: LazyLock<Mutex<HashMap<(String, String), Arc<DataConnectService>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+thread_local! {
+    static QUERY_MANAGER_CACHE: RefCell<HashMap<usize, QueryManager>> = RefCell::new(HashMap::new());
+}
+
+#[cfg(not(all(target_arch = "wasm32", feature = "wasm-web")))]
+static QUERY_MANAGER_CACHE: LazyLock<Mutex<HashMap<usize, QueryManager>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// Primary interface for Data Connect operations.
 #[derive(Clone)]
 pub struct DataConnectService {
@@ -59,7 +70,6 @@ struct DataConnectInner {
     auth_provider: Provider,
     app_check_provider: Provider,
     transport: OnceCell<Arc<dyn DataConnectTransport>>,
-    query_manager: OnceCell<QueryManager>,
     mutation_manager: OnceCell<MutationManager>,
     transport_override: Mutex<Option<TransportOptions>>,
     generated_sdk: AtomicBool,
@@ -81,7 +91,6 @@ impl DataConnectService {
                 auth_provider,
                 app_check_provider,
                 transport: OnceCell::new(),
-                query_manager: OnceCell::new(),
                 mutation_manager: OnceCell::new(),
                 transport_override: Mutex::new(env_override),
                 generated_sdk: AtomicBool::new(false),
@@ -172,15 +181,6 @@ impl DataConnectService {
             .cloned()
     }
 
-    async fn query_manager(&self) -> DataConnectResult<QueryManager> {
-        let transport = self.transport().await?;
-        self.inner
-            .query_manager
-            .get_or_try_init(|| async { Ok(QueryManager::new(transport.clone())) })
-            .await
-            .cloned()
-    }
-
     async fn mutation_manager(&self) -> DataConnectResult<MutationManager> {
         let transport = self.transport().await?;
         self.inner
@@ -188,6 +188,45 @@ impl DataConnectService {
             .get_or_try_init(|| async { Ok(MutationManager::new(transport.clone())) })
             .await
             .cloned()
+    }
+}
+
+fn service_cache_key(service: &Arc<DataConnectService>) -> usize {
+    Arc::as_ptr(&service.inner) as usize
+}
+
+async fn query_manager_for_service(
+    service: &Arc<DataConnectService>,
+) -> DataConnectResult<QueryManager> {
+    let key = service_cache_key(service);
+
+    #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+    {
+        if let Some(manager) = QUERY_MANAGER_CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
+            return Ok(manager);
+        }
+
+        let transport = service.transport().await?;
+        let manager = QueryManager::new(transport);
+        QUERY_MANAGER_CACHE.with(|cache| {
+            cache.borrow_mut().insert(key, manager.clone());
+        });
+        Ok(manager)
+    }
+
+    #[cfg(not(all(target_arch = "wasm32", feature = "wasm-web")))]
+    {
+        if let Some(manager) = QUERY_MANAGER_CACHE.lock().unwrap().get(&key).cloned() {
+            return Ok(manager);
+        }
+
+        let transport = service.transport().await?;
+        let manager = QueryManager::new(transport);
+        QUERY_MANAGER_CACHE
+            .lock()
+            .unwrap()
+            .insert(key, manager.clone());
+        Ok(manager)
     }
 }
 
@@ -221,9 +260,7 @@ pub fn mutation_ref(
 
 /// Executes the provided query reference.
 pub async fn execute_query(query_ref: &QueryRef) -> DataConnectResult<QueryResult> {
-    query_ref
-        .service()
-        .query_manager()
+    query_manager_for_service(query_ref.service())
         .await?
         .execute_query(query_ref.clone())
         .await
@@ -250,9 +287,7 @@ pub async fn subscribe(
     let cache = initial_cache
         .as_ref()
         .and_then(|snapshot| cache_from_serialized(snapshot));
-    query_ref
-        .service()
-        .query_manager()
+    query_manager_for_service(query_ref.service())
         .await?
         .subscribe(query_ref, handlers, cache)
 }
@@ -530,13 +565,14 @@ mod tests {
         }
     }
 
-    fn clear_cache() {
+    fn clear_caches() {
         DATA_CONNECT_CACHE.lock().unwrap().clear();
+        QUERY_MANAGER_CACHE.lock().unwrap().clear();
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn execute_query_hits_emulator() {
-        clear_cache();
+        clear_caches();
         let app = initialize_app(base_options(), Some(unique_settings("dc-query")))
             .await
             .unwrap();
@@ -569,7 +605,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn execute_mutation_hits_emulator() {
-        clear_cache();
+        clear_caches();
         let app = initialize_app(base_options(), Some(unique_settings("dc-mutation")))
             .await
             .unwrap();
@@ -602,7 +638,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribe_with_initial_cache_invokes_handler() {
-        clear_cache();
+        clear_caches();
         let app = initialize_app(base_options(), Some(unique_settings("dc-subscribe")))
             .await
             .unwrap();
@@ -648,7 +684,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn emitter_cannot_change_after_initialization() {
-        clear_cache();
+        clear_caches();
         let app = initialize_app(base_options(), Some(unique_settings("dc-emulator")))
             .await
             .unwrap();
