@@ -1,6 +1,6 @@
 [package]
 name = "firebase-rs-sdk"
-version = "1.27.1"
+version = "1.31.0"
 edition = "2021"
 description = "Rust port of the Firebase JS SDK"
 readme = "README.md"
