@@ -4,7 +4,7 @@ This is an unofficial port of Google's Firebase JS SDK. The goal is to mirror th
 
 ## Modules
 
-As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been ported to an extent that they can be considered stable: the main features are ported, the API calls are documented, the code is tested and working examples are provided. Only minor changes to the public API are expected. The remaining modules are still a work in progress, and their APIs may change significantly.
+The Firebase rs SDK is composed of 14 modules to be used to access each service of Firebase. Here is a list of each module with its porting completion estimate. Those estimates are based on the extent the module can be considered stable: the main features are ported, the API calls are documented, the code is tested and working examples are provided.
 
 
 | Module | % porting completed  | |
@@ -20,7 +20,7 @@ As of this writing (October 21th, 2025), out of 14 modules, 9 modules have been 
 | [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)         | 25% | `[#####               ]` |
 | [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) | 45% | `[#########           ]` |
 | [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         | 40% | `[########            ]` |
-| [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     | 70%  | `[#                   ]` |
+| [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     | 70%  | `[##############     ]` |
 | [remote_config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config) | 25% | `[#####               ]` |
 | [storage](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage)             | 60% | `[############        ]` |
 

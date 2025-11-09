@@ -45,8 +45,8 @@ reference before sending a pull request.
   them with `#[cfg(all(test, feature = "wasm-web", target_arch = "wasm32"))]`.
 
 ## Documentation
-- Update the relevant module `README.md` whenever a wasm-specific feature is
-  added or a step in `WASM_PLAN.md` is completed.
+- Update the relevant module `PORTING_STATUS.md` whenever a feature is
+  added.
 - Mention the required features (`wasm-web`, `experimental-indexed-db`, etc.) in
   user-facing docs and examples so consumers know how to enable them.
 - Call out runtime prerequisites and fallbacks: e.g. realtime listeners and
