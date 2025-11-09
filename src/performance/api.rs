@@ -136,6 +136,7 @@ pub struct NetworkTraceHandle {
     response_content_type: Option<String>,
 }
 
+/// HTTP method enum reused by [`NetworkTraceHandle`].
 /// Represents the HTTP verb associated with a [`NetworkTraceHandle`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HttpMethod {
@@ -970,6 +971,7 @@ fn ensure_registered() {
     LazyLock::force(&PERFORMANCE_COMPONENT);
 }
 
+/// Registers the performance component in the shared container (normally invoked automatically).
 pub fn register_performance_component() {
     ensure_registered();
 }

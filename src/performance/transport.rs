@@ -17,6 +17,7 @@ const DEFAULT_BATCH_SIZE: usize = 25;
 const DEFAULT_INTERVAL: Duration = Duration::from_secs(10);
 const INITIAL_DELAY: Duration = Duration::from_millis(2500);
 
+/// Transport configuration surface for batch uploads.
 #[derive(Clone, Debug)]
 pub struct TransportOptions {
     pub endpoint: Option<String>,

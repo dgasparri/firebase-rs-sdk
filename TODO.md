@@ -75,6 +75,11 @@ Dump file, ignore it
 - util NO
 
 
+## CHANGELOG.md
+
+Check ./src/performance/CHANGELOG.md for a model file
+
+
 ## doctest_support
 
 Fare doctest_support in modo che gli esempi siano compilabili
