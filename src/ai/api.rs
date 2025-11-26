@@ -370,7 +370,7 @@ impl AiService {
     ///
     /// ```no_run
     /// # use firebase_rs_sdk::ai::{AiService, GenerateTextRequest};
-    /// # async fn example(ai: AiService) -> firebase_rs_sdk::ai::error::AiResult<()> {
+    /// # async fn example(ai: AiService) -> firebase_rs_sdk::ai::AiResult<()> {
     /// let response = ai
     ///     .generate_text(GenerateTextRequest {
     ///         prompt: "Hello Gemini".to_owned(),
@@ -582,9 +582,7 @@ pub fn register_ai_component() {
 /// # Examples
 ///
 /// ```
-/// # use firebase_rs_sdk::ai::backend::Backend;
-/// # use firebase_rs_sdk::ai::public_types::AiOptions;
-/// # use firebase_rs_sdk::ai::get_ai;
+/// # use firebase_rs_sdk::ai::{get_ai, AiOptions, Backend};
 /// # use firebase_rs_sdk::app::initialize_app;
 /// # use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 /// # async fn example() {

@@ -7,9 +7,7 @@ Porting status: 30% `[###       ]` ([detail](https://github.com/dgasparri/fireba
 ## Quick Start Example
 
 ```rust,no_run
-use firebase_rs_sdk::ai::backend::Backend;
-use firebase_rs_sdk::ai::public_types::AiOptions;
-use firebase_rs_sdk::ai::{get_ai, GenerateTextRequest};
+use firebase_rs_sdk::ai::{get_ai, AiOptions, Backend, GenerateTextRequest};
 use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 
