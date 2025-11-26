@@ -5,17 +5,17 @@ hard_tabs = false
 max_width = 120
 
 # Group imports and format them alphabetically
-group_imports = "StdExternalCrate"
+# group_imports = "StdExternalCrate" - Available only on nightly
 reorder_imports = true
 reorder_modules = true
 
 # Use trailing commas where appropriate (cleaner diffs)
-trailing_comma = "Vertical"
+# trailing_comma = "Vertical" - Available only on nightly
 
 # Always format imports and struct fields vertically when long
-imports_granularity = "Crate"
-struct_field_align_threshold = 20
+# imports_granularity = "Crate" - Available only on nightly
+# struct_field_align_threshold = 20 - Available only on nightly
 
 # Force consistent indentation and alignment
-indent_style = "Block"
+# indent_style = "Block" - Available only on nightly - Available only on nightly
 fn_call_width = 80

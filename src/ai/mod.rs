@@ -8,7 +8,6 @@ mod models;
 mod public_types;
 mod requests;
 
-
 #[doc(inline)]
 pub use api::{get_ai, get_ai_service, register_ai_component, AiService, GenerateTextRequest, GenerateTextResponse};
 

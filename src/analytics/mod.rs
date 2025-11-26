@@ -15,7 +15,10 @@ pub use api::{
 pub use config::DynamicConfig;
 
 #[doc(inline)]
-pub use error::{config_fetch_failed, internal_error, invalid_argument, missing_measurement_id, network_error, AnalyticsError, AnalyticsErrorCode, AnalyticsResult};
+pub use error::{
+    config_fetch_failed, internal_error, invalid_argument, missing_measurement_id, network_error, AnalyticsError,
+    AnalyticsErrorCode, AnalyticsResult,
+};
 
 #[doc(inline)]
 pub use gtag::{GlobalGtagRegistry, GtagRegistry, GtagState};
