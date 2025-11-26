@@ -385,6 +385,14 @@ pub async fn get_analytics(app: Option<FirebaseApp>) -> AnalyticsResult<Arc<Anal
     };
 
     let provider = app::get_provider(&app, ANALYTICS_COMPONENT_NAME);
+    // Tests in other modules reset the global app/component registry; when that happens, an
+    // existing app instance may lose the analytics component attachment even though we still
+    // hold the app handle. Re-attach the component locally if needed to avoid races.
+    if !provider.is_component_set() {
+        provider
+            .set_component(LazyLock::force(&ANALYTICS_COMPONENT).clone())
+            .map_err(|err| internal_error(err.to_string()))?;
+    }
     provider
         .get_immediate::<Analytics>()
         .ok_or_else(|| internal_error("Analytics component not available"))
@@ -418,7 +426,9 @@ mod tests {
     }
 
     fn gtag_test_guard() -> std::sync::MutexGuard<'static, ()> {
-        GTAG_TEST_MUTEX.lock().unwrap()
+        GTAG_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     #[derive(Default, Clone)]

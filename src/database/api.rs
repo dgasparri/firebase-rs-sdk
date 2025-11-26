@@ -1916,14 +1916,13 @@ fn current_time_millis() -> DatabaseResult<u64> {
         .map_err(|_| internal_error("Timestamp exceeds 64-bit range"))
 }
 
-static DATABASE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
-    let component = Component::new(
+static DATABASE_COMPONENT: LazyLock<Component> = LazyLock::new(|| {
+    Component::new(
         DATABASE_COMPONENT_NAME,
         Arc::new(database_factory),
         ComponentType::Public,
     )
-    .with_instantiation_mode(InstantiationMode::Lazy);
-    let _ = app::register_component(component);
+    .with_instantiation_mode(InstantiationMode::Lazy)
 });
 
 fn database_factory(
@@ -1942,7 +1941,17 @@ fn database_factory(
 }
 
 fn ensure_registered() {
-    LazyLock::force(&DATABASE_COMPONENT);
+    let component = LazyLock::force(&DATABASE_COMPONENT).clone();
+    let _ = app::register_component(component);
+}
+
+fn ensure_component_attached(app: &FirebaseApp) {
+    let provider = app.container().get_provider(DATABASE_COMPONENT_NAME);
+    if provider.is_component_set() {
+        return;
+    }
+    let component = LazyLock::force(&DATABASE_COMPONENT).clone();
+    app::add_component(app, &component);
 }
 
 pub fn register_database_component() {
@@ -1969,6 +1978,8 @@ pub async fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Databa
         }
     };
 
+    ensure_component_attached(&app);
+
     let provider = app::get_provider(&app, DATABASE_COMPONENT_NAME);
     if let Some(database) = provider.get_immediate::<Database>() {
         return Ok(database);
@@ -1987,7 +1998,8 @@ pub async fn get_database(app: Option<FirebaseApp>) -> DatabaseResult<Arc<Databa
 mod tests {
     use super::*;
     use crate::app::initialize_app;
-    use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseAppSettings, FirebaseOptions};
+    use crate::component::ComponentContainer;
     use crate::database::{
         equal_to_with_key, increment, limit_to_first, limit_to_last, order_by_child, order_by_key,
         query as compose_query, server_timestamp, start_at,
@@ -2006,6 +2018,26 @@ mod tests {
             )),
             ..Default::default()
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_database_attaches_component_for_untracked_app() {
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            ..Default::default()
+        };
+        let config = FirebaseAppConfig::new("detached-db", false);
+        let container = ComponentContainer::new(config.name.as_ref());
+        let app = FirebaseApp::new(options, config, container);
+
+        let database = get_database(Some(app)).await.unwrap();
+        let reference = database.reference("messages").unwrap();
+        reference
+            .set(json!({ "hello": "world" }))
+            .await
+            .expect("in-memory set");
+        let value = reference.get().await.expect("in-memory get");
+        assert_eq!(value, json!({ "hello": "world" }));
     }
 
     #[tokio::test(flavor = "multi_thread")]

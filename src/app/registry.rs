@@ -58,9 +58,17 @@ pub fn clear_components() {
 
 /// Registers a global component and propagates it to already-initialized apps.
 pub fn register_component(component: Component) -> bool {
-    if !component::register_component(component.clone()) {
-        return false;
-    }
+    let newly_registered = component::register_component(component.clone());
+    let component = if newly_registered {
+        component
+    } else {
+        // If the component was already registered, reuse the stored version to ensure we still
+        // propagate it to any apps that may have been initialized without it.
+        registered_components_guard()
+            .get(component.name())
+            .cloned()
+            .unwrap_or(component)
+    };
 
     {
         let apps = apps_guard();
@@ -76,7 +84,7 @@ pub fn register_component(component: Component) -> bool {
         }
     }
 
-    true
+    newly_registered
 }
 
 /// Fetches the provider for the named component, triggering heartbeat side-effects.
@@ -263,6 +271,28 @@ mod tests {
             let factory: InstanceFactory = Arc::new(|_, _| Ok(Arc::new("shared") as DynService));
 
             register_component(make_component("late", factory));
+
+            let provider = app.container().get_provider("late");
+            assert!(provider.is_component_set());
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn register_component_attaches_when_already_registered() {
+        with_serialized_test(|| async {
+            let app = api::initialize_app(test_options(), None)
+                .await
+                .expect("app init");
+            let factory: InstanceFactory = Arc::new(|_, _| Ok(Arc::new("shared") as DynService));
+            let component = make_component("late", factory);
+
+            // Simulate a pre-registered component that was not propagated to this app yet.
+            assert!(component::register_component(component.clone()));
+            assert!(!app.container().get_provider("late").is_component_set());
+
+            let newly_registered = register_component(component);
+            assert!(!newly_registered);
 
             let provider = app.container().get_provider("late");
             assert!(provider.is_component_set());
