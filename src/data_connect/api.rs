@@ -401,17 +401,14 @@ pub fn register_data_connect_component() {
 }
 
 fn ensure_registered() {
-    static REGISTERED: LazyLock<()> = LazyLock::new(|| {
-        let component = Component::new(
-            DATA_CONNECT_COMPONENT_NAME,
-            Arc::new(data_connect_factory),
-            ComponentType::Public,
-        )
-        .with_instantiation_mode(InstantiationMode::Lazy)
-        .with_multiple_instances(true);
-        let _ = app::register_component(component);
-    });
-    LazyLock::force(&REGISTERED);
+    let component = Component::new(
+        DATA_CONNECT_COMPONENT_NAME,
+        Arc::new(data_connect_factory),
+        ComponentType::Public,
+    )
+    .with_instantiation_mode(InstantiationMode::Lazy)
+    .with_multiple_instances(true);
+    let _ = app::register_component(component);
 }
 
 fn data_connect_factory(
@@ -624,9 +621,13 @@ mod tests {
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use httpmock::prelude::*;
     use serde_json::json;
+    use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
     use tokio::sync::oneshot;
+    use tokio::sync::Mutex as AsyncMutex;
+
+    static TEST_GUARD: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
     fn unique_settings(prefix: &str) -> FirebaseAppSettings {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -652,195 +653,215 @@ mod tests {
         QUERY_MANAGER_CACHE.lock().unwrap().clear();
     }
 
+    async fn with_serialized_test<F, Fut>(f: F) -> Fut::Output
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future,
+    {
+        let _guard = TEST_GUARD.lock().await;
+        clear_caches();
+        f().await
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn execute_query_hits_emulator() {
-        clear_caches();
-        let app = initialize_app(base_options(), Some(unique_settings("dc-query")))
-            .await
-            .unwrap();
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(POST).path(
-                "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
-            );
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(json!({
-                    "data": {"items": [{"id": "123"}]}
-                }));
-        });
+        with_serialized_test(|| async {
+            let app = initialize_app(base_options(), Some(unique_settings("dc-query")))
+                .await
+                .unwrap();
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST).path(
+                    "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
+                );
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(json!({
+                        "data": {"items": [{"id": "123"}]}
+                    }));
+            });
 
-        let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-        let service = get_data_connect_service(Some(app.clone()), config)
-            .await
-            .unwrap();
-        let host = server.host();
-        service
-            .connect_emulator(&host, Some(server.port()), false)
-            .unwrap();
+            let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config)
+                .await
+                .unwrap();
+            let host = server.host();
+            service
+                .connect_emulator(&host, Some(server.port()), false)
+                .unwrap();
 
-        let query = query_ref(service, "ListItems", Value::Null);
-        let result = execute_query(&query).await.unwrap();
-        assert_eq!(result.data["items"][0]["id"], "123");
-        mock.assert();
+            let query = query_ref(service, "ListItems", Value::Null);
+            let result = execute_query(&query).await.unwrap();
+            assert_eq!(result.data["items"][0]["id"], "123");
+            mock.assert();
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn execute_mutation_hits_emulator() {
-        clear_caches();
-        let app = initialize_app(base_options(), Some(unique_settings("dc-mutation")))
-            .await
-            .unwrap();
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(POST).path(
-                "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeMutation",
-            );
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(json!({
-                    "data": {"insertBook": {"id": "321"}}
-                }));
-        });
+        with_serialized_test(|| async {
+            let app = initialize_app(base_options(), Some(unique_settings("dc-mutation")))
+                .await
+                .unwrap();
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST).path(
+                    "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeMutation",
+                );
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(json!({
+                        "data": {"insertBook": {"id": "321"}}
+                    }));
+            });
 
-        let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-        let service = get_data_connect_service(Some(app.clone()), config)
-            .await
-            .unwrap();
-        let host = server.host();
-        service
-            .connect_emulator(&host, Some(server.port()), false)
-            .unwrap();
+            let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config)
+                .await
+                .unwrap();
+            let host = server.host();
+            service
+                .connect_emulator(&host, Some(server.port()), false)
+                .unwrap();
 
-        let mutation = mutation_ref(service, "InsertBook", json!({"id": "321"}));
-        let result = execute_mutation(&mutation).await.unwrap();
-        assert_eq!(result.data["insertBook"]["id"], "321");
-        mock.assert();
+            let mutation = mutation_ref(service, "InsertBook", json!({"id": "321"}));
+            let result = execute_mutation(&mutation).await.unwrap();
+            assert_eq!(result.data["insertBook"]["id"], "321");
+            mock.assert();
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribe_with_initial_cache_invokes_handler() {
-        clear_caches();
-        let app = initialize_app(base_options(), Some(unique_settings("dc-subscribe")))
-            .await
-            .unwrap();
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(POST).path(
-                "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
-            );
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(json!({
-                    "data": {"items": [{"id": "cached"}]}
-                }));
-        });
+        with_serialized_test(|| async {
+            let app = initialize_app(base_options(), Some(unique_settings("dc-subscribe")))
+                .await
+                .unwrap();
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST).path(
+                    "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
+                );
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(json!({
+                        "data": {"items": [{"id": "cached"}]}
+                    }));
+            });
 
-        let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-        let service = get_data_connect_service(Some(app.clone()), config)
-            .await
-            .unwrap();
-        let host = server.host();
-        service
-            .connect_emulator(&host, Some(server.port()), false)
-            .unwrap();
+            let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config)
+                .await
+                .unwrap();
+            let host = server.host();
+            service
+                .connect_emulator(&host, Some(server.port()), false)
+                .unwrap();
 
-        let query = query_ref(service.clone(), "ListItems", Value::Null);
-        let snapshot = execute_query(&query).await.unwrap().to_serialized();
-        mock.assert();
+            let query = query_ref(service.clone(), "ListItems", Value::Null);
+            let snapshot = execute_query(&query).await.unwrap().to_serialized();
+            mock.assert();
 
-        let query = query_ref(service, "ListItems", Value::Null);
-        let (tx, rx) = oneshot::channel();
-        let sender = Arc::new(StdMutex::new(Some(tx)));
-        let handlers = QuerySubscriptionHandlers::new(Arc::new(move |result: &QueryResult| {
-            if let Some(tx) = sender.lock().unwrap().take() {
-                let _ = tx.send(result.data.clone());
-            }
-        }));
+            let query = query_ref(service, "ListItems", Value::Null);
+            let (tx, rx) = oneshot::channel();
+            let sender = Arc::new(StdMutex::new(Some(tx)));
+            let handlers = QuerySubscriptionHandlers::new(Arc::new(move |result: &QueryResult| {
+                if let Some(tx) = sender.lock().unwrap().take() {
+                    let _ = tx.send(result.data.clone());
+                }
+            }));
 
-        let handle = subscribe(query, handlers, Some(snapshot)).await.unwrap();
-        let data = rx.await.unwrap();
-        assert_eq!(data["items"][0]["id"], "cached");
-        drop(handle);
+            let handle = subscribe(query, handlers, Some(snapshot)).await.unwrap();
+            let data = rx.await.unwrap();
+            assert_eq!(data["items"][0]["id"], "cached");
+            drop(handle);
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn emitter_cannot_change_after_initialization() {
-        clear_caches();
-        let app = initialize_app(base_options(), Some(unique_settings("dc-emulator")))
-            .await
-            .unwrap();
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(POST).path(
-                "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
-            );
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(json!({ "data": {"ok": true} }));
-        });
+        with_serialized_test(|| async {
+            let app = initialize_app(base_options(), Some(unique_settings("dc-emulator")))
+                .await
+                .unwrap();
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST).path(
+                    "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
+                );
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(json!({ "data": {"ok": true} }));
+            });
 
-        let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-        let service = get_data_connect_service(Some(app.clone()), config)
-            .await
-            .unwrap();
-        let host = server.host();
-        service
-            .connect_emulator(&host, Some(server.port()), false)
-            .unwrap();
+            let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config)
+                .await
+                .unwrap();
+            let host = server.host();
+            service
+                .connect_emulator(&host, Some(server.port()), false)
+                .unwrap();
 
-        let query = query_ref(service.clone(), "ListItems", Value::Null);
-        let _ = execute_query(&query).await.unwrap();
-        mock.assert();
+            let query = query_ref(service.clone(), "ListItems", Value::Null);
+            let _ = execute_query(&query).await.unwrap();
+            mock.assert();
 
-        let err = service
-            .connect_emulator("127.0.0.1", Some(9000), false)
-            .unwrap_err();
-        assert_eq!(err.code(), DataConnectErrorCode::AlreadyInitialized);
+            let err = service
+                .connect_emulator("127.0.0.1", Some(9000), false)
+                .unwrap_err();
+            assert_eq!(err.code(), DataConnectErrorCode::AlreadyInitialized);
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn query_runtime_executes_and_releases() {
-        clear_caches();
-        let app = initialize_app(base_options(), Some(unique_settings("dc-runtime")))
-            .await
-            .unwrap();
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(POST).path(
-                "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
-            );
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(json!({
-                    "data": {"items": [{"id": "from-runtime"}]}
-                }));
-        });
+        with_serialized_test(|| async {
+            let app = initialize_app(base_options(), Some(unique_settings("dc-runtime")))
+                .await
+                .unwrap();
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST).path(
+                    "/v1/projects/demo-project/locations/us-central1/services/catalog/connectors/books:executeQuery",
+                );
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(json!({
+                        "data": {"items": [{"id": "from-runtime"}]}
+                    }));
+            });
 
-        let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-        let service = get_data_connect_service(Some(app.clone()), config)
-            .await
-            .unwrap();
-        let host = server.host();
-        service
-            .connect_emulator(&host, Some(server.port()), false)
-            .unwrap();
+            let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config)
+                .await
+                .unwrap();
+            let host = server.host();
+            service
+                .connect_emulator(&host, Some(server.port()), false)
+                .unwrap();
 
-        let runtime = service.query_runtime().await.unwrap();
-        let query = query_ref(runtime.service().clone(), "ListItems", Value::Null);
-        let result = runtime.execute_query(&query).await.unwrap();
-        assert_eq!(result.data["items"][0]["id"], "from-runtime");
-        mock.assert();
+            let runtime = service.query_runtime().await.unwrap();
+            let query = query_ref(runtime.service().clone(), "ListItems", Value::Null);
+            let result = runtime.execute_query(&query).await.unwrap();
+            assert_eq!(result.data["items"][0]["id"], "from-runtime");
+            mock.assert();
 
-        let key = service_cache_key(runtime.service());
-        assert!(QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key));
-        runtime.close();
-        assert!(!QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key));
+            let key = service_cache_key(runtime.service());
+            assert!(QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key));
+            runtime.close();
+            assert!(!QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key));
 
-        // A new runtime recreates the manager seamlessly.
-        let runtime2 = service.query_runtime().await.unwrap();
-        let key2 = service_cache_key(runtime2.service());
-        assert!(QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key2));
-        drop(runtime2);
+            // A new runtime recreates the manager seamlessly.
+            let runtime2 = service.query_runtime().await.unwrap();
+            let key2 = service_cache_key(runtime2.service());
+            assert!(QUERY_MANAGER_CACHE.lock().unwrap().contains_key(&key2));
+            drop(runtime2);
+        })
+        .await;
     }
 }
