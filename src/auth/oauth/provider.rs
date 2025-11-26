@@ -175,9 +175,9 @@ impl OAuthProvider {
     /// Runs the configured popup handler and returns the produced credential.
     /// Executes the sign-in flow using a popup handler.
     pub async fn sign_in_with_popup(&self, auth: &Auth) -> AuthResult<UserCredential> {
-        let handler = auth.popup_handler().ok_or(AuthError::NotImplemented(
-            "OAuth popup handler not registered",
-        ))?;
+        let handler = auth
+            .popup_handler()
+            .ok_or(AuthError::NotImplemented("OAuth popup handler not registered"))?;
         let request = self.build_request(auth)?;
         let credential = handler.open_popup(request)?;
         auth.sign_in_with_oauth_credential(credential).await
@@ -185,9 +185,9 @@ impl OAuthProvider {
 
     /// Links the current user with this provider using a popup flow.
     pub async fn link_with_popup(&self, auth: &Auth) -> AuthResult<UserCredential> {
-        let handler = auth.popup_handler().ok_or(AuthError::NotImplemented(
-            "OAuth popup handler not registered",
-        ))?;
+        let handler = auth
+            .popup_handler()
+            .ok_or(AuthError::NotImplemented("OAuth popup handler not registered"))?;
         let request = self.build_request(auth)?;
         let credential = handler.open_popup(request)?;
         auth.link_with_oauth_credential(credential).await
@@ -195,16 +195,12 @@ impl OAuthProvider {
 
     /// Delegates to the redirect handler to start a redirect based flow.
     pub fn sign_in_with_redirect(&self, auth: &Auth) -> AuthResult<()> {
-        let handler = auth.redirect_handler().ok_or(AuthError::NotImplemented(
-            "OAuth redirect handler not registered",
-        ))?;
+        let handler = auth
+            .redirect_handler()
+            .ok_or(AuthError::NotImplemented("OAuth redirect handler not registered"))?;
         let request = self.build_request(auth)?;
         let pkce_verifier = request.pkce().map(|pair| pair.code_verifier().to_string());
-        auth.set_pending_redirect_event(
-            &self.provider_id,
-            RedirectOperation::SignIn,
-            pkce_verifier,
-        )?;
+        auth.set_pending_redirect_event(&self.provider_id, RedirectOperation::SignIn, pkce_verifier)?;
         if let Err(err) = handler.initiate_redirect(request) {
             auth.clear_pending_redirect_event()?;
             return Err(err);
@@ -214,9 +210,9 @@ impl OAuthProvider {
 
     /// Initiates a redirect flow to link the current user with this provider.
     pub fn link_with_redirect(&self, auth: &Auth) -> AuthResult<()> {
-        let handler = auth.redirect_handler().ok_or(AuthError::NotImplemented(
-            "OAuth redirect handler not registered",
-        ))?;
+        let handler = auth
+            .redirect_handler()
+            .ok_or(AuthError::NotImplemented("OAuth redirect handler not registered"))?;
         let request = self.build_request(auth)?;
         let pkce_verifier = request.pkce().map(|pair| pair.code_verifier().to_string());
         auth.set_pending_redirect_event(&self.provider_id, RedirectOperation::Link, pkce_verifier)?;
@@ -233,9 +229,9 @@ impl OAuthProvider {
     /// handler is responsible for decoding whichever callback mechanism the
     /// hosting platform uses.
     pub async fn get_redirect_result(auth: &Auth) -> AuthResult<Option<UserCredential>> {
-        let handler = auth.redirect_handler().ok_or(AuthError::NotImplemented(
-            "OAuth redirect handler not registered",
-        ))?;
+        let handler = auth
+            .redirect_handler()
+            .ok_or(AuthError::NotImplemented("OAuth redirect handler not registered"))?;
         let pending = auth.take_pending_redirect_event()?;
         if pending.is_none() {
             return Ok(None);
@@ -252,13 +248,8 @@ impl OAuthProvider {
                     }
                 }
                 match pending.operation {
-                    RedirectOperation::Link => {
-                        auth.link_with_oauth_credential(credential).await.map(Some)
-                    }
-                    RedirectOperation::SignIn => auth
-                        .sign_in_with_oauth_credential(credential)
-                        .await
-                        .map(Some),
+                    RedirectOperation::Link => auth.link_with_oauth_credential(credential).await.map(Some),
+                    RedirectOperation::SignIn => auth.sign_in_with_oauth_credential(credential).await.map(Some),
                 }
             }
             None => Ok(None),
@@ -303,9 +294,7 @@ mod tests {
         let request = provider.build_request(&auth).unwrap();
         assert!(request.auth_url.contains("scope=profile"));
         assert!(request.auth_url.contains("apiKey=test-key"));
-        assert!(request
-            .auth_url
-            .contains("auth_domain=example.firebaseapp.com"));
+        assert!(request.auth_url.contains("auth_domain=example.firebaseapp.com"));
         assert!(request.auth_url.contains("prompt=select_account"));
         assert_eq!(request.provider_id, "google.com");
     }

@@ -39,11 +39,7 @@ impl ResponsePayload {
             .await
             .map_err(|err| internal_error(format!("failed to read response body: {err}")))?
             .to_vec();
-        Ok(Self {
-            status,
-            headers,
-            body,
-        })
+        Ok(Self { status, headers, body })
     }
 }
 
@@ -121,9 +117,7 @@ impl HttpClient {
                     if backoff.can_retry() {
                         continue;
                     }
-                    return Err(internal_error(format!(
-                        "network failure after retries: {reason}"
-                    )));
+                    return Err(internal_error(format!("network failure after retries: {reason}")));
                 }
             }
         }
@@ -168,10 +162,7 @@ impl HttpClient {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn execute_streaming<O>(
-        &self,
-        info: RequestInfo<O>,
-    ) -> StorageResult<StreamingResponse> {
+    pub async fn execute_streaming<O>(&self, info: RequestInfo<O>) -> StorageResult<StreamingResponse> {
         let mut backoff = BackoffState::new(self.backoff.clone());
 
         loop {
@@ -194,19 +185,14 @@ impl HttpClient {
                     if backoff.can_retry() {
                         continue;
                     }
-                    return Err(internal_error(format!(
-                        "network failure after retries: {reason}"
-                    )));
+                    return Err(internal_error(format!("network failure after retries: {reason}")));
                 }
             }
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    async fn try_stream_once<O>(
-        &self,
-        info: &RequestInfo<O>,
-    ) -> Result<StreamingResponse, RequestError> {
+    async fn try_stream_once<O>(&self, info: &RequestInfo<O>) -> Result<StreamingResponse, RequestError> {
         let mut url = self.prepare_url(&info.url).map_err(RequestError::Fatal)?;
         if !info.query_params.is_empty() {
             let mut pairs = url.query_pairs_mut();
@@ -270,22 +256,14 @@ impl HttpClient {
         if is_url(raw) {
             Url::parse(raw).map_err(|err| internal_error(format!("invalid storage URL: {err}")))
         } else {
-            let scheme = if self.is_using_emulator {
-                "http"
-            } else {
-                "https"
-            };
+            let scheme = if self.is_using_emulator { "http" } else { "https" };
             let formatted = format!("{scheme}://{raw}");
-            Url::parse(&formatted)
-                .map_err(|err| internal_error(format!("invalid storage URL: {err}")))
+            Url::parse(&formatted).map_err(|err| internal_error(format!("invalid storage URL: {err}")))
         }
     }
 }
 
-async fn send_with_timeout(
-    builder: reqwest::RequestBuilder,
-    timeout: Duration,
-) -> Result<Response, RequestError> {
+async fn send_with_timeout(builder: reqwest::RequestBuilder, timeout: Duration) -> Result<Response, RequestError> {
     #[cfg(not(target_arch = "wasm32"))]
     let send_future = builder.timeout(timeout).send();
     #[cfg(target_arch = "wasm32")]
@@ -310,12 +288,9 @@ fn should_retry<O>(status: StatusCode, info: &RequestInfo<O>) -> bool {
 }
 
 fn map_failure<O>(payload: ResponsePayload, info: &RequestInfo<O>) -> StorageError {
-    let base_error = internal_error(format!(
-        "storage request failed with status {}",
-        payload.status
-    ))
-    .with_status(payload.status.as_u16())
-    .with_server_response(String::from_utf8_lossy(&payload.body).to_string());
+    let base_error = internal_error(format!("storage request failed with status {}", payload.status))
+        .with_status(payload.status.as_u16())
+        .with_server_response(String::from_utf8_lossy(&payload.body).to_string());
 
     if let Some(handler) = &info.error_handler {
         handler(payload, base_error)

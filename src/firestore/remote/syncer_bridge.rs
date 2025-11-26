@@ -8,26 +8,16 @@ use crate::firestore::error::{internal_error, FirestoreError, FirestoreResult};
 use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_event::RemoteEvent;
-use crate::firestore::remote::remote_syncer::{
-    box_remote_store_future, RemoteStoreFuture, RemoteSyncer,
-};
+use crate::firestore::remote::remote_syncer::{box_remote_store_future, RemoteStoreFuture, RemoteSyncer};
 use crate::firestore::remote::streams::write::WriteResult;
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait RemoteSyncerDelegate: Send + Sync + 'static {
     async fn handle_remote_event(&self, event: RemoteEvent) -> FirestoreResult<()>;
-    async fn handle_rejected_listen(
-        &self,
-        target_id: i32,
-        error: FirestoreError,
-    ) -> FirestoreResult<()>;
+    async fn handle_rejected_listen(&self, target_id: i32, error: FirestoreError) -> FirestoreResult<()>;
     async fn handle_successful_write(&self, result: MutationBatchResult) -> FirestoreResult<()>;
-    async fn handle_failed_write(
-        &self,
-        batch_id: i32,
-        error: FirestoreError,
-    ) -> FirestoreResult<()>;
+    async fn handle_failed_write(&self, batch_id: i32, error: FirestoreError) -> FirestoreResult<()>;
 
     async fn handle_credential_change(&self) -> FirestoreResult<()> {
         Ok(())
@@ -154,17 +144,10 @@ where
                 for key in &change.removed_documents {
                     keys.remove(key);
                 }
-                for key in change
-                    .added_documents
-                    .iter()
-                    .chain(change.modified_documents.iter())
-                {
+                for key in change.added_documents.iter().chain(change.modified_documents.iter()) {
                     keys.insert(key.clone());
                 }
-                pending_updates.push((
-                    *target_id,
-                    TargetMetadataUpdate::from_change(change, event.snapshot_version),
-                ));
+                pending_updates.push((*target_id, TargetMetadataUpdate::from_change(change, event.snapshot_version)));
             }
 
             for target_id in &event.target_resets {
@@ -197,22 +180,13 @@ where
         box_remote_store_future(async move { delegate.handle_remote_event(event).await })
     }
 
-    fn reject_listen(
-        &self,
-        target_id: i32,
-        error: FirestoreError,
-    ) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
+    fn reject_listen(&self, target_id: i32, error: FirestoreError) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
         self.clear_remote_keys(target_id);
         let delegate = Arc::clone(&self.delegate);
-        box_remote_store_future(
-            async move { delegate.handle_rejected_listen(target_id, error).await },
-        )
+        box_remote_store_future(async move { delegate.handle_rejected_listen(target_id, error).await })
     }
 
-    fn apply_successful_write(
-        &self,
-        result: MutationBatchResult,
-    ) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
+    fn apply_successful_write(&self, result: MutationBatchResult) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
         let queue = &self.mutation_queue;
         let batch_id = result.batch_id();
         let delegate = Arc::clone(&self.delegate);
@@ -225,11 +199,7 @@ where
         })
     }
 
-    fn reject_failed_write(
-        &self,
-        batch_id: i32,
-        error: FirestoreError,
-    ) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
+    fn reject_failed_write(&self, batch_id: i32, error: FirestoreError) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
         let queue = &self.mutation_queue;
         let delegate = Arc::clone(&self.delegate);
         box_remote_store_future(async move {
@@ -286,10 +256,7 @@ impl MutationQueue {
             .batches
             .binary_search_by_key(&batch.batch_id, |existing| existing.batch_id)
         {
-            Ok(_) => Err(internal_error(format!(
-                "Duplicate mutation batch id {} queued",
-                batch.batch_id
-            ))),
+            Ok(_) => Err(internal_error(format!("Duplicate mutation batch id {} queued", batch.batch_id))),
             Err(pos) => {
                 self.batches.insert(pos, batch);
                 Ok(())
@@ -303,18 +270,13 @@ impl MutationQueue {
             .binary_search_by_key(&batch_id, |existing| existing.batch_id)
         {
             Ok(pos) => Ok(self.batches.remove(pos)),
-            Err(_) => Err(internal_error(format!(
-                "Mutation batch {batch_id} not found in queue"
-            ))),
+            Err(_) => Err(internal_error(format!("Mutation batch {batch_id} not found in queue"))),
         }
     }
 
     fn next_after(&self, after: Option<i32>) -> Option<MutationBatch> {
         let threshold = after.unwrap_or(-1);
-        self.batches
-            .iter()
-            .find(|batch| batch.batch_id > threshold)
-            .cloned()
+        self.batches.iter().find(|batch| batch.batch_id > threshold).cloned()
     }
 }
 
@@ -345,37 +307,23 @@ mod tests {
             Ok(())
         }
 
-        async fn handle_rejected_listen(
-            &self,
-            target_id: i32,
-            _error: FirestoreError,
-        ) -> FirestoreResult<()> {
+        async fn handle_rejected_listen(&self, target_id: i32, _error: FirestoreError) -> FirestoreResult<()> {
             self.rejected.lock().unwrap().push(target_id);
             Ok(())
         }
 
-        async fn handle_successful_write(
-            &self,
-            result: MutationBatchResult,
-        ) -> FirestoreResult<()> {
+        async fn handle_successful_write(&self, result: MutationBatchResult) -> FirestoreResult<()> {
             self.successes.lock().unwrap().push(result.batch_id());
             Ok(())
         }
 
-        async fn handle_failed_write(
-            &self,
-            batch_id: i32,
-            _error: FirestoreError,
-        ) -> FirestoreResult<()> {
+        async fn handle_failed_write(&self, batch_id: i32, _error: FirestoreError) -> FirestoreResult<()> {
             self.failures.lock().unwrap().push(batch_id);
             Ok(())
         }
 
         fn update_target_metadata(&self, target_id: i32, update: TargetMetadataUpdate) {
-            self.target_updates
-                .lock()
-                .unwrap()
-                .push((target_id, update));
+            self.target_updates.lock().unwrap().push((target_id, update));
         }
 
         fn reset_target_metadata(&self, target_id: i32) {
@@ -383,10 +331,7 @@ mod tests {
         }
 
         fn record_resolved_limbo_documents(&self, documents: &BTreeSet<DocumentKey>) {
-            self.limbo_resolutions
-                .lock()
-                .unwrap()
-                .push(documents.clone());
+            self.limbo_resolutions.lock().unwrap().push(documents.clone());
         }
     }
 
@@ -411,11 +356,7 @@ mod tests {
         bridge.enqueue_batch(sample_batch(10, "a")).await.unwrap();
         bridge.enqueue_batch(sample_batch(5, "b")).await.unwrap();
 
-        let first = bridge
-            .next_mutation_batch(None)
-            .await
-            .unwrap()
-            .expect("first batch");
+        let first = bridge.next_mutation_batch(None).await.unwrap().expect("first batch");
         assert_eq!(first.batch_id, 5);
         let second = bridge
             .next_mutation_batch(Some(5))
@@ -467,15 +408,9 @@ mod tests {
     async fn rejected_listen_clears_keys() {
         let delegate = Arc::new(RecordingDelegate::default());
         let bridge = RemoteSyncerBridge::new(delegate.clone());
-        bridge.replace_remote_keys(
-            4,
-            BTreeSet::from([DocumentKey::from_string("cities/sf").unwrap()]),
-        );
+        bridge.replace_remote_keys(4, BTreeSet::from([DocumentKey::from_string("cities/sf").unwrap()]));
 
-        bridge
-            .reject_listen(4, internal_error("boom"))
-            .await
-            .unwrap();
+        bridge.reject_listen(4, internal_error("boom")).await.unwrap();
         assert!(bridge.get_remote_keys_for_target(4).is_empty());
         assert_eq!(delegate.rejected.lock().unwrap().as_slice(), &[4]);
     }
@@ -486,10 +421,7 @@ mod tests {
         let bridge = RemoteSyncerBridge::new(delegate.clone());
         bridge.enqueue_batch(sample_batch(3, "x")).await.unwrap();
 
-        bridge
-            .reject_failed_write(3, internal_error("fail"))
-            .await
-            .unwrap();
+        bridge.reject_failed_write(3, internal_error("fail")).await.unwrap();
         assert!(bridge.next_mutation_batch(None).await.unwrap().is_none());
         assert_eq!(delegate.failures.lock().unwrap().as_slice(), &[3]);
     }

@@ -31,10 +31,7 @@ impl OnDisconnect {
     where
         V: Into<Value>,
     {
-        let resolved = self
-            .reference
-            .resolve_for_current_path(value.into())
-            .await?;
+        let resolved = self.reference.resolve_for_current_path(value.into()).await?;
         self.reference
             .database()
             .repo()
@@ -51,15 +48,10 @@ impl OnDisconnect {
         let priority = priority.into();
         validate_priority_value(&priority)?;
         if matches!(self.reference.key(), Some(".length" | ".keys")) {
-            return Err(invalid_argument(
-                "set_with_priority failed: read-only child key",
-            ));
+            return Err(invalid_argument("set_with_priority failed: read-only child key"));
         }
 
-        let resolved = self
-            .reference
-            .resolve_for_current_path(value.into())
-            .await?;
+        let resolved = self.reference.resolve_for_current_path(value.into()).await?;
         let payload = pack_with_priority(resolved, priority);
         self.reference
             .database()
@@ -90,10 +82,7 @@ impl OnDisconnect {
 
             let mut absolute = base_path.clone();
             absolute.extend(relative_segments.clone());
-            let resolved = self
-                .reference
-                .resolve_for_absolute_path(&absolute, value)
-                .await?;
+            let resolved = self.reference.resolve_for_absolute_path(&absolute, value).await?;
             let canonical = relative_segments.join("/");
             payload.insert(canonical, resolved);
         }

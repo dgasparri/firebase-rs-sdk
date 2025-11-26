@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use crate::firestore::api::query::{Query, QuerySnapshot};
 use crate::firestore::error::FirestoreResult;
-use crate::firestore::local::memory::{
-    MemoryLocalStore, QueryListenerRegistration, TargetMetadataSnapshot,
-};
+use crate::firestore::local::memory::{MemoryLocalStore, QueryListenerRegistration, TargetMetadataSnapshot};
 use crate::firestore::model::DocumentKey;
 use crate::firestore::remote::network::NetworkLayer;
 use crate::firestore::remote::remote_store::RemoteStore;
@@ -33,11 +31,7 @@ impl SyncEngine {
         let bridge = Arc::new(RemoteSyncerBridge::new(Arc::clone(&local_store)));
         local_store.synchronize_remote_keys(&bridge);
 
-        let remote_store = RemoteStore::new(
-            network_layer,
-            serializer,
-            Arc::clone(&bridge) as Arc<dyn RemoteSyncer>,
-        );
+        let remote_store = RemoteStore::new(network_layer, serializer, Arc::clone(&bridge) as Arc<dyn RemoteSyncer>);
 
         Self {
             local_store,
@@ -48,11 +42,7 @@ impl SyncEngine {
 
     /// Constructs a sync engine backed by IndexedDB persistence when running on
     /// wasm targets.
-    #[cfg(all(
-        feature = "wasm-web",
-        feature = "experimental-indexed-db",
-        target_arch = "wasm32"
-    ))]
+    #[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
     pub fn with_indexed_db(
         db_name: impl Into<String>,
         network_layer: NetworkLayer,
@@ -156,11 +146,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::Mutex;
 
-    fn sample_network() -> (
-        NetworkLayer,
-        JsonProtoSerializer,
-        Arc<MultiplexedConnection>,
-    ) {
+    fn sample_network() -> (NetworkLayer, JsonProtoSerializer, Arc<MultiplexedConnection>) {
         let (client_transport, server_transport) = InMemoryTransport::pair();
         let client_connection = Arc::new(MultiplexedConnection::new(client_transport));
         let server_connection = Arc::new(MultiplexedConnection::new(server_transport));
@@ -203,8 +189,7 @@ mod tests {
         let definition = query.definition();
         let target = ListenTarget::for_query(&serializer, 1, &definition).expect("listen target");
 
-        let records: Arc<Mutex<Vec<(usize, QuerySnapshotMetadata)>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let records: Arc<Mutex<Vec<(usize, QuerySnapshotMetadata)>>> = Arc::new(Mutex::new(Vec::new()));
         let callback_records = Arc::clone(&records);
         let mut registration = engine
             .listen_query(target.clone(), query.clone(), move |snapshot| {
@@ -255,10 +240,7 @@ mod tests {
         assert_eq!(second_meta.resume_token(), Some(&[1, 2, 3][..]));
         assert!(second_meta.sync_state_changed());
 
-        engine
-            .unlisten_query(1, &mut registration)
-            .await
-            .expect("unlisten");
+        engine.unlisten_query(1, &mut registration).await.expect("unlisten");
     }
 
     #[tokio::test]
@@ -275,10 +257,7 @@ mod tests {
                 FirestoreValue::from_string("Turing"),
             )
             .unwrap()
-            .order_by(
-                FieldPath::from_dot_separated("born").unwrap(),
-                OrderDirection::Ascending,
-            )
+            .order_by(FieldPath::from_dot_separated("born").unwrap(), OrderDirection::Ascending)
             .unwrap();
         let definition = query.definition();
         let target = ListenTarget::for_query(&serializer, 2, &definition).expect("target");
@@ -339,15 +318,9 @@ mod tests {
 
         let mut event = RemoteEvent::default();
         event.target_changes.insert(2, change);
-        event
-            .document_updates
-            .insert(alan_key.clone(), Some(alan_doc));
-        event
-            .document_updates
-            .insert(charles_key.clone(), Some(charles_doc));
-        event
-            .document_updates
-            .insert(grace_key.clone(), Some(grace_doc));
+        event.document_updates.insert(alan_key.clone(), Some(alan_doc));
+        event.document_updates.insert(charles_key.clone(), Some(charles_doc));
+        event.document_updates.insert(grace_key.clone(), Some(grace_doc));
 
         engine
             .remote_bridge
@@ -358,15 +331,9 @@ mod tests {
         let snapshots = doc_records.lock().unwrap().clone();
         assert_eq!(snapshots.len(), 2);
         assert!(snapshots[0].is_empty());
-        assert_eq!(
-            snapshots[1],
-            vec!["charles".to_string(), "alan".to_string()]
-        );
+        assert_eq!(snapshots[1], vec!["charles".to_string(), "alan".to_string()]);
 
-        engine
-            .unlisten_query(2, &mut registration)
-            .await
-            .expect("unlisten");
+        engine.unlisten_query(2, &mut registration).await.expect("unlisten");
     }
 
     #[tokio::test]
@@ -379,25 +346,10 @@ mod tests {
         let definition = query.definition();
         let target = ListenTarget::for_query(&serializer, 3, &definition).expect("target");
 
-        let records: Arc<
-            Mutex<
-                Vec<(
-                    usize,
-                    Option<i64>,
-                    QuerySnapshotMetadata,
-                    Vec<(DocumentChangeType, i32, i32)>,
-                )>,
-            >,
-        > = Arc::new(Mutex::new(Vec::new()));
+        let records: Arc<Mutex<Vec<(usize, Option<i64>, QuerySnapshotMetadata, Vec<(DocumentChangeType, i32, i32)>)>>> =
+            Arc::new(Mutex::new(Vec::new()));
         let callback_records: Arc<
-            Mutex<
-                Vec<(
-                    usize,
-                    Option<i64>,
-                    QuerySnapshotMetadata,
-                    Vec<(DocumentChangeType, i32, i32)>,
-                )>,
-            >,
+            Mutex<Vec<(usize, Option<i64>, QuerySnapshotMetadata, Vec<(DocumentChangeType, i32, i32)>)>>,
         > = Arc::clone(&records);
         let mut registration = engine
             .listen_query(target.clone(), query.clone(), move |snapshot| {
@@ -415,12 +367,10 @@ mod tests {
                     .iter()
                     .map(|change| (change.change_type(), change.old_index(), change.new_index()))
                     .collect();
-                callback_records.lock().unwrap().push((
-                    snapshot.len(),
-                    born,
-                    snapshot.metadata().clone(),
-                    changes,
-                ));
+                callback_records
+                    .lock()
+                    .unwrap()
+                    .push((snapshot.len(), born, snapshot.metadata().clone(), changes));
             })
             .await
             .expect("listen");
@@ -458,10 +408,7 @@ mod tests {
         let bridge = engine.remote_bridge();
         let overlay_write = WriteOperation::Update {
             key: key.clone(),
-            data: MapValue::new(BTreeMap::from([(
-                "born".into(),
-                FirestoreValue::from_integer(1900),
-            )])),
+            data: MapValue::new(BTreeMap::from([("born".into(), FirestoreValue::from_integer(1900))])),
             field_paths: vec![FieldPath::from_dot_separated("born").unwrap()],
             transforms: Vec::new(),
         };
@@ -479,10 +426,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0], (DocumentChangeType::Modified, 0, 0));
 
-        engine
-            .unlisten_query(3, &mut registration)
-            .await
-            .expect("unlisten");
+        engine.unlisten_query(3, &mut registration).await.expect("unlisten");
     }
 
     #[tokio::test]
@@ -531,9 +475,6 @@ mod tests {
         assert_eq!(resume_token.as_deref(), Some(&[7, 8, 9][..]));
         assert!(!metadata.from_cache());
 
-        engine
-            .unlisten_query(4, &mut registration)
-            .await
-            .expect("unlisten");
+        engine.unlisten_query(4, &mut registration).await.expect("unlisten");
     }
 }

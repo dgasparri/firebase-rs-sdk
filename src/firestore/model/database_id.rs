@@ -50,10 +50,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "firestore-db-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("firestore-db-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -64,9 +61,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let db = DatabaseId::from_app(&app).unwrap();
         assert_eq!(db.project_id(), "project");
         assert_eq!(db.database(), DEFAULT_DATABASE_ID);
@@ -78,9 +73,7 @@ mod tests {
             api_key: Some("test".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let err = DatabaseId::from_app(&app).unwrap_err();
         assert_eq!(err.code_str(), "firestore/missing-project-id");
     }

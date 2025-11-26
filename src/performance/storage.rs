@@ -18,11 +18,7 @@ use crate::performance::error::internal_error;
 
 use crate::performance::error::PerformanceResult;
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::platform::browser::indexed_db;
 
 #[derive(Clone, Debug)]
@@ -47,11 +43,7 @@ pub type TraceStoreHandle = Arc<dyn TraceStore>;
 pub type TraceStoreHandle = Arc<dyn TraceStore + Send + Sync>;
 
 pub fn create_trace_store(_app: &FirebaseApp) -> TraceStoreHandle {
-    #[cfg(all(
-        feature = "wasm-web",
-        target_arch = "wasm32",
-        feature = "experimental-indexed-db"
-    ))]
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
     {
         return Arc::new(IndexedDbTraceStore::new(_app.name()));
     }
@@ -132,21 +124,13 @@ impl TraceStore for FileTraceStore {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 struct IndexedDbTraceStore {
     db_name: String,
     store_name: String,
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 impl IndexedDbTraceStore {
     fn new(app_name: &str) -> Self {
         Self {
@@ -177,11 +161,7 @@ impl IndexedDbTraceStore {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 #[cfg_attr(all(target_arch = "wasm32"), async_trait::async_trait(?Send))]
 #[cfg_attr(not(all(target_arch = "wasm32")), async_trait::async_trait)]
 impl TraceStore for IndexedDbTraceStore {
@@ -208,8 +188,7 @@ impl TraceStore for IndexedDbTraceStore {
 
 #[cfg(any(not(target_arch = "wasm32"), feature = "experimental-indexed-db"))]
 fn serialize_queue(queue: &VecDeque<TraceEnvelope>) -> PerformanceResult<String> {
-    let serialized: Vec<SerializableTraceEnvelope> =
-        queue.iter().map(SerializableTraceEnvelope::from).collect();
+    let serialized: Vec<SerializableTraceEnvelope> = queue.iter().map(SerializableTraceEnvelope::from).collect();
     serde_json::to_string(&serialized).map_err(|err| internal_error(err.to_string()))
 }
 
@@ -378,10 +357,7 @@ mod tests {
     fn unique_dir() -> PathBuf {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let mut dir = std::env::temp_dir();
-        dir.push(format!(
-            "firebase-perf-storage-test-{}",
-            COUNTER.fetch_add(1, Ordering::SeqCst)
-        ));
+        dir.push(format!("firebase-perf-storage-test-{}", COUNTER.fetch_add(1, Ordering::SeqCst)));
         let _ = fs::create_dir_all(&dir);
         dir
     }
@@ -422,9 +398,7 @@ impl TryFrom<SerializableTraceEnvelope> for TraceEnvelope {
     fn try_from(value: SerializableTraceEnvelope) -> Result<Self, Self::Error> {
         match value {
             SerializableTraceEnvelope::Trace(trace) => Ok(TraceEnvelope::Trace(trace.try_into()?)),
-            SerializableTraceEnvelope::Network(record) => {
-                Ok(TraceEnvelope::Network(record.try_into()?))
-            }
+            SerializableTraceEnvelope::Network(record) => Ok(TraceEnvelope::Network(record.try_into()?)),
         }
     }
 }

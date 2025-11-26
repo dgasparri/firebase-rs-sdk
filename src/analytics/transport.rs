@@ -69,9 +69,7 @@ impl MeasurementProtocolEndpoint {
     fn as_str(&self) -> &str {
         match self {
             MeasurementProtocolEndpoint::Collect => "https://www.google-analytics.com/mp/collect",
-            MeasurementProtocolEndpoint::DebugCollect => {
-                "https://www.google-analytics.com/debug/mp/collect"
-            }
+            MeasurementProtocolEndpoint::DebugCollect => "https://www.google-analytics.com/debug/mp/collect",
             MeasurementProtocolEndpoint::Custom(url) => url,
         }
     }
@@ -87,14 +85,10 @@ impl MeasurementProtocolDispatcher {
     /// Creates a new dispatcher that will send events to the GA4 Measurement Protocol endpoint.
     pub fn new(config: MeasurementProtocolConfig) -> AnalyticsResult<Self> {
         if config.measurement_id().trim().is_empty() {
-            return Err(invalid_argument(
-                "measurement protocol measurement_id must not be empty",
-            ));
+            return Err(invalid_argument("measurement protocol measurement_id must not be empty"));
         }
         if config.api_secret().trim().is_empty() {
-            return Err(invalid_argument(
-                "measurement protocol api_secret must not be empty",
-            ));
+            return Err(invalid_argument("measurement protocol api_secret must not be empty"));
         }
         #[cfg(not(target_arch = "wasm32"))]
         let client = Client::builder()
@@ -128,9 +122,8 @@ impl MeasurementProtocolDispatcher {
             }],
         };
 
-        let body = serde_json::to_vec(&payload).map_err(|err| {
-            internal_error(format!("failed to serialise analytics payload: {err}"))
-        })?;
+        let body = serde_json::to_vec(&payload)
+            .map_err(|err| internal_error(format!("failed to serialise analytics payload: {err}")))?;
 
         let endpoint = self.config.endpoint.as_str().to_owned();
         let measurement_id = self.config.measurement_id().to_owned();
@@ -163,9 +156,7 @@ impl MeasurementProtocolDispatcher {
             StatusCode::BAD_REQUEST => {
                 format!("measurement protocol rejected the event (400). Response: {body}")
             }
-            _ => format!(
-                "measurement protocol request failed with status {status}. Response: {body}"
-            ),
+            _ => format!("measurement protocol request failed with status {status}. Response: {body}"),
         };
 
         Err(network_error(message))

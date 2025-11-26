@@ -11,15 +11,12 @@ use crate::app;
 use crate::app::FirebaseApp;
 use crate::app_check::{AppCheckTokenError, AppCheckTokenResult, FirebaseAppCheckInternal};
 use crate::auth::FirebaseAuth;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
 use crate::installations::get_installations;
 use crate::performance::constants::{
-    MAX_ATTRIBUTE_NAME_LENGTH, MAX_ATTRIBUTE_VALUE_LENGTH, MAX_METRIC_NAME_LENGTH,
-    OOB_TRACE_PAGE_LOAD_PREFIX, PERFORMANCE_COMPONENT_NAME, RESERVED_ATTRIBUTE_PREFIXES,
-    RESERVED_METRIC_PREFIX,
+    MAX_ATTRIBUTE_NAME_LENGTH, MAX_ATTRIBUTE_VALUE_LENGTH, MAX_METRIC_NAME_LENGTH, OOB_TRACE_PAGE_LOAD_PREFIX,
+    PERFORMANCE_COMPONENT_NAME, RESERVED_ATTRIBUTE_PREFIXES, RESERVED_METRIC_PREFIX,
 };
 use crate::performance::error::{internal_error, invalid_argument, PerformanceResult};
 use crate::performance::instrumentation;
@@ -210,10 +207,7 @@ pub struct NetworkRequestRecord {
 #[derive(Clone, Debug)]
 enum TraceLifecycle {
     Idle,
-    Running {
-        started_at: Instant,
-        started_micros: u128,
-    },
+    Running { started_at: Instant, started_micros: u128 },
     Completed,
 }
 
@@ -261,9 +255,7 @@ impl Performance {
             transport_options,
             installation_id: Mutex::new(None),
         };
-        let performance = Self {
-            inner: Arc::new(inner),
-        };
+        let performance = Self { inner: Arc::new(inner) };
         performance.initialize_background_tasks();
         performance
     }
@@ -287,11 +279,7 @@ impl Performance {
 
     /// Resolves the currently effective runtime settings.
     pub fn settings(&self) -> PerformanceRuntimeSettings {
-        self.inner
-            .settings
-            .read()
-            .expect("settings lock poisoned")
-            .clone()
+        self.inner.settings.read().expect("settings lock poisoned").clone()
     }
 
     /// Applies the provided settings, overwriting only the `Some` fields.
@@ -409,11 +397,7 @@ impl Performance {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new_network_request(
-        &self,
-        url: &str,
-        method: HttpMethod,
-    ) -> PerformanceResult<NetworkTraceHandle> {
+    pub fn new_network_request(&self, url: &str, method: HttpMethod) -> PerformanceResult<NetworkTraceHandle> {
         if url.trim().is_empty() {
             return Err(invalid_argument("Request URL must not be empty"));
         }
@@ -438,11 +422,7 @@ impl Performance {
     /// query parameters), if any.
     pub async fn recorded_network_request(&self, url: &str) -> Option<NetworkRequestRecord> {
         let traces = self.inner.network_requests.lock().await;
-        traces
-            .iter()
-            .rev()
-            .find(|record| record.url == url)
-            .cloned()
+        traces.iter().rev().find(|record| record.url == url).cloned()
     }
 
     /// Overrides the transport configuration used for batching uploads.
@@ -464,10 +444,7 @@ impl Performance {
         }
     }
 
-    #[cfg_attr(
-        not(all(feature = "wasm-web", target_arch = "wasm32")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), allow(dead_code))]
     pub(crate) async fn record_auto_trace(
         self,
         name: &str,
@@ -488,14 +465,8 @@ impl Performance {
         self.store_trace(trace).await
     }
 
-    #[cfg_attr(
-        not(all(feature = "wasm-web", target_arch = "wasm32")),
-        allow(dead_code)
-    )]
-    pub(crate) async fn record_auto_network(
-        self,
-        record: NetworkRequestRecord,
-    ) -> PerformanceResult<()> {
+    #[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), allow(dead_code))]
+    pub(crate) async fn record_auto_network(self, record: NetworkRequestRecord) -> PerformanceResult<()> {
         self.store_network_request(record).await
     }
 
@@ -515,17 +486,8 @@ impl Performance {
             return Ok(());
         }
         let name = trace.name.to_string();
-        self.inner
-            .traces
-            .lock()
-            .await
-            .insert(name.clone(), trace.clone());
-        if let Err(err) = self
-            .inner
-            .trace_store
-            .push(TraceEnvelope::Trace(trace))
-            .await
-        {
+        self.inner.traces.lock().await.insert(name.clone(), trace.clone());
+        if let Err(err) = self.inner.trace_store.push(TraceEnvelope::Trace(trace)).await {
             debug!("failed to persist trace {name}: {}", err);
         }
         if let Some(controller) = self.transport_controller() {
@@ -544,12 +506,7 @@ impl Performance {
             traces.remove(0);
         }
         traces.push(record.clone());
-        if let Err(err) = self
-            .inner
-            .trace_store
-            .push(TraceEnvelope::Network(record))
-            .await
-        {
+        if let Err(err) = self.inner.trace_store.push(TraceEnvelope::Network(record)).await {
             debug!("failed to persist network trace: {}", err);
         }
         if let Some(controller) = self.transport_controller() {
@@ -572,12 +529,7 @@ impl Performance {
     }
 
     async fn app_check_token(&self) -> Option<String> {
-        let provider = self
-            .inner
-            .app_check
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone())?;
+        let provider = self.inner.app_check.lock().ok().and_then(|guard| guard.clone())?;
         match provider.get_token(false).await {
             Ok(result) => normalize_token_result(result),
             Err(err) => cached_token_from_error(&err),
@@ -587,9 +539,7 @@ impl Performance {
 
 impl fmt::Debug for Performance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Performance")
-            .field("app", self.app())
-            .finish()
+        f.debug_struct("Performance").field("app", self.app()).finish()
     }
 }
 
@@ -622,9 +572,7 @@ impl TraceHandle {
                 };
                 Ok(())
             }
-            TraceLifecycle::Running { .. } => {
-                Err(invalid_argument("Trace has already been started"))
-            }
+            TraceLifecycle::Running { .. } => Err(invalid_argument("Trace has already been started")),
             TraceLifecycle::Completed => Err(invalid_argument("Trace has already completed")),
         }
     }
@@ -722,9 +670,7 @@ impl TraceHandle {
                 started_at,
                 started_micros,
             } => (started_at, started_micros),
-            TraceLifecycle::Idle => {
-                return Err(invalid_argument("Trace must be started before stopping"))
-            }
+            TraceLifecycle::Idle => return Err(invalid_argument("Trace must be started before stopping")),
             TraceLifecycle::Completed => return Err(invalid_argument("Trace already completed")),
         };
         self.state = TraceLifecycle::Completed;
@@ -754,9 +700,7 @@ impl NetworkTraceHandle {
                 };
                 Ok(())
             }
-            NetworkLifecycle::Running { .. } => {
-                Err(invalid_argument("Network trace already started"))
-            }
+            NetworkLifecycle::Running { .. } => Err(invalid_argument("Network trace already started")),
             NetworkLifecycle::Completed => Err(invalid_argument("Network trace already completed")),
         }
     }
@@ -796,9 +740,7 @@ impl NetworkTraceHandle {
             self.response_code = Some(code);
             Ok(())
         } else {
-            Err(invalid_argument(
-                "HTTP status code must be between 100 and 599",
-            ))
+            Err(invalid_argument("HTTP status code must be between 100 and 599"))
         }
     }
 
@@ -815,14 +757,8 @@ impl NetworkTraceHandle {
                 started_micros,
                 response_initiated,
             } => (*started_at, *started_micros, *response_initiated),
-            NetworkLifecycle::Idle => {
-                return Err(invalid_argument(
-                    "Network trace must be started before stopping",
-                ))
-            }
-            NetworkLifecycle::Completed => {
-                return Err(invalid_argument("Network trace already completed"))
-            }
+            NetworkLifecycle::Idle => return Err(invalid_argument("Network trace must be started before stopping")),
+            NetworkLifecycle::Completed => return Err(invalid_argument("Network trace already completed")),
         };
         self.state = NetworkLifecycle::Completed;
         let duration = started_at.elapsed();
@@ -840,9 +776,7 @@ impl NetworkTraceHandle {
             response_content_type: self.response_content_type.clone(),
             app_check_token: self.performance.app_check_token().await,
         };
-        self.performance
-            .store_network_request(record.clone())
-            .await?;
+        self.performance.store_network_request(record.clone()).await?;
         Ok(record)
     }
 }
@@ -859,12 +793,8 @@ fn validate_metric_name(name: &str, trace_name: &str) -> PerformanceResult<()> {
     if name.is_empty() || name.len() > MAX_METRIC_NAME_LENGTH {
         return Err(invalid_argument("Metric name must be 1-100 characters"));
     }
-    if name.starts_with(RESERVED_METRIC_PREFIX)
-        && !trace_name.starts_with(OOB_TRACE_PAGE_LOAD_PREFIX)
-    {
-        return Err(invalid_argument(
-            "Metric names starting with '_' are reserved for auto traces",
-        ));
+    if name.starts_with(RESERVED_METRIC_PREFIX) && !trace_name.starts_with(OOB_TRACE_PAGE_LOAD_PREFIX) {
+        return Err(invalid_argument("Metric names starting with '_' are reserved for auto traces"));
     }
     Ok(())
 }
@@ -873,23 +803,11 @@ fn validate_attribute_name(name: &str) -> PerformanceResult<()> {
     if name.is_empty() || name.len() > MAX_ATTRIBUTE_NAME_LENGTH {
         return Err(invalid_argument("Attribute name must be 1-40 characters"));
     }
-    if !name
-        .chars()
-        .next()
-        .map(|ch| ch.is_ascii_alphabetic())
-        .unwrap_or(false)
-    {
-        return Err(invalid_argument(
-            "Attribute names must start with an ASCII letter",
-        ));
+    if !name.chars().next().map(|ch| ch.is_ascii_alphabetic()).unwrap_or(false) {
+        return Err(invalid_argument("Attribute names must start with an ASCII letter"));
     }
-    if !name
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-    {
-        return Err(invalid_argument(
-            "Attribute names may only contain letters, numbers, and '_'",
-        ));
+    if !name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+        return Err(invalid_argument("Attribute names may only contain letters, numbers, and '_'"));
     }
     if RESERVED_ATTRIBUTE_PREFIXES
         .iter()
@@ -933,12 +851,8 @@ pub fn is_supported() -> bool {
 }
 
 static PERFORMANCE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
-    let component = Component::new(
-        PERFORMANCE_COMPONENT_NAME,
-        Arc::new(performance_factory),
-        ComponentType::Public,
-    )
-    .with_instantiation_mode(InstantiationMode::Lazy);
+    let component = Component::new(PERFORMANCE_COMPONENT_NAME, Arc::new(performance_factory), ComponentType::Public)
+        .with_instantiation_mode(InstantiationMode::Lazy);
     let _ = app::register_component(component);
 });
 
@@ -946,21 +860,21 @@ fn performance_factory(
     container: &crate::component::ComponentContainer,
     options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: PERFORMANCE_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
 
     let settings = match options.options {
         Value::Null => None,
-        value => Some(serde_json::from_value(value).map_err(|err| {
-            ComponentError::InitializationFailed {
+        value => Some(
+            serde_json::from_value(value).map_err(|err| ComponentError::InitializationFailed {
                 name: PERFORMANCE_COMPONENT_NAME.to_string(),
                 reason: format!("invalid settings: {err}"),
-            }
-        })?),
+            })?,
+        ),
     };
 
     let performance = Performance::new((*app).clone(), settings);
@@ -1031,8 +945,8 @@ mod tests {
     use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::app_check::{
-        box_app_check_future, initialize_app_check, AppCheckOptions, AppCheckProvider,
-        AppCheckProviderFuture, AppCheckResult, AppCheckToken,
+        box_app_check_future, initialize_app_check, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
+        AppCheckResult, AppCheckToken,
     };
     use crate::performance::TransportOptions;
     use httpmock::prelude::*;
@@ -1082,10 +996,7 @@ mod tests {
         let performance = get_performance(Some(app)).await.unwrap();
         let trace = performance.new_trace("bootstrap").unwrap();
         let start = runtime::now();
-        let trace = trace
-            .record(start, Duration::from_millis(10), None)
-            .await
-            .unwrap();
+        let trace = trace.record(start, Duration::from_millis(10), None).await.unwrap();
         assert_eq!(trace.duration.as_millis(), 10);
         let stored = performance.recorded_trace("bootstrap").await.unwrap();
         assert_eq!(stored.duration.as_millis(), 10);
@@ -1117,9 +1028,7 @@ mod tests {
 
     impl AppCheckProvider for StaticAppCheckProvider {
         fn get_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
-            box_app_check_future(async move {
-                AppCheckToken::with_ttl("app-check-token", Duration::from_secs(60))
-            })
+            box_app_check_future(async move { AppCheckToken::with_ttl("app-check-token", Duration::from_secs(60)) })
         }
     }
 
@@ -1159,9 +1068,7 @@ mod tests {
         assert!(!perf.data_collection_enabled());
         assert!(!perf.instrumentation_enabled());
 
-        let err = initialize_performance(app, Some(settings))
-            .await
-            .unwrap_err();
+        let err = initialize_performance(app, Some(settings)).await.unwrap_err();
         assert_eq!(err.code_str(), "performance/invalid-argument");
     }
 

@@ -75,16 +75,8 @@ async fn child_added_listener_reports_new_children() {
         .await
         .expect("register child_added listener");
 
-    list.child("first")
-        .unwrap()
-        .set(json!("alpha"))
-        .await
-        .unwrap();
-    list.child("second")
-        .unwrap()
-        .set(json!("beta"))
-        .await
-        .unwrap();
+    list.child("first").unwrap().set(json!("alpha")).await.unwrap();
+    list.child("second").unwrap().set(json!("beta")).await.unwrap();
 
     {
         let events = events.lock().unwrap();

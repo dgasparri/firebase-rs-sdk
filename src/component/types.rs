@@ -36,13 +36,9 @@ impl InstanceFactoryOptions {
     }
 }
 
-pub type InstanceFactory = Arc<
-    dyn Fn(&ComponentContainer, InstanceFactoryOptions) -> Result<DynService, ComponentError>
-        + Send
-        + Sync,
->;
-pub type OnInstanceCreatedCallback =
-    Arc<dyn Fn(&ComponentContainer, &str, &DynService) + Send + Sync>;
+pub type InstanceFactory =
+    Arc<dyn Fn(&ComponentContainer, InstanceFactoryOptions) -> Result<DynService, ComponentError> + Send + Sync>;
+pub type OnInstanceCreatedCallback = Arc<dyn Fn(&ComponentContainer, &str, &DynService) + Send + Sync>;
 
 #[derive(Debug)]
 pub enum ComponentError {
@@ -58,10 +54,7 @@ impl fmt::Display for ComponentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ComponentError::MismatchingComponent { expected, found } => {
-                write!(
-                    f,
-                    "Component {found} cannot satisfy provider for {expected}"
-                )
+                write!(f, "Component {found} cannot satisfy provider for {expected}")
             }
             ComponentError::ComponentAlreadyProvided { name } => {
                 write!(f, "Component {name} has already been registered")

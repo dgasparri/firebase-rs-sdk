@@ -57,9 +57,7 @@ impl QueryParams {
 
     pub(crate) fn set_start(&mut self, bound: QueryBound) -> DatabaseResult<()> {
         if self.start.is_some() {
-            return Err(invalid_argument(
-                "startAt/startAfter has already been specified",
-            ));
+            return Err(invalid_argument("startAt/startAfter has already been specified"));
         }
         self.start = Some(bound);
         Ok(())
@@ -67,9 +65,7 @@ impl QueryParams {
 
     pub(crate) fn set_end(&mut self, bound: QueryBound) -> DatabaseResult<()> {
         if self.end.is_some() {
-            return Err(invalid_argument(
-                "endAt/endBefore has already been specified",
-            ));
+            return Err(invalid_argument("endAt/endBefore has already been specified"));
         }
         self.end = Some(bound);
         Ok(())
@@ -111,20 +107,12 @@ impl QueryParams {
         ));
 
         if let Some(bound) = &self.start {
-            let key = if bound.inclusive {
-                "startAt"
-            } else {
-                "startAfter"
-            };
+            let key = if bound.inclusive { "startAt" } else { "startAfter" };
             params.push((key.to_string(), encode_bound(bound)?));
         }
 
         if let Some(bound) = &self.end {
-            let key = if bound.inclusive {
-                "endAt"
-            } else {
-                "endBefore"
-            };
+            let key = if bound.inclusive { "endAt" } else { "endBefore" };
             params.push((key.to_string(), encode_bound(bound)?));
         }
 
@@ -147,8 +135,8 @@ fn encode_bound(bound: &QueryBound) -> DatabaseResult<String> {
     let mut encoded = serde_json::to_string(&bound.value)
         .map_err(|err| internal_error(format!("Failed to encode query bound: {err}")))?;
     if let Some(name) = &bound.name {
-        let encoded_name = serde_json::to_string(name)
-            .map_err(|err| internal_error(format!("Failed to encode query name: {err}")))?;
+        let encoded_name =
+            serde_json::to_string(name).map_err(|err| internal_error(format!("Failed to encode query name: {err}")))?;
         encoded.push(',');
         encoded.push_str(&encoded_name);
     }

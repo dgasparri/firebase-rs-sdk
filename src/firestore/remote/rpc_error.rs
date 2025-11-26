@@ -2,8 +2,8 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::firestore::error::{
-    deadline_exceeded, internal_error, invalid_argument, not_found, permission_denied,
-    resource_exhausted, unauthenticated, unavailable, FirestoreError,
+    deadline_exceeded, internal_error, invalid_argument, not_found, permission_denied, resource_exhausted,
+    unauthenticated, unavailable, FirestoreError,
 };
 
 #[derive(Debug, Deserialize)]
@@ -20,12 +20,8 @@ struct GoogleError {
 }
 
 pub fn map_http_error(status: StatusCode, body: &str) -> FirestoreError {
-    let message = extract_message(body).unwrap_or_else(|| {
-        status
-            .canonical_reason()
-            .unwrap_or("HTTP error")
-            .to_string()
-    });
+    let message =
+        extract_message(body).unwrap_or_else(|| status.canonical_reason().unwrap_or("HTTP error").to_string());
     match status {
         StatusCode::BAD_REQUEST => invalid_argument(message),
         StatusCode::UNAUTHORIZED => unauthenticated(message),
@@ -44,17 +40,10 @@ pub fn map_http_error(status: StatusCode, body: &str) -> FirestoreError {
     }
 }
 
-fn map_status_from_payload(
-    status: StatusCode,
-    fallback_message: &str,
-    body: &str,
-) -> FirestoreError {
+fn map_status_from_payload(status: StatusCode, fallback_message: &str, body: &str) -> FirestoreError {
     if let Some(payload) = extract_error_payload(body) {
         if let Some(status_string) = payload.status.as_deref() {
-            return map_status_code(
-                status_string,
-                payload.message.as_deref().unwrap_or(fallback_message),
-            );
+            return map_status_code(status_string, payload.message.as_deref().unwrap_or(fallback_message));
         }
     }
 

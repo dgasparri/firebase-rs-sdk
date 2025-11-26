@@ -5,14 +5,12 @@ use reqwest::{Client, Response, Url};
 
 use crate::installations::config::AppConfig;
 use crate::installations::error::{
-    internal_error, invalid_argument, request_failed as request_failed_err, InstallationsError,
-    InstallationsResult,
+    internal_error, invalid_argument, request_failed as request_failed_err, InstallationsError, InstallationsResult,
 };
 
 use super::{
-    convert_auth_token, CreateInstallationRequest, GenerateAuthTokenInstallation,
-    GenerateAuthTokenRequest, RegisteredInstallation, INSTALLATIONS_API_URL, INTERNAL_AUTH_VERSION,
-    SDK_VERSION,
+    convert_auth_token, CreateInstallationRequest, GenerateAuthTokenInstallation, GenerateAuthTokenRequest,
+    RegisteredInstallation, INSTALLATIONS_API_URL, INTERNAL_AUTH_VERSION, SDK_VERSION,
 };
 
 #[derive(Clone, Debug)]
@@ -23,18 +21,14 @@ pub struct RestClient {
 
 impl RestClient {
     pub fn new() -> InstallationsResult<Self> {
-        let base_url = std::env::var("FIREBASE_INSTALLATIONS_API_URL")
-            .unwrap_or_else(|_| INSTALLATIONS_API_URL.to_string());
+        let base_url =
+            std::env::var("FIREBASE_INSTALLATIONS_API_URL").unwrap_or_else(|_| INSTALLATIONS_API_URL.to_string());
         Self::with_base_url(&base_url)
     }
 
     pub fn with_base_url(base_url: &str) -> InstallationsResult<Self> {
-        let base_url = Url::parse(base_url).map_err(|err| {
-            invalid_argument(format!(
-                "Invalid installations endpoint '{}': {}",
-                base_url, err
-            ))
-        })?;
+        let base_url = Url::parse(base_url)
+            .map_err(|err| invalid_argument(format!("Invalid installations endpoint '{}': {}", base_url, err)))?;
 
         let http = Client::builder()
             .user_agent(format!("firebase-rs-sdk/{}", env!("CARGO_PKG_VERSION")))
@@ -59,17 +53,9 @@ impl RestClient {
         };
 
         let response = self
-            .send_with_retry(|| {
-                self.http
-                    .post(url.clone())
-                    .headers(headers.clone())
-                    .json(&body)
-                    .send()
-            })
+            .send_with_retry(|| self.http.post(url.clone()).headers(headers.clone()).json(&body).send())
             .await
-            .map_err(|err| {
-                internal_error(format!("Network error creating installation: {}", err))
-            })?;
+            .map_err(|err| internal_error(format!("Network error creating installation: {}", err)))?;
 
         if response.status().is_success() {
             let parsed = response
@@ -104,9 +90,7 @@ impl RestClient {
         headers.insert(
             AUTHORIZATION,
             HeaderValue::from_str(&format!("{} {}", INTERNAL_AUTH_VERSION, refresh_token))
-                .map_err(|err| {
-                    invalid_argument(format!("Invalid refresh token header: {}", err))
-                })?,
+                .map_err(|err| invalid_argument(format!("Invalid refresh token header: {}", err)))?,
         );
 
         let body = GenerateAuthTokenRequest {
@@ -117,13 +101,7 @@ impl RestClient {
         };
 
         let response = self
-            .send_with_retry(|| {
-                self.http
-                    .post(url.clone())
-                    .headers(headers.clone())
-                    .json(&body)
-                    .send()
-            })
+            .send_with_retry(|| self.http.post(url.clone()).headers(headers.clone()).json(&body).send())
             .await
             .map_err(|err| internal_error(format!("Network error refreshing token: {}", err)))?;
 
@@ -149,22 +127,13 @@ impl RestClient {
         headers.insert(
             AUTHORIZATION,
             HeaderValue::from_str(&format!("{} {}", INTERNAL_AUTH_VERSION, refresh_token))
-                .map_err(|err| {
-                    invalid_argument(format!("Invalid refresh token header: {}", err))
-                })?,
+                .map_err(|err| invalid_argument(format!("Invalid refresh token header: {}", err)))?,
         );
 
         let response = self
-            .send_with_retry(|| {
-                self.http
-                    .delete(url.clone())
-                    .headers(headers.clone())
-                    .send()
-            })
+            .send_with_retry(|| self.http.delete(url.clone()).headers(headers.clone()).send())
             .await
-            .map_err(|err| {
-                internal_error(format!("Network error deleting installation: {}", err))
-            })?;
+            .map_err(|err| internal_error(format!("Network error deleting installation: {}", err)))?;
 
         if response.status().is_success() {
             Ok(())
@@ -173,11 +142,7 @@ impl RestClient {
         }
     }
 
-    fn installations_endpoint(
-        &self,
-        config: &AppConfig,
-        fid: Option<&str>,
-    ) -> InstallationsResult<Url> {
+    fn installations_endpoint(&self, config: &AppConfig, fid: Option<&str>) -> InstallationsResult<Url> {
         let mut url = self.base_url.clone();
         {
             let mut segments = url
@@ -197,9 +162,8 @@ impl RestClient {
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
         headers.insert(
             HeaderName::from_static("x-goog-api-key"),
-            HeaderValue::from_str(api_key).map_err(|err| {
-                invalid_argument(format!("Invalid API key header value: {}", err))
-            })?,
+            HeaderValue::from_str(api_key)
+                .map_err(|err| invalid_argument(format!("Invalid API key header value: {}", err)))?,
         );
         Ok(headers)
     }

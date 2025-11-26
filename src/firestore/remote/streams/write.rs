@@ -91,9 +91,7 @@ where
         let (stream, stream_token) = {
             let guard = self.state.lock().await;
             if !guard.handshake_complete {
-                return Err(invalid_argument(
-                    "Cannot write mutations before handshake completes",
-                ));
+                return Err(invalid_argument("Cannot write mutations before handshake completes"));
             }
             let stream = guard
                 .stream
@@ -127,8 +125,8 @@ where
         let request = json!({
             "database": self.serializer.database_name()
         });
-        let bytes = serde_json::to_vec(&request)
-            .map_err(|err| internal_error(format!("Failed to encode handshake: {err}")))?;
+        let bytes =
+            serde_json::to_vec(&request).map_err(|err| internal_error(format!("Failed to encode handshake: {err}")))?;
         stream
             .send(bytes)
             .await
@@ -150,11 +148,7 @@ where
         self.should_continue()
     }
 
-    async fn on_open(
-        &self,
-        stream: Arc<dyn StreamHandle>,
-        _credentials: StreamCredentials,
-    ) -> FirestoreResult<()> {
+    async fn on_open(&self, stream: Arc<dyn StreamHandle>, _credentials: StreamCredentials) -> FirestoreResult<()> {
         {
             let mut guard = self.state.lock().await;
             guard.stream = Some(Arc::clone(&stream));
@@ -227,10 +221,7 @@ fn encode_write_request(
     }))
 }
 
-fn decode_write_response(
-    serializer: &JsonProtoSerializer,
-    value: &JsonValue,
-) -> FirestoreResult<WriteResponse> {
+fn decode_write_response(serializer: &JsonProtoSerializer, value: &JsonValue) -> FirestoreResult<WriteResponse> {
     let stream_token_str = value
         .get("streamToken")
         .and_then(JsonValue::as_str)
@@ -264,10 +255,7 @@ fn decode_write_response(
     })
 }
 
-fn decode_write_result(
-    serializer: &JsonProtoSerializer,
-    value: &JsonValue,
-) -> FirestoreResult<WriteResult> {
+fn decode_write_result(serializer: &JsonProtoSerializer, value: &JsonValue) -> FirestoreResult<WriteResult> {
     let update_time = value
         .get("updateTime")
         .and_then(JsonValue::as_str)
@@ -363,8 +351,7 @@ mod tests {
         let left_connection = Arc::new(MultiplexedConnection::new(left_transport));
         let right_connection = Arc::new(MultiplexedConnection::new(right_transport));
         let datastore = StreamingDatastoreImpl::new(Arc::clone(&left_connection));
-        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> =
-            Arc::new(datastore);
+        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> = Arc::new(datastore);
 
         let auth_provider: TokenProviderArc = Arc::new(NoopTokenProvider::default());
         let layer = NetworkLayer::builder(datastore, auth_provider).build();
@@ -374,16 +361,9 @@ mod tests {
 
         let peer_stream = right_connection.open_stream().await.expect("peer stream");
         // Consume handshake request
-        let handshake = peer_stream
-            .next()
-            .await
-            .expect("handshake frame")
-            .expect("payload");
+        let handshake = peer_stream.next().await.expect("handshake frame").expect("payload");
         let request: JsonValue = serde_json::from_slice(&handshake).expect("json");
-        assert_eq!(
-            request.get("database"),
-            Some(&json!("projects/project/databases/(default)"))
-        );
+        assert_eq!(request.get("database"), Some(&json!("projects/project/databases/(default)")));
 
         // Send handshake response
         let handshake_response = json!({
@@ -406,18 +386,11 @@ mod tests {
             .await
             .expect("write mutation");
 
-        let write_request = peer_stream
-            .next()
-            .await
-            .expect("write frame")
-            .expect("payload");
+        let write_request = peer_stream.next().await.expect("write frame").expect("payload");
         let request: JsonValue = serde_json::from_slice(&write_request).expect("json");
         assert!(request.get("streamToken").is_some());
         assert_eq!(
-            request
-                .get("writes")
-                .and_then(JsonValue::as_array)
-                .map(|arr| arr.len()),
+            request.get("writes").and_then(JsonValue::as_array).map(|arr| arr.len()),
             Some(1)
         );
 

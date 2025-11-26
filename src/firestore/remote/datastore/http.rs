@@ -8,15 +8,11 @@ use reqwest::Method;
 use async_trait::async_trait;
 
 use crate::firestore::api::snapshot::{DocumentSnapshot, SnapshotMetadata};
-use crate::firestore::error::{
-    internal_error, invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult,
-};
+use crate::firestore::error::{internal_error, invalid_argument, FirestoreError, FirestoreErrorCode, FirestoreResult};
 use crate::firestore::model::{DatabaseId, DocumentKey, FieldPath};
 use crate::firestore::remote::connection::{Connection, ConnectionBuilder, RequestContext};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
-use crate::firestore::remote::structured_query::{
-    encode_aggregation_body, encode_structured_query,
-};
+use crate::firestore::remote::structured_query::{encode_aggregation_body, encode_structured_query};
 use crate::firestore::value::{FirestoreValue, MapValue};
 use crate::firestore::AggregateDefinition;
 use crate::firestore::FieldTransform;
@@ -186,11 +182,7 @@ impl Datastore for HttpDatastore {
                 SnapshotMetadata::new(false, false),
             ))
         } else {
-            Ok(DocumentSnapshot::new(
-                key.clone(),
-                None,
-                SnapshotMetadata::new(false, false),
-            ))
+            Ok(DocumentSnapshot::new(key.clone(), None, SnapshotMetadata::new(false, false)))
         }
     }
 
@@ -214,10 +206,7 @@ impl Datastore for HttpDatastore {
         let request_path = if query.parent_path().is_empty() {
             "documents:runQuery".to_string()
         } else {
-            format!(
-                "documents/{}:runQuery",
-                query.parent_path().canonical_string()
-            )
+            format!("documents/{}:runQuery", query.parent_path().canonical_string())
         };
 
         let structured_query = encode_structured_query(&self.serializer, query)?;
@@ -253,20 +242,14 @@ impl Datastore for HttpDatastore {
             let name = document
                 .get("name")
                 .and_then(JsonValue::as_str)
-                .ok_or_else(|| {
-                    internal_error("Firestore runQuery document missing 'name' field")
-                })?;
+                .ok_or_else(|| internal_error("Firestore runQuery document missing 'name' field"))?;
             let key = self.serializer.document_key_from_name(name)?;
 
             let map_value = serializer
                 .decode_document_fields(document)?
                 .unwrap_or_else(|| MapValue::new(BTreeMap::new()));
 
-            snapshots.push(DocumentSnapshot::new(
-                key,
-                Some(map_value),
-                SnapshotMetadata::new(false, false),
-            ));
+            snapshots.push(DocumentSnapshot::new(key, Some(map_value), SnapshotMetadata::new(false, false)));
         }
 
         Ok(snapshots)
@@ -280,9 +263,7 @@ impl Datastore for HttpDatastore {
         transforms: Vec<FieldTransform>,
     ) -> FirestoreResult<()> {
         if field_paths.is_empty() && transforms.is_empty() {
-            return Err(invalid_argument(
-                "update_document requires at least one field path",
-            ));
+            return Err(invalid_argument("update_document requires at least one field path"));
         }
 
         self.commit(vec![WriteOperation::Update {
@@ -295,8 +276,7 @@ impl Datastore for HttpDatastore {
     }
 
     async fn delete_document(&self, key: &DocumentKey) -> FirestoreResult<()> {
-        self.commit(vec![WriteOperation::Delete { key: key.clone() }])
-            .await
+        self.commit(vec![WriteOperation::Delete { key: key.clone() }]).await
     }
 
     async fn commit(&self, writes: Vec<WriteOperation>) -> FirestoreResult<()> {
@@ -310,12 +290,7 @@ impl Datastore for HttpDatastore {
             let body = commit_body.clone();
             async move {
                 self.connection
-                    .invoke_json(
-                        Method::POST,
-                        "documents:commit",
-                        Some(body.clone()),
-                        &context,
-                    )
+                    .invoke_json(Method::POST, "documents:commit", Some(body.clone()), &context)
                     .await
                     .map(|_| ())
             }
@@ -335,10 +310,7 @@ impl Datastore for HttpDatastore {
         let request_path = if query.parent_path().is_empty() {
             "documents:runAggregationQuery".to_string()
         } else {
-            format!(
-                "documents/{}:runAggregationQuery",
-                query.parent_path().canonical_string()
-            )
+            format!("documents/{}:runAggregationQuery", query.parent_path().canonical_string())
         };
 
         let body = encode_aggregation_body(&self.serializer, query, aggregations)?;
@@ -357,9 +329,9 @@ impl Datastore for HttpDatastore {
             })
             .await?;
 
-        let entries = response.as_array().ok_or_else(|| {
-            internal_error("Firestore runAggregationQuery response must be an array")
-        })?;
+        let entries = response
+            .as_array()
+            .ok_or_else(|| internal_error("Firestore runAggregationQuery response must be an array"))?;
 
         let mut aggregates = BTreeMap::new();
         for entry in entries {
@@ -370,9 +342,7 @@ impl Datastore for HttpDatastore {
             let fields = result
                 .get("aggregateFields")
                 .and_then(JsonValue::as_object)
-                .ok_or_else(|| {
-                    internal_error("Firestore runAggregationQuery response missing aggregateFields")
-                })?;
+                .ok_or_else(|| internal_error("Firestore runAggregationQuery response missing aggregateFields"))?;
             for (alias, value_json) in fields {
                 let decoded = serializer.decode_value_json(value_json)?;
                 aggregates.insert(alias.clone(), decoded);
@@ -509,9 +479,7 @@ mod tests {
         let server = match panic::catch_unwind(|| start_mock_server()) {
             Ok(server) => server,
             Err(_) => {
-                eprintln!(
-                    "Skipping run_query_fetches_documents: unable to bind httpmock server in this environment."
-                );
+                eprintln!("Skipping run_query_fetches_documents: unable to bind httpmock server in this environment.");
                 return;
             }
         };
@@ -696,10 +664,7 @@ mod tests {
         let query = firestore.collection_group("landmarks").unwrap();
         let definition = query.definition();
 
-        let snapshots = datastore
-            .run_query(&definition)
-            .await
-            .expect("collection group query");
+        let snapshots = datastore.run_query(&definition).await.expect("collection group query");
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].id(), "golden_gate");
     }
@@ -798,11 +763,8 @@ mod tests {
 
         let mut spec = AggregateSpec::new();
         spec.insert("count", AggregateField::count()).unwrap();
-        spec.insert(
-            "total_population",
-            AggregateField::sum("population").unwrap(),
-        )
-        .unwrap();
+        spec.insert("total_population", AggregateField::sum("population").unwrap())
+            .unwrap();
         let aggregates = spec.definitions();
 
         let results = datastore
@@ -888,10 +850,7 @@ mod tests {
 
         let mut stats = BTreeMap::new();
         stats.insert("population".to_string(), FirestoreValue::from_integer(200));
-        let data = MapValue::new(BTreeMap::from([(
-            "stats".to_string(),
-            FirestoreValue::from_map(stats),
-        )]));
+        let data = MapValue::new(BTreeMap::from([("stats".to_string(), FirestoreValue::from_map(stats))]));
 
         let key = DocumentKey::from_string("cities/SF").unwrap();
         let mask = vec![FieldPath::from_dot_separated("stats.population").unwrap()];

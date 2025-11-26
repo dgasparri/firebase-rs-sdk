@@ -20,18 +20,9 @@ pub(crate) fn encode_structured_query(
     }
 
     let mut from_entry = serde_json::Map::new();
-    from_entry.insert(
-        "collectionId".to_string(),
-        json!(definition.collection_id()),
-    );
-    from_entry.insert(
-        "allDescendants".to_string(),
-        json!(definition.collection_group().is_some()),
-    );
-    structured.insert(
-        "from".to_string(),
-        JsonValue::Array(vec![JsonValue::Object(from_entry)]),
-    );
+    from_entry.insert("collectionId".to_string(), json!(definition.collection_id()));
+    from_entry.insert("allDescendants".to_string(), json!(definition.collection_group().is_some()));
+    structured.insert("from".to_string(), JsonValue::Array(vec![JsonValue::Object(from_entry)]));
 
     if !definition.filters().is_empty() {
         let filter_json = encode_filters(serializer, definition.filters());
@@ -57,10 +48,7 @@ pub(crate) fn encode_structured_query(
     }
 
     if let Some(start) = definition.request_start_at() {
-        structured.insert(
-            "startAt".to_string(),
-            encode_cursor(serializer, start, true),
-        );
+        structured.insert("startAt".to_string(), encode_cursor(serializer, start, true));
     }
 
     if let Some(end) = definition.request_end_at() {

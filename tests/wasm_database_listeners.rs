@@ -52,10 +52,7 @@ async fn wasm_value_listener_receives_updates() {
 
     {
         let events = events.lock().unwrap();
-        assert_eq!(
-            events.as_slice(),
-            &[Value::Null, json!("first"), json!("second")]
-        );
+        assert_eq!(events.as_slice(), &[Value::Null, json!("first"), json!("second")]);
     }
 
     registration.detach();

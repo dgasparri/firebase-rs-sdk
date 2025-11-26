@@ -79,10 +79,7 @@ fn replace_template(template: &str, data: &ErrorData) -> String {
         result.push_str(head);
         if let Some(end) = tail.find('}') {
             let key = &tail[2..end];
-            let value = data
-                .get(key)
-                .cloned()
-                .unwrap_or_else(|| format!("<{key}?>"));
+            let value = data.get(key).cloned().unwrap_or_else(|| format!("<{key}?>"));
             result.push_str(&value);
             remainder = &tail[end + 1..];
         } else {
@@ -101,10 +98,7 @@ fn replace_template(template: &str, data: &ErrorData) -> String {
 mod tests {
     use super::*;
 
-    const ERRORS: ErrorMap = &[
-        ("missing", "Missing field: {$field}"),
-        ("unknown", "Unknown error"),
-    ];
+    const ERRORS: ErrorMap = &[("missing", "Missing field: {$field}"), ("unknown", "Unknown error")];
 
     #[test]
     fn create_without_data_uses_template() {

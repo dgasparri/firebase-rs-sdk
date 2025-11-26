@@ -123,10 +123,7 @@ impl WriteBatch {
     }
 
     /// Adds a delete operation for a converted reference.
-    pub fn delete_with_converter<C>(
-        &mut self,
-        reference: &ConvertedDocumentReference<C>,
-    ) -> FirestoreResult<&mut Self>
+    pub fn delete_with_converter<C>(&mut self, reference: &ConvertedDocumentReference<C>) -> FirestoreResult<&mut Self>
     where
         C: FirestoreDataConverter,
     {
@@ -152,9 +149,7 @@ impl WriteBatch {
 
     fn ensure_capacity(&self) -> FirestoreResult<()> {
         if self.writes.len() >= MAX_BATCH_WRITES {
-            return Err(resource_exhausted(
-                "WriteBatch cannot contain more than 500 operations",
-            ));
+            return Err(resource_exhausted("WriteBatch cannot contain more than 500 operations"));
         }
         Ok(())
     }

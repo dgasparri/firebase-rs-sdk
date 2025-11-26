@@ -6,9 +6,7 @@ use serde::Serialize;
 
 use crate::performance::api::Performance;
 use crate::performance::error::{internal_error, PerformanceResult};
-use crate::performance::storage::{
-    SerializableNetworkRequest, SerializableTrace, TraceEnvelope, TraceStoreHandle,
-};
+use crate::performance::storage::{SerializableNetworkRequest, SerializableTrace, TraceEnvelope, TraceStoreHandle};
 use crate::platform::runtime;
 use chrono::Utc;
 
@@ -45,11 +43,7 @@ pub struct TransportController {
 }
 
 impl TransportController {
-    pub fn new(
-        performance: Performance,
-        store: TraceStoreHandle,
-        options: Arc<RwLock<TransportOptions>>,
-    ) -> Arc<Self> {
+    pub fn new(performance: Performance, store: TraceStoreHandle, options: Arc<RwLock<TransportOptions>>) -> Arc<Self> {
         let controller = Arc::new(Self {
             performance,
             store,
@@ -158,9 +152,7 @@ impl TransportController {
         for entry in batch {
             match entry {
                 TraceEnvelope::Trace(trace) => traces.push(SerializableTrace::from(trace)),
-                TraceEnvelope::Network(record) => {
-                    network.push(SerializableNetworkRequest::from(record))
-                }
+                TraceEnvelope::Network(record) => network.push(SerializableNetworkRequest::from(record)),
             }
         }
         Ok(TransportPayload {
@@ -209,10 +201,7 @@ impl HttpTransportClient {
             .await
             .map_err(|err| internal_error(err.to_string()))?;
         if !response.status().is_success() {
-            return Err(internal_error(format!(
-                "transport responded with status {}",
-                response.status()
-            )));
+            return Err(internal_error(format!("transport responded with status {}", response.status())));
         }
         Ok(())
     }

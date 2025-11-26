@@ -14,9 +14,7 @@ use crate::analytics::transport::{
 };
 use crate::app;
 use crate::app::FirebaseApp;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
 
 #[derive(Clone)]
@@ -65,12 +63,7 @@ pub struct AnalyticsEvent {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 trait AnalyticsTransport: Send + Sync {
-    async fn send(
-        &self,
-        client_id: &str,
-        event_name: &str,
-        params: &BTreeMap<String, String>,
-    ) -> AnalyticsResult<()>;
+    async fn send(&self, client_id: &str, event_name: &str, params: &BTreeMap<String, String>) -> AnalyticsResult<()>;
 }
 
 #[derive(Clone)]
@@ -87,15 +80,8 @@ impl MeasurementProtocolTransport {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AnalyticsTransport for MeasurementProtocolTransport {
-    async fn send(
-        &self,
-        client_id: &str,
-        event_name: &str,
-        params: &BTreeMap<String, String>,
-    ) -> AnalyticsResult<()> {
-        self.dispatcher
-            .send_event(client_id, event_name, params)
-            .await
+    async fn send(&self, client_id: &str, event_name: &str, params: &BTreeMap<String, String>) -> AnalyticsResult<()> {
+        self.dispatcher.send_event(client_id, event_name, params).await
     }
 }
 
@@ -116,20 +102,14 @@ impl Analytics {
             collection_enabled: AtomicBool::new(true),
             gtag,
         };
-        Self {
-            inner: Arc::new(inner),
-        }
+        Self { inner: Arc::new(inner) }
     }
 
     pub fn app(&self) -> &FirebaseApp {
         &self.inner.app
     }
 
-    pub async fn log_event(
-        &self,
-        name: &str,
-        params: BTreeMap<String, String>,
-    ) -> AnalyticsResult<()> {
+    pub async fn log_event(&self, name: &str, params: BTreeMap<String, String>) -> AnalyticsResult<()> {
         validate_event_name(name)?;
         let merged_params = self.merge_default_event_params(params);
         let mut events = self.inner.events.lock().unwrap();
@@ -164,10 +144,7 @@ impl Analytics {
     /// The configuration requires a valid measurement ID and API secret generated from the
     /// associated Google Analytics property. If a dispatcher has already been configured it is
     /// replaced.
-    pub fn configure_measurement_protocol(
-        &self,
-        config: MeasurementProtocolConfig,
-    ) -> AnalyticsResult<()> {
+    pub fn configure_measurement_protocol(&self, config: MeasurementProtocolConfig) -> AnalyticsResult<()> {
         let dispatcher = MeasurementProtocolDispatcher::new(config)?;
         let mut transport = self.inner.transport.lock().unwrap();
         *transport = Some(Arc::new(MeasurementProtocolTransport::new(dispatcher)));
@@ -231,10 +208,7 @@ impl Analytics {
             guard.send_page_view = settings.send_page_view;
         }
         self.inner.gtag.inner().set_config(guard.config.clone());
-        self.inner
-            .gtag
-            .inner()
-            .set_send_page_view(guard.send_page_view);
+        self.inner.gtag.inner().set_send_page_view(guard.send_page_view);
     }
 
     async fn dispatch_event(&self, event: &AnalyticsEvent) -> AnalyticsResult<()> {
@@ -246,9 +220,7 @@ impl Analytics {
         if self.inner.collection_enabled.load(Ordering::SeqCst) {
             if let Some(transport) = transport {
                 let client_id = self.inner.client_id.lock().unwrap().clone();
-                transport
-                    .send(&client_id, &event.name, &event.params)
-                    .await?
+                transport.send(&client_id, &event.name, &event.params).await?
             }
         }
 
@@ -261,8 +233,7 @@ impl Analytics {
         endpoint: Option<MeasurementProtocolEndpoint>,
     ) -> AnalyticsResult<()> {
         let config = self.ensure_dynamic_config().await?;
-        let mut mp_config =
-            MeasurementProtocolConfig::new(config.measurement_id().to_string(), api_secret);
+        let mut mp_config = MeasurementProtocolConfig::new(config.measurement_id().to_string(), api_secret);
         if let Some(endpoint) = endpoint {
             mp_config = mp_config.with_endpoint(endpoint);
         }
@@ -295,10 +266,7 @@ impl Analytics {
         Ok(fetched)
     }
 
-    fn merge_default_event_params(
-        &self,
-        mut params: BTreeMap<String, String>,
-    ) -> BTreeMap<String, String> {
+    fn merge_default_event_params(&self, mut params: BTreeMap<String, String>) -> BTreeMap<String, String> {
         let defaults = self.inner.default_event_params.lock().unwrap().clone();
         for (key, value) in defaults {
             params.entry(key).or_insert(value);
@@ -309,9 +277,7 @@ impl Analytics {
     /// Enables or disables analytics collection. When disabled, events are still recorded locally
     /// but are not dispatched through the configured transport.
     pub fn set_collection_enabled(&self, enabled: bool) {
-        self.inner
-            .collection_enabled
-            .store(enabled, Ordering::SeqCst);
+        self.inner.collection_enabled.store(enabled, Ordering::SeqCst);
     }
 
     /// Returns whether analytics collection is currently enabled.
@@ -333,24 +299,20 @@ fn validate_event_name(name: &str) -> AnalyticsResult<()> {
 }
 
 static ANALYTICS_COMPONENT: LazyLock<Component> = LazyLock::new(|| {
-    Component::new(
-        ANALYTICS_COMPONENT_NAME,
-        Arc::new(analytics_factory),
-        ComponentType::Public,
-    )
-    .with_instantiation_mode(InstantiationMode::Lazy)
+    Component::new(ANALYTICS_COMPONENT_NAME, Arc::new(analytics_factory), ComponentType::Public)
+        .with_instantiation_mode(InstantiationMode::Lazy)
 });
 
 fn analytics_factory(
     container: &crate::component::ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: ANALYTICS_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
     let analytics = Analytics::new((*app).clone());
     Ok(Arc::new(analytics) as DynService)
 }
@@ -413,10 +375,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "analytics-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("analytics-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -426,9 +385,7 @@ mod tests {
     }
 
     fn gtag_test_guard() -> std::sync::MutexGuard<'static, ()> {
-        GTAG_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+        GTAG_TEST_MUTEX.lock().unwrap_or_else(|poison| poison.into_inner())
     }
 
     #[derive(Default, Clone)]
@@ -475,16 +432,11 @@ mod tests {
             measurement_id: Some("G-LOCAL123".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let analytics = get_analytics(Some(app)).await.unwrap();
         let mut params = BTreeMap::new();
         params.insert("origin".into(), "test".into());
-        analytics
-            .log_event("test_event", params.clone())
-            .await
-            .unwrap();
+        analytics.log_event("test_event", params.clone()).await.unwrap();
         let events = analytics.recorded_events();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].name, "test_event");
@@ -500,14 +452,9 @@ mod tests {
             measurement_id: Some("G-LOCAL789".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let analytics = get_analytics(Some(app)).await.unwrap();
-        analytics.set_default_event_parameters(BTreeMap::from([(
-            "origin".to_string(),
-            "default".to_string(),
-        )]));
+        analytics.set_default_event_parameters(BTreeMap::from([("origin".to_string(), "default".to_string())]));
 
         let mut params = BTreeMap::new();
         params.insert("value".into(), "42".into());
@@ -528,14 +475,9 @@ mod tests {
             measurement_id: Some("G-LOCAL990".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let analytics = get_analytics(Some(app)).await.unwrap();
-        analytics.set_default_event_parameters(BTreeMap::from([(
-            "value".to_string(),
-            "default".to_string(),
-        )]));
+        analytics.set_default_event_parameters(BTreeMap::from([("value".to_string(), "default".to_string())]));
 
         let mut params = BTreeMap::new();
         params.insert("value".into(), "custom".into());
@@ -556,9 +498,7 @@ mod tests {
             app_id: Some("1:123:web:abc".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let analytics = get_analytics(Some(app)).await.unwrap();
 
         let config = analytics.measurement_config().await.unwrap();
@@ -577,9 +517,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let analytics = get_analytics(Some(app)).await.unwrap();
 
         let err = analytics
@@ -598,9 +536,7 @@ mod tests {
             measurement_id: Some("G-LOCALCOLLECT".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let analytics = get_analytics(Some(app)).await.unwrap();
 
         assert!(analytics.collection_enabled());
@@ -619,15 +555,10 @@ mod tests {
             measurement_id: Some("G-GTAGTEST".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let analytics = get_analytics(Some(app)).await.unwrap();
 
-        analytics.set_default_event_parameters(BTreeMap::from([(
-            "currency".to_string(),
-            "USD".to_string(),
-        )]));
+        analytics.set_default_event_parameters(BTreeMap::from([("currency".to_string(), "USD".to_string())]));
         analytics.set_consent_defaults(ConsentSettings {
             entries: BTreeMap::from([(String::from("ad_storage"), String::from("granted"))]),
         });
@@ -641,22 +572,13 @@ mod tests {
         let state = analytics.gtag_state();
         assert_eq!(state.data_layer_name, "dataLayer");
         assert_eq!(state.measurement_id, Some("G-GTAGTEST".to_string()));
+        assert_eq!(state.default_event_parameters.get("currency"), Some(&"USD".to_string()));
         assert_eq!(
-            state.default_event_parameters.get("currency"),
-            Some(&"USD".to_string())
-        );
-        assert_eq!(
-            state
-                .consent_settings
-                .as_ref()
-                .and_then(|m| m.get("ad_storage")),
+            state.consent_settings.as_ref().and_then(|m| m.get("ad_storage")),
             Some(&"granted".to_string())
         );
         assert_eq!(state.send_page_view, Some(false));
-        assert_eq!(
-            state.config.get("send_page_view"),
-            Some(&"false".to_string())
-        );
+        assert_eq!(state.config.get("send_page_view"), Some(&"false".to_string()));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -669,9 +591,7 @@ mod tests {
             measurement_id: Some("G-TEST123".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let analytics = get_analytics(Some(app)).await.unwrap();
 
         let transport = RecordingTransport::default();
@@ -681,10 +601,7 @@ mod tests {
         let mut params = BTreeMap::new();
         params.insert("engagement_time_msec".to_string(), "100".to_string());
 
-        analytics
-            .log_event("test_event", params.clone())
-            .await
-            .unwrap();
+        analytics.log_event("test_event", params.clone()).await.unwrap();
 
         let events = transport.take_events();
         assert_eq!(events.len(), 1);

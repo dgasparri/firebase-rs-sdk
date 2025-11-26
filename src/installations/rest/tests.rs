@@ -48,10 +48,7 @@ mod native {
         });
 
         let client = RestClient::with_base_url(&server.base_url()).unwrap();
-        let result = client
-            .register_installation(&test_config(), "local-fid")
-            .await
-            .unwrap();
+        let result = client.register_installation(&test_config(), "local-fid").await.unwrap();
 
         assert_eq!(result.fid, "fid");
         assert_eq!(result.refresh_token, "refresh");
@@ -68,10 +65,7 @@ mod native {
             when.method(POST)
                 .path("/projects/project/installations/fid/authTokens:generate")
                 .header("x-goog-api-key", "key")
-                .header(
-                    "authorization",
-                    format!("{} {}", INTERNAL_AUTH_VERSION, "refresh"),
-                );
+                .header("authorization", format!("{} {}", INTERNAL_AUTH_VERSION, "refresh"));
             then.status(200)
                 .header("content-type", "application/json")
                 .json_body(json!({
@@ -100,10 +94,7 @@ mod native {
             when.method(DELETE)
                 .path("/projects/project/installations/fid")
                 .header("x-goog-api-key", "key")
-                .header(
-                    "authorization",
-                    format!("{} {}", INTERNAL_AUTH_VERSION, "refresh"),
-                );
+                .header("authorization", format!("{} {}", INTERNAL_AUTH_VERSION, "refresh"));
             then.status(200);
         });
 
@@ -129,10 +120,7 @@ mod native {
         });
 
         let client = RestClient::with_base_url(&server.base_url()).unwrap();
-        let err = client
-            .register_installation(&test_config(), "fid")
-            .await
-            .unwrap_err();
+        let err = client.register_installation(&test_config(), "fid").await.unwrap_err();
 
         assert_eq!(mock.hits(), 2);
         assert!(matches!(err.code, InstallationsErrorCode::RequestFailed));

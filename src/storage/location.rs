@@ -42,10 +42,7 @@ impl Location {
     }
 
     pub fn bucket_only_server_url(&self) -> String {
-        format!(
-            "/b/{}/o",
-            utf8_percent_encode(&self.bucket, NON_ALPHANUMERIC)
-        )
+        format!("/b/{}/o", utf8_percent_encode(&self.bucket, NON_ALPHANUMERIC))
     }
 
     pub fn from_bucket_spec(bucket_spec: &str, host: &str) -> StorageResult<Self> {
@@ -83,8 +80,7 @@ impl Location {
         let host = parsed.host_str().ok_or_else(|| invalid_url(url))?;
         let is_default_host = configured_host == DEFAULT_HOST;
         let host_matches = host.eq_ignore_ascii_case(configured_host)
-            || (is_default_host
-                && matches!(host, "storage.googleapis.com" | "storage.cloud.google.com"));
+            || (is_default_host && matches!(host, "storage.googleapis.com" | "storage.cloud.google.com"));
         if !host_matches {
             return Err(invalid_url(url));
         }
@@ -157,10 +153,7 @@ mod tests {
 
     #[test]
     fn parses_firebase_storage_url() {
-        let url = format!(
-            "https://{}/v0/b/my-bucket/o/path%2Fto%2Fobject",
-            DEFAULT_HOST
-        );
+        let url = format!("https://{}/v0/b/my-bucket/o/path%2Fto%2Fobject", DEFAULT_HOST);
         let location = Location::from_url(&url, DEFAULT_HOST).unwrap();
         assert_eq!(location.bucket(), "my-bucket");
         assert_eq!(location.path(), "path/to/object");

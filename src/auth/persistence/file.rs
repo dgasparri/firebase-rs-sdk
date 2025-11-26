@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::auth::error::{AuthError, AuthResult};
-use crate::auth::persistence::{
-    AuthPersistence, PersistedAuthState, PersistenceListener, PersistenceSubscription,
-};
+use crate::auth::persistence::{AuthPersistence, PersistedAuthState, PersistenceListener, PersistenceSubscription};
 use serde_json::{from_str as deserialize_state, to_string as serialize_state};
 
 #[derive(Clone)]
@@ -17,9 +15,7 @@ pub struct FilePersistence {
 
 impl std::fmt::Debug for FilePersistence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FilePersistence")
-            .field("path", &self.path)
-            .finish()
+        f.debug_struct("FilePersistence").field("path", &self.path).finish()
     }
 }
 
@@ -44,34 +40,24 @@ impl AuthPersistence for FilePersistence {
         match &state {
             Some(state) => {
                 let serialized = serialize_state(state).map_err(|err| {
-                    AuthError::InvalidCredential(format!(
-                        "Failed to serialize auth state for persistence: {err}"
-                    ))
+                    AuthError::InvalidCredential(format!("Failed to serialize auth state for persistence: {err}"))
                 })?;
                 if let Some(parent) = self.path.parent() {
                     std::fs::create_dir_all(parent).map_err(|err| {
-                        AuthError::InvalidCredential(format!(
-                            "Failed to create persistence directory: {err}"
-                        ))
+                        AuthError::InvalidCredential(format!("Failed to create persistence directory: {err}"))
                     })?;
                 }
                 let mut file = File::create(&*self.path).map_err(|err| {
-                    AuthError::InvalidCredential(format!(
-                        "Failed to create auth persistence file: {err}"
-                    ))
+                    AuthError::InvalidCredential(format!("Failed to create auth persistence file: {err}"))
                 })?;
                 file.write_all(serialized.as_bytes()).map_err(|err| {
-                    AuthError::InvalidCredential(format!(
-                        "Failed to write auth persistence file: {err}"
-                    ))
+                    AuthError::InvalidCredential(format!("Failed to write auth persistence file: {err}"))
                 })?;
             }
             None => {
                 if self.path.exists() {
                     remove_file(&*self.path).map_err(|err| {
-                        AuthError::InvalidCredential(format!(
-                            "Failed to remove auth persistence file: {err}"
-                        ))
+                        AuthError::InvalidCredential(format!("Failed to remove auth persistence file: {err}"))
                     })?;
                 }
             }
@@ -86,21 +72,18 @@ impl AuthPersistence for FilePersistence {
             return Ok(None);
         }
 
-        let mut file = File::open(&*self.path).map_err(|err| {
-            AuthError::InvalidCredential(format!("Failed to open auth persistence file: {err}"))
-        })?;
+        let mut file = File::open(&*self.path)
+            .map_err(|err| AuthError::InvalidCredential(format!("Failed to open auth persistence file: {err}")))?;
         let mut buffer = String::new();
-        file.read_to_string(&mut buffer).map_err(|err| {
-            AuthError::InvalidCredential(format!("Failed to read auth persistence file: {err}"))
-        })?;
+        file.read_to_string(&mut buffer)
+            .map_err(|err| AuthError::InvalidCredential(format!("Failed to read auth persistence file: {err}")))?;
 
         if buffer.is_empty() {
             return Ok(None);
         }
 
-        let state = deserialize_state(&buffer).map_err(|err| {
-            AuthError::InvalidCredential(format!("Failed to parse auth persistence payload: {err}"))
-        })?;
+        let state = deserialize_state(&buffer)
+            .map_err(|err| AuthError::InvalidCredential(format!("Failed to parse auth persistence payload: {err}")))?;
         Ok(Some(state))
     }
 
@@ -126,11 +109,7 @@ mod tests {
 
     fn temp_path(name: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
-        path.push(format!(
-            "firebase-auth-test-{}-{}.json",
-            name,
-            std::process::id()
-        ));
+        path.push(format!("firebase-auth-test-{}-{}.json", name, std::process::id()));
         path
     }
 

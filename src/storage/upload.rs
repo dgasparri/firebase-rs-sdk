@@ -57,11 +57,7 @@ pub struct UploadTask {
 }
 
 impl UploadTask {
-    pub(crate) fn new(
-        reference: StorageReference,
-        data: Vec<u8>,
-        metadata: Option<UploadMetadata>,
-    ) -> Self {
+    pub(crate) fn new(reference: StorageReference, data: Vec<u8>, metadata: Option<UploadMetadata>) -> Self {
         let total_bytes = data.len() as u64;
         let resumable = total_bytes as usize > RESUMABLE_UPLOAD_CHUNK_SIZE;
         Self {
@@ -112,10 +108,7 @@ impl UploadTask {
     /// Uploads the next chunk and invokes the provided progress callback.
     ///
     /// Returns `Ok(Some(metadata))` when the upload finishes and the remote metadata is available.
-    pub async fn upload_next_with_progress<F>(
-        &mut self,
-        mut progress: F,
-    ) -> StorageResult<Option<ObjectMetadata>>
+    pub async fn upload_next_with_progress<F>(&mut self, mut progress: F) -> StorageResult<Option<ObjectMetadata>>
     where
         F: FnMut(UploadProgress),
     {
@@ -196,10 +189,7 @@ impl UploadTask {
     }
 
     /// Runs the task to completion while notifying `progress` for each chunk.
-    pub async fn run_to_completion_with_progress<F>(
-        mut self,
-        mut progress: F,
-    ) -> StorageResult<ObjectMetadata>
+    pub async fn run_to_completion_with_progress<F>(mut self, mut progress: F) -> StorageResult<ObjectMetadata>
     where
         F: FnMut(UploadProgress),
     {
@@ -232,10 +222,7 @@ impl UploadTask {
         Ok(())
     }
 
-    async fn upload_multipart<F>(
-        &mut self,
-        mut progress: F,
-    ) -> StorageResult<Option<ObjectMetadata>>
+    async fn upload_multipart<F>(&mut self, mut progress: F) -> StorageResult<Option<ObjectMetadata>>
     where
         F: FnMut(UploadProgress),
     {
@@ -245,12 +232,8 @@ impl UploadTask {
 
         self.state = UploadTaskState::Running;
         let storage = self.reference.storage();
-        let request = multipart_upload_request(
-            &storage,
-            self.reference.location(),
-            self.data.clone(),
-            self.metadata.clone(),
-        );
+        let request =
+            multipart_upload_request(&storage, self.reference.location(), self.data.clone(), self.metadata.clone());
 
         match storage.run_upload_request(request).await {
             Ok(metadata) => {
@@ -265,10 +248,7 @@ impl UploadTask {
     }
 
     fn current_chunk_size(&self) -> usize {
-        cmp::min(
-            RESUMABLE_UPLOAD_CHUNK_SIZE * self.chunk_multiplier,
-            MAX_RESUMABLE_CHUNK_SIZE,
-        )
+        cmp::min(RESUMABLE_UPLOAD_CHUNK_SIZE * self.chunk_multiplier, MAX_RESUMABLE_CHUNK_SIZE)
     }
 
     fn bump_multiplier(&mut self) {

@@ -29,9 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let email = "alice@example.com";
     let password = "correct-horse-battery-staple";
 
-    let credential = auth
-        .sign_in_with_email_and_password(email, password)
-        .await?;
+    let credential = auth.sign_in_with_email_and_password(email, password).await?;
     println!(
         "Signed in as {} (provider: {:?})",
         credential.user.uid(),
@@ -39,10 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     if let Some(current_user) = auth.current_user() {
-        println!(
-            "Current user email: {:?}",
-            current_user.info().email.clone()
-        );
+        println!("Current user email: {:?}", current_user.info().email.clone());
     }
 
     // Sign the user out and clean up the app instance when finished.

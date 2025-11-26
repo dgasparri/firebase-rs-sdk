@@ -5,9 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app;
 use crate::app::FirebaseApp;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
 use crate::installations::get_installations;
 use crate::remote_config::constants::{
@@ -19,16 +17,10 @@ use crate::remote_config::error::{internal_error, invalid_argument, RemoteConfig
 use crate::remote_config::fetch::HttpRemoteConfigFetchClient;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
 use crate::remote_config::fetch::WasmRemoteConfigFetchClient;
-use crate::remote_config::fetch::{
-    FetchRequest, InstallationsTokenProvider, NoopFetchClient, RemoteConfigFetchClient,
-};
+use crate::remote_config::fetch::{FetchRequest, InstallationsTokenProvider, NoopFetchClient, RemoteConfigFetchClient};
 use crate::remote_config::settings::{RemoteConfigSettings, RemoteConfigSettingsUpdate};
 pub use crate::remote_config::storage::CustomSignals;
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::remote_config::storage::IndexedDbRemoteConfigStorage;
 use crate::remote_config::storage::{
     FetchStatus, InMemoryRemoteConfigStorage, RemoteConfigStorage, RemoteConfigStorageCache,
@@ -75,14 +67,9 @@ static REMOTE_CONFIG_CACHE: LazyLock<Mutex<HashMap<String, Arc<RemoteConfig>>>> 
 
 impl RemoteConfig {
     fn new(app: FirebaseApp) -> Self {
-        #[cfg(all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        ))]
+        #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
         {
-            let storage: Arc<dyn RemoteConfigStorage> =
-                Arc::new(IndexedDbRemoteConfigStorage::new());
+            let storage: Arc<dyn RemoteConfigStorage> = Arc::new(IndexedDbRemoteConfigStorage::new());
             return Self::with_storage(app, storage);
         }
         #[allow(unreachable_code)]
@@ -154,10 +141,7 @@ impl RemoteConfig {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn set_config_settings(
-        &self,
-        update: RemoteConfigSettingsUpdate,
-    ) -> RemoteConfigResult<()> {
+    pub fn set_config_settings(&self, update: RemoteConfigSettingsUpdate) -> RemoteConfigResult<()> {
         if update.is_empty() {
             return Ok(());
         }
@@ -187,15 +171,9 @@ impl RemoteConfig {
         let now = current_timestamp_millis();
         let settings = self.inner.settings.lock().unwrap().clone();
 
-        if let Some(last_fetch) = self
-            .inner
-            .storage_cache
-            .last_successful_fetch_timestamp_millis()
-        {
+        if let Some(last_fetch) = self.inner.storage_cache.last_successful_fetch_timestamp_millis() {
             let elapsed = now.saturating_sub(last_fetch);
-            if settings.minimum_fetch_interval_millis() > 0
-                && elapsed < settings.minimum_fetch_interval_millis()
-            {
+            if settings.minimum_fetch_interval_millis() > 0 && elapsed < settings.minimum_fetch_interval_millis() {
                 self.inner
                     .storage_cache
                     .set_last_fetch_status(FetchStatus::Throttle)
@@ -240,8 +218,7 @@ impl RemoteConfig {
                     *fetched_etag = etag;
                 }
                 {
-                    let mut fetched_template_version =
-                        self.inner.fetched_template_version.lock().unwrap();
+                    let mut fetched_template_version = self.inner.fetched_template_version.lock().unwrap();
                     *fetched_template_version = response.template_version;
                 }
                 *self.inner.activated.lock().unwrap() = false;
@@ -271,10 +248,7 @@ impl RemoteConfig {
                     .storage_cache
                     .set_last_fetch_status(FetchStatus::Failure)
                     .await?;
-                Err(internal_error(format!(
-                    "fetch returned unexpected status {}",
-                    status
-                )))
+                Err(internal_error(format!("fetch returned unexpected status {}", status)))
             }
         }
     }
@@ -302,10 +276,7 @@ impl RemoteConfig {
             drop(fetched_template_version);
 
             self.inner.storage_cache.set_active_config(config).await?;
-            self.inner
-                .storage_cache
-                .set_active_config_etag(etag)
-                .await?;
+            self.inner.storage_cache.set_active_config_etag(etag).await?;
             self.inner
                 .storage_cache
                 .set_active_config_template_version(template_version)
@@ -378,16 +349,10 @@ impl RemoteConfig {
 
         let mut all = HashMap::new();
         for (key, value) in defaults {
-            all.insert(
-                key,
-                RemoteConfigValue::new(RemoteConfigValueSource::Default, value),
-            );
+            all.insert(key, RemoteConfigValue::new(RemoteConfigValueSource::Default, value));
         }
         for (key, value) in values {
-            all.insert(
-                key,
-                RemoteConfigValue::new(RemoteConfigValueSource::Remote, value),
-            );
+            all.insert(key, RemoteConfigValue::new(RemoteConfigValueSource::Remote, value));
         }
         all
     }
@@ -462,10 +427,7 @@ fn default_fetch_client(app: &FirebaseApp) -> Arc<dyn RemoteConfigFetchClient> {
     match build_fetch_client(app) {
         Ok(client) => client,
         Err(err) => {
-            crate::app::LOGGER.warn(format!(
-                "remote-config: falling back to noop fetch client: {}",
-                err
-            ));
+            crate::app::LOGGER.warn(format!("remote-config: falling back to noop fetch client: {}", err));
             Arc::new(NoopFetchClient::default())
         }
     }
@@ -487,14 +449,12 @@ fn build_fetch_client(app: &FirebaseApp) -> RemoteConfigResult<Arc<dyn RemoteCon
         .clone()
         .ok_or_else(|| internal_error("Remote Config requires appId in FirebaseOptions"))?;
     let namespace = project_id.clone();
-    let language_code = std::env::var("FIREBASE_REMOTE_CONFIG_LANGUAGE_CODE")
-        .unwrap_or_else(|_| "en-US".to_string());
+    let language_code = std::env::var("FIREBASE_REMOTE_CONFIG_LANGUAGE_CODE").unwrap_or_else(|_| "en-US".to_string());
     let sdk_version = format!("w:{}", crate::app::SDK_VERSION);
-    let base_url = std::env::var("FIREBASE_REMOTE_CONFIG_API_URL")
-        .unwrap_or_else(|_| REMOTE_CONFIG_API_URL.to_string());
+    let base_url =
+        std::env::var("FIREBASE_REMOTE_CONFIG_API_URL").unwrap_or_else(|_| REMOTE_CONFIG_API_URL.to_string());
 
-    let installations =
-        get_installations(Some(app.clone())).map_err(|err| internal_error(err.to_string()))?;
+    let installations = get_installations(Some(app.clone())).map_err(|err| internal_error(err.to_string()))?;
 
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -569,12 +529,12 @@ fn remote_config_factory(
     container: &crate::component::ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: REMOTE_CONFIG_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
 
     let rc = RemoteConfig::new((*app).clone());
     Ok(Arc::new(rc) as DynService)
@@ -650,14 +610,11 @@ mod tests {
     use super::*;
     use crate::app::initialize_app;
     use crate::app::{FirebaseApp, FirebaseAppSettings, FirebaseOptions};
-    use crate::remote_config::constants::{
-        RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH, RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH,
-    };
+    use crate::remote_config::constants::{RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH, RC_CUSTOM_SIGNAL_VALUE_MAX_LENGTH};
     use crate::remote_config::error::{internal_error, RemoteConfigErrorCode};
     use crate::remote_config::fetch::{FetchRequest, FetchResponse, RemoteConfigFetchClient};
     use crate::remote_config::settings::{
-        RemoteConfigSettingsUpdate, DEFAULT_FETCH_TIMEOUT_MILLIS,
-        DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS,
+        RemoteConfigSettingsUpdate, DEFAULT_FETCH_TIMEOUT_MILLIS, DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS,
     };
     #[cfg(not(target_arch = "wasm32"))]
     use crate::remote_config::storage::FileRemoteConfigStorage;
@@ -713,10 +670,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "remote-config-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("remote-config-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -729,10 +683,7 @@ mod tests {
         };
         let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
-        rc.set_defaults(HashMap::from([(
-            String::from("welcome"),
-            String::from("hello"),
-        )]));
+        rc.set_defaults(HashMap::from([(String::from("welcome"), String::from("hello"))]));
         run_fetch(&rc).unwrap();
         assert!(run_activate(&rc).unwrap());
         assert_eq!(rc.get_string("welcome"), "hello");
@@ -762,10 +713,7 @@ mod tests {
         };
         let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
-        rc.set_defaults(HashMap::from([(
-            String::from("feature"),
-            String::from("true"),
-        )]));
+        rc.set_defaults(HashMap::from([(String::from("feature"), String::from("true"))]));
 
         let value = rc.get_value("feature");
         assert_eq!(value.source(), RemoteConfigValueSource::Default);
@@ -780,10 +728,7 @@ mod tests {
         };
         let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
-        rc.set_defaults(HashMap::from([(
-            String::from("feature"),
-            String::from("true"),
-        )]));
+        rc.set_defaults(HashMap::from([(String::from("feature"), String::from("true"))]));
         run_fetch(&rc).unwrap();
         run_activate(&rc).unwrap();
 
@@ -800,10 +745,7 @@ mod tests {
         };
         let app = block_on_future(initialize_app(options, Some(unique_settings()))).unwrap();
         let rc = remote_config(app);
-        rc.set_defaults(HashMap::from([(
-            String::from("rate"),
-            String::from("not-a-number"),
-        )]));
+        rc.set_defaults(HashMap::from([(String::from("rate"), String::from("not-a-number"))]));
 
         assert_eq!(rc.get_number("rate"), 0.0);
         assert_eq!(rc.get_number("missing"), 0.0);
@@ -863,14 +805,8 @@ mod tests {
         let rc = remote_config(app);
 
         let settings = rc.settings();
-        assert_eq!(
-            settings.fetch_timeout_millis(),
-            DEFAULT_FETCH_TIMEOUT_MILLIS
-        );
-        assert_eq!(
-            settings.minimum_fetch_interval_millis(),
-            DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS
-        );
+        assert_eq!(settings.fetch_timeout_millis(), DEFAULT_FETCH_TIMEOUT_MILLIS);
+        assert_eq!(settings.minimum_fetch_interval_millis(), DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS);
     }
 
     #[test]
@@ -955,10 +891,7 @@ mod tests {
         let response = FetchResponse {
             status: 200,
             etag: Some(String::from("etag-1")),
-            config: Some(HashMap::from([(
-                String::from("feature"),
-                String::from("remote"),
-            )])),
+            config: Some(HashMap::from([(String::from("feature"), String::from("remote"))])),
             template_version: Some(7),
         };
 
@@ -996,10 +929,7 @@ mod tests {
         run_set_custom_signals(&rc, removal).unwrap();
 
         let signals = rc.custom_signals().expect("signals stored");
-        assert_eq!(
-            signals.get("score"),
-            Some(&JsonValue::String(String::from("42")))
-        );
+        assert_eq!(signals.get("score"), Some(&JsonValue::String(String::from("42"))));
         assert!(!signals.contains_key("flag"));
     }
 
@@ -1016,10 +946,7 @@ mod tests {
         invalid.insert("x".repeat(RC_CUSTOM_SIGNAL_KEY_MAX_LENGTH + 1), json!(true));
 
         let err = run_set_custom_signals(&rc, invalid).unwrap_err();
-        assert_eq!(
-            err.code_str(),
-            RemoteConfigErrorCode::InvalidArgument.as_str()
-        );
+        assert_eq!(err.code_str(), RemoteConfigErrorCode::InvalidArgument.as_str());
     }
 
     #[test]
@@ -1038,10 +965,7 @@ mod tests {
         );
 
         let err = run_set_custom_signals(&rc, invalid).unwrap_err();
-        assert_eq!(
-            err.code_str(),
-            RemoteConfigErrorCode::InvalidArgument.as_str()
-        );
+        assert_eq!(err.code_str(), RemoteConfigErrorCode::InvalidArgument.as_str());
     }
 
     #[test]
@@ -1109,10 +1033,7 @@ mod tests {
         all(feature = "wasm-web", target_arch = "wasm32"),
         async_trait::async_trait(?Send)
     )]
-    #[cfg_attr(
-        not(all(feature = "wasm-web", target_arch = "wasm32")),
-        async_trait::async_trait
-    )]
+    #[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
     impl RemoteConfigFetchClient for StubFetchClient {
         async fn fetch(&self, _request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
             self.response
@@ -1127,10 +1048,7 @@ mod tests {
         all(feature = "wasm-web", target_arch = "wasm32"),
         async_trait::async_trait(?Send)
     )]
-    #[cfg_attr(
-        not(all(feature = "wasm-web", target_arch = "wasm32")),
-        async_trait::async_trait
-    )]
+    #[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
     impl RemoteConfigFetchClient for RecordingFetchClient {
         async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
             *self.request.lock().unwrap() = Some(request.clone());
@@ -1160,10 +1078,7 @@ mod tests {
         rc.set_fetch_client(Arc::new(StubFetchClient::new(FetchResponse {
             status: 200,
             etag: Some(String::from("persist-etag")),
-            config: Some(HashMap::from([(
-                String::from("motd"),
-                String::from("hello"),
-            )])),
+            config: Some(HashMap::from([(String::from("motd"), String::from("hello"))])),
             template_version: Some(5),
         })));
 

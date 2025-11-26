@@ -12,62 +12,33 @@ use rand::{thread_rng, Rng};
 
 use crate::app;
 use crate::app::FirebaseApp;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::installations::extract_app_config;
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::installations::{get_installations_internal, InstallationEntryData};
 use crate::messaging::constants::MESSAGING_COMPONENT_NAME;
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use crate::messaging::error::invalid_argument;
 use crate::messaging::error::{
-    available_in_service_worker, available_in_window, internal_error, token_deletion_failed,
-    MessagingResult,
+    available_in_service_worker, available_in_window, internal_error, token_deletion_failed, MessagingResult,
 };
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
-use crate::messaging::fcm_rest::{
-    FcmClient, FcmRegistrationRequest, FcmSubscription, FcmUpdateRequest,
-};
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+use crate::messaging::fcm_rest::{FcmClient, FcmRegistrationRequest, FcmSubscription, FcmUpdateRequest};
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::messaging::token_store::{self, InstallationInfo, SubscriptionInfo, TokenRecord};
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use crate::messaging::token_store::{self, InstallationInfo, TokenRecord};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::types::MessagePayload;
 use crate::messaging::types::{MessageHandler, Unsubscribe};
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use web_sys::NotificationPermission;
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::messaging::constants::DEFAULT_VAPID_KEY;
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::messaging::error::{permission_blocked, unsupported_browser};
@@ -101,9 +72,7 @@ struct HandlerEntry {
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 impl std::fmt::Debug for HandlerEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HandlerEntry")
-            .field("id", &self.id)
-            .finish()
+        f.debug_struct("HandlerEntry").field("id", &self.id).finish()
     }
 }
 
@@ -133,9 +102,7 @@ impl Messaging {
             #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
             on_background_message_handler: Mutex::new(None),
         };
-        Self {
-            inner: Arc::new(inner),
-        }
+        Self { inner: Arc::new(inner) }
     }
 
     pub fn app(&self) -> &FirebaseApp {
@@ -211,8 +178,8 @@ fn generate_token() -> String {
 async fn request_permission_impl() -> MessagingResult<PermissionState> {
     use crate::messaging::support::is_supported;
 
-    let window = web_sys::window()
-        .ok_or_else(|| available_in_window("request_permission must run in a Window context"))?;
+    let window =
+        web_sys::window().ok_or_else(|| available_in_window("request_permission must run in a Window context"))?;
 
     // Access navigator to match the JS guard (throws if navigator is missing).
     let _navigator = window.navigator();
@@ -248,9 +215,9 @@ async fn request_permission_impl() -> MessagingResult<PermissionState> {
 
     match permission_state {
         PermissionState::Granted => Ok(PermissionState::Granted),
-        PermissionState::Denied | PermissionState::Default => Err(permission_blocked(
-            "Notification permission not granted by the user.",
-        )),
+        PermissionState::Denied | PermissionState::Default => {
+            Err(permission_blocked("Notification permission not granted by the user."))
+        }
     }
 }
 
@@ -277,11 +244,7 @@ fn format_js_error(operation: &str, err: JsValue) -> String {
     if let Some(message) = err.as_string() {
         format!("{operation} failed: {message}")
     } else if let Some(exception) = err.dyn_ref::<web_sys::DomException>() {
-        format!(
-            "{operation} failed: {}: {}",
-            exception.name(),
-            exception.message()
-        )
+        format!("{operation} failed: {}: {}", exception.name(), exception.message())
     } else {
         format!("{operation} failed: {:?}", err)
     }
@@ -293,12 +256,8 @@ async fn request_permission_impl() -> MessagingResult<PermissionState> {
 }
 
 static MESSAGING_COMPONENT: LazyLock<()> = LazyLock::new(|| {
-    let component = Component::new(
-        MESSAGING_COMPONENT_NAME,
-        Arc::new(messaging_factory),
-        ComponentType::Public,
-    )
-    .with_instantiation_mode(InstantiationMode::Lazy);
+    let component = Component::new(MESSAGING_COMPONENT_NAME, Arc::new(messaging_factory), ComponentType::Public)
+        .with_instantiation_mode(InstantiationMode::Lazy);
     let _ = app::register_component(component);
 });
 
@@ -306,12 +265,12 @@ fn messaging_factory(
     container: &crate::component::ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: MESSAGING_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
     let messaging = Messaging::new((*app).clone());
     Ok(Arc::new(messaging) as DynService)
 }
@@ -363,9 +322,7 @@ fn app_store_key(messaging: &Messaging) -> String {
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 pub fn on_message(messaging: &Messaging, handler: MessageHandler) -> MessagingResult<Unsubscribe> {
     if web_sys::window().is_none() {
-        return Err(available_in_window(
-            "on_message must be called in a Window context",
-        ));
+        return Err(available_in_window("on_message must be called in a Window context"));
     }
 
     let id = NEXT_ON_MESSAGE_ID.fetch_add(1, Ordering::SeqCst);
@@ -384,20 +341,14 @@ pub fn on_message(messaging: &Messaging, handler: MessageHandler) -> MessagingRe
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-pub fn on_message(
-    _messaging: &Messaging,
-    _handler: MessageHandler,
-) -> MessagingResult<Unsubscribe> {
+pub fn on_message(_messaging: &Messaging, _handler: MessageHandler) -> MessagingResult<Unsubscribe> {
     Err(available_in_window(
         "on_message must be called in a Window context (wasm target only)",
     ))
 }
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-pub fn on_background_message(
-    messaging: &Messaging,
-    handler: MessageHandler,
-) -> MessagingResult<Unsubscribe> {
+pub fn on_background_message(messaging: &Messaging, handler: MessageHandler) -> MessagingResult<Unsubscribe> {
     if web_sys::window().is_some() {
         return Err(available_in_service_worker(
             "on_background_message must be called in a Service Worker context",
@@ -407,20 +358,12 @@ pub fn on_background_message(
     let id = NEXT_ON_BACKGROUND_ID.fetch_add(1, Ordering::SeqCst);
     let messaging_clone = messaging.clone();
     {
-        let mut guard = messaging_clone
-            .inner
-            .on_background_message_handler
-            .lock()
-            .unwrap();
+        let mut guard = messaging_clone.inner.on_background_message_handler.lock().unwrap();
         *guard = Some(HandlerEntry { id, handler });
     }
 
     Ok(Box::new(move || {
-        let mut guard = messaging_clone
-            .inner
-            .on_background_message_handler
-            .lock()
-            .unwrap();
+        let mut guard = messaging_clone.inner.on_background_message_handler.lock().unwrap();
         if guard.as_ref().map(|entry| entry.id) == Some(id) {
             *guard = None;
         }
@@ -428,20 +371,14 @@ pub fn on_background_message(
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-pub fn on_background_message(
-    _messaging: &Messaging,
-    _handler: MessageHandler,
-) -> MessagingResult<Unsubscribe> {
+pub fn on_background_message(_messaging: &Messaging, _handler: MessageHandler) -> MessagingResult<Unsubscribe> {
     Err(available_in_service_worker(
         "on_background_message must be called in a Service Worker context (wasm target only)",
     ))
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-async fn get_token_native(
-    messaging: &Messaging,
-    vapid_key: Option<&str>,
-) -> MessagingResult<String> {
+async fn get_token_native(messaging: &Messaging, vapid_key: Option<&str>) -> MessagingResult<String> {
     if let Some(key) = vapid_key {
         if key.trim().is_empty() {
             return Err(invalid_argument("VAPID key must not be empty"));
@@ -476,11 +413,7 @@ async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> MessagingResult<String> {
     use crate::messaging::subscription::PushSubscriptionManager;
     use crate::messaging::support::is_supported;
@@ -495,8 +428,7 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
     let vapid_key = vapid_key
         .filter(|key| !key.trim().is_empty())
         .unwrap_or(DEFAULT_VAPID_KEY);
-    let app_config =
-        extract_app_config(messaging.app()).map_err(|err| internal_error(err.to_string()))?;
+    let app_config = extract_app_config(messaging.app()).map_err(|err| internal_error(err.to_string()))?;
     let fcm_client = FcmClient::new()?;
 
     let mut sw_manager = ServiceWorkerManager::new();
@@ -536,8 +468,7 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
                     return Ok(record.token);
                 }
 
-                let installation_info =
-                    fetch_installation_info(messaging, installation_needs_refresh).await?;
+                let installation_info = fetch_installation_info(messaging, installation_needs_refresh).await?;
                 let update_request = FcmUpdateRequest {
                     registration_token: &record.token,
                     registration: FcmRegistrationRequest {
@@ -602,11 +533,7 @@ async fn get_token_wasm(_: &Messaging, _: Option<&str>) -> MessagingResult<Strin
     ))
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
     use crate::messaging::subscription::PushSubscriptionManager;
     use crate::messaging::sw_manager::ServiceWorkerManager;
@@ -617,8 +544,7 @@ async fn delete_token_impl(messaging: &Messaging) -> MessagingResult<bool> {
         None => return Err(token_deletion_failed("No token stored for this app")),
     };
 
-    let app_config =
-        extract_app_config(messaging.app()).map_err(|err| internal_error(err.to_string()))?;
+    let app_config = extract_app_config(messaging.app()).map_err(|err| internal_error(err.to_string()))?;
     let installation_info = fetch_installation_info(messaging, true).await?;
     let fcm_client = FcmClient::new()?;
 
@@ -676,15 +602,8 @@ async fn delete_token_impl(_: &Messaging) -> MessagingResult<bool> {
     ))
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
-async fn fetch_installation_info(
-    messaging: &Messaging,
-    force_refresh: bool,
-) -> MessagingResult<InstallationInfo> {
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+async fn fetch_installation_info(messaging: &Messaging, force_refresh: bool) -> MessagingResult<InstallationInfo> {
     let internal = get_installations_internal(Some(messaging.inner.app.clone()))
         .map_err(|err| internal_error(format!("Failed to initialise installations: {err}")))?;
 
@@ -698,9 +617,10 @@ async fn fetch_installation_info(
         .map_err(|err| internal_error(format!("Failed to load installation entry: {err}")))?;
 
     if force_refresh || auth_token.is_expired() {
-        auth_token = internal.get_token(true).await.map_err(|err| {
-            internal_error(format!("Failed to refresh installation token: {err}"))
-        })?;
+        auth_token = internal
+            .get_token(true)
+            .await
+            .map_err(|err| internal_error(format!("Failed to refresh installation token: {err}")))?;
     }
 
     let expires_at_ms = system_time_to_millis(auth_token.expires_at)?;
@@ -713,11 +633,7 @@ async fn fetch_installation_info(
     })
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 fn system_time_to_millis(time: SystemTime) -> MessagingResult<u64> {
     time.duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
@@ -768,10 +684,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "messaging-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("messaging-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }

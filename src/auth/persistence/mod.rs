@@ -121,9 +121,7 @@ impl AuthPersistence for InMemoryPersistence {
         Ok(PersistenceSubscription::new(move || {
             if let Some(state) = state.upgrade() {
                 if let Ok(mut guard) = state.lock() {
-                    guard
-                        .listeners
-                        .retain(|(listener_id, _)| *listener_id != id);
+                    guard.listeners.retain(|(listener_id, _)| *listener_id != id);
                 }
             }
         }))
@@ -132,8 +130,7 @@ impl AuthPersistence for InMemoryPersistence {
 
 type DynSetFn = dyn Fn(Option<PersistedAuthState>) -> AuthResult<()> + Send + Sync;
 type DynGetFn = dyn Fn() -> AuthResult<Option<PersistedAuthState>> + Send + Sync;
-type DynSubscribeFn =
-    dyn Fn(PersistenceListener) -> AuthResult<PersistenceSubscription> + Send + Sync;
+type DynSubscribeFn = dyn Fn(PersistenceListener) -> AuthResult<PersistenceSubscription> + Send + Sync;
 
 pub struct ClosurePersistence {
     set_fn: Arc<DynSetFn>,
@@ -156,8 +153,7 @@ impl ClosurePersistence {
     where
         Set: Fn(Option<PersistedAuthState>) -> AuthResult<()> + Send + Sync + 'static,
         Get: Fn() -> AuthResult<Option<PersistedAuthState>> + Send + Sync + 'static,
-        Subscribe:
-            Fn(PersistenceListener) -> AuthResult<PersistenceSubscription> + Send + Sync + 'static,
+        Subscribe: Fn(PersistenceListener) -> AuthResult<PersistenceSubscription> + Send + Sync + 'static,
     {
         Self {
             set_fn: Arc::new(set),
@@ -167,11 +163,7 @@ impl ClosurePersistence {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub mod indexed_db;
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]

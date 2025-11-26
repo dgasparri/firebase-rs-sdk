@@ -87,10 +87,7 @@ pub fn unknown_error() -> StorageError {
 }
 
 pub fn invalid_url(url: &str) -> StorageError {
-    StorageError::new(
-        StorageErrorCode::InvalidUrl,
-        format!("Invalid storage URL: {url}"),
-    )
+    StorageError::new(StorageErrorCode::InvalidUrl, format!("Invalid storage URL: {url}"))
 }
 
 pub fn invalid_default_bucket(bucket: &str) -> StorageError {

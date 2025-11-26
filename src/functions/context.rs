@@ -82,9 +82,8 @@ impl ContextProvider {
             return overrides;
         }
 
-        let (app_check_token, app_check_heartbeat) = self
-            .fetch_app_check_credentials(limited_use_app_check_tokens)
-            .await;
+        let (app_check_token, app_check_heartbeat) =
+            self.fetch_app_check_credentials(limited_use_app_check_tokens).await;
 
         CallContext {
             auth_token: self.fetch_auth_token().await,
@@ -134,10 +133,7 @@ impl ContextProvider {
         }
     }
 
-    async fn fetch_app_check_credentials(
-        &self,
-        limited_use: bool,
-    ) -> (Option<String>, Option<String>) {
+    async fn fetch_app_check_credentials(&self, limited_use: bool) -> (Option<String>, Option<String>) {
         let app_check = match self.ensure_app_check() {
             Some(app_check) => app_check,
             None => return (None, None),
@@ -211,10 +207,7 @@ impl ContextProvider {
             return Some(cached);
         }
 
-        if let Some(app_check) = self
-            .app_check_provider
-            .get_immediate::<FirebaseAppCheckInternal>()
-        {
+        if let Some(app_check) = self.app_check_provider.get_immediate::<FirebaseAppCheckInternal>() {
             *self.cached_app_check.lock().unwrap() = Some(app_check.clone());
             Some(app_check)
         } else {

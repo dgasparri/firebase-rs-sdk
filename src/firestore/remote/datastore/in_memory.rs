@@ -5,9 +5,7 @@ use crate::firestore::model::{DocumentKey, FieldPath, Timestamp};
 use crate::firestore::query_evaluator::apply_query_to_documents;
 use crate::firestore::value::{FirestoreValue, MapValue, ValueKind};
 use crate::firestore::QueryDefinition;
-use crate::firestore::{
-    set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation,
-};
+use crate::firestore::{set_value_at_field_path, value_for_field_path, FieldTransform, TransformOperation};
 use crate::firestore::{AggregateDefinition, AggregateOperation};
 use crate::firestore::{DocumentSnapshot, SnapshotMetadata};
 
@@ -74,10 +72,7 @@ impl InMemoryDatastore {
         let mut fields = current.fields().clone();
         for path in &field_paths {
             let value = value_for_field_path(&data, path).ok_or_else(|| {
-                internal_error(format!(
-                    "Failed to resolve value for update path {}",
-                    path.canonical_string()
-                ))
+                internal_error(format!("Failed to resolve value for update path {}", path.canonical_string()))
             })?;
             set_value_at_field_path(&mut fields, path, value);
         }
@@ -101,11 +96,7 @@ impl Datastore for InMemoryDatastore {
     async fn get_document(&self, key: &DocumentKey) -> FirestoreResult<DocumentSnapshot> {
         let store = self.documents.lock().unwrap();
         let data = store.get(&key.path().canonical_string()).cloned();
-        Ok(DocumentSnapshot::new(
-            key.clone(),
-            data,
-            SnapshotMetadata::new(true, false),
-        ))
+        Ok(DocumentSnapshot::new(key.clone(), data, SnapshotMetadata::new(true, false)))
     }
 
     async fn set_document(
@@ -280,10 +271,7 @@ mod tests {
             .unwrap();
         let snapshot = datastore.get_document(&key).await.unwrap();
         assert!(snapshot.exists());
-        assert_eq!(
-            snapshot.data().unwrap().get("name"),
-            Some(&FirestoreValue::from_string("SF"))
-        );
+        assert_eq!(snapshot.data().unwrap().get("name"), Some(&FirestoreValue::from_string("SF")));
     }
 }
 
@@ -302,9 +290,7 @@ fn apply_field_transforms(
             TransformOperation::ServerTimestamp => FirestoreValue::from_timestamp(Timestamp::now()),
             TransformOperation::ArrayUnion(elements) => array_union(current_value, elements),
             TransformOperation::ArrayRemove(elements) => array_remove(current_value, elements),
-            TransformOperation::NumericIncrement(operand) => {
-                numeric_increment(current_value, operand)?
-            }
+            TransformOperation::NumericIncrement(operand) => numeric_increment(current_value, operand)?,
         };
         set_value_at_field_path(fields, path, new_value);
     }
@@ -347,10 +333,7 @@ fn array_remove(existing: Option<FirestoreValue>, removals: &[FirestoreValue]) -
     FirestoreValue::from_array(filtered)
 }
 
-fn numeric_increment(
-    existing: Option<FirestoreValue>,
-    operand: &FirestoreValue,
-) -> FirestoreResult<FirestoreValue> {
+fn numeric_increment(existing: Option<FirestoreValue>, operand: &FirestoreValue) -> FirestoreResult<FirestoreValue> {
     let result = match (existing, operand.kind()) {
         (Some(value), ValueKind::Integer(delta)) => match value.kind() {
             ValueKind::Integer(current) => {
@@ -370,11 +353,7 @@ fn numeric_increment(
         },
         (None, ValueKind::Integer(delta)) => FirestoreValue::from_integer(*delta),
         (None, ValueKind::Double(delta)) => FirestoreValue::from_double(*delta),
-        (_, _) => {
-            return Err(invalid_argument(
-                "FieldValue.increment() requires a numeric operand",
-            ))
-        }
+        (_, _) => return Err(invalid_argument("FieldValue.increment() requires a numeric operand")),
     };
 
     Ok(result)

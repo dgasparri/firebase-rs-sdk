@@ -5,9 +5,7 @@ use crate::app::heartbeat::{storage_for_app, HeartbeatServiceImpl};
 use crate::app::platform_logger::PlatformLoggerServiceImpl;
 use crate::app::registry;
 use crate::app::types::{FirebaseApp, HeartbeatStorage};
-use crate::component::types::{
-    ComponentError, ComponentType, DynService, InstanceFactory, InstantiationMode,
-};
+use crate::component::types::{ComponentError, ComponentType, DynService, InstanceFactory, InstantiationMode};
 use crate::component::{Component, ComponentContainer};
 use async_lock::OnceCell;
 
@@ -51,7 +49,7 @@ fn register_heartbeat_component() {
         Ok(service)
     });
 
-    let component = Component::new("heartbeat", factory, ComponentType::Private)
-        .with_instantiation_mode(InstantiationMode::Lazy);
+    let component =
+        Component::new("heartbeat", factory, ComponentType::Private).with_instantiation_mode(InstantiationMode::Lazy);
     let _ = registry::register_component(component);
 }

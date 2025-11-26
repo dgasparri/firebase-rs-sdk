@@ -90,26 +90,13 @@ mod tests {
         let right_connection = Arc::new(MultiplexedConnection::new(right_transport));
 
         let datastore = StreamingDatastoreImpl::new(Arc::clone(&left_connection));
-        let handle = datastore
-            .open_listen_stream()
-            .await
-            .expect("open listen stream");
+        let handle = datastore.open_listen_stream().await.expect("open listen stream");
 
-        let peer_stream = right_connection
-            .open_stream()
-            .await
-            .expect("open peer stream");
+        let peer_stream = right_connection.open_stream().await.expect("open peer stream");
 
-        peer_stream
-            .send(b"hello".to_vec())
-            .await
-            .expect("send payload");
+        peer_stream.send(b"hello".to_vec()).await.expect("send payload");
 
-        let payload = handle
-            .next()
-            .await
-            .expect("receive event")
-            .expect("payload");
+        let payload = handle.next().await.expect("receive event").expect("payload");
 
         assert_eq!(payload, b"hello");
         handle.close().await.expect("close stream");

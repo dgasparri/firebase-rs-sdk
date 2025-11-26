@@ -5,8 +5,8 @@ use crate::firestore::error::{internal_error, FirestoreResult};
 use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::remote::remote_event::{RemoteEvent, TargetChange};
 use crate::firestore::remote::watch_change::{
-    DocumentChange, DocumentDelete, DocumentRemove, ExistenceFilterChange, TargetChangeState,
-    WatchChange, WatchDocument, WatchTargetChange,
+    DocumentChange, DocumentDelete, DocumentRemove, ExistenceFilterChange, TargetChangeState, WatchChange,
+    WatchDocument, WatchTargetChange,
 };
 
 /// Provides metadata about active targets so the aggregator can reason about
@@ -79,10 +79,7 @@ where
         };
 
         for target_id in affected {
-            let state = self
-                .target_states
-                .entry(target_id)
-                .or_insert_with(TargetState::new);
+            let state = self.target_states.entry(target_id).or_insert_with(TargetState::new);
             self.target_documents
                 .entry(target_id)
                 .or_insert_with(|| self.metadata.get_remote_keys(target_id));
@@ -125,8 +122,7 @@ where
             for target_id in &change.updated_target_ids {
                 self.apply_doc_update(*target_id, key.clone(), Some(document.clone()));
             }
-            self.pending_document_updates
-                .insert(key.clone(), Some(document));
+            self.pending_document_updates.insert(key.clone(), Some(document));
         }
 
         for target_id in &change.removed_target_ids {
@@ -162,16 +158,8 @@ where
         Ok(())
     }
 
-    fn apply_doc_update(
-        &mut self,
-        target_id: i32,
-        key: DocumentKey,
-        document: Option<WatchDocument>,
-    ) {
-        let state = self
-            .target_states
-            .entry(target_id)
-            .or_insert_with(TargetState::new);
+    fn apply_doc_update(&mut self, target_id: i32, key: DocumentKey, document: Option<WatchDocument>) {
+        let state = self.target_states.entry(target_id).or_insert_with(TargetState::new);
         let docs = self
             .target_documents
             .entry(target_id)
@@ -206,9 +194,7 @@ where
         let target_changes = self
             .target_states
             .iter_mut()
-            .filter_map(|(target_id, state)| {
-                state.take_changes().map(|change| (*target_id, change))
-            })
+            .filter_map(|(target_id, state)| state.take_changes().map(|change| (*target_id, change)))
             .collect();
 
         RemoteEvent {
@@ -264,11 +250,7 @@ impl TargetState {
     }
 
     fn take_changes(&mut self) -> Option<TargetChange> {
-        if !self.dirty
-            && self.added.is_empty()
-            && self.modified.is_empty()
-            && self.removed.is_empty()
-        {
+        if !self.dirty && self.added.is_empty() && self.modified.is_empty() && self.removed.is_empty() {
             return None;
         }
 

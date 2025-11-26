@@ -5,41 +5,17 @@ use crate::app_check::util::format_duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppCheckError {
-    AlreadyInitialized {
-        app_name: String,
-    },
-    UseBeforeActivation {
-        app_name: String,
-    },
-    TokenFetchFailed {
-        message: String,
-    },
-    InvalidConfiguration {
-        message: String,
-    },
-    ProviderError {
-        message: String,
-    },
-    FetchNetworkError {
-        message: String,
-    },
-    FetchParseError {
-        message: String,
-    },
-    FetchStatusError {
-        http_status: u16,
-    },
-    RecaptchaError {
-        message: Option<String>,
-    },
-    InitialThrottle {
-        http_status: u16,
-        retry_after: Duration,
-    },
-    Throttled {
-        http_status: u16,
-        retry_after: Duration,
-    },
+    AlreadyInitialized { app_name: String },
+    UseBeforeActivation { app_name: String },
+    TokenFetchFailed { message: String },
+    InvalidConfiguration { message: String },
+    ProviderError { message: String },
+    FetchNetworkError { message: String },
+    FetchParseError { message: String },
+    FetchStatusError { http_status: u16 },
+    RecaptchaError { message: Option<String> },
+    InitialThrottle { http_status: u16, retry_after: Duration },
+    Throttled { http_status: u16, retry_after: Duration },
     TokenExpired,
     Internal(String),
 }
@@ -53,10 +29,9 @@ impl fmt::Display for AppCheckError {
                 f,
                 "App Check already initialized for Firebase app '{app_name}' with different options"
             ),
-            AppCheckError::UseBeforeActivation { app_name } => write!(
-                f,
-                "App Check used before initialize_app_check() for Firebase app '{app_name}'"
-            ),
+            AppCheckError::UseBeforeActivation { app_name } => {
+                write!(f, "App Check used before initialize_app_check() for Firebase app '{app_name}'")
+            }
             AppCheckError::TokenFetchFailed { message } => {
                 write!(f, "Failed to fetch App Check token: {message}")
             }

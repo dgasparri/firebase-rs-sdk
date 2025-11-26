@@ -21,18 +21,12 @@ async fn init_test_app(name: &str) -> FirebaseApp {
         automatic_data_collection_enabled: Some(true),
     };
 
-    initialize_app(options, Some(settings))
-        .await
-        .expect("initialize app")
+    initialize_app(options, Some(settings)).await.expect("initialize app")
 }
 
 #[wasm_bindgen_test(async)]
 async fn initialize_app_requires_options() {
-    let result = initialize_app(
-        FirebaseOptions::default(),
-        Some(FirebaseAppSettings::default()),
-    )
-    .await;
+    let result = initialize_app(FirebaseOptions::default(), Some(FirebaseAppSettings::default())).await;
     assert!(matches!(result, Err(AppError::NoOptions)));
 }
 
@@ -66,9 +60,7 @@ async fn app_check_custom_provider_produces_token() {
     let token = get_token(&app_check, false).await.expect("get token");
     assert_eq!(token.token, "wasm-token");
 
-    let limited = get_limited_use_token(&app_check)
-        .await
-        .expect("get limited token");
+    let limited = get_limited_use_token(&app_check).await.expect("get limited token");
     assert_eq!(limited.token, "wasm-token");
 
     delete_app(&app).await.expect("delete app");

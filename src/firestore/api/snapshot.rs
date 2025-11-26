@@ -46,11 +46,7 @@ pub struct DocumentSnapshot {
 
 impl DocumentSnapshot {
     pub fn new(key: DocumentKey, data: Option<MapValue>, metadata: SnapshotMetadata) -> Self {
-        Self {
-            key,
-            data,
-            metadata,
-        }
+        Self { key, data, metadata }
     }
 
     /// Returns whether the document exists on the backend.
@@ -238,9 +234,7 @@ mod tests {
                 _ => None,
             }) {
                 Some(name) => Ok(name),
-                None => Err(crate::firestore::error::invalid_argument(
-                    "missing name field",
-                )),
+                None => Err(crate::firestore::error::invalid_argument("missing name field")),
             }
         }
     }
@@ -249,15 +243,8 @@ mod tests {
     fn typed_snapshot_uses_converter() {
         let key = DocumentKey::from_string("cities/sf").unwrap();
         let mut map = BTreeMap::new();
-        map.insert(
-            "name".to_string(),
-            FirestoreValue::from_string("San Francisco"),
-        );
-        let snapshot = DocumentSnapshot::new(
-            key,
-            Some(MapValue::new(map)),
-            SnapshotMetadata::new(false, false),
-        );
+        map.insert("name".to_string(), FirestoreValue::from_string("San Francisco"));
+        let snapshot = DocumentSnapshot::new(key, Some(MapValue::new(map)), SnapshotMetadata::new(false, false));
 
         let typed = snapshot.into_typed(Arc::new(NameConverter));
         let name = typed.data().unwrap();
@@ -269,11 +256,7 @@ mod tests {
         let key = DocumentKey::from_string("cities/sf").unwrap();
         let mut map = BTreeMap::new();
         map.insert("name".to_string(), FirestoreValue::from_string("SF"));
-        let snapshot = DocumentSnapshot::new(
-            key,
-            Some(MapValue::new(map.clone())),
-            SnapshotMetadata::default(),
-        );
+        let snapshot = DocumentSnapshot::new(key, Some(MapValue::new(map.clone())), SnapshotMetadata::default());
 
         let typed = snapshot.into_typed(Arc::new(PassthroughConverter::default()));
         let raw = typed.data().unwrap().unwrap();
@@ -287,8 +270,7 @@ mod tests {
         stats.insert("wins".to_string(), FirestoreValue::from_integer(10));
         let mut map = BTreeMap::new();
         map.insert("stats".to_string(), FirestoreValue::from_map(stats));
-        let snapshot =
-            DocumentSnapshot::new(key, Some(MapValue::new(map)), SnapshotMetadata::default());
+        let snapshot = DocumentSnapshot::new(key, Some(MapValue::new(map)), SnapshotMetadata::default());
 
         let value = snapshot.get("stats.wins").unwrap().unwrap();
         match value.kind() {
@@ -318,8 +300,7 @@ mod tests {
         stats.insert("wins".to_string(), FirestoreValue::from_integer(5));
         let mut map = BTreeMap::new();
         map.insert("stats".to_string(), FirestoreValue::from_map(stats));
-        let snapshot =
-            DocumentSnapshot::new(key, Some(MapValue::new(map)), SnapshotMetadata::default());
+        let snapshot = DocumentSnapshot::new(key, Some(MapValue::new(map)), SnapshotMetadata::default());
 
         let typed = snapshot.into_typed(Arc::new(PassthroughConverter::default()));
         let value = typed.get("stats.wins").unwrap().unwrap();

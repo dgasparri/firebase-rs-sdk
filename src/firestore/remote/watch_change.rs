@@ -9,8 +9,8 @@ use serde_json::{
 };
 
 use crate::firestore::error::{
-    deadline_exceeded, internal_error, invalid_argument, not_found, permission_denied,
-    resource_exhausted, unauthenticated, unavailable, FirestoreError, FirestoreResult,
+    deadline_exceeded, internal_error, invalid_argument, not_found, permission_denied, resource_exhausted,
+    unauthenticated, unavailable, FirestoreError, FirestoreResult,
 };
 use crate::firestore::model::{DocumentKey, Timestamp};
 use crate::firestore::remote::serializer::JsonProtoSerializer;
@@ -113,10 +113,7 @@ pub fn decode_watch_change(
     Ok(None)
 }
 
-fn decode_target_change(
-    serializer: &JsonProtoSerializer,
-    value: &JsonValue,
-) -> FirestoreResult<WatchChange> {
+fn decode_target_change(serializer: &JsonProtoSerializer, value: &JsonValue) -> FirestoreResult<WatchChange> {
     let target_ids = value
         .get("targetIds")
         .and_then(JsonValue::as_array)
@@ -161,10 +158,7 @@ fn decode_target_change(
     }))
 }
 
-fn decode_document_change(
-    serializer: &JsonProtoSerializer,
-    value: &JsonValue,
-) -> FirestoreResult<WatchChange> {
+fn decode_document_change(serializer: &JsonProtoSerializer, value: &JsonValue) -> FirestoreResult<WatchChange> {
     let updated_target_ids = numeric_array(value.get("targetIds"));
     let removed_target_ids = numeric_array(value.get("removedTargetIds"));
     let document = value
@@ -193,10 +187,7 @@ fn decode_document_change(
     }))
 }
 
-fn decode_document_delete(
-    serializer: &JsonProtoSerializer,
-    value: &JsonValue,
-) -> FirestoreResult<WatchChange> {
+fn decode_document_delete(serializer: &JsonProtoSerializer, value: &JsonValue) -> FirestoreResult<WatchChange> {
     let name = value
         .get("document")
         .and_then(JsonValue::as_str)
@@ -216,10 +207,7 @@ fn decode_document_delete(
     }))
 }
 
-fn decode_document_remove(
-    serializer: &JsonProtoSerializer,
-    value: &JsonValue,
-) -> FirestoreResult<WatchChange> {
+fn decode_document_remove(serializer: &JsonProtoSerializer, value: &JsonValue) -> FirestoreResult<WatchChange> {
     let name = value
         .get("document")
         .and_then(JsonValue::as_str)
@@ -248,16 +236,10 @@ fn decode_filter_change(value: &JsonValue) -> FirestoreResult<WatchChange> {
         .get("count")
         .and_then(JsonValue::as_i64)
         .ok_or_else(|| invalid_argument("filter missing count"))? as i32;
-    Ok(WatchChange::ExistenceFilter(ExistenceFilterChange {
-        target_id,
-        count,
-    }))
+    Ok(WatchChange::ExistenceFilter(ExistenceFilterChange { target_id, count }))
 }
 
-fn decode_watch_document(
-    serializer: &JsonProtoSerializer,
-    document: &JsonValue,
-) -> FirestoreResult<WatchDocument> {
+fn decode_watch_document(serializer: &JsonProtoSerializer, document: &JsonValue) -> FirestoreResult<WatchDocument> {
     let name = document
         .get("name")
         .and_then(JsonValue::as_str)
@@ -344,9 +326,7 @@ mod tests {
             }
         });
 
-        let decoded = decode_watch_change(&serializer(), &change)
-            .unwrap()
-            .unwrap();
+        let decoded = decode_watch_change(&serializer(), &change).unwrap().unwrap();
         match decoded {
             WatchChange::TargetChange(change) => {
                 assert_eq!(change.target_ids, vec![1, 2]);

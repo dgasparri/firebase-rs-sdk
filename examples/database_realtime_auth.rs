@@ -16,11 +16,7 @@ fn prompt(prompt: &str) -> io::Result<String> {
     Ok(line.trim().to_string())
 }
 
-async fn ensure_logged_in(
-    auth: &Arc<Auth>,
-    email: &str,
-    password: &str,
-) -> Result<(), Box<dyn Error>> {
+async fn ensure_logged_in(auth: &Arc<Auth>, email: &str, password: &str) -> Result<(), Box<dyn Error>> {
     match auth.current_user() {
         Some(user) if user.email_verified() => {
             println!(
@@ -30,8 +26,7 @@ async fn ensure_logged_in(
             Ok(())
         }
         Some(_) | None => {
-            auth.sign_in_with_email_and_password(email, password)
-                .await?;
+            auth.sign_in_with_email_and_password(email, password).await?;
             println!("Signed in as {email}");
             Ok(())
         }
@@ -43,11 +38,7 @@ async fn attach_listener(reference: &DatabaseReference) -> DatabaseResult<Listen
         .on_value(|result| {
             if let Ok(snapshot) = result {
                 if snapshot.exists() {
-                    println!(
-                        "Current data at {}: {}",
-                        snapshot.reference().path(),
-                        snapshot.value()
-                    );
+                    println!("Current data at {}: {}", snapshot.reference().path(), snapshot.value());
                 } else {
                     println!("{} is empty", snapshot.reference().path());
                 }
@@ -72,8 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let api_key = prompt("Enter your Firebase Web API key")?;
     let project_id = prompt("Enter your Firebase project ID")?;
-    let database_url =
-        prompt("Enter the Realtime Database URL (e.g. https://<project>.firebaseio.com)")?;
+    let database_url = prompt("Enter the Realtime Database URL (e.g. https://<project>.firebaseio.com)")?;
     let email = prompt("Email")?;
     let password = prompt("Password")?;
     let bucket = prompt("Database bucket/path to write (e.g. demo/chat)")?;

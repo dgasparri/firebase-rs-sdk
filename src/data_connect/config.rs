@@ -64,10 +64,7 @@ pub struct DataConnectOptions {
 }
 
 impl DataConnectOptions {
-    pub fn new(
-        connector: ConnectorConfig,
-        project_id: impl Into<String>,
-    ) -> DataConnectResult<Self> {
+    pub fn new(connector: ConnectorConfig, project_id: impl Into<String>) -> DataConnectResult<Self> {
         let options = Self {
             connector,
             project_id: project_id.into(),
@@ -83,10 +80,7 @@ impl DataConnectOptions {
     pub fn resource_path(&self) -> String {
         format!(
             "projects/{}/locations/{}/services/{}/connectors/{}",
-            self.project_id,
-            self.connector.location,
-            self.connector.service,
-            self.connector.connector
+            self.project_id, self.connector.location, self.connector.service, self.connector.connector
         )
     }
 }
@@ -134,11 +128,7 @@ pub fn parse_transport_options(spec: &str) -> DataConnectResult<TransportOptions
     let ssl_enabled = match protocol {
         "http" => false,
         "https" => true,
-        other => {
-            return Err(invalid_argument(format!(
-                "Unsupported protocol '{other}' in emulator host"
-            )))
-        }
+        other => return Err(invalid_argument(format!("Unsupported protocol '{other}' in emulator host"))),
     };
 
     let (host, port) = if let Some((host, port)) = rest.split_once(':') {
@@ -151,9 +141,7 @@ pub fn parse_transport_options(spec: &str) -> DataConnectResult<TransportOptions
     };
 
     if host.trim().is_empty() {
-        return Err(invalid_argument(
-            "Host is required for emulator connections",
-        ));
+        return Err(invalid_argument("Host is required for emulator connections"));
     }
 
     Ok(TransportOptions::new(host, port, ssl_enabled))

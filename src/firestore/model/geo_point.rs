@@ -9,19 +9,12 @@ pub struct GeoPoint {
 impl GeoPoint {
     pub fn new(latitude: f64, longitude: f64) -> FirestoreResult<Self> {
         if !(-90.0..=90.0).contains(&latitude) {
-            return Err(invalid_argument(
-                "Latitude must be between -90 and 90 degrees.",
-            ));
+            return Err(invalid_argument("Latitude must be between -90 and 90 degrees."));
         }
         if !(-180.0..=180.0).contains(&longitude) {
-            return Err(invalid_argument(
-                "Longitude must be between -180 and 180 degrees.",
-            ));
+            return Err(invalid_argument("Longitude must be between -180 and 180 degrees."));
         }
-        Ok(Self {
-            latitude,
-            longitude,
-        })
+        Ok(Self { latitude, longitude })
     }
 
     pub fn latitude(&self) -> f64 {

@@ -1,14 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use crate::auth::error::{AuthError, AuthResult};
-use crate::auth::persistence::{
-    AuthPersistence, PersistedAuthState, PersistenceListener, PersistenceSubscription,
-};
+use crate::auth::persistence::{AuthPersistence, PersistedAuthState, PersistenceListener, PersistenceSubscription};
 #[allow(unused_imports)]
 use crate::platform::browser::indexed_db::get_string;
-use crate::platform::browser::indexed_db::{
-    delete_key, open_database_with_store, put_string, IndexedDbError,
-};
+use crate::platform::browser::indexed_db::{delete_key, open_database_with_store, put_string, IndexedDbError};
 use serde_json::{from_str as deserialize_state, to_string as serialize_state};
 use wasm_bindgen_futures::spawn_local;
 
@@ -66,9 +62,7 @@ impl AuthPersistence for IndexedDbPersistence {
 
             let result = if let Some(state) = state {
                 match serialize_state(&state) {
-                    Ok(serialized) => {
-                        put_string(&db, &store_name, AUTH_STATE_KEY, &serialized).await
-                    }
+                    Ok(serialized) => put_string(&db, &store_name, AUTH_STATE_KEY, &serialized).await,
                     Err(_) => return,
                 }
             } else {

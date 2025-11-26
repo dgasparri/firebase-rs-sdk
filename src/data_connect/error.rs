@@ -61,10 +61,7 @@ impl DataConnectError {
     }
 
     /// Creates an error that captures the backend-provided GraphQL payload.
-    pub fn with_operation_failure(
-        message: impl Into<String>,
-        response: DataConnectOperationFailureResponse,
-    ) -> Self {
+    pub fn with_operation_failure(message: impl Into<String>, response: DataConnectOperationFailureResponse) -> Self {
         Self {
             code: DataConnectErrorCode::PartialError,
             message: message.into(),
@@ -152,9 +149,6 @@ pub fn internal_error(message: impl Into<String>) -> DataConnectError {
 }
 
 /// Helper for surfacing partial/GraphQL errors from the backend.
-pub fn operation_error(
-    message: impl Into<String>,
-    response: DataConnectOperationFailureResponse,
-) -> DataConnectError {
+pub fn operation_error(message: impl Into<String>, response: DataConnectOperationFailureResponse) -> DataConnectError {
     DataConnectError::with_operation_failure(message, response)
 }

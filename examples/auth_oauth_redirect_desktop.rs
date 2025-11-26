@@ -11,11 +11,7 @@ impl OAuthRedirectHandler for DesktopRedirectHandler {
     fn initiate_redirect(&self, request: OAuthRequest) -> AuthResult<()> {
         println!("Opening system browser for {}", request.provider_id);
         if let Some(pkce) = request.pkce() {
-            println!(
-                "PKCE challenge generated (method {}): {}",
-                pkce.method(),
-                pkce.code_challenge()
-            );
+            println!("PKCE challenge generated (method {}): {}", pkce.method(), pkce.code_challenge());
         }
         webbrowser::open(&request.auth_url).map_err(|err| AuthError::Network(err.to_string()))?;
         Ok(())
@@ -27,10 +23,9 @@ impl OAuthRedirectHandler for DesktopRedirectHandler {
             Err(_) => return Ok(None),
         };
 
-        let payload = fs::read_to_string(path)
-            .map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
-        let token_response: Value = serde_json::from_str(&payload)
-            .map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
+        let payload = fs::read_to_string(path).map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
+        let token_response: Value =
+            serde_json::from_str(&payload).map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
 
         let provider_id = token_response
             .get("providerId")

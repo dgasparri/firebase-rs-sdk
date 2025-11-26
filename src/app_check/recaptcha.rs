@@ -28,14 +28,12 @@ static DRIVER_OVERRIDE: LazyLock<Mutex<Option<Arc<dyn RecaptchaDriver + Send + S
     LazyLock::new(|| Mutex::new(None));
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
-static DEFAULT_DRIVER: LazyLock<Arc<dyn RecaptchaDriver + Send + Sync>> = LazyLock::new(|| {
-    Arc::new(web::WebRecaptchaDriver::new()) as Arc<dyn RecaptchaDriver + Send + Sync>
-});
+static DEFAULT_DRIVER: LazyLock<Arc<dyn RecaptchaDriver + Send + Sync>> =
+    LazyLock::new(|| Arc::new(web::WebRecaptchaDriver::new()) as Arc<dyn RecaptchaDriver + Send + Sync>);
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-static DEFAULT_DRIVER: LazyLock<Arc<dyn RecaptchaDriver + Send + Sync>> = LazyLock::new(|| {
-    Arc::new(UnsupportedRecaptchaDriver) as Arc<dyn RecaptchaDriver + Send + Sync>
-});
+static DEFAULT_DRIVER: LazyLock<Arc<dyn RecaptchaDriver + Send + Sync>> =
+    LazyLock::new(|| Arc::new(UnsupportedRecaptchaDriver) as Arc<dyn RecaptchaDriver + Send + Sync>);
 
 fn driver() -> Arc<dyn RecaptchaDriver + Send + Sync> {
     DRIVER_OVERRIDE
@@ -74,9 +72,7 @@ impl RecaptchaDriver for UnsupportedRecaptchaDriver {
 
     async fn get_token(&self, _app: &FirebaseApp) -> AppCheckResult<RecaptchaTokenDetails> {
         Err(AppCheckError::RecaptchaError {
-            message: Some(
-                "ReCAPTCHA providers require the `wasm-web` feature and WebAssembly target".into(),
-            ),
+            message: Some("ReCAPTCHA providers require the `wasm-web` feature and WebAssembly target".into()),
         })
     }
 }
@@ -162,8 +158,7 @@ mod web {
             let state_for_task = state.clone();
             let app_clone = app.clone();
             runtime::spawn_detached(async move {
-                let result =
-                    initialize_app_state(&app_clone, state_for_task.clone(), site_key, flow).await;
+                let result = initialize_app_state(&app_clone, state_for_task.clone(), site_key, flow).await;
                 if result.is_err() {
                     state_for_task.initialized.store(false, Ordering::SeqCst);
                 } else {
@@ -198,15 +193,14 @@ mod web {
                 message: Some("reCAPTCHA scripts have not been loaded".into()),
             })?;
 
-            let widget_id =
-                state
-                    .widget_id
-                    .lock()
-                    .unwrap()
-                    .clone()
-                    .ok_or(AppCheckError::RecaptchaError {
-                        message: Some("reCAPTCHA widget not rendered".into()),
-                    })?;
+            let widget_id = state
+                .widget_id
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or(AppCheckError::RecaptchaError {
+                    message: Some("reCAPTCHA widget not rendered".into()),
+                })?;
 
             state.succeeded.store(false, Ordering::SeqCst);
             let token = execute_token(&grecaptcha, &widget_id).await?;
@@ -289,12 +283,7 @@ mod web {
         let grecaptcha_clone = grecaptcha.clone();
         let site_key_clone = site_key.clone();
         let ready = Closure::wrap(Box::new(move || {
-            let result = render_invisible_widget(
-                &grecaptcha_clone,
-                &container_clone,
-                &site_key_clone,
-                state.clone(),
-            );
+            let result = render_invisible_widget(&grecaptcha_clone, &container_clone, &site_key_clone, state.clone());
             if let Some(tx) = ready_sender.borrow_mut().take() {
                 let _ = tx.send(result);
             }
@@ -319,21 +308,15 @@ mod web {
         use wasm_bindgen::prelude::*;
 
         let options = Object::new();
-        js_sys::Reflect::set(
-            &options,
-            &JsValue::from_str("sitekey"),
-            &JsValue::from_str(site_key),
-        )
-        .map_err(|err| AppCheckError::RecaptchaError {
-            message: Some(format!("Failed to set sitekey: {err:?}")),
+        js_sys::Reflect::set(&options, &JsValue::from_str("sitekey"), &JsValue::from_str(site_key)).map_err(|err| {
+            AppCheckError::RecaptchaError {
+                message: Some(format!("Failed to set sitekey: {err:?}")),
+            }
         })?;
-        js_sys::Reflect::set(
-            &options,
-            &JsValue::from_str("size"),
-            &JsValue::from_str("invisible"),
-        )
-        .map_err(|err| AppCheckError::RecaptchaError {
-            message: Some(format!("Failed to set size: {err:?}")),
+        js_sys::Reflect::set(&options, &JsValue::from_str("size"), &JsValue::from_str("invisible")).map_err(|err| {
+            AppCheckError::RecaptchaError {
+                message: Some(format!("Failed to set size: {err:?}")),
+            }
         })?;
 
         let success_state = state.clone();
@@ -346,22 +329,16 @@ mod web {
             error_state.succeeded.store(false, Ordering::SeqCst);
         }) as Box<dyn FnMut()>);
 
-        js_sys::Reflect::set(
-            &options,
-            &JsValue::from_str("callback"),
-            success.as_ref().unchecked_ref(),
-        )
-        .map_err(|err| AppCheckError::RecaptchaError {
-            message: Some(format!("Failed to set callback: {err:?}")),
-        })?;
-        js_sys::Reflect::set(
-            &options,
-            &JsValue::from_str("error-callback"),
-            error.as_ref().unchecked_ref(),
-        )
-        .map_err(|err| AppCheckError::RecaptchaError {
-            message: Some(format!("Failed to set error callback: {err:?}")),
-        })?;
+        js_sys::Reflect::set(&options, &JsValue::from_str("callback"), success.as_ref().unchecked_ref()).map_err(
+            |err| AppCheckError::RecaptchaError {
+                message: Some(format!("Failed to set callback: {err:?}")),
+            },
+        )?;
+        js_sys::Reflect::set(&options, &JsValue::from_str("error-callback"), error.as_ref().unchecked_ref()).map_err(
+            |err| AppCheckError::RecaptchaError {
+                message: Some(format!("Failed to set error callback: {err:?}")),
+            },
+        )?;
 
         let render = js_sys::Reflect::get(grecaptcha, &JsValue::from_str("render"))
             .map_err(|err| AppCheckError::RecaptchaError {
@@ -373,11 +350,7 @@ mod web {
             })?;
 
         let widget_id = render
-            .call2(
-                grecaptcha,
-                &JsValue::from_str(container_id),
-                &options.into(),
-            )
+            .call2(grecaptcha, &JsValue::from_str(container_id), &options.into())
             .map_err(|err| AppCheckError::RecaptchaError {
                 message: Some(format!("render() threw: {err:?}")),
             })?;
@@ -403,14 +376,11 @@ mod web {
             })?;
 
         let options = Object::new();
-        js_sys::Reflect::set(
-            &options,
-            &JsValue::from_str("action"),
-            &JsValue::from_str("fire_app_check"),
-        )
-        .map_err(|err| AppCheckError::RecaptchaError {
-            message: Some(format!("Failed to set execute action: {err:?}")),
-        })?;
+        js_sys::Reflect::set(&options, &JsValue::from_str("action"), &JsValue::from_str("fire_app_check")).map_err(
+            |err| AppCheckError::RecaptchaError {
+                message: Some(format!("Failed to set execute action: {err:?}")),
+            },
+        )?;
 
         let promise = execute
             .call2(grecaptcha, &JsValue::from_str(widget_id), &options.into())
@@ -422,21 +392,19 @@ mod web {
                 message: Some("execute() did not return a Promise".into()),
             })?;
 
-        let value = wasm_bindgen_futures::JsFuture::from(promise)
-            .await
-            .map_err(|err| AppCheckError::RecaptchaError {
-                message: Some(js_error_message(err)),
-            })?;
+        let value =
+            wasm_bindgen_futures::JsFuture::from(promise)
+                .await
+                .map_err(|err| AppCheckError::RecaptchaError {
+                    message: Some(js_error_message(err)),
+                })?;
 
         value.as_string().ok_or(AppCheckError::RecaptchaError {
             message: Some("execute() promise resolved with non-string".into()),
         })
     }
 
-    fn call_ready(
-        grecaptcha: &js_sys::Object,
-        callback: &Closure<dyn FnMut()>,
-    ) -> Result<(), AppCheckError> {
+    fn call_ready(grecaptcha: &js_sys::Object, callback: &Closure<dyn FnMut()>) -> Result<(), AppCheckError> {
         use js_sys::Function;
 
         let ready = js_sys::Reflect::get(grecaptcha, &JsValue::from_str("ready"))

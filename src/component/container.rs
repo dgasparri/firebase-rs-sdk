@@ -62,13 +62,7 @@ impl ComponentContainer {
     }
 
     pub fn get_providers(&self) -> Vec<Provider> {
-        self.inner
-            .providers
-            .lock()
-            .unwrap()
-            .values()
-            .cloned()
-            .collect()
+        self.inner.providers.lock().unwrap().values().cloned().collect()
     }
 
     pub fn attach_root_service(&self, service: DynService) {

@@ -3,16 +3,13 @@ use std::collections::BTreeMap;
 use crate::firestore::api::aggregate::{AggregateField, AggregateQuerySnapshot, AggregateSpec};
 use crate::firestore::api::operations::{self, SetOptions};
 use crate::firestore::api::query::{
-    compute_doc_changes, ConvertedQuery, LimitType, Query, QuerySnapshot, QuerySnapshotMetadata,
-    TypedQuerySnapshot,
+    compute_doc_changes, ConvertedQuery, LimitType, Query, QuerySnapshot, QuerySnapshotMetadata, TypedQuerySnapshot,
 };
 use crate::firestore::api::snapshot::{DocumentSnapshot, TypedDocumentSnapshot};
 use crate::firestore::error::{internal_error, invalid_argument, FirestoreResult};
 use std::sync::Arc;
 
-use crate::firestore::remote::datastore::{
-    Datastore, HttpDatastore, InMemoryDatastore, TokenProviderArc,
-};
+use crate::firestore::remote::datastore::{Datastore, HttpDatastore, InMemoryDatastore, TokenProviderArc};
 use crate::firestore::value::FirestoreValue;
 
 use super::write_batch::WriteBatch;
@@ -33,10 +30,7 @@ pub struct FirestoreClient {
 impl FirestoreClient {
     /// Creates a client backed by the supplied datastore implementation.
     pub fn new(firestore: Firestore, datastore: Arc<dyn Datastore>) -> Self {
-        Self {
-            firestore,
-            datastore,
-        }
+        Self { firestore, datastore }
     }
 
     /// Returns a client that stores documents in memory only.
@@ -63,8 +57,7 @@ impl FirestoreClient {
         auth_provider: TokenProviderArc,
         app_check_provider: Option<TokenProviderArc>,
     ) -> FirestoreResult<Self> {
-        let mut builder = HttpDatastore::builder(firestore.database_id().clone())
-            .with_auth_provider(auth_provider);
+        let mut builder = HttpDatastore::builder(firestore.database_id().clone()).with_auth_provider(auth_provider);
 
         if let Some(provider) = app_check_provider {
             builder = builder.with_app_check_provider(provider);
@@ -142,11 +135,7 @@ impl FirestoreClient {
     ///
     /// TypeScript reference: `updateDoc` in
     /// `packages/firestore/src/api/reference_impl.ts`.
-    pub async fn update_doc(
-        &self,
-        path: &str,
-        data: BTreeMap<String, FirestoreValue>,
-    ) -> FirestoreResult<()> {
+    pub async fn update_doc(&self, path: &str, data: BTreeMap<String, FirestoreValue>) -> FirestoreResult<()> {
         let key = operations::validate_document_path(path)?;
         let encoded = operations::encode_update_document_data(data)?;
         self.datastore
@@ -165,8 +154,7 @@ impl FirestoreClient {
         let doc_ref = collection.doc(None)?;
         self.set_doc(doc_ref.path().canonical_string().as_str(), data, None)
             .await?;
-        self.get_doc(doc_ref.path().canonical_string().as_str())
-            .await
+        self.get_doc(doc_ref.path().canonical_string().as_str()).await
     }
 
     /// Reads a document using the converter attached to a typed reference.
@@ -223,10 +211,7 @@ impl FirestoreClient {
     }
 
     /// Deletes a document by converted reference.
-    pub async fn delete_doc_with_converter<C>(
-        &self,
-        reference: &ConvertedDocumentReference<C>,
-    ) -> FirestoreResult<()>
+    pub async fn delete_doc_with_converter<C>(&self, reference: &ConvertedDocumentReference<C>) -> FirestoreResult<()>
     where
         C: FirestoreDataConverter,
     {
@@ -244,19 +229,11 @@ impl FirestoreClient {
         }
         let metadata = QuerySnapshotMetadata::new(false, false, false, None, None);
         let doc_changes = compute_doc_changes(None, &documents);
-        Ok(QuerySnapshot::new(
-            query.clone(),
-            documents,
-            metadata,
-            doc_changes,
-        ))
+        Ok(QuerySnapshot::new(query.clone(), documents, metadata, doc_changes))
     }
 
     /// Executes a converted query, producing typed snapshots.
-    pub async fn get_docs_with_converter<C>(
-        &self,
-        query: &ConvertedQuery<C>,
-    ) -> FirestoreResult<TypedQuerySnapshot<C>>
+    pub async fn get_docs_with_converter<C>(&self, query: &ConvertedQuery<C>) -> FirestoreResult<TypedQuerySnapshot<C>>
     where
         C: FirestoreDataConverter,
     {
@@ -268,23 +245,14 @@ impl FirestoreClient {
     ///
     /// Mirrors the modular JS `getAggregate(query, spec)` helper from
     /// `packages/firestore/src/lite-api/aggregate.ts`.
-    pub async fn get_aggregate(
-        &self,
-        query: &Query,
-        spec: AggregateSpec,
-    ) -> FirestoreResult<AggregateQuerySnapshot> {
+    pub async fn get_aggregate(&self, query: &Query, spec: AggregateSpec) -> FirestoreResult<AggregateQuerySnapshot> {
         if spec.is_empty() {
-            return Err(invalid_argument(
-                "Aggregate spec must contain at least one field",
-            ));
+            return Err(invalid_argument("Aggregate spec must contain at least one field"));
         }
         self.ensure_same_database(query.firestore())?;
         let definition = query.definition();
         let aggregates = spec.definitions();
-        let data = self
-            .datastore
-            .run_aggregate(&definition, &aggregates)
-            .await?;
+        let data = self.datastore.run_aggregate(&definition, &aggregates).await?;
         Ok(AggregateQuerySnapshot::new(query.clone(), spec, data))
     }
 
@@ -359,9 +327,7 @@ impl FirestoreClient {
 
     fn ensure_same_database(&self, firestore: &Firestore) -> FirestoreResult<()> {
         if self.firestore.database_id() != firestore.database_id() {
-            return Err(internal_error(
-                "Query targets a different Firestore instance than this client",
-            ));
+            return Err(internal_error("Query targets a different Firestore instance than this client"));
         }
         Ok(())
     }
@@ -383,10 +349,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "firestore-doc-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("firestore-doc-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -396,9 +359,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let firestore = get_firestore(Some(app)).await.unwrap();
         let firestore = Firestore::from_arc(firestore);
         let client = FirestoreClient::with_in_memory(firestore.clone());
@@ -414,33 +375,21 @@ mod tests {
         let client = build_client().await;
         let mut data = BTreeMap::new();
         data.insert("name".to_string(), FirestoreValue::from_string("Ada"));
-        client
-            .set_doc("cities/sf", data.clone(), None)
-            .await
-            .expect("set doc");
+        client.set_doc("cities/sf", data.clone(), None).await.expect("set doc");
         let snapshot = client.get_doc("cities/sf").await.expect("get doc");
         assert!(snapshot.exists());
-        assert_eq!(
-            snapshot.data().unwrap().get("name"),
-            Some(&FirestoreValue::from_string("Ada"))
-        );
+        assert_eq!(snapshot.data().unwrap().get("name"), Some(&FirestoreValue::from_string("Ada")));
     }
 
     #[tokio::test]
     async fn set_doc_with_merge_preserves_existing_fields() {
         let client = build_client().await;
         let mut initial = BTreeMap::new();
-        initial.insert(
-            "name".to_string(),
-            FirestoreValue::from_string("San Francisco"),
-        );
+        initial.insert("name".to_string(), FirestoreValue::from_string("San Francisco"));
         let mut stats = BTreeMap::new();
         stats.insert("population".to_string(), FirestoreValue::from_integer(100));
         initial.insert("stats".to_string(), FirestoreValue::from_map(stats));
-        client
-            .set_doc("cities/sf", initial, None)
-            .await
-            .expect("initial set");
+        client.set_doc("cities/sf", initial, None).await.expect("initial set");
 
         let mut merge_data = BTreeMap::new();
         let mut stats_update = BTreeMap::new();
@@ -453,18 +402,12 @@ mod tests {
 
         let snapshot = client.get_doc("cities/sf").await.expect("get doc");
         let data = snapshot.data().expect("data");
-        assert_eq!(
-            data.get("name"),
-            Some(&FirestoreValue::from_string("San Francisco"))
-        );
+        assert_eq!(data.get("name"), Some(&FirestoreValue::from_string("San Francisco")));
         let stats_map = match data.get("stats").unwrap().kind() {
             ValueKind::Map(map) => map,
             _ => panic!("expected stats map"),
         };
-        assert_eq!(
-            stats_map.fields().get("population"),
-            Some(&FirestoreValue::from_integer(150))
-        );
+        assert_eq!(stats_map.fields().get("population"), Some(&FirestoreValue::from_integer(150)));
     }
 
     #[tokio::test]
@@ -486,33 +429,19 @@ mod tests {
         stats_update.insert("losses".to_string(), FirestoreValue::from_integer(6));
         update.insert("stats".to_string(), FirestoreValue::from_map(stats_update));
 
-        let options =
-            SetOptions::merge_fields(vec![FieldPath::from_dot_separated("stats.wins").unwrap()])
-                .unwrap();
+        let options = SetOptions::merge_fields(vec![FieldPath::from_dot_separated("stats.wins").unwrap()]).unwrap();
         client
             .set_doc("teams/giants", update, Some(options))
             .await
             .expect("merge fields");
 
         let snapshot = client.get_doc("teams/giants").await.expect("get doc");
-        let stats = match snapshot
-            .data()
-            .expect("data")
-            .get("stats")
-            .expect("stats")
-            .kind()
-        {
+        let stats = match snapshot.data().expect("data").get("stats").expect("stats").kind() {
             ValueKind::Map(map) => map,
             _ => panic!("expected map"),
         };
-        assert_eq!(
-            stats.fields().get("wins"),
-            Some(&FirestoreValue::from_integer(4))
-        );
-        assert_eq!(
-            stats.fields().get("losses"),
-            Some(&FirestoreValue::from_integer(5))
-        );
+        assert_eq!(stats.fields().get("wins"), Some(&FirestoreValue::from_integer(4)));
+        assert_eq!(stats.fields().get("losses"), Some(&FirestoreValue::from_integer(5)));
     }
 
     #[tokio::test]
@@ -527,10 +456,7 @@ mod tests {
                 FirestoreValue::from_string("tourism"),
             ]),
         );
-        client
-            .set_doc("places/sf", data, None)
-            .await
-            .expect("set doc");
+        client.set_doc("places/sf", data, None).await.expect("set doc");
 
         let query = collection
             .query()
@@ -575,11 +501,7 @@ mod tests {
             .collection("cities")
             .unwrap()
             .query()
-            .where_field(
-                FieldPath::from_dot_separated("region").unwrap(),
-                FilterOperator::In,
-                values,
-            )
+            .where_field(FieldPath::from_dot_separated("region").unwrap(), FilterOperator::In, values)
             .unwrap();
 
         let snapshot = client.get_docs(&query).await.expect("query");
@@ -619,10 +541,7 @@ mod tests {
             "tags".to_string(),
             FirestoreValue::from_array(vec![FirestoreValue::from_string("coastal")]),
         );
-        client
-            .set_doc("places/sf", initial, None)
-            .await
-            .expect("seed doc");
+        client.set_doc("places/sf", initial, None).await.expect("seed doc");
 
         client
             .update_doc(
@@ -665,10 +584,7 @@ mod tests {
                 FirestoreValue::from_string("tourism"),
             ]),
         );
-        client
-            .set_doc("places/sf", initial, None)
-            .await
-            .expect("seed doc");
+        client.set_doc("places/sf", initial, None).await.expect("seed doc");
 
         client
             .update_doc(
@@ -740,10 +656,7 @@ mod tests {
         batch
             .set(
                 &denver,
-                BTreeMap::from([(
-                    "population".to_string(),
-                    FirestoreValue::from_integer(700_000),
-                )]),
+                BTreeMap::from([("population".to_string(), FirestoreValue::from_integer(700_000))]),
                 None,
             )
             .unwrap();
@@ -756,10 +669,7 @@ mod tests {
         batch
             .set(
                 &la,
-                BTreeMap::from([(
-                    "population".to_string(),
-                    FirestoreValue::from_integer(3_000_000),
-                )]),
+                BTreeMap::from([("population".to_string(), FirestoreValue::from_integer(3_000_000))]),
                 None,
             )
             .unwrap();
@@ -776,14 +686,8 @@ mod tests {
 
         let denver_snapshot = client.get_doc("cities/denver").await.unwrap();
         let denver_data = denver_snapshot.data().unwrap();
-        assert_eq!(
-            denver_data.get("state"),
-            Some(&FirestoreValue::from_string("CO"))
-        );
-        assert_eq!(
-            denver_data.get("population"),
-            Some(&FirestoreValue::from_integer(700_000))
-        );
+        assert_eq!(denver_data.get("state"), Some(&FirestoreValue::from_string("CO")));
+        assert_eq!(denver_data.get("population"), Some(&FirestoreValue::from_integer(700_000)));
 
         let la_snapshot = client.get_doc("cities/la").await.unwrap();
         assert!(la_snapshot.exists());
@@ -801,47 +705,26 @@ mod tests {
         stats.insert("visits".to_string(), FirestoreValue::from_integer(1));
         stats.insert("likes".to_string(), FirestoreValue::from_integer(5));
         initial.insert("stats".to_string(), FirestoreValue::from_map(stats));
-        client
-            .set_doc("cities/sf", initial, None)
-            .await
-            .expect("set doc");
+        client.set_doc("cities/sf", initial, None).await.expect("set doc");
 
         let mut update = BTreeMap::new();
         let mut stats_update = BTreeMap::new();
         stats_update.insert("visits".to_string(), FirestoreValue::from_integer(2));
         stats_update.insert("shares".to_string(), FirestoreValue::from_integer(9));
         update.insert("stats".to_string(), FirestoreValue::from_map(stats_update));
-        update.insert(
-            "state".to_string(),
-            FirestoreValue::from_string("California"),
-        );
+        update.insert("state".to_string(), FirestoreValue::from_string("California"));
 
-        client
-            .update_doc("cities/sf", update)
-            .await
-            .expect("update doc");
+        client.update_doc("cities/sf", update).await.expect("update doc");
 
         let snapshot = client.get_doc("cities/sf").await.expect("get doc");
         let data = snapshot.data().expect("data");
-        assert_eq!(
-            data.get("state"),
-            Some(&FirestoreValue::from_string("California"))
-        );
+        assert_eq!(data.get("state"), Some(&FirestoreValue::from_string("California")));
         let stats_value = data.get("stats").expect("stats present");
         match stats_value.kind() {
             ValueKind::Map(map) => {
-                assert_eq!(
-                    map.fields().get("visits"),
-                    Some(&FirestoreValue::from_integer(2))
-                );
-                assert_eq!(
-                    map.fields().get("likes"),
-                    Some(&FirestoreValue::from_integer(5))
-                );
-                assert_eq!(
-                    map.fields().get("shares"),
-                    Some(&FirestoreValue::from_integer(9))
-                );
+                assert_eq!(map.fields().get("visits"), Some(&FirestoreValue::from_integer(2)));
+                assert_eq!(map.fields().get("likes"), Some(&FirestoreValue::from_integer(5)));
+                assert_eq!(map.fields().get("shares"), Some(&FirestoreValue::from_integer(9)));
             }
             _ => panic!("expected map"),
         }
@@ -864,10 +747,7 @@ mod tests {
         let client = build_client().await;
         let mut data = BTreeMap::new();
         data.insert("name".to_string(), FirestoreValue::from_string("Ada"));
-        client
-            .set_doc("cities/sf", data, None)
-            .await
-            .expect("set doc");
+        client.set_doc("cities/sf", data, None).await.expect("set doc");
         client.delete_doc("cities/sf").await.expect("delete doc");
         let snapshot = client.get_doc("cities/sf").await.expect("get doc");
         assert!(!snapshot.exists());
@@ -876,10 +756,7 @@ mod tests {
     #[tokio::test]
     async fn delete_missing_document_is_noop() {
         let client = build_client().await;
-        client
-            .delete_doc("cities/non-existent")
-            .await
-            .expect("delete missing");
+        client.delete_doc("cities/non-existent").await.expect("delete missing");
     }
 
     #[tokio::test]
@@ -907,11 +784,7 @@ mod tests {
         let snapshot = client.get_docs(&query).await.expect("query");
 
         assert_eq!(snapshot.len(), 2);
-        let ids: Vec<_> = snapshot
-            .documents()
-            .iter()
-            .map(|doc| doc.id().to_string())
-            .collect();
+        let ids: Vec<_> = snapshot.documents().iter().map(|doc| doc.id().to_string()).collect();
         assert_eq!(ids, vec!["la", "sf"]);
     }
 
@@ -963,21 +836,12 @@ mod tests {
 
         let query = firestore.collection("cities").unwrap().query();
         let mut spec = AggregateSpec::new();
-        spec.insert(
-            "total_population",
-            AggregateField::sum("population").unwrap(),
-        )
-        .unwrap();
-        spec.insert(
-            "average_population",
-            AggregateField::average("population").unwrap(),
-        )
-        .unwrap();
+        spec.insert("total_population", AggregateField::sum("population").unwrap())
+            .unwrap();
+        spec.insert("average_population", AggregateField::average("population").unwrap())
+            .unwrap();
 
-        let snapshot = client
-            .get_aggregate(&query, spec)
-            .await
-            .expect("aggregate query");
+        let snapshot = client.get_aggregate(&query, spec).await.expect("aggregate query");
 
         let total = snapshot.get("total_population").expect("total value");
         match total.kind() {
@@ -1006,10 +870,7 @@ mod tests {
 
         fn to_map(&self, value: &Self::Model) -> FirestoreResult<BTreeMap<String, FirestoreValue>> {
             let mut map = BTreeMap::new();
-            map.insert(
-                "first".to_string(),
-                FirestoreValue::from_string(&value.first),
-            );
+            map.insert("first".to_string(), FirestoreValue::from_string(&value.first));
             map.insert("last".to_string(), FirestoreValue::from_string(&value.last));
             Ok(map)
         }
@@ -1020,22 +881,14 @@ mod tests {
                 _ => None,
             }) {
                 Some(name) => name,
-                None => {
-                    return Err(crate::firestore::error::invalid_argument(
-                        "missing first field",
-                    ))
-                }
+                None => return Err(crate::firestore::error::invalid_argument("missing first field")),
             };
             let last = match value.fields().get("last").and_then(|v| match v.kind() {
                 ValueKind::String(s) => Some(s.clone()),
                 _ => None,
             }) {
                 Some(name) => name,
-                None => {
-                    return Err(crate::firestore::error::invalid_argument(
-                        "missing last field",
-                    ))
-                }
+                None => return Err(crate::firestore::error::invalid_argument("missing last field")),
             };
             Ok(Person { first, last })
         }
@@ -1058,10 +911,7 @@ mod tests {
             .await
             .expect("typed set");
 
-        let snapshot = client
-            .get_doc_with_converter(&doc_ref)
-            .await
-            .expect("typed get");
+        let snapshot = client.get_doc_with_converter(&doc_ref).await.expect("typed get");
         assert!(snapshot.exists());
         assert!(snapshot.from_cache());
         assert!(!snapshot.has_pending_writes());
@@ -1087,10 +937,7 @@ mod tests {
             .expect("set typed doc");
 
         let query = converted.query();
-        let snapshot = client
-            .get_docs_with_converter(&query)
-            .await
-            .expect("converted query");
+        let snapshot = client.get_docs_with_converter(&query).await.expect("converted query");
 
         let docs = snapshot.documents();
         assert_eq!(docs.len(), 1);
@@ -1109,19 +956,13 @@ mod tests {
         sf.insert("name".into(), FirestoreValue::from_string("San Francisco"));
         sf.insert("state".into(), FirestoreValue::from_string("California"));
         sf.insert("population".into(), FirestoreValue::from_integer(860_000));
-        client
-            .set_doc("cities/sf", sf, None)
-            .await
-            .expect("insert sf");
+        client.set_doc("cities/sf", sf, None).await.expect("insert sf");
 
         let mut la = BTreeMap::new();
         la.insert("name".into(), FirestoreValue::from_string("Los Angeles"));
         la.insert("state".into(), FirestoreValue::from_string("California"));
         la.insert("population".into(), FirestoreValue::from_integer(3_980_000));
-        client
-            .set_doc("cities/la", la, None)
-            .await
-            .expect("insert la");
+        client.set_doc("cities/la", la, None).await.expect("insert la");
 
         let query = collection
             .query()
@@ -1131,10 +972,7 @@ mod tests {
                 FirestoreValue::from_string("California"),
             )
             .unwrap()
-            .order_by(
-                FieldPath::from_dot_separated("population").unwrap(),
-                OrderDirection::Descending,
-            )
+            .order_by(FieldPath::from_dot_separated("population").unwrap(), OrderDirection::Descending)
             .unwrap()
             .limit(1)
             .unwrap();

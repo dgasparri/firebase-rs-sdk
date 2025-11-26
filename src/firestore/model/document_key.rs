@@ -32,9 +32,7 @@ impl DocumentKey {
     }
 
     pub fn id(&self) -> &str {
-        self.path
-            .last_segment()
-            .expect("DocumentKey path always has id")
+        self.path.last_segment().expect("DocumentKey path always has id")
     }
 }
 

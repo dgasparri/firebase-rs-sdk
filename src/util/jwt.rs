@@ -46,10 +46,7 @@ pub fn is_valid_timestamp(token: &str) -> bool {
         .and_then(value_as_i64)
         .unwrap_or_default();
 
-    let valid_until = claims
-        .get("exp")
-        .and_then(value_as_i64)
-        .unwrap_or(valid_since + 86_400);
+    let valid_until = claims.get("exp").and_then(value_as_i64).unwrap_or(valid_since + 86_400);
 
     now >= valid_since && now <= valid_until
 }

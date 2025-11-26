@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::error::{map_mfa_error_code, AuthError, AuthResult};
 
-pub(crate) const DEFAULT_SECURE_TOKEN_ENDPOINT: &str =
-    "https://securetoken.googleapis.com/v1/token";
+pub(crate) const DEFAULT_SECURE_TOKEN_ENDPOINT: &str = "https://securetoken.googleapis.com/v1/token";
 
 #[derive(Debug, Serialize)]
 struct RefreshTokenRequest {
@@ -36,18 +35,8 @@ struct ErrorBody {
     message: Option<String>,
 }
 
-pub async fn refresh_id_token(
-    client: &Client,
-    api_key: &str,
-    refresh_token: &str,
-) -> AuthResult<RefreshTokenResponse> {
-    refresh_id_token_with_endpoint(
-        client,
-        DEFAULT_SECURE_TOKEN_ENDPOINT,
-        api_key,
-        refresh_token,
-    )
-    .await
+pub async fn refresh_id_token(client: &Client, api_key: &str, refresh_token: &str) -> AuthResult<RefreshTokenResponse> {
+    refresh_id_token_with_endpoint(client, DEFAULT_SECURE_TOKEN_ENDPOINT, api_key, refresh_token).await
 }
 
 pub async fn refresh_id_token_with_endpoint(
@@ -129,14 +118,9 @@ mod tests {
             }));
         });
 
-        let response = refresh_id_token_with_endpoint(
-            &client,
-            &server.url("/token"),
-            "test-key",
-            "test-refresh",
-        )
-        .await
-        .expect("refresh should succeed");
+        let response = refresh_id_token_with_endpoint(&client, &server.url("/token"), "test-key", "test-refresh")
+            .await
+            .expect("refresh should succeed");
 
         mock.assert();
         assert_eq!(response.access_token, "access");
@@ -150,20 +134,11 @@ mod tests {
         let client = make_client();
 
         let mock = server.mock(|when, then| {
-            when.method(POST)
-                .path("/token")
-                .query_param("key", "test-key");
-            then.status(400)
-                .body("{\"error\":{\"message\":\"TOKEN_EXPIRED\"}}");
+            when.method(POST).path("/token").query_param("key", "test-key");
+            then.status(400).body("{\"error\":{\"message\":\"TOKEN_EXPIRED\"}}");
         });
 
-        let result = refresh_id_token_with_endpoint(
-            &client,
-            &server.url("/token"),
-            "test-key",
-            "test-refresh",
-        )
-        .await;
+        let result = refresh_id_token_with_endpoint(&client, &server.url("/token"), "test-key", "test-refresh").await;
 
         mock.assert();
         assert!(matches!(
@@ -178,20 +153,12 @@ mod tests {
         let client = make_client();
 
         let mock = server.mock(|when, then| {
-            when.method(POST)
-                .path("/token")
-                .query_param("key", "test-key");
+            when.method(POST).path("/token").query_param("key", "test-key");
             then.status(400)
                 .body("{\"error\":{\"message\":\"MISSING_MFA_PENDING_CREDENTIAL\"}}");
         });
 
-        let result = refresh_id_token_with_endpoint(
-            &client,
-            &server.url("/token"),
-            "test-key",
-            "test-refresh",
-        )
-        .await;
+        let result = refresh_id_token_with_endpoint(&client, &server.url("/token"), "test-key", "test-refresh").await;
 
         mock.assert();
         match result {

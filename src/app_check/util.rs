@@ -10,11 +10,9 @@ pub fn parse_protobuf_duration(value: &str) -> AppCheckResult<Duration> {
         });
     };
 
-    let seconds: f64 = raw_seconds
-        .parse()
-        .map_err(|err| AppCheckError::FetchParseError {
-            message: format!("failed to parse ttl '{value}': {err}"),
-        })?;
+    let seconds: f64 = raw_seconds.parse().map_err(|err| AppCheckError::FetchParseError {
+        message: format!("failed to parse ttl '{value}': {err}"),
+    })?;
 
     if seconds.is_sign_negative() {
         return Err(AppCheckError::FetchParseError {
@@ -83,9 +81,6 @@ mod tests {
     fn formats_duration_like_js() {
         assert_eq!(format_duration(Duration::from_secs(65)), "01m:05s");
         assert_eq!(format_duration(Duration::from_secs(3605)), "01h:00m:05s");
-        assert_eq!(
-            format_duration(Duration::from_secs(90061)),
-            "01d:01h:01m:01s"
-        );
+        assert_eq!(format_duration(Duration::from_secs(90061)), "01d:01h:01m:01s");
     }
 }

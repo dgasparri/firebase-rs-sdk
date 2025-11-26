@@ -3,9 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::firestore::error::{FirestoreError, FirestoreResult};
-use crate::firestore::remote::datastore::{
-    RetrySettings, StreamHandle, StreamingDatastore, StreamingFuture,
-};
+use crate::firestore::remote::datastore::{RetrySettings, StreamHandle, StreamingDatastore, StreamingFuture};
 use crate::platform::runtime;
 
 #[derive(Clone, Copy, Debug)]
@@ -17,10 +15,7 @@ pub enum StreamKind {
 pub trait PersistentStreamDelegate: Send + Sync + 'static {
     fn stream_label(&self) -> &'static str;
 
-    fn on_stream_open(
-        &self,
-        stream: Arc<dyn StreamHandle>,
-    ) -> StreamingFuture<'_, FirestoreResult<()>>;
+    fn on_stream_open(&self, stream: Arc<dyn StreamHandle>) -> StreamingFuture<'_, FirestoreResult<()>>;
 
     fn on_stream_message(&self, message: Vec<u8>) -> StreamingFuture<'_, FirestoreResult<()>>;
 
@@ -161,10 +156,7 @@ struct BackoffState {
 
 impl BackoffState {
     fn new(settings: RetrySettings) -> Self {
-        Self {
-            settings,
-            attempt: 0,
-        }
+        Self { settings, attempt: 0 }
     }
 
     fn next_delay(&mut self) -> Option<Duration> {
@@ -188,9 +180,7 @@ impl BackoffState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firestore::remote::datastore::{
-        box_stream_future, StreamingDatastore, StreamingDatastoreImpl,
-    };
+    use crate::firestore::remote::datastore::{box_stream_future, StreamingDatastore, StreamingDatastoreImpl};
     use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection};
     use std::sync::Mutex;
 
@@ -216,10 +206,7 @@ mod tests {
             "test"
         }
 
-        fn on_stream_open(
-            &self,
-            _stream: Arc<dyn StreamHandle>,
-        ) -> StreamingFuture<'_, FirestoreResult<()>> {
+        fn on_stream_open(&self, _stream: Arc<dyn StreamHandle>) -> StreamingFuture<'_, FirestoreResult<()>> {
             box_stream_future(async { Ok(()) })
         }
 
@@ -264,10 +251,7 @@ mod tests {
         let handle = stream.start();
 
         let peer_stream = right_connection.open_stream().await.expect("peer stream");
-        peer_stream
-            .send(b"hello".to_vec())
-            .await
-            .expect("send payload");
+        peer_stream.send(b"hello".to_vec()).await.expect("send payload");
         peer_stream.close().await.expect("close peer");
 
         for _ in 0..10 {

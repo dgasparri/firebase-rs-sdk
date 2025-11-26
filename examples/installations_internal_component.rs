@@ -6,9 +6,7 @@
 
 use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk::installations::{
-    delete_installations, get_installations_internal, InstallationToken,
-};
+use firebase_rs_sdk::installations::{delete_installations, get_installations_internal, InstallationToken};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

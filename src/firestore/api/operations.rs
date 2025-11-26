@@ -47,9 +47,7 @@ impl SetOptions {
             }
         }
         if unique.is_empty() {
-            return Err(invalid_argument(
-                "merge_fields requires at least one field path",
-            ));
+            return Err(invalid_argument("merge_fields requires at least one field path"));
         }
         Ok(Self {
             merge: false,
@@ -93,10 +91,7 @@ pub struct FieldTransform {
 
 impl FieldTransform {
     pub fn new(field_path: FieldPath, operation: TransformOperation) -> Self {
-        Self {
-            field_path,
-            operation,
-        }
+        Self { field_path, operation }
     }
 
     pub fn field_path(&self) -> &FieldPath {
@@ -144,9 +139,7 @@ pub fn encode_set_data(
         Some(mask.to_vec())
     } else if options.merge {
         if deduped_paths.is_empty() {
-            return Err(invalid_argument(
-                "merge set requires the data to contain at least one field",
-            ));
+            return Err(invalid_argument("merge set requires the data to contain at least one field"));
         }
         Some(deduped_paths)
     } else {
@@ -154,21 +147,13 @@ pub fn encode_set_data(
     };
 
     let map = MapValue::new(sanitized);
-    Ok(EncodedSetData {
-        map,
-        mask,
-        transforms,
-    })
+    Ok(EncodedSetData { map, mask, transforms })
 }
 
-pub fn encode_update_document_data(
-    data: BTreeMap<String, FirestoreValue>,
-) -> FirestoreResult<EncodedUpdateData> {
+pub fn encode_update_document_data(data: BTreeMap<String, FirestoreValue>) -> FirestoreResult<EncodedUpdateData> {
     let (sanitized, transforms, _sentinel_paths) = sanitize_for_write(data)?;
     if sanitized.is_empty() && transforms.is_empty() {
-        return Err(invalid_argument(
-            "update_doc requires at least one field/value pair",
-        ));
+        return Err(invalid_argument("update_doc requires at least one field/value pair"));
     }
     let field_paths = collect_update_paths(&sanitized)?;
     let map = MapValue::new(sanitized);
@@ -187,11 +172,7 @@ pub fn validate_document_path(path: &str) -> FirestoreResult<DocumentKey> {
 
 fn sanitize_for_write(
     data: BTreeMap<String, FirestoreValue>,
-) -> FirestoreResult<(
-    BTreeMap<String, FirestoreValue>,
-    Vec<FieldTransform>,
-    Vec<FieldPath>,
-)> {
+) -> FirestoreResult<(BTreeMap<String, FirestoreValue>, Vec<FieldTransform>, Vec<FieldPath>)> {
     let mut transforms = Vec::new();
     let mut sentinel_paths = Vec::new();
     let sanitized = sanitize_map(&data, &[], &mut transforms, &mut sentinel_paths)?;
@@ -233,10 +214,7 @@ fn sanitize_map(
     Ok(cleaned)
 }
 
-fn validate_sentinel_usage(
-    sentinel: &SentinelValue,
-    field_path: &FieldPath,
-) -> FirestoreResult<()> {
+fn validate_sentinel_usage(sentinel: &SentinelValue, field_path: &FieldPath) -> FirestoreResult<()> {
     match sentinel {
         SentinelValue::ServerTimestamp => Ok(()),
         SentinelValue::ArrayUnion(elements) | SentinelValue::ArrayRemove(elements) => {
@@ -247,17 +225,12 @@ fn validate_sentinel_usage(
         }
         SentinelValue::NumericIncrement(operand) => match operand.as_ref().kind() {
             ValueKind::Integer(_) | ValueKind::Double(_) => Ok(()),
-            _ => Err(invalid_argument(
-                "FieldValue.increment() requires a numeric operand",
-            )),
+            _ => Err(invalid_argument("FieldValue.increment() requires a numeric operand")),
         },
     }
 }
 
-fn transform_from_sentinel(
-    field_path: FieldPath,
-    sentinel: SentinelValue,
-) -> FirestoreResult<FieldTransform> {
+fn transform_from_sentinel(field_path: FieldPath, sentinel: SentinelValue) -> FirestoreResult<FieldTransform> {
     let operation = match sentinel {
         SentinelValue::ServerTimestamp => TransformOperation::ServerTimestamp,
         SentinelValue::ArrayUnion(elements) => TransformOperation::ArrayUnion(elements),
@@ -289,10 +262,7 @@ fn assert_no_sentinel_in_value(value: &FirestoreValue, context: &FieldPath) -> F
     }
 }
 
-fn validate_mask_against_available(
-    mask: &[FieldPath],
-    available: &HashSet<String>,
-) -> FirestoreResult<()> {
+fn validate_mask_against_available(mask: &[FieldPath], available: &HashSet<String>) -> FirestoreResult<()> {
     for field in mask {
         if !available.contains(field.canonical_string().as_str()) {
             return Err(invalid_argument(format!(
@@ -304,9 +274,7 @@ fn validate_mask_against_available(
     Ok(())
 }
 
-fn collect_update_paths(
-    data: &BTreeMap<String, FirestoreValue>,
-) -> FirestoreResult<Vec<FieldPath>> {
+fn collect_update_paths(data: &BTreeMap<String, FirestoreValue>) -> FirestoreResult<Vec<FieldPath>> {
     let mut paths = Vec::new();
     for (key, value) in data {
         let mut segments = Vec::new();
@@ -349,11 +317,7 @@ pub(crate) fn set_value_at_field_path(
     set_value_at_segments(fields, path.segments(), value);
 }
 
-fn set_value_at_segments(
-    fields: &mut BTreeMap<String, FirestoreValue>,
-    segments: &[String],
-    value: FirestoreValue,
-) {
+fn set_value_at_segments(fields: &mut BTreeMap<String, FirestoreValue>, segments: &[String], value: FirestoreValue) {
     if segments.is_empty() {
         return;
     }
@@ -392,10 +356,7 @@ mod tests {
         assert_eq!(mask.len(), 1);
         assert_eq!(mask[0].canonical_string(), "updated_at");
         assert_eq!(encoded.transforms.len(), 1);
-        matches!(
-            encoded.transforms[0].operation(),
-            TransformOperation::ServerTimestamp
-        );
+        matches!(encoded.transforms[0].operation(), TransformOperation::ServerTimestamp);
     }
 
     #[test]
@@ -409,10 +370,7 @@ mod tests {
             )])),
         );
         let options =
-            SetOptions::merge_fields(vec![
-                FieldPath::from_dot_separated("stats.last_updated").unwrap()
-            ])
-            .unwrap();
+            SetOptions::merge_fields(vec![FieldPath::from_dot_separated("stats.last_updated").unwrap()]).unwrap();
         let encoded = encode_set_data(data, &options).unwrap();
         assert_eq!(encoded.mask.unwrap().len(), 1);
         assert_eq!(encoded.transforms.len(), 1);

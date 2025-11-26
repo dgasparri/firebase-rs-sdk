@@ -42,11 +42,7 @@ impl MutationBatch {
     }
 
     /// Convenience constructor for batches without base writes.
-    pub fn from_writes(
-        batch_id: i32,
-        local_write_time: Timestamp,
-        writes: Vec<WriteOperation>,
-    ) -> Self {
+    pub fn from_writes(batch_id: i32, local_write_time: Timestamp, writes: Vec<WriteOperation>) -> Self {
         Self::new(batch_id, local_write_time, Vec::new(), writes)
     }
 
@@ -57,10 +53,7 @@ impl MutationBatch {
 
     /// Collects the document keys affected by the user-facing writes.
     pub fn document_keys(&self) -> Vec<DocumentKey> {
-        self.writes
-            .iter()
-            .map(|write| write.key().clone())
-            .collect()
+        self.writes.iter().map(|write| write.key().clone()).collect()
     }
 }
 

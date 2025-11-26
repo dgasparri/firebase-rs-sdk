@@ -48,9 +48,7 @@ pub fn base64_decode_bytes(input: &str) -> Result<Vec<u8>, DecodeBase64Error> {
     if remainder != 0 {
         normalized.extend("====".chars().take(4 - remainder));
     }
-    URL_SAFE
-        .decode(normalized.as_bytes())
-        .map_err(|_err| DecodeBase64Error)
+    URL_SAFE.decode(normalized.as_bytes()).map_err(|_err| DecodeBase64Error)
 }
 
 #[cfg(test)]

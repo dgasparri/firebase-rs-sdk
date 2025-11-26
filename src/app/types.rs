@@ -25,10 +25,7 @@ pub trait PlatformLoggerService: Send + Sync {
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 pub trait HeartbeatService: Send + Sync {
     async fn trigger_heartbeat(&self) -> AppResult<()>;
     #[allow(dead_code)]
@@ -39,10 +36,7 @@ pub trait HeartbeatService: Send + Sync {
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 pub trait HeartbeatStorage: Send + Sync {
     async fn read(&self) -> AppResult<HeartbeatsInStorage>;
     async fn overwrite(&self, value: &HeartbeatsInStorage) -> AppResult<()>;
@@ -107,11 +101,7 @@ struct FirebaseAppInner {
 
 impl FirebaseApp {
     /// Creates a new `FirebaseApp` from options, config, and the component container.
-    pub fn new(
-        options: FirebaseOptions,
-        config: FirebaseAppConfig,
-        container: ComponentContainer,
-    ) -> Self {
+    pub fn new(options: FirebaseOptions, config: FirebaseAppConfig, container: ComponentContainer) -> Self {
         let automatic = config.automatic_data_collection_enabled;
         let inner = Arc::new(FirebaseAppInner {
             options,
@@ -120,9 +110,7 @@ impl FirebaseApp {
             is_deleted: AtomicBool::new(false),
             container,
         });
-        let app = Self {
-            inner: inner.clone(),
-        };
+        let app = Self { inner: inner.clone() };
         let dyn_service: DynService = Arc::new(app.clone());
         app.inner.container.attach_root_service(dyn_service);
         app
@@ -169,10 +157,7 @@ impl FirebaseApp {
     /// Adds a lazily-initialized component to the app.
     pub fn add_component(&self, component: Component) -> AppResult<()> {
         self.check_destroyed()?;
-        self.inner
-            .container
-            .add_component(component)
-            .map_err(AppError::from)
+        self.inner.container.add_component(component).map_err(AppError::from)
     }
 
     /// Adds a component, replacing any existing implementation with the same name.
@@ -217,10 +202,7 @@ impl std::fmt::Debug for FirebaseApp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FirebaseApp")
             .field("name", &self.name())
-            .field(
-                "automatic_data_collection_enabled",
-                &self.automatic_data_collection_enabled(),
-            )
+            .field("automatic_data_collection_enabled", &self.automatic_data_collection_enabled())
             .finish()
     }
 }
@@ -343,11 +325,7 @@ pub type AppHook = Arc<dyn Fn(&str, &FirebaseApp) + Send + Sync>;
 
 #[allow(dead_code)]
 pub type FirebaseServiceFactory<T> = Arc<
-    dyn Fn(
-            &FirebaseApp,
-            Option<Arc<dyn Fn(&HashMap<String, serde_json::Value>) + Send + Sync>>,
-            Option<&str>,
-        ) -> T
+    dyn Fn(&FirebaseApp, Option<Arc<dyn Fn(&HashMap<String, serde_json::Value>) + Send + Sync>>, Option<&str>) -> T
         + Send
         + Sync,
 >;
@@ -361,12 +339,7 @@ pub trait FirebaseAppInternals: Send + Sync {
     fn get_uid(&self) -> Option<String>;
     fn add_auth_token_listener(&self, listener: Arc<dyn Fn(Option<String>) + Send + Sync>);
     fn remove_auth_token_listener(&self, listener_id: usize);
-    fn log_event(
-        &self,
-        event_name: &str,
-        event_params: HashMap<String, serde_json::Value>,
-        global: bool,
-    );
+    fn log_event(&self, event_name: &str, event_params: HashMap<String, serde_json::Value>, global: bool);
 }
 
 /// Compares two app configs for equality.

@@ -1,6 +1,4 @@
-use crate::storage::error::{
-    internal_error, invalid_argument, invalid_root_operation, no_download_url, StorageResult,
-};
+use crate::storage::error::{internal_error, invalid_argument, invalid_root_operation, no_download_url, StorageResult};
 use crate::storage::list::{parse_list_result, ListOptions, ListResult};
 use crate::storage::location::Location;
 use crate::storage::metadata::serde::ObjectMetadata;
@@ -8,9 +6,9 @@ use crate::storage::path::{child, last_component, parent};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::storage::request::StreamingResponse;
 use crate::storage::request::{
-    continue_resumable_upload_request, create_resumable_upload_request, delete_object_request,
-    download_bytes_request, download_url_request, get_metadata_request, list_request,
-    multipart_upload_request, update_metadata_request, RESUMABLE_UPLOAD_CHUNK_SIZE,
+    continue_resumable_upload_request, create_resumable_upload_request, delete_object_request, download_bytes_request,
+    download_url_request, get_metadata_request, list_request, multipart_upload_request, update_metadata_request,
+    RESUMABLE_UPLOAD_CHUNK_SIZE,
 };
 use crate::storage::service::FirebaseStorageImpl;
 use crate::storage::stream::UploadAsyncRead;
@@ -140,10 +138,7 @@ impl StorageReference {
     ///
     /// Returns [`storage/invalid-root-operation`](crate::storage::StorageErrorCode::InvalidRootOperation)
     /// when invoked on the bucket root.
-    pub async fn update_metadata(
-        &self,
-        metadata: SettableMetadata,
-    ) -> StorageResult<ObjectMetadata> {
+    pub async fn update_metadata(&self, metadata: SettableMetadata) -> StorageResult<ObjectMetadata> {
         self.ensure_not_root("update_metadata")?;
         let request = update_metadata_request(&self.storage, &self.location, metadata);
         let json = self.storage.run_request(request).await?;
@@ -157,14 +152,12 @@ impl StorageReference {
     /// ignores the range header.
     pub async fn get_bytes(&self, max_download_size_bytes: Option<u64>) -> StorageResult<Vec<u8>> {
         self.ensure_not_root("get_bytes")?;
-        let request =
-            download_bytes_request(&self.storage, &self.location, max_download_size_bytes);
+        let request = download_bytes_request(&self.storage, &self.location, max_download_size_bytes);
         let mut bytes = self.storage.run_request(request).await?;
 
         if let Some(limit) = max_download_size_bytes {
-            let limit_usize = usize::try_from(limit).map_err(|_| {
-                invalid_argument("max_download_size_bytes exceeds platform addressable memory")
-            })?;
+            let limit_usize = usize::try_from(limit)
+                .map_err(|_| invalid_argument("max_download_size_bytes exceeds platform addressable memory"))?;
             if bytes.len() > limit_usize {
                 bytes.truncate(limit_usize);
             }
@@ -194,13 +187,9 @@ impl StorageReference {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_stream(
-        &self,
-        max_download_size_bytes: Option<u64>,
-    ) -> StorageResult<StreamingResponse> {
+    pub async fn get_stream(&self, max_download_size_bytes: Option<u64>) -> StorageResult<StreamingResponse> {
         self.ensure_not_root("get_stream")?;
-        let request =
-            download_bytes_request(&self.storage, &self.location, max_download_size_bytes);
+        let request = download_bytes_request(&self.storage, &self.location, max_download_size_bytes);
         self.storage.run_streaming_request(request).await
     }
 
@@ -246,8 +235,7 @@ impl StorageReference {
         metadata: Option<UploadMetadata>,
     ) -> StorageResult<ObjectMetadata> {
         self.ensure_not_root("upload_bytes")?;
-        let request =
-            multipart_upload_request(&self.storage, &self.location, data.into(), metadata);
+        let request = multipart_upload_request(&self.storage, &self.location, data.into(), metadata);
         self.storage.run_upload_request(request).await
     }
 
@@ -256,11 +244,7 @@ impl StorageReference {
     /// Resumable uploads stream data in 256 KiB chunks by default, doubling up to 32 MiB to match the
     /// behaviour of the Firebase Web SDK. The returned [`crate::storage::upload::UploadTask`]
     /// exposes helpers to poll chunk progress or upload the entire file with a single call.
-    pub fn upload_bytes_resumable(
-        &self,
-        data: Vec<u8>,
-        metadata: Option<UploadMetadata>,
-    ) -> StorageResult<UploadTask> {
+    pub fn upload_bytes_resumable(&self, data: Vec<u8>, metadata: Option<UploadMetadata>) -> StorageResult<UploadTask> {
         self.ensure_not_root("upload_bytes_resumable")?;
         Ok(UploadTask::new(self.clone(), data, metadata))
     }
@@ -307,8 +291,7 @@ impl StorageReference {
         data: &js_sys::Uint8Array,
         metadata: Option<UploadMetadata>,
     ) -> StorageResult<ObjectMetadata> {
-        self.upload_bytes(wasm::uint8_array_to_vec(data), metadata)
-            .await
+        self.upload_bytes(wasm::uint8_array_to_vec(data), metadata).await
     }
 
     #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
@@ -323,10 +306,7 @@ impl StorageReference {
 
     #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
     /// Downloads the object as a [`web_sys::Blob`], matching the Web SDK's `getBlob`.
-    pub async fn get_blob(
-        &self,
-        max_download_size_bytes: Option<u64>,
-    ) -> StorageResult<web_sys::Blob> {
+    pub async fn get_blob(&self, max_download_size_bytes: Option<u64>) -> StorageResult<web_sys::Blob> {
         let bytes = self.get_bytes(max_download_size_bytes).await?;
         wasm::bytes_to_blob(&bytes)
     }
@@ -340,8 +320,7 @@ impl StorageReference {
         metadata: Option<UploadMetadata>,
     ) -> StorageResult<ObjectMetadata> {
         let reader = wasm::readable_stream_async_reader(stream)?;
-        self.upload_reader_resumable(reader, total_size, metadata)
-            .await
+        self.upload_reader_resumable(reader, total_size, metadata).await
     }
 
     /// Streams data from an [`AsyncRead`](futures::io::AsyncRead) source using the resumable upload API.
@@ -375,20 +354,12 @@ impl StorageReference {
         self.ensure_not_root("upload_reader_resumable")?;
 
         let storage = self.storage();
-        let request =
-            create_resumable_upload_request(&storage, self.location(), metadata, total_size);
+        let request = create_resumable_upload_request(&storage, self.location(), metadata, total_size);
         let upload_url = storage.run_upload_request(request).await?;
 
         if total_size == 0 {
-            let request = continue_resumable_upload_request(
-                &storage,
-                self.location(),
-                &upload_url,
-                0,
-                0,
-                Vec::new(),
-                true,
-            );
+            let request =
+                continue_resumable_upload_request(&storage, self.location(), &upload_url, 0, 0, Vec::new(), true);
             let status = storage.run_upload_request(request).await?;
             progress(UploadProgress::new(0, 0));
             let metadata = status
@@ -410,9 +381,7 @@ impl StorageReference {
                 let read = reader
                     .read(&mut buffer[read_total..to_read])
                     .await
-                    .map_err(|err| {
-                        internal_error(format!("failed to read from upload source: {err}"))
-                    })?;
+                    .map_err(|err| internal_error(format!("failed to read from upload source: {err}")))?;
                 if read == 0 {
                     break;
                 }
@@ -420,9 +389,7 @@ impl StorageReference {
             }
 
             if read_total == 0 {
-                return Err(internal_error(
-                    "upload source ended before the declared total_size was reached",
-                ));
+                return Err(internal_error("upload source ended before the declared total_size was reached"));
             }
 
             let finalize = offset + read_total as u64 == total_size;
@@ -467,10 +434,7 @@ impl StorageReference {
     }
 }
 
-fn merge_metadata(
-    metadata: Option<UploadMetadata>,
-    inferred_content_type: Option<String>,
-) -> Option<UploadMetadata> {
+fn merge_metadata(metadata: Option<UploadMetadata>, inferred_content_type: Option<String>) -> Option<UploadMetadata> {
     match (metadata, inferred_content_type) {
         (Some(mut metadata), Some(content_type)) => {
             if metadata.content_type.is_none() {
@@ -498,10 +462,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "storage-ref-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("storage-ref-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -511,9 +472,7 @@ mod tests {
             storage_bucket: Some("my-bucket".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let container = app.container();
         let auth_provider = container.get_provider("auth-internal");
         let app_check_provider = container.get_provider("app-check-internal");
@@ -540,8 +499,7 @@ mod tests {
     #[test]
     fn merge_metadata_preserves_existing_content_type() {
         let original = UploadMetadata::new().with_content_type("image/png");
-        let merged =
-            merge_metadata(Some(original.clone()), Some("text/plain".to_string())).unwrap();
+        let merged = merge_metadata(Some(original.clone()), Some("text/plain".to_string())).unwrap();
         assert_eq!(merged.content_type.as_deref(), Some("image/png"));
     }
 

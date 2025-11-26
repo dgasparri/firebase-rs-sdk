@@ -7,9 +7,7 @@ use serde_json::Value;
 use crate::component::component::Component;
 use crate::component::constants::DEFAULT_ENTRY_NAME;
 use crate::component::container::{ComponentContainer, ComponentContainerInner};
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 
 #[derive(Clone)]
 pub struct Provider {
@@ -33,9 +31,7 @@ impl Provider {
             instances: Mutex::new(HashMap::new()),
             instance_options: Mutex::new(HashMap::new()),
         };
-        Self {
-            inner: Arc::new(inner),
-        }
+        Self { inner: Arc::new(inner) }
     }
 
     pub fn name(&self) -> &str {
@@ -76,9 +72,7 @@ impl Provider {
     where
         T: Any + Send + Sync + 'static,
     {
-        self.get_immediate_with_options::<T>(None, true)
-            .ok()
-            .flatten()
+        self.get_immediate_with_options::<T>(None, true).ok().flatten()
     }
 
     pub fn get_immediate_with_options<T>(
@@ -105,11 +99,7 @@ impl Provider {
         }
     }
 
-    pub fn initialize<T>(
-        &self,
-        options: Value,
-        identifier: Option<&str>,
-    ) -> Result<Arc<T>, ComponentError>
+    pub fn initialize<T>(&self, options: Value, identifier: Option<&str>) -> Result<Arc<T>, ComponentError>
     where
         T: Any + Send + Sync + 'static,
     {
@@ -121,13 +111,11 @@ impl Provider {
         }
 
         match self.get_or_initialize(identifier, options.clone(), true)? {
-            Some(service) => {
-                service
-                    .downcast::<T>()
-                    .map_err(|_| ComponentError::InstanceUnavailable {
-                        name: self.name().to_string(),
-                    })
-            }
+            Some(service) => service
+                .downcast::<T>()
+                .map_err(|_| ComponentError::InstanceUnavailable {
+                    name: self.name().to_string(),
+                }),
             None => Err(ComponentError::InstanceUnavailable {
                 name: self.name().to_string(),
             }),

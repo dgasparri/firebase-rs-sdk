@@ -1,6 +1,4 @@
-use firebase_rs_sdk::auth::{
-    WebAuthnAssertionResponse, WebAuthnMultiFactorGenerator, WebAuthnSignInChallenge,
-};
+use firebase_rs_sdk::auth::{WebAuthnAssertionResponse, WebAuthnMultiFactorGenerator, WebAuthnSignInChallenge};
 use serde_json::json;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,10 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the final assertion that can be passed to `resolver.resolve_sign_in`.
     let assertion = WebAuthnMultiFactorGenerator::assertion_for_sign_in("enroll1", response);
-    assert_eq!(
-        assertion.factor_id(),
-        firebase_rs_sdk::auth::WEBAUTHN_FACTOR_ID
-    );
+    assert_eq!(assertion.factor_id(), firebase_rs_sdk::auth::WEBAUTHN_FACTOR_ID);
 
     println!("Prepared assertion for enrollment 'enroll1'");
     Ok(())

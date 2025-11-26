@@ -41,12 +41,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let error_listener: AppCheckTokenErrorListener = Arc::new(|err| {
         eprintln!("App Check token error: {err}");
     });
-    let handle = add_token_listener(
-        &app_check,
-        listener,
-        Some(error_listener),
-        ListenerType::External,
-    )?;
+    let handle = add_token_listener(&app_check, listener, Some(error_listener), ListenerType::External)?;
 
     // Retrieve the current token and a limited-use token.
     let token = get_token(&app_check, false).await?;

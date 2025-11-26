@@ -55,11 +55,8 @@ impl WebStoragePersistence {
     }
 
     fn window() -> Result<Window, AuthError> {
-        web_sys::window().ok_or_else(|| {
-            AuthError::InvalidCredential(
-                "window object is not available in this environment".into(),
-            )
-        })
+        web_sys::window()
+            .ok_or_else(|| AuthError::InvalidCredential("window object is not available in this environment".into()))
     }
 
     fn deserialize(value: &str) -> Option<PersistedAuthState> {
@@ -71,11 +68,8 @@ impl WebStoragePersistence {
     }
 
     fn serialize(state: &PersistedAuthState) -> Result<String, AuthError> {
-        serde_json::to_string(state).map_err(|err| {
-            AuthError::InvalidCredential(format!(
-                "Failed to serialize auth persistence payload: {err}"
-            ))
-        })
+        serde_json::to_string(state)
+            .map_err(|err| AuthError::InvalidCredential(format!("Failed to serialize auth persistence payload: {err}")))
     }
 
     fn notify_via_broadcast(&self, payload: Option<&str>) {
@@ -116,15 +110,11 @@ impl AuthPersistence for WebStoragePersistence {
         match state {
             Some(ref state) => {
                 let serialized = Self::serialize(state)?;
-                storage
-                    .set_item(self.key.as_ref(), &serialized)
-                    .map_err(map_js_error)?;
+                storage.set_item(self.key.as_ref(), &serialized).map_err(map_js_error)?;
                 self.notify_via_broadcast(Some(&serialized));
             }
             None => {
-                storage
-                    .remove_item(self.key.as_ref())
-                    .map_err(map_js_error)?;
+                storage.remove_item(self.key.as_ref()).map_err(map_js_error)?;
                 self.notify_via_broadcast(None);
             }
         }
@@ -160,8 +150,7 @@ impl AuthPersistence for WebStoragePersistence {
             storage_listener(new_state);
         }) as Box<dyn FnMut(StorageEvent)>);
 
-        let storage_handle =
-            StorageListenerHandle::attach(window.clone().into(), "storage", storage_closure)?;
+        let storage_handle = StorageListenerHandle::attach(window.clone().into(), "storage", storage_closure)?;
 
         let listener_clone = listener.clone();
         let broadcast_handle = match BroadcastChannel::new(self.channel_name.as_ref()) {
@@ -170,8 +159,7 @@ impl AuthPersistence for WebStoragePersistence {
                     if let Some(parsed) = WebStoragePersistence::parse_broadcast_message(&event) {
                         listener_clone(parsed);
                     }
-                })
-                    as Box<dyn FnMut(MessageEvent)>);
+                }) as Box<dyn FnMut(MessageEvent)>);
                 Some(BroadcastListenerHandle::attach(channel, broadcast_closure))
             }
             Err(err) => {

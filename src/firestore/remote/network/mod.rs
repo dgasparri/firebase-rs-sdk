@@ -68,11 +68,7 @@ pub trait NetworkStreamHandler: Send + Sync + 'static {
     fn label(&self) -> &'static str;
     fn should_continue(&self) -> bool;
 
-    async fn on_open(
-        &self,
-        stream: Arc<dyn StreamHandle>,
-        credentials: StreamCredentials,
-    ) -> FirestoreResult<()>;
+    async fn on_open(&self, stream: Arc<dyn StreamHandle>, credentials: StreamCredentials) -> FirestoreResult<()>;
 
     async fn on_message(&self, payload: Vec<u8>) -> FirestoreResult<()>;
 
@@ -94,10 +90,7 @@ where
     H: NetworkStreamHandler,
 {
     fn new(handler: Arc<H>, credentials: StreamCredentialProvider) -> Self {
-        Self {
-            handler,
-            credentials,
-        }
+        Self { handler, credentials }
     }
 }
 
@@ -134,10 +127,7 @@ where
         box_stream_future(async move { handler.on_close().await })
     }
 
-    fn on_stream_error(
-        &self,
-        error: FirestoreError,
-    ) -> crate::firestore::remote::datastore::StreamingFuture<'_, ()> {
+    fn on_stream_error(&self, error: FirestoreError) -> crate::firestore::remote::datastore::StreamingFuture<'_, ()> {
         let handler = Arc::clone(&self.handler);
         let credentials = self.credentials.clone();
         box_stream_future(async move {
@@ -161,10 +151,7 @@ pub struct NetworkLayer {
 }
 
 impl NetworkLayer {
-    pub fn builder(
-        datastore: Arc<dyn StreamingDatastore>,
-        auth_provider: TokenProviderArc,
-    ) -> NetworkLayerBuilder {
+    pub fn builder(datastore: Arc<dyn StreamingDatastore>, auth_provider: TokenProviderArc) -> NetworkLayerBuilder {
         NetworkLayerBuilder::new(datastore, auth_provider)
     }
 
@@ -186,17 +173,8 @@ impl NetworkLayer {
     where
         H: NetworkStreamHandler,
     {
-        let delegate = Arc::new(NetworkStreamDelegate::new(
-            Arc::clone(&handler),
-            self.credentials.clone(),
-        ));
-        PersistentStream::new(
-            Arc::clone(&self.datastore),
-            delegate,
-            self.retry.clone(),
-            kind,
-        )
-        .start()
+        let delegate = Arc::new(NetworkStreamDelegate::new(Arc::clone(&handler), self.credentials.clone()));
+        PersistentStream::new(Arc::clone(&self.datastore), delegate, self.retry.clone(), kind).start()
     }
 }
 
@@ -238,14 +216,8 @@ impl NetworkLayerBuilder {
         let app_check = self
             .app_check_provider
             .unwrap_or_else(|| Arc::new(NoopTokenProvider::default()) as TokenProviderArc);
-        let heartbeat_provider = self
-            .heartbeat_provider
-            .or_else(|| Some(Arc::clone(&app_check)));
-        let credentials = StreamCredentialProvider::new(
-            Arc::clone(&self.auth_provider),
-            app_check,
-            heartbeat_provider,
-        );
+        let heartbeat_provider = self.heartbeat_provider.or_else(|| Some(Arc::clone(&app_check)));
+        let credentials = StreamCredentialProvider::new(Arc::clone(&self.auth_provider), app_check, heartbeat_provider);
         NetworkLayer {
             datastore: self.datastore,
             credentials,
@@ -329,11 +301,7 @@ mod tests {
             self.running.load(Ordering::SeqCst)
         }
 
-        async fn on_open(
-            &self,
-            stream: Arc<dyn StreamHandle>,
-            credentials: StreamCredentials,
-        ) -> FirestoreResult<()> {
+        async fn on_open(&self, stream: Arc<dyn StreamHandle>, credentials: StreamCredentials) -> FirestoreResult<()> {
             self.credentials.lock().unwrap().push(credentials);
             stream.send(b"handshake".to_vec()).await
         }
@@ -362,8 +330,7 @@ mod tests {
             Arc::new(StreamingDatastoreImpl::new(Arc::clone(&left_connection)));
 
         let (auth_provider, auth_invalidated) = TestTokenProvider::new(Some("auth".into()), None);
-        let (app_check_provider, _) =
-            TestTokenProvider::new(Some("app-check".into()), Some("hb".into()));
+        let (app_check_provider, _) = TestTokenProvider::new(Some("app-check".into()), Some("hb".into()));
 
         let layer = NetworkLayer::builder(datastore, Arc::new(auth_provider) as TokenProviderArc)
             .with_app_check_provider(Arc::new(app_check_provider) as TokenProviderArc)
@@ -381,10 +348,7 @@ mod tests {
             .expect("handshake payload");
         assert_eq!(handshake, b"handshake");
 
-        peer_stream
-            .send(b"payload".to_vec())
-            .await
-            .expect("send payload");
+        peer_stream.send(b"payload".to_vec()).await.expect("send payload");
         peer_stream.close().await.expect("close peer stream");
 
         for _ in 0..10 {

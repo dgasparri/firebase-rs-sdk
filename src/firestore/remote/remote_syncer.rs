@@ -41,24 +41,13 @@ pub trait RemoteSyncer: Send + Sync + 'static {
     fn apply_remote_event(&self, event: RemoteEvent) -> RemoteStoreFuture<'_, FirestoreResult<()>>;
 
     /// Signals that a watch target was rejected by the backend.
-    fn reject_listen(
-        &self,
-        target_id: i32,
-        error: FirestoreError,
-    ) -> RemoteStoreFuture<'_, FirestoreResult<()>>;
+    fn reject_listen(&self, target_id: i32, error: FirestoreError) -> RemoteStoreFuture<'_, FirestoreResult<()>>;
 
     /// Applies the acknowledgement for a committed mutation batch.
-    fn apply_successful_write(
-        &self,
-        result: MutationBatchResult,
-    ) -> RemoteStoreFuture<'_, FirestoreResult<()>>;
+    fn apply_successful_write(&self, result: MutationBatchResult) -> RemoteStoreFuture<'_, FirestoreResult<()>>;
 
     /// Rejects a pending mutation batch due to a stream failure.
-    fn reject_failed_write(
-        &self,
-        batch_id: i32,
-        error: FirestoreError,
-    ) -> RemoteStoreFuture<'_, FirestoreResult<()>>;
+    fn reject_failed_write(&self, batch_id: i32, error: FirestoreError) -> RemoteStoreFuture<'_, FirestoreResult<()>>;
 
     /// Returns the currently cached remote keys for a target.
     fn get_remote_keys_for_target(&self, target_id: i32) -> BTreeSet<DocumentKey>;

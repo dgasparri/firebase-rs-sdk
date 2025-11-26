@@ -176,9 +176,7 @@ pub fn is_web_worker() -> bool {
     #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
     {
         use wasm_bindgen::JsCast;
-        js_sys::global()
-            .dyn_into::<web_sys::WorkerGlobalScope>()
-            .is_ok()
+        js_sys::global().dyn_into::<web_sys::WorkerGlobalScope>().is_ok()
     }
 
     #[cfg(not(all(target_arch = "wasm32", feature = "wasm-web")))]

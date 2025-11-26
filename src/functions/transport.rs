@@ -68,8 +68,7 @@ impl CallableTransport for NativeCallableTransport {
 mod native {
     use super::{CallableRequest, JsonValue};
     use crate::functions::error::{
-        error_for_http_response, internal_error, invalid_argument, FunctionsError,
-        FunctionsErrorCode, FunctionsResult,
+        error_for_http_response, internal_error, invalid_argument, FunctionsError, FunctionsErrorCode, FunctionsResult,
     };
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     use reqwest::StatusCode;
@@ -78,11 +77,8 @@ mod native {
     use std::sync::LazyLock;
 
     fn client() -> &'static Client {
-        static CLIENT: LazyLock<Client> = LazyLock::new(|| {
-            Client::builder()
-                .build()
-                .expect("Failed to construct reqwest client")
-        });
+        static CLIENT: LazyLock<Client> =
+            LazyLock::new(|| Client::builder().build().expect("Failed to construct reqwest client"));
         &CLIENT
     }
 
@@ -91,9 +87,8 @@ mod native {
         for (key, value) in headers {
             let name = HeaderName::from_bytes(key.as_bytes())
                 .map_err(|err| invalid_argument(format!("invalid header name `{key}`: {err}")))?;
-            let header_value = HeaderValue::from_str(value).map_err(|err| {
-                invalid_argument(format!("invalid header value for `{key}`: {err}"))
-            })?;
+            let header_value = HeaderValue::from_str(value)
+                .map_err(|err| invalid_argument(format!("invalid header value for `{key}`: {err}")))?;
             map.insert(name, header_value);
         }
         Ok(map)
@@ -121,10 +116,7 @@ mod native {
                 format!("malformed callable request: {err}"),
             );
         }
-        FunctionsError::new(
-            FunctionsErrorCode::Unknown,
-            format!("callable request failed: {err}"),
-        )
+        FunctionsError::new(FunctionsErrorCode::Unknown, format!("callable request failed: {err}"))
     }
 
     pub(super) async fn invoke(request: CallableRequest) -> FunctionsResult<JsonValue> {
@@ -152,9 +144,10 @@ mod native {
 
     async fn handle_response(response: Response) -> FunctionsResult<JsonValue> {
         let status = response.status();
-        let bytes = response.bytes().await.map_err(|err| {
-            internal_error(format!("failed to read callable response body: {err}"))
-        })?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|err| internal_error(format!("failed to read callable response body: {err}")))?;
 
         let (body, parse_error) = if bytes.is_empty() {
             (None, None)
@@ -170,15 +163,11 @@ mod native {
         }
 
         if let Some(err) = parse_error {
-            return Err(internal_error(format!(
-                "Response is not valid JSON object: {err}"
-            )));
+            return Err(internal_error(format!("Response is not valid JSON object: {err}")));
         }
 
         if status == StatusCode::NO_CONTENT {
-            return Err(internal_error(
-                "Callable response is missing data payload (HTTP 204)",
-            ));
+            return Err(internal_error("Callable response is missing data payload (HTTP 204)"));
         }
 
         Ok(body.unwrap_or(JsonValue::Null))
@@ -207,8 +196,7 @@ impl CallableTransport for WasmCallableTransport {
 mod wasm {
     use super::{CallableRequest, JsonValue};
     use crate::functions::error::{
-        error_for_http_response, internal_error, invalid_argument, FunctionsError,
-        FunctionsErrorCode, FunctionsResult,
+        error_for_http_response, internal_error, invalid_argument, FunctionsError, FunctionsErrorCode, FunctionsResult,
     };
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
@@ -226,11 +214,10 @@ mod wasm {
             headers,
         } = request;
 
-        let window = web_sys::window()
-            .ok_or_else(|| internal_error("window is not available in this environment"))?;
+        let window = web_sys::window().ok_or_else(|| internal_error("window is not available in this environment"))?;
 
-        let abort_controller = AbortController::new()
-            .map_err(|err| internal_error(format_js_error("create AbortController", err)))?;
+        let abort_controller =
+            AbortController::new().map_err(|err| internal_error(format_js_error("create AbortController", err)))?;
         let signal = abort_controller.signal();
 
         let init = RequestInit::new();
@@ -238,9 +225,8 @@ mod wasm {
         init.set_mode(RequestMode::Cors);
         init.set_signal(Some(&signal));
 
-        let body = serde_json::to_string(&payload).map_err(|err| {
-            internal_error(format!("Failed to serialize callable payload: {err}"))
-        })?;
+        let body = serde_json::to_string(&payload)
+            .map_err(|err| internal_error(format!("Failed to serialize callable payload: {err}")))?;
         let body_js = JsValue::from_str(&body);
         init.set_body(&body_js);
 
@@ -250,10 +236,7 @@ mod wasm {
         let request_headers = request.headers();
         for (key, value) in headers {
             request_headers.set(&key, &value).map_err(|err| {
-                invalid_argument(format!(
-                    "invalid header `{key}`: {}",
-                    format_js_error("set header", err)
-                ))
+                invalid_argument(format!("invalid header `{key}`: {}", format_js_error("set header", err)))
             })?;
         }
 
@@ -265,10 +248,7 @@ mod wasm {
                 controller.abort();
             }) as Box<dyn FnMut()>);
             let handle = window
-                .set_timeout_with_callback_and_timeout_and_arguments_0(
-                    closure.as_ref().unchecked_ref(),
-                    timeout_ms,
-                )
+                .set_timeout_with_callback_and_timeout_and_arguments_0(closure.as_ref().unchecked_ref(), timeout_ms)
                 .map_err(|err| internal_error(format_js_error("schedule callable timeout", err)))?;
             Some((handle, closure))
         } else {
@@ -280,10 +260,7 @@ mod wasm {
             Err(err) => {
                 cancel_timeout(&window, &mut timeout_guard);
                 if is_abort_error(&err) {
-                    return Err(FunctionsError::new(
-                        FunctionsErrorCode::DeadlineExceeded,
-                        TIMEOUT_CONTEXT,
-                    ));
+                    return Err(FunctionsError::new(FunctionsErrorCode::DeadlineExceeded, TIMEOUT_CONTEXT));
                 }
                 return Err(internal_error(format_js_error("callable fetch", err)));
             }
@@ -318,15 +295,11 @@ mod wasm {
         }
 
         if let Some(err) = parse_error {
-            return Err(internal_error(format!(
-                "Response is not valid JSON object: {err}"
-            )));
+            return Err(internal_error(format!("Response is not valid JSON object: {err}")));
         }
 
         if status == 204 {
-            return Err(internal_error(
-                "Callable response is missing data payload (HTTP 204)",
-            ));
+            return Err(internal_error("Callable response is missing data payload (HTTP 204)"));
         }
 
         Ok(body.unwrap_or(JsonValue::Null))

@@ -77,8 +77,7 @@ impl TransportFrame {
 
     pub fn encode(&self) -> FirestoreResult<Vec<u8>> {
         let envelope = FrameEnvelope::try_from(self)?;
-        serde_json::to_vec(&envelope)
-            .map_err(|err| internal_error(format!("failed to encode transport frame: {err}")))
+        serde_json::to_vec(&envelope).map_err(|err| internal_error(format!("failed to encode transport frame: {err}")))
     }
 
     pub fn decode(bytes: &[u8]) -> FirestoreResult<Self> {
@@ -318,11 +317,7 @@ impl TryFrom<&TransportFrame> for FrameEnvelope {
                 payload: payload.clone(),
             },
             FrameKind::Close => FrameEnvelopeKind::Close,
-            FrameKind::Error(err) => {
-                return Err(internal_error(format!(
-                    "error frames cannot be serialized: {err}"
-                )))
-            }
+            FrameKind::Error(err) => return Err(internal_error(format!("error frames cannot be serialized: {err}"))),
         };
 
         Ok(Self {
@@ -348,8 +343,7 @@ impl TryFrom<FrameEnvelope> for TransportFrame {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-type NativeWebSocket =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type NativeWebSocket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub struct WebSocketTransport {
@@ -433,26 +427,12 @@ mod tests {
         let left_stream = left.open_stream().await.expect("left stream");
         let right_stream = right.open_stream().await.expect("right stream");
 
-        left_stream
-            .send(b"hello".to_vec())
-            .await
-            .expect("left send");
-        let payload = right_stream
-            .next()
-            .await
-            .expect("right recv")
-            .expect("payload");
+        left_stream.send(b"hello".to_vec()).await.expect("left send");
+        let payload = right_stream.next().await.expect("right recv").expect("payload");
         assert_eq!(payload, b"hello");
 
-        right_stream
-            .send(b"world".to_vec())
-            .await
-            .expect("right send");
-        let payload = left_stream
-            .next()
-            .await
-            .expect("left recv")
-            .expect("payload");
+        right_stream.send(b"world".to_vec()).await.expect("right send");
+        let payload = left_stream.next().await.expect("left recv").expect("payload");
         assert_eq!(payload, b"world");
     }
 

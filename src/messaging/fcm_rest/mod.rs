@@ -2,8 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::messaging::constants::FCM_RETRY_BASE_DELAY_MS;
 use crate::messaging::error::{
-    token_subscribe_failed, token_subscribe_no_token, token_update_failed, token_update_no_token,
-    MessagingResult,
+    token_subscribe_failed, token_subscribe_no_token, token_update_failed, token_update_no_token, MessagingResult,
 };
 use rand::{thread_rng, Rng};
 
@@ -12,11 +11,7 @@ use std::time::Duration;
 
 #[cfg(any(
     not(all(target_arch = "wasm32", feature = "wasm-web")),
-    all(
-        target_arch = "wasm32",
-        feature = "wasm-web",
-        feature = "experimental-indexed-db"
-    )
+    all(target_arch = "wasm32", feature = "wasm-web", feature = "experimental-indexed-db")
 ))]
 pub const FCM_API_URL: &str = "https://fcmregistrations.googleapis.com/v1";
 
@@ -24,11 +19,7 @@ pub const FCM_API_URL: &str = "https://fcmregistrations.googleapis.com/v1";
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -44,11 +35,7 @@ pub struct FcmRegistrationRequest<'a> {
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -64,11 +51,7 @@ pub struct FcmSubscription<'a> {
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -83,17 +66,9 @@ mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::FcmClient;
 
-#[cfg(all(
-    target_arch = "wasm32",
-    feature = "wasm-web",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web", feature = "experimental-indexed-db"))]
 mod wasm;
-#[cfg(all(
-    target_arch = "wasm32",
-    feature = "wasm-web",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web", feature = "experimental-indexed-db"))]
 pub use wasm::FcmClient;
 
 #[cfg(all(target_arch = "wasm32", not(feature = "wasm-web")))]
@@ -105,11 +80,7 @@ compile_error!(
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -123,11 +94,7 @@ struct RegistrationRequestBody<'a> {
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -144,11 +111,7 @@ struct RegistrationWebBody<'a> {
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -164,11 +127,7 @@ struct FcmResponse {
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -182,11 +141,7 @@ struct FcmErrorBody {
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -205,11 +160,7 @@ fn build_body<'a>(subscription: &FcmSubscription<'a>) -> RegistrationRequestBody
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -224,11 +175,7 @@ fn map_subscribe_response(response: FcmResponse) -> MessagingResult<String> {
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
@@ -243,18 +190,11 @@ fn map_update_response(response: FcmResponse) -> MessagingResult<String> {
 #[cfg_attr(
     not(any(
         test,
-        all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        )
+        all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")
     )),
     allow(dead_code)
 )]
-fn build_headers(
-    api_key: &str,
-    installation_auth_token: &str,
-) -> MessagingResult<Vec<(String, String)>> {
+fn build_headers(api_key: &str, installation_auth_token: &str) -> MessagingResult<Vec<(String, String)>> {
     Ok(vec![
         ("Content-Type".into(), "application/json".into()),
         ("Accept".into(), "application/json".into()),
@@ -302,11 +242,7 @@ async fn sleep_ms(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 async fn sleep_ms(ms: u64) {
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
@@ -319,10 +255,7 @@ async fn sleep_ms(ms: u64) {
             let _ = resolve.call0(&JsValue::UNDEFINED);
         });
         window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                closure.as_ref().unchecked_ref(),
-                ms as i32,
-            )
+            .set_timeout_with_callback_and_timeout_and_arguments_0(closure.as_ref().unchecked_ref(), ms as i32)
             .expect("setTimeout");
         closure.forget();
     });

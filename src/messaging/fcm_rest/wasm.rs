@@ -4,13 +4,12 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response};
 
 use super::{
-    backoff_delay_ms, build_body, build_headers, is_retriable_status, map_subscribe_response,
-    map_update_response, FcmRegistrationRequest, FcmResponse, FcmUpdateRequest, FCM_API_URL,
+    backoff_delay_ms, build_body, build_headers, is_retriable_status, map_subscribe_response, map_update_response,
+    FcmRegistrationRequest, FcmResponse, FcmUpdateRequest, FCM_API_URL,
 };
 use crate::messaging::constants::FCM_MAX_RETRIES;
 use crate::messaging::error::{
-    internal_error, token_subscribe_failed, token_unsubscribe_failed, token_update_failed,
-    MessagingResult,
+    internal_error, token_subscribe_failed, token_unsubscribe_failed, token_update_failed, MessagingResult,
 };
 
 #[derive(Clone, Debug)]
@@ -25,10 +24,7 @@ impl FcmClient {
         })
     }
 
-    pub async fn register_token(
-        &self,
-        request: &FcmRegistrationRequest<'_>,
-    ) -> MessagingResult<String> {
+    pub async fn register_token(&self, request: &FcmRegistrationRequest<'_>) -> MessagingResult<String> {
         let url = self.registration_endpoint(request.project_id);
         let headers = build_headers(request.api_key, request.installation_auth_token)?;
         let body = serde_json::to_string(&build_body(&request.subscription))
@@ -71,14 +67,8 @@ impl FcmClient {
     }
 
     pub async fn update_token(&self, request: &FcmUpdateRequest<'_>) -> MessagingResult<String> {
-        let url = self.registration_instance_endpoint(
-            request.registration.project_id,
-            request.registration_token,
-        );
-        let headers = build_headers(
-            request.registration.api_key,
-            request.registration.installation_auth_token,
-        )?;
+        let url = self.registration_instance_endpoint(request.registration.project_id, request.registration_token);
+        let headers = build_headers(request.registration.api_key, request.registration.installation_auth_token)?;
         let body = serde_json::to_string(&build_body(&request.registration.subscription))
             .map_err(|err| internal_error(format!("Failed to encode FCM request: {err}")))?;
 
@@ -130,10 +120,7 @@ impl FcmClient {
         let mut attempt = 0u32;
 
         loop {
-            match self
-                .send_request(url.clone(), "DELETE", headers.clone(), None)
-                .await
-            {
+            match self.send_request(url.clone(), "DELETE", headers.clone(), None).await {
                 Ok(response) => {
                     let status = response.status();
                     let parsed = self.parse_response(response).await?;
@@ -156,9 +143,7 @@ impl FcmClient {
                         .error
                         .map(|err| token_unsubscribe_failed(err.message))
                         .unwrap_or_else(|| {
-                            token_unsubscribe_failed(format!(
-                                "FCM delete failed with status {status}"
-                            ))
+                            token_unsubscribe_failed(format!("FCM delete failed with status {status}"))
                         }));
                 }
                 Err(err) => {
@@ -174,11 +159,7 @@ impl FcmClient {
     }
 
     fn registration_endpoint(&self, project_id: &str) -> String {
-        format!(
-            "{}/projects/{}/registrations",
-            self.base_url.trim_end_matches('/'),
-            project_id
-        )
+        format!("{}/projects/{}/registrations", self.base_url.trim_end_matches('/'), project_id)
     }
 
     fn registration_instance_endpoint(&self, project_id: &str, token: &str) -> String {
@@ -201,8 +182,7 @@ impl FcmClient {
             init.set_body(body_value);
         }
 
-        let request =
-            Request::new_with_str_and_init(&url, &init).map_err(|err| js_value_to_string(err))?;
+        let request = Request::new_with_str_and_init(&url, &init).map_err(|err| js_value_to_string(err))?;
         let request_headers = request.headers();
         for (name, value) in headers {
             request_headers
@@ -213,23 +193,18 @@ impl FcmClient {
         let response = JsFuture::from(window.fetch_with_request(&request))
             .await
             .map_err(|err| js_value_to_string(err))?;
-        response
-            .dyn_into::<Response>()
-            .map_err(|err| js_value_to_string(err))
+        response.dyn_into::<Response>().map_err(|err| js_value_to_string(err))
     }
 
     async fn parse_response(&self, response: Response) -> MessagingResult<FcmResponse> {
-        let promise = response
-            .text()
-            .map_err(|err| internal_error(js_value_to_string(err)))?;
+        let promise = response.text().map_err(|err| internal_error(js_value_to_string(err)))?;
         let value = JsFuture::from(promise)
             .await
             .map_err(|err| internal_error(js_value_to_string(err)))?;
         let text = value
             .as_string()
             .ok_or_else(|| internal_error("FCM response body was not a string"))?;
-        serde_json::from_str(&text)
-            .map_err(|err| internal_error(format!("Failed to parse FCM response: {err}")))
+        serde_json::from_str(&text).map_err(|err| internal_error(format!("Failed to parse FCM response: {err}")))
     }
 }
 

@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::app_check::api;
 use crate::app_check::errors::AppCheckResult;
 use crate::app_check::types::{
-    AppCheck, AppCheckInternalListener, AppCheckTokenError, AppCheckTokenResult, ListenerHandle,
-    ListenerType,
+    AppCheck, AppCheckInternalListener, AppCheckTokenError, AppCheckTokenResult, ListenerHandle, ListenerType,
 };
 //#[cfg(feature = "firestore")]
 use crate::firestore::TokenProviderArc;
@@ -30,10 +29,7 @@ impl FirebaseAppCheckInternal {
         &self.app_check
     }
 
-    pub async fn get_token(
-        &self,
-        force_refresh: bool,
-    ) -> Result<AppCheckTokenResult, AppCheckTokenError> {
+    pub async fn get_token(&self, force_refresh: bool) -> Result<AppCheckTokenResult, AppCheckTokenError> {
         api::get_token(&self.app_check, force_refresh).await
     }
 
@@ -52,18 +48,14 @@ impl FirebaseAppCheckInternal {
             (*listener_clone)(result.clone());
         });
 
-        let handle =
-            api::add_token_listener(&self.app_check, bridge, None, ListenerType::Internal)?;
+        let handle = api::add_token_listener(&self.app_check, bridge, None, ListenerType::Internal)?;
         listeners.lock().unwrap().push((listener, handle));
         Ok(())
     }
 
     pub fn remove_token_listener(&self, listener: &AppCheckInternalListener) {
         let mut listeners = self.listeners.lock().unwrap();
-        if let Some(pos) = listeners
-            .iter()
-            .position(|(stored, _)| Arc::ptr_eq(stored, listener))
-        {
+        if let Some(pos) = listeners.iter().position(|(stored, _)| Arc::ptr_eq(stored, listener)) {
             let (_, handle) = listeners.remove(pos);
             handle.unsubscribe();
         }
@@ -84,8 +76,7 @@ mod tests {
         clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
     };
     use crate::app_check::types::{
-        box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
-        AppCheckToken,
+        box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture, AppCheckToken,
     };
     use crate::component::ComponentContainer;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -99,9 +90,7 @@ mod tests {
             box_app_check_future(async { token_with_ttl("token", Duration::from_secs(60)) })
         }
 
-        fn get_limited_use_token(
-            &self,
-        ) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
+        fn get_limited_use_token(&self) -> AppCheckProviderFuture<'_, AppCheckResult<AppCheckToken>> {
             box_app_check_future(async { token_with_ttl("limited", Duration::from_secs(60)) })
         }
     }

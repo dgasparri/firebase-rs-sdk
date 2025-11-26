@@ -113,11 +113,7 @@ mod tests {
     fn boolean_truthy_values_match_js_behaviour() {
         for truthy in RemoteConfigValue::BOOLEAN_TRUTHY_VALUES {
             let value = RemoteConfigValue::new(RemoteConfigValueSource::Remote, truthy);
-            assert!(
-                value.as_bool(),
-                "expected truthy value {} to be true",
-                truthy
-            );
+            assert!(value.as_bool(), "expected truthy value {} to be true", truthy);
         }
         let value = RemoteConfigValue::new(RemoteConfigValueSource::Remote, "false");
         assert!(!value.as_bool());

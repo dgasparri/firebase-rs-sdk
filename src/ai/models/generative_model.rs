@@ -49,13 +49,7 @@ impl GenerativeModel {
     ) -> AiResult<PreparedRequest> {
         let factory = self.service.request_factory().await?;
         let effective_options = request_options.or_else(|| self.default_request_options.clone());
-        factory.construct_request(
-            &self.model,
-            Task::GenerateContent,
-            false,
-            body,
-            effective_options,
-        )
+        factory.construct_request(&self.model, Task::GenerateContent, false, body, effective_options)
     }
 }
 
@@ -100,18 +94,13 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "gen-model-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("gen-model-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
 
     async fn init_service(options: FirebaseOptions, backend: Option<Backend>) -> Arc<AiService> {
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         match backend {
             Some(backend) => crate::ai::get_ai(
                 Some(app),

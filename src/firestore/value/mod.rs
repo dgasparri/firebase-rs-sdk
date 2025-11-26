@@ -46,9 +46,7 @@ pub enum ValueKind {
 
 impl FirestoreValue {
     pub fn null() -> Self {
-        Self {
-            kind: ValueKind::Null,
-        }
+        Self { kind: ValueKind::Null }
     }
 
     pub fn from_bool(value: bool) -> Self {

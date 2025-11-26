@@ -4,9 +4,7 @@ use std::time::Duration;
 
 use crate::app::{get_app, AppError, FirebaseApp, HeartbeatService, HeartbeatServiceImpl};
 use crate::app::{get_provider, register_component};
-use crate::component::types::{
-    ComponentError, ComponentType, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, ComponentType, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentContainer};
 use crate::platform::runtime;
 use futures::FutureExt;
@@ -20,9 +18,8 @@ use super::providers::{CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3P
 use super::refresher::Refresher;
 use super::state;
 use super::types::{
-    AppCheck, AppCheckOptions, AppCheckProvider, AppCheckToken, AppCheckTokenError,
-    AppCheckTokenErrorListener, AppCheckTokenListener, AppCheckTokenResult, ListenerHandle,
-    ListenerType,
+    AppCheck, AppCheckOptions, AppCheckProvider, AppCheckToken, AppCheckTokenError, AppCheckTokenErrorListener,
+    AppCheckTokenListener, AppCheckTokenResult, ListenerHandle, ListenerType,
 };
 
 const TOKEN_REFRESH_OFFSET: Duration = Duration::from_secs(5 * 60);
@@ -66,12 +63,12 @@ fn app_check_factory(
     container: &ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: super::types::APP_CHECK_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
     let app_name: Arc<str> = Arc::from(app.name().to_owned());
     let service = REGISTRY
         .lock()
@@ -89,12 +86,12 @@ fn app_check_internal_factory(
     container: &ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: super::types::APP_CHECK_INTERNAL_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
     let app_name: Arc<str> = Arc::from(app.name().to_owned());
     let internal = REGISTRY
         .lock()
@@ -114,10 +111,7 @@ fn app_check_internal_factory(
 /// Components are registered with the Firebase container, cached tokens are
 /// restored when persistence is available, and the proactive refresh policy is
 /// configured based on the provided options.
-pub async fn initialize_app_check(
-    app: Option<FirebaseApp>,
-    options: AppCheckOptions,
-) -> AppCheckResult<AppCheck> {
+pub async fn initialize_app_check(app: Option<FirebaseApp>, options: AppCheckOptions) -> AppCheckResult<AppCheck> {
     ensure_components_registered();
 
     let app = if let Some(app) = app {
@@ -162,10 +156,7 @@ pub async fn initialize_app_check(
         let service_clone = service.clone();
         runtime::spawn_detached(async move {
             if let Err(err) = service_clone.trigger_heartbeat().await {
-                LOGGER.debug(format!(
-                    "Failed to trigger heartbeat for app {}: {}",
-                    app_name, err
-                ));
+                LOGGER.debug(format!("Failed to trigger heartbeat for app {}: {}", app_name, err));
             }
         });
     }
@@ -237,16 +228,11 @@ pub fn set_token_auto_refresh_enabled(app_check: &AppCheck, enabled: bool) {
 /// cached token is still valid it is returned immediately; refresh failures are
 /// reported through [`AppCheckTokenError`] so callers can distinguish fatal,
 /// soft (cached-token) and throttled outcomes without relying on dummy tokens.
-pub async fn get_token(
-    app_check: &AppCheck,
-    force_refresh: bool,
-) -> Result<AppCheckTokenResult, AppCheckTokenError> {
+pub async fn get_token(app_check: &AppCheck, force_refresh: bool) -> Result<AppCheckTokenResult, AppCheckTokenError> {
     if !state::is_activated(app_check) {
-        return Err(AppCheckTokenError::fatal(
-            AppCheckError::UseBeforeActivation {
-                app_name: app_check.app().name().to_owned(),
-            },
-        ));
+        return Err(AppCheckTokenError::fatal(AppCheckError::UseBeforeActivation {
+            app_name: app_check.app().name().to_owned(),
+        }));
     }
 
     let cached = state::current_token(app_check);
@@ -295,15 +281,11 @@ pub async fn get_token(
 ///
 /// Equivalent to `getLimitedUseToken` in the JS SDK. Limited-use tokens always
 /// hit the provider (or debug endpoint) and do not touch the cached state.
-pub async fn get_limited_use_token(
-    app_check: &AppCheck,
-) -> Result<AppCheckTokenResult, AppCheckTokenError> {
+pub async fn get_limited_use_token(app_check: &AppCheck) -> Result<AppCheckTokenResult, AppCheckTokenError> {
     if !state::is_activated(app_check) {
-        return Err(AppCheckTokenError::fatal(
-            AppCheckError::UseBeforeActivation {
-                app_name: app_check.app().name().to_owned(),
-            },
-        ));
+        return Err(AppCheckTokenError::fatal(AppCheckError::UseBeforeActivation {
+            app_name: app_check.app().name().to_owned(),
+        }));
     }
 
     let provider = state::provider(app_check).ok_or_else(|| {
@@ -328,8 +310,9 @@ pub async fn get_limited_use_token(
 
 fn throttle_retry_after(error: &AppCheckError) -> Option<Duration> {
     match error {
-        AppCheckError::InitialThrottle { retry_after, .. }
-        | AppCheckError::Throttled { retry_after, .. } => Some(*retry_after),
+        AppCheckError::InitialThrottle { retry_after, .. } | AppCheckError::Throttled { retry_after, .. } => {
+            Some(*retry_after)
+        }
         _ => None,
     }
 }
@@ -442,13 +425,7 @@ fn ensure_refresher(app_check: &AppCheck) -> Refresher {
             move || compute_refresh_delay(&app)
         });
 
-        Refresher::new(
-            operation,
-            Arc::new(|_| true),
-            wait,
-            TOKEN_RETRY_MIN_WAIT,
-            TOKEN_RETRY_MAX_WAIT,
-        )
+        Refresher::new(operation, Arc::new(|_| true), wait, TOKEN_RETRY_MIN_WAIT, TOKEN_RETRY_MAX_WAIT)
     })
 }
 
@@ -483,11 +460,7 @@ fn compute_refresh_delay(app_check: &AppCheck) -> Duration {
         .checked_sub(TOKEN_REFRESH_OFFSET)
         .unwrap_or(token.expire_time);
 
-    let target = if mid_refresh <= latest {
-        mid_refresh
-    } else {
-        latest
-    };
+    let target = if mid_refresh <= latest { mid_refresh } else { latest };
 
     match target.duration_since(now) {
         Ok(duration) => duration,

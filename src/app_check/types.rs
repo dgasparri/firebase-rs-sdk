@@ -11,11 +11,7 @@ use crate::platform::runtime;
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::{PartialObserver, Unsubscribe};
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::app_check::persistence::BroadcastSubscription;
 
 use super::errors::{AppCheckError, AppCheckResult};
@@ -66,9 +62,9 @@ impl AppCheckToken {
 
     pub fn with_ttl(token: impl Into<String>, ttl: Duration) -> AppCheckResult<Self> {
         let issued_at = runtime::now();
-        let expire_time = issued_at.checked_add(ttl).ok_or_else(|| {
-            AppCheckError::Internal("failed to compute token expiration".to_string())
-        })?;
+        let expire_time = issued_at
+            .checked_add(ttl)
+            .ok_or_else(|| AppCheckError::Internal("failed to compute token expiration".to_string()))?;
         Ok(Self {
             token: token.into(),
             expire_time,
@@ -144,11 +140,7 @@ impl AppCheckTokenError {
         }
     }
 
-    pub fn throttled(
-        cause: AppCheckError,
-        retry_after: Duration,
-        cached_token: Option<AppCheckToken>,
-    ) -> Self {
+    pub fn throttled(cause: AppCheckError, retry_after: Duration, cached_token: Option<AppCheckToken>) -> Self {
         Self {
             cause,
             kind: TokenErrorKind::Throttled {
@@ -185,12 +177,9 @@ impl fmt::Display for AppCheckTokenError {
             TokenErrorKind::Soft { .. } => {
                 write!(f, "transient App Check token failure: {}", self.cause)
             }
-            TokenErrorKind::Throttled { retry_after, .. } => write!(
-                f,
-                "App Check throttled for {}: {}",
-                format_duration(*retry_after),
-                self.cause
-            ),
+            TokenErrorKind::Throttled { retry_after, .. } => {
+                write!(f, "App Check throttled for {}: {}", format_duration(*retry_after), self.cause)
+            }
         }
     }
 }
@@ -297,10 +286,7 @@ impl AppCheck {
         crate::app_check::api::set_token_auto_refresh_enabled(self, enabled);
     }
 
-    pub async fn get_token(
-        &self,
-        force_refresh: bool,
-    ) -> Result<AppCheckTokenResult, AppCheckTokenError> {
+    pub async fn get_token(&self, force_refresh: bool) -> Result<AppCheckTokenResult, AppCheckTokenError> {
         crate::app_check::api::get_token(self, force_refresh).await
     }
 
@@ -314,22 +300,14 @@ impl AppCheck {
         };
 
         if let Err(err) = service.trigger_heartbeat().await {
-            LOGGER.debug(format!(
-                "Failed to trigger heartbeat for app {}: {}",
-                self.app.name(),
-                err
-            ));
+            LOGGER.debug(format!("Failed to trigger heartbeat for app {}: {}", self.app.name(), err));
             return Ok(None);
         }
 
         match service.heartbeats_header().await {
             Ok(header) => Ok(header),
             Err(err) => {
-                LOGGER.debug(format!(
-                    "Failed to build heartbeat header for app {}: {}",
-                    self.app.name(),
-                    err
-                ));
+                LOGGER.debug(format!("Failed to build heartbeat header for app {}: {}", self.app.name(), err));
                 Ok(None)
             }
         }
@@ -438,11 +416,7 @@ pub(crate) struct AppCheckState {
     pub token: Option<AppCheckToken>,
     pub is_token_auto_refresh_enabled: bool,
     pub observers: Vec<TokenListenerEntry>,
-    #[cfg(all(
-        feature = "wasm-web",
-        target_arch = "wasm32",
-        feature = "experimental-indexed-db"
-    ))]
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
     pub broadcast_handle: Option<BroadcastSubscription>,
     pub token_refresher: Option<Refresher>,
 }
@@ -455,11 +429,7 @@ impl AppCheckState {
             token: None,
             is_token_auto_refresh_enabled: false,
             observers: Vec::new(),
-            #[cfg(all(
-                feature = "wasm-web",
-                target_arch = "wasm32",
-                feature = "experimental-indexed-db"
-            ))]
+            #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
             broadcast_handle: None,
             token_refresher: None,
         }

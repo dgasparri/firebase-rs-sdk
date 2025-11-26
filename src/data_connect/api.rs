@@ -13,17 +13,11 @@ use crate::app;
 use crate::app::FirebaseApp;
 use crate::app_check::FirebaseAppCheckInternal;
 use crate::auth::Auth;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType, Provider};
-use crate::data_connect::config::{
-    parse_transport_options, ConnectorConfig, DataConnectOptions, TransportOptions,
-};
+use crate::data_connect::config::{parse_transport_options, ConnectorConfig, DataConnectOptions, TransportOptions};
 use crate::data_connect::constants::DATA_CONNECT_COMPONENT_NAME;
-use crate::data_connect::error::{
-    internal_error, DataConnectError, DataConnectErrorCode, DataConnectResult,
-};
+use crate::data_connect::error::{internal_error, DataConnectError, DataConnectErrorCode, DataConnectResult};
 use crate::data_connect::mutation::MutationManager;
 use crate::data_connect::query::{
     cache_from_serialized, QueryManager, QuerySubscriptionHandle, QuerySubscriptionHandlers,
@@ -142,12 +136,7 @@ impl DataConnectService {
     }
 
     /// Routes subsequent requests to the specified emulator endpoint.
-    pub fn connect_emulator(
-        &self,
-        host: &str,
-        port: Option<u16>,
-        ssl_enabled: bool,
-    ) -> DataConnectResult<()> {
+    pub fn connect_emulator(&self, host: &str, port: Option<u16>, ssl_enabled: bool) -> DataConnectResult<()> {
         let override_options = TransportOptions::new(host, port, ssl_enabled);
         {
             let mut guard = self.inner.transport_override.lock().unwrap();
@@ -184,9 +173,7 @@ impl DataConnectService {
                     firebase_options.app_id,
                     token_provider,
                 )?;
-                if let Some(override_options) =
-                    self.inner.transport_override.lock().unwrap().clone()
-                {
+                if let Some(override_options) = self.inner.transport_override.lock().unwrap().clone() {
                     transport.use_emulator(override_options);
                 }
                 transport.set_generated_sdk(self.inner.generated_sdk.load(Ordering::SeqCst));
@@ -263,9 +250,7 @@ fn service_cache_key(service: &Arc<DataConnectService>) -> usize {
     Arc::as_ptr(&service.inner) as usize
 }
 
-async fn query_manager_for_service(
-    service: &Arc<DataConnectService>,
-) -> DataConnectResult<QueryManager> {
+async fn query_manager_for_service(service: &Arc<DataConnectService>) -> DataConnectResult<QueryManager> {
     let key = service_cache_key(service);
 
     #[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
@@ -290,10 +275,7 @@ async fn query_manager_for_service(
 
         let transport = service.transport().await?;
         let manager = QueryManager::new(transport);
-        QUERY_MANAGER_CACHE
-            .lock()
-            .unwrap()
-            .insert(key, manager.clone());
+        QUERY_MANAGER_CACHE.lock().unwrap().insert(key, manager.clone());
         Ok(manager)
     }
 }
@@ -313,11 +295,7 @@ fn release_query_manager(service: &Arc<DataConnectService>) {
 }
 
 /// Constructs a query reference for the specified operation name and variables.
-pub fn query_ref(
-    service: Arc<DataConnectService>,
-    operation_name: impl Into<String>,
-    variables: Value,
-) -> QueryRef {
+pub fn query_ref(service: Arc<DataConnectService>, operation_name: impl Into<String>, variables: Value) -> QueryRef {
     QueryRef(OperationRef {
         service,
         name: Arc::from(operation_name.into()),
@@ -376,14 +354,8 @@ pub async fn subscribe(
 
 /// Converts a serialized snapshot back into a live `QueryRef` using the default app.
 pub async fn to_query_ref(snapshot: SerializedQuerySnapshot) -> DataConnectResult<QueryRef> {
-    let service =
-        get_data_connect_service(None, snapshot.ref_info.connector_config.connector.clone())
-            .await?;
-    Ok(query_ref(
-        service,
-        snapshot.ref_info.name,
-        snapshot.ref_info.variables,
-    ))
+    let service = get_data_connect_service(None, snapshot.ref_info.connector_config.connector.clone()).await?;
+    Ok(query_ref(service, snapshot.ref_info.name, snapshot.ref_info.variables))
 }
 
 /// Routes all future requests through the emulator configured by the caller.
@@ -415,12 +387,12 @@ fn data_connect_factory(
     container: &crate::component::ComponentContainer,
     options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: DATA_CONNECT_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
 
     let connector_config = if !options.options.is_null() {
         serde_json::from_value::<ConnectorConfig>(options.options.clone()).map_err(|err| {
@@ -430,11 +402,9 @@ fn data_connect_factory(
             }
         })?
     } else if let Some(identifier) = options.instance_identifier.as_deref() {
-        serde_json::from_str::<ConnectorConfig>(identifier).map_err(|err| {
-            ComponentError::InitializationFailed {
-                name: DATA_CONNECT_COMPONENT_NAME.to_string(),
-                reason: format!("invalid connector identifier: {err}"),
-            }
+        serde_json::from_str::<ConnectorConfig>(identifier).map_err(|err| ComponentError::InitializationFailed {
+            name: DATA_CONNECT_COMPONENT_NAME.to_string(),
+            reason: format!("invalid connector identifier: {err}"),
         })?
     } else {
         return Err(ComponentError::InitializationFailed {
@@ -443,14 +413,14 @@ fn data_connect_factory(
         });
     };
 
-    let project_id =
-        app.options()
-            .project_id
-            .clone()
-            .ok_or_else(|| ComponentError::InitializationFailed {
-                name: DATA_CONNECT_COMPONENT_NAME.to_string(),
-                reason: "project ID must be configured on Firebase options".to_string(),
-            })?;
+    let project_id = app
+        .options()
+        .project_id
+        .clone()
+        .ok_or_else(|| ComponentError::InitializationFailed {
+            name: DATA_CONNECT_COMPONENT_NAME.to_string(),
+            reason: "project ID must be configured on Firebase options".to_string(),
+        })?;
     let options = DataConnectOptions::new(connector_config.clone(), project_id).map_err(|err| {
         ComponentError::InitializationFailed {
             name: DATA_CONNECT_COMPONENT_NAME.to_string(),
@@ -458,11 +428,10 @@ fn data_connect_factory(
         }
     })?;
 
-    let env_override =
-        emulator_override_from_env().map_err(|err| ComponentError::InitializationFailed {
-            name: DATA_CONNECT_COMPONENT_NAME.to_string(),
-            reason: err.to_string(),
-        })?;
+    let env_override = emulator_override_from_env().map_err(|err| ComponentError::InitializationFailed {
+        name: DATA_CONNECT_COMPONENT_NAME.to_string(),
+        reason: err.to_string(),
+    })?;
 
     let auth_provider = container.get_provider("auth-internal");
     let app_check_provider = container.get_provider("app-check-internal");
@@ -507,21 +476,14 @@ pub async fn get_data_connect_service(
         .get_immediate_with_options::<DataConnectService>(Some(&identifier), true)
         .unwrap_or(None)
     {
-        DATA_CONNECT_CACHE
-            .lock()
-            .unwrap()
-            .insert(cache_key, service.clone());
+        DATA_CONNECT_CACHE.lock().unwrap().insert(cache_key, service.clone());
         return Ok(service);
     }
 
-    let options_value =
-        serde_json::to_value(&config).map_err(|err| internal_error(err.to_string()))?;
+    let options_value = serde_json::to_value(&config).map_err(|err| internal_error(err.to_string()))?;
     match provider.initialize::<DataConnectService>(options_value, Some(&identifier)) {
         Ok(service) => {
-            DATA_CONNECT_CACHE
-                .lock()
-                .unwrap()
-                .insert(cache_key, service.clone());
+            DATA_CONNECT_CACHE.lock().unwrap().insert(cache_key, service.clone());
             Ok(service)
         }
         Err(ComponentError::InstanceUnavailable { .. }) => provider
@@ -529,10 +491,7 @@ pub async fn get_data_connect_service(
             .unwrap_or(None)
             .ok_or_else(|| internal_error("Data Connect instance unavailable"))
             .map(|service| {
-                DATA_CONNECT_CACHE
-                    .lock()
-                    .unwrap()
-                    .insert(cache_key, service.clone());
+                DATA_CONNECT_CACHE.lock().unwrap().insert(cache_key, service.clone());
                 service
             }),
         Err(err) => Err(internal_error(err.to_string())),
@@ -557,17 +516,10 @@ impl TokenBroker {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl RequestTokenProvider for TokenBroker {
     async fn auth_token(&self) -> DataConnectResult<Option<String>> {
-        let auth = match self
-            .auth_provider
-            .get_immediate_with_options::<Auth>(None, true)
-        {
+        let auth = match self.auth_provider.get_immediate_with_options::<Auth>(None, true) {
             Ok(Some(auth)) => auth,
             Ok(None) => return Ok(None),
-            Err(err) => {
-                return Err(internal_error(format!(
-                    "failed to resolve auth provider: {err}"
-                )))
-            }
+            Err(err) => return Err(internal_error(format!("failed to resolve auth provider: {err}"))),
         };
 
         auth.get_token(false)
@@ -582,11 +534,7 @@ impl RequestTokenProvider for TokenBroker {
         {
             Ok(Some(app_check)) => app_check,
             Ok(None) => return Ok(None),
-            Err(err) => {
-                return Err(internal_error(format!(
-                    "failed to resolve app check provider: {err}"
-                )))
-            }
+            Err(err) => return Err(internal_error(format!("failed to resolve app check provider: {err}"))),
         };
 
         let token = match app_check.get_token(false).await {
@@ -595,9 +543,7 @@ impl RequestTokenProvider for TokenBroker {
                 if let Some(cached) = err.cached_token() {
                     cached.token.clone()
                 } else {
-                    return Err(internal_error(format!(
-                        "failed to obtain App Check token: {err}"
-                    )));
+                    return Err(internal_error(format!("failed to obtain App Check token: {err}")));
                 }
             }
         };
@@ -632,10 +578,7 @@ mod tests {
     fn unique_settings(prefix: &str) -> FirebaseAppSettings {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "{prefix}-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("{prefix}-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -682,13 +625,9 @@ mod tests {
             });
 
             let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-            let service = get_data_connect_service(Some(app.clone()), config)
-                .await
-                .unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config).await.unwrap();
             let host = server.host();
-            service
-                .connect_emulator(&host, Some(server.port()), false)
-                .unwrap();
+            service.connect_emulator(&host, Some(server.port()), false).unwrap();
 
             let query = query_ref(service, "ListItems", Value::Null);
             let result = execute_query(&query).await.unwrap();
@@ -717,13 +656,9 @@ mod tests {
             });
 
             let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-            let service = get_data_connect_service(Some(app.clone()), config)
-                .await
-                .unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config).await.unwrap();
             let host = server.host();
-            service
-                .connect_emulator(&host, Some(server.port()), false)
-                .unwrap();
+            service.connect_emulator(&host, Some(server.port()), false).unwrap();
 
             let mutation = mutation_ref(service, "InsertBook", json!({"id": "321"}));
             let result = execute_mutation(&mutation).await.unwrap();
@@ -752,13 +687,9 @@ mod tests {
             });
 
             let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-            let service = get_data_connect_service(Some(app.clone()), config)
-                .await
-                .unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config).await.unwrap();
             let host = server.host();
-            service
-                .connect_emulator(&host, Some(server.port()), false)
-                .unwrap();
+            service.connect_emulator(&host, Some(server.port()), false).unwrap();
 
             let query = query_ref(service.clone(), "ListItems", Value::Null);
             let snapshot = execute_query(&query).await.unwrap().to_serialized();
@@ -798,21 +729,15 @@ mod tests {
             });
 
             let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-            let service = get_data_connect_service(Some(app.clone()), config)
-                .await
-                .unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config).await.unwrap();
             let host = server.host();
-            service
-                .connect_emulator(&host, Some(server.port()), false)
-                .unwrap();
+            service.connect_emulator(&host, Some(server.port()), false).unwrap();
 
             let query = query_ref(service.clone(), "ListItems", Value::Null);
             let _ = execute_query(&query).await.unwrap();
             mock.assert();
 
-            let err = service
-                .connect_emulator("127.0.0.1", Some(9000), false)
-                .unwrap_err();
+            let err = service.connect_emulator("127.0.0.1", Some(9000), false).unwrap_err();
             assert_eq!(err.code(), DataConnectErrorCode::AlreadyInitialized);
         })
         .await;
@@ -837,13 +762,9 @@ mod tests {
             });
 
             let config = ConnectorConfig::new("us-central1", "books", "catalog").unwrap();
-            let service = get_data_connect_service(Some(app.clone()), config)
-                .await
-                .unwrap();
+            let service = get_data_connect_service(Some(app.clone()), config).await.unwrap();
             let host = server.host();
-            service
-                .connect_emulator(&host, Some(server.port()), false)
-                .unwrap();
+            service.connect_emulator(&host, Some(server.port()), false).unwrap();
 
             let runtime = service.query_runtime().await.unwrap();
             let query = query_ref(runtime.service().clone(), "ListItems", Value::Null);

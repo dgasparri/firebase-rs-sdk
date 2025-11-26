@@ -9,9 +9,8 @@ use serde_json::Value;
 
 use crate::data_connect::config::{DataConnectOptions, TransportOptions};
 use crate::data_connect::error::{
-    internal_error, operation_error, unauthorized, DataConnectErrorPathSegment,
-    DataConnectOperationFailureResponse, DataConnectOperationFailureResponseErrorInfo,
-    DataConnectResult,
+    internal_error, operation_error, unauthorized, DataConnectErrorPathSegment, DataConnectOperationFailureResponse,
+    DataConnectOperationFailureResponseErrorInfo, DataConnectResult,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,8 +46,7 @@ pub struct AppCheckHeaders {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait DataConnectTransport: Send + Sync {
     async fn invoke_query(&self, operation: &str, variables: &Value) -> DataConnectResult<Value>;
-    async fn invoke_mutation(&self, operation: &str, variables: &Value)
-        -> DataConnectResult<Value>;
+    async fn invoke_mutation(&self, operation: &str, variables: &Value) -> DataConnectResult<Value>;
     fn use_emulator(&self, options: TransportOptions);
     fn set_generated_sdk(&self, enabled: bool);
     fn set_caller_sdk_type(&self, caller: CallerSdkType);
@@ -120,12 +118,7 @@ impl RestTransport {
         header
     }
 
-    async fn perform_request(
-        &self,
-        action: &str,
-        operation: &str,
-        variables: &Value,
-    ) -> DataConnectResult<Value> {
+    async fn perform_request(&self, action: &str, operation: &str, variables: &Value) -> DataConnectResult<Value> {
         let mut body = serde_json::Map::new();
         body.insert(
             "name".to_string(),
@@ -137,18 +130,14 @@ impl RestTransport {
                 self.options.connector.connector,
             )),
         );
-        body.insert(
-            "operationName".to_string(),
-            Value::String(operation.to_string()),
-        );
+        body.insert("operationName".to_string(), Value::String(operation.to_string()));
         body.insert("variables".to_string(), variables.clone());
 
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         headers.insert(
             "X-Goog-Api-Client",
-            HeaderValue::from_str(&self.goog_api_client_header())
-                .map_err(|err| internal_error(err.to_string()))?,
+            HeaderValue::from_str(&self.goog_api_client_header()).map_err(|err| internal_error(err.to_string()))?,
         );
 
         if let Some(app_id) = &self.app_id {
@@ -173,16 +162,14 @@ impl RestTransport {
             if !app_check.token.is_empty() {
                 headers.insert(
                     "X-Firebase-AppCheck",
-                    HeaderValue::from_str(&app_check.token)
-                        .map_err(|err| internal_error(err.to_string()))?,
+                    HeaderValue::from_str(&app_check.token).map_err(|err| internal_error(err.to_string()))?,
                 );
             }
             if let Some(heartbeat) = &app_check.heartbeat {
                 if !heartbeat.is_empty() {
                     headers.insert(
                         "X-Firebase-Client",
-                        HeaderValue::from_str(heartbeat)
-                            .map_err(|err| internal_error(err.to_string()))?,
+                        HeaderValue::from_str(heartbeat).map_err(|err| internal_error(err.to_string()))?,
                     );
                 }
             }
@@ -208,10 +195,7 @@ impl RestTransport {
             )));
         }
 
-        let graph_response: GraphQlResponse = response
-            .json()
-            .await
-            .map_err(|err| internal_error(err.to_string()))?;
+        let graph_response: GraphQlResponse = response.json().await.map_err(|err| internal_error(err.to_string()))?;
         if !graph_response.errors.is_empty() {
             let response = DataConnectOperationFailureResponse {
                 data: graph_response.data,
@@ -227,22 +211,15 @@ impl RestTransport {
                             .unwrap_or_default()
                             .into_iter()
                             .filter_map(|segment| match segment {
-                                Value::String(field) => {
-                                    Some(DataConnectErrorPathSegment::Field(field))
-                                }
-                                Value::Number(num) => num
-                                    .as_i64()
-                                    .map(|idx| DataConnectErrorPathSegment::Index(idx)),
+                                Value::String(field) => Some(DataConnectErrorPathSegment::Field(field)),
+                                Value::Number(num) => num.as_i64().map(|idx| DataConnectErrorPathSegment::Index(idx)),
                                 _ => None,
                             })
                             .collect(),
                     })
                     .collect(),
             };
-            return Err(operation_error(
-                format!("Data Connect error executing {operation}"),
-                response,
-            ));
+            return Err(operation_error(format!("Data Connect error executing {operation}"), response));
         }
 
         Ok(graph_response.data.unwrap_or(Value::Null))
@@ -253,17 +230,11 @@ impl RestTransport {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl DataConnectTransport for RestTransport {
     async fn invoke_query(&self, operation: &str, variables: &Value) -> DataConnectResult<Value> {
-        self.perform_request("executeQuery", operation, variables)
-            .await
+        self.perform_request("executeQuery", operation, variables).await
     }
 
-    async fn invoke_mutation(
-        &self,
-        operation: &str,
-        variables: &Value,
-    ) -> DataConnectResult<Value> {
-        self.perform_request("executeMutation", operation, variables)
-            .await
+    async fn invoke_mutation(&self, operation: &str, variables: &Value) -> DataConnectResult<Value> {
+        self.perform_request("executeMutation", operation, variables).await
     }
 
     fn use_emulator(&self, options: TransportOptions) {

@@ -23,9 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let content = "Hello from Rust!";
     let metadata = None;
 
-    let metadata = reference
-        .upload_string(content, StringFormat::Raw, metadata)
-        .await?;
+    let metadata = reference.upload_string(content, StringFormat::Raw, metadata).await?;
 
     println!("Uploaded object: {:?}", metadata.name);
     Ok(())

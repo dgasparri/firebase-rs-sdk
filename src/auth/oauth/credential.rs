@@ -21,11 +21,7 @@ pub struct OAuthCredential {
 }
 
 impl OAuthCredential {
-    pub fn new(
-        provider_id: impl Into<String>,
-        sign_in_method: impl Into<String>,
-        token_response: Value,
-    ) -> Self {
+    pub fn new(provider_id: impl Into<String>, sign_in_method: impl Into<String>, token_response: Value) -> Self {
         Self {
             provider_id: provider_id.into(),
             sign_in_method: sign_in_method.into(),
@@ -70,8 +66,7 @@ impl OAuthCredential {
 
     /// Serializes the credential to a JSON string.
     pub fn to_json_string(&self) -> AuthResult<String> {
-        serde_json::to_string(&self.to_json())
-            .map_err(|err| AuthError::InvalidCredential(err.to_string()))
+        serde_json::to_string(&self.to_json()).map_err(|err| AuthError::InvalidCredential(err.to_string()))
     }
 
     /// Reconstructs a credential from a JSON value previously produced via [`to_json`].
@@ -87,8 +82,7 @@ impl OAuthCredential {
 
     /// Reconstructs a credential from a JSON string representation.
     pub fn from_json_str(data: &str) -> AuthResult<Self> {
-        let value: Value = serde_json::from_str(data)
-            .map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
+        let value: Value = serde_json::from_str(data).map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
         Self::from_json(value)
     }
 
@@ -122,11 +116,7 @@ impl OAuthCredential {
             has_credential = true;
         }
 
-        if let Some(verifier) = self
-            .token_response
-            .get("codeVerifier")
-            .and_then(Value::as_str)
-        {
+        if let Some(verifier) = self.token_response.get("codeVerifier").and_then(Value::as_str) {
             serializer.append_pair("codeVerifier", verifier);
         }
 
@@ -158,8 +148,7 @@ impl From<OAuthCredential> for AuthCredential {
         if let Some(nonce) = raw_nonce {
             match token_response {
                 Value::Object(ref mut map) => {
-                    map.entry("nonce".to_string())
-                        .or_insert_with(|| json!(nonce.clone()));
+                    map.entry("nonce".to_string()).or_insert_with(|| json!(nonce.clone()));
                 }
                 _ => {
                     token_response = json!({
@@ -261,9 +250,8 @@ mod tests {
 
     #[test]
     fn oauth_credential_json_roundtrip() {
-        let credential =
-            OAuthCredential::new("apple.com", "apple.com", json!({ "idToken": "token" }))
-                .with_raw_nonce(Some("nonce123".to_string()));
+        let credential = OAuthCredential::new("apple.com", "apple.com", json!({ "idToken": "token" }))
+            .with_raw_nonce(Some("nonce123".to_string()));
 
         let json_value = credential.to_json();
         let restored = OAuthCredential::from_json(json_value.clone()).unwrap();
@@ -275,9 +263,6 @@ mod tests {
         assert_eq!(from_str.provider_id(), "apple.com");
 
         let auth: AuthCredential = credential.into();
-        assert_eq!(
-            auth.token_response.get("nonce").and_then(Value::as_str),
-            Some("nonce123")
-        );
+        assert_eq!(auth.token_response.get("nonce").and_then(Value::as_str), Some("nonce123"));
     }
 }

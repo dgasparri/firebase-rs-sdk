@@ -4,14 +4,10 @@ use crate::app;
 use crate::app::FirebaseApp;
 use crate::app::SDK_VERSION;
 use crate::app::{get_app, register_version};
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
 use crate::firestore::constants::FIRESTORE_COMPONENT_NAME;
-use crate::firestore::error::{
-    internal_error, invalid_argument, missing_project_id, FirestoreResult,
-};
+use crate::firestore::error::{internal_error, invalid_argument, missing_project_id, FirestoreResult};
 use crate::firestore::model::{DatabaseId, ResourcePath};
 
 use super::query::Query;
@@ -31,9 +27,7 @@ struct FirestoreInner {
 impl Firestore {
     pub(crate) fn new(app: FirebaseApp, database_id: DatabaseId) -> Self {
         let inner = FirestoreInner { app, database_id };
-        Self {
-            inner: Arc::new(inner),
-        }
+        Self { inner: Arc::new(inner) }
     }
 
     /// Returns the `FirebaseApp` this Firestore instance is scoped to.
@@ -88,13 +82,9 @@ impl Firestore {
 }
 
 static FIRESTORE_COMPONENT: LazyLock<()> = LazyLock::new(|| {
-    let component = Component::new(
-        FIRESTORE_COMPONENT_NAME,
-        Arc::new(firestore_factory),
-        ComponentType::Public,
-    )
-    .with_instantiation_mode(InstantiationMode::Lazy)
-    .with_multiple_instances(true);
+    let component = Component::new(FIRESTORE_COMPONENT_NAME, Arc::new(firestore_factory), ComponentType::Public)
+        .with_instantiation_mode(InstantiationMode::Lazy)
+        .with_multiple_instances(true);
 
     let _ = app::register_component(component);
 });
@@ -103,21 +93,20 @@ fn firestore_factory(
     container: &crate::component::ComponentContainer,
     options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: FIRESTORE_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
 
     let database_id = match options.instance_identifier.as_deref() {
-        Some(identifier) if !identifier.is_empty() => parse_database_identifier(&app, identifier)
-            .map_err(|err| {
-            ComponentError::InitializationFailed {
+        Some(identifier) if !identifier.is_empty() => {
+            parse_database_identifier(&app, identifier).map_err(|err| ComponentError::InitializationFailed {
                 name: FIRESTORE_COMPONENT_NAME.to_string(),
                 reason: err.to_string(),
-            }
-        })?,
+            })?
+        }
         _ => DatabaseId::from_app(&app).map_err(|err| ComponentError::InitializationFailed {
             name: FIRESTORE_COMPONENT_NAME.to_string(),
             reason: err.to_string(),
@@ -164,9 +153,7 @@ pub async fn get_firestore(app: Option<FirebaseApp>) -> FirestoreResult<Arc<Fire
     ensure_registered();
     let app = match app {
         Some(app) => app,
-        None => get_app(None)
-            .await
-            .map_err(|err| internal_error(err.to_string()))?,
+        None => get_app(None).await.map_err(|err| internal_error(err.to_string()))?,
     };
 
     let provider = app::get_provider(&app, FIRESTORE_COMPONENT_NAME);
@@ -186,10 +173,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "firestore-api-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("firestore-api-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -200,9 +184,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let firestore = get_firestore(Some(app)).await.unwrap();
         assert_eq!(firestore.project_id(), "project");
         assert_eq!(firestore.database(), "(default)");
@@ -215,15 +197,10 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let provider = app::get_provider(&app, FIRESTORE_COMPONENT_NAME);
         let instance = provider
-            .initialize::<Firestore>(
-                serde_json::Value::Null,
-                Some("projects/project/databases/custom"),
-            )
+            .initialize::<Firestore>(serde_json::Value::Null, Some("projects/project/databases/custom"))
             .unwrap();
         assert_eq!(instance.database(), "custom");
     }

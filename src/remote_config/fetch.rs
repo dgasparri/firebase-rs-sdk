@@ -49,10 +49,7 @@ pub struct FetchResponse {
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 pub trait RemoteConfigFetchClient: Send + Sync {
     async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse>;
 }
@@ -65,10 +62,7 @@ pub struct NoopFetchClient;
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 impl RemoteConfigFetchClient for NoopFetchClient {
     async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
         let _ = request;
@@ -89,10 +83,7 @@ fn map_installations_error<T>(result: InstallationsResult<T>) -> RemoteConfigRes
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 pub trait InstallationsTokenProvider: Send + Sync {
     async fn installation_id(&self) -> InstallationsResult<String>;
     async fn installation_token(&self) -> InstallationsResult<String>;
@@ -102,10 +93,7 @@ pub trait InstallationsTokenProvider: Send + Sync {
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 impl InstallationsTokenProvider for Installations {
     async fn installation_id(&self) -> InstallationsResult<String> {
         self.get_id().await
@@ -218,8 +206,7 @@ impl HttpRemoteConfigFetchClient {
 impl RemoteConfigFetchClient for HttpRemoteConfigFetchClient {
     async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
         let installation_id = map_installations_error(self.installations.installation_id().await)?;
-        let installation_token =
-            map_installations_error(self.installations.installation_token().await)?;
+        let installation_token = map_installations_error(self.installations.installation_token().await)?;
         let url = self.build_url();
 
         let headers = self.build_headers(request.e_tag.as_deref())?;
@@ -242,23 +229,21 @@ impl RemoteConfigFetchClient for HttpRemoteConfigFetchClient {
             .map(|value| value.to_string());
 
         let response_body = if status == StatusCode::OK {
-            Some(response.json::<RestFetchResponse>().await.map_err(|err| {
-                internal_error(format!("failed to parse Remote Config response: {err}"))
-            })?)
+            Some(
+                response
+                    .json::<RestFetchResponse>()
+                    .await
+                    .map_err(|err| internal_error(format!("failed to parse Remote Config response: {err}")))?,
+            )
         } else if status == StatusCode::NOT_MODIFIED {
             None
         } else {
-            return Err(internal_error(format!(
-                "fetch returned unexpected status {}",
-                status.as_u16()
-            )));
+            return Err(internal_error(format!("fetch returned unexpected status {}", status.as_u16())));
         };
 
         let mut config = response_body.as_ref().and_then(|body| body.entries.clone());
         let state = response_body.as_ref().and_then(|body| body.state.clone());
-        let template_version = response_body
-            .as_ref()
-            .and_then(|body| body.template_version);
+        let template_version = response_body.as_ref().and_then(|body| body.template_version);
 
         match state.as_deref() {
             Some("INSTANCE_STATE_UNSPECIFIED") => status = StatusCode::INTERNAL_SERVER_ERROR,
@@ -276,10 +261,7 @@ impl RemoteConfigFetchClient for HttpRemoteConfigFetchClient {
                 config,
                 template_version,
             }),
-            other => Err(internal_error(format!(
-                "fetch returned unexpected status {}",
-                other.as_u16()
-            ))),
+            other => Err(internal_error(format!("fetch returned unexpected status {}", other.as_u16()))),
         }
     }
 }
@@ -364,8 +346,7 @@ impl WasmRemoteConfigFetchClient {
 impl RemoteConfigFetchClient for WasmRemoteConfigFetchClient {
     async fn fetch(&self, request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
         let installation_id = map_installations_error(self.installations.installation_id().await)?;
-        let installation_token =
-            map_installations_error(self.installations.installation_token().await)?;
+        let installation_token = map_installations_error(self.installations.installation_token().await)?;
         let url = self.build_url();
 
         let body = self.request_body(installation_id, installation_token, request.custom_signals);
@@ -386,23 +367,21 @@ impl RemoteConfigFetchClient for WasmRemoteConfigFetchClient {
             .map(|value| value.to_string());
 
         let response_body = if status == StatusCode::OK {
-            Some(response.json::<RestFetchResponse>().await.map_err(|err| {
-                internal_error(format!("failed to parse Remote Config response: {err}"))
-            })?)
+            Some(
+                response
+                    .json::<RestFetchResponse>()
+                    .await
+                    .map_err(|err| internal_error(format!("failed to parse Remote Config response: {err}")))?,
+            )
         } else if status == StatusCode::NOT_MODIFIED {
             None
         } else {
-            return Err(internal_error(format!(
-                "fetch returned unexpected status {}",
-                status.as_u16()
-            )));
+            return Err(internal_error(format!("fetch returned unexpected status {}", status.as_u16())));
         };
 
         let mut config = response_body.as_ref().and_then(|body| body.entries.clone());
         let state = response_body.as_ref().and_then(|body| body.state.clone());
-        let template_version = response_body
-            .as_ref()
-            .and_then(|body| body.template_version);
+        let template_version = response_body.as_ref().and_then(|body| body.template_version);
 
         match state.as_deref() {
             Some("INSTANCE_STATE_UNSPECIFIED") => status = StatusCode::INTERNAL_SERVER_ERROR,
@@ -420,10 +399,7 @@ impl RemoteConfigFetchClient for WasmRemoteConfigFetchClient {
                 config,
                 template_version,
             }),
-            other => Err(internal_error(format!(
-                "fetch returned unexpected status {}",
-                other.as_u16()
-            ))),
+            other => Err(internal_error(format!("fetch returned unexpected status {}", other.as_u16()))),
         }
     }
 }
@@ -467,10 +443,7 @@ mod tests {
         all(feature = "wasm-web", target_arch = "wasm32"),
         async_trait::async_trait(?Send)
     )]
-    #[cfg_attr(
-        not(all(feature = "wasm-web", target_arch = "wasm32")),
-        async_trait::async_trait
-    )]
+    #[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
     impl InstallationsTokenProvider for TestInstallations {
         async fn installation_id(&self) -> InstallationsResult<String> {
             self.id_calls.fetch_add(1, Ordering::SeqCst);
@@ -515,12 +488,10 @@ mod tests {
                         "language_code": "en-GB",
                         "custom_signals": { "feature": true }
                     }));
-                then.status(200)
-                    .header("ETag", "\"new-etag\"")
-                    .json_body(json!({
-                        "entries": { "welcome": "hello" },
-                        "templateVersion": 42u64
-                    }));
+                then.status(200).header("ETag", "\"new-etag\"").json_body(json!({
+                    "entries": { "welcome": "hello" },
+                    "templateVersion": 42u64
+                }));
             });
 
             let provider = Arc::new(TestInstallations::new("test-installation", "test-token"));

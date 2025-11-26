@@ -29,8 +29,7 @@ use crate::database::error::{internal_error, invalid_argument, permission_denied
 #[cfg(not(target_arch = "wasm32"))]
 use crate::logger::Logger;
 #[cfg(not(target_arch = "wasm32"))]
-type TokenFetcher =
-    Arc<dyn Fn() -> BoxFuture<'static, DatabaseResult<Option<String>>> + Send + Sync>;
+type TokenFetcher = Arc<dyn Fn() -> BoxFuture<'static, DatabaseResult<Option<String>>> + Send + Sync>;
 
 #[cfg_attr(
     all(feature = "wasm-web", target_arch = "wasm32"),
@@ -39,11 +38,7 @@ type TokenFetcher =
 #[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait)]
 pub(crate) trait DatabaseBackend: Send + Sync {
     async fn set(&self, path: &[String], value: Value) -> DatabaseResult<()>;
-    async fn update(
-        &self,
-        base_path: &[String],
-        updates: Vec<(Vec<String>, Value)>,
-    ) -> DatabaseResult<()>;
+    async fn update(&self, base_path: &[String], updates: Vec<(Vec<String>, Value)>) -> DatabaseResult<()>;
     async fn delete(&self, path: &[String]) -> DatabaseResult<()>;
     async fn get(&self, path: &[String], query: &[(String, String)]) -> DatabaseResult<Value>;
 }
@@ -59,17 +54,13 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
                 let auth_or_none = container
                     .get_provider("auth-internal")
                     .get_immediate_with_options::<Auth>(None, true)
-                    .map_err(|err| {
-                        internal_error(format!("failed to resolve auth provider: {err}"))
-                    })?;
+                    .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?;
                 let auth = match auth_or_none {
                     Some(auth) => Some(auth),
                     None => container
                         .get_provider("auth")
                         .get_immediate_with_options::<Auth>(None, true)
-                        .map_err(|err| {
-                            internal_error(format!("failed to resolve auth provider: {err}"))
-                        })?,
+                        .map_err(|err| internal_error(format!("failed to resolve auth provider: {err}")))?,
                 };
                 let Some(auth) = auth else {
                     return Ok(None);
@@ -78,9 +69,7 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
                     Ok(Some(token)) if token.is_empty() => Ok(None),
                     Ok(Some(token)) => Ok(Some(token)),
                     Ok(None) => Ok(None),
-                    Err(err) => Err(internal_error(format!(
-                        "failed to obtain auth token: {err}"
-                    ))),
+                    Err(err) => Err(internal_error(format!("failed to obtain auth token: {err}"))),
                 }
             }
             .boxed()
@@ -93,9 +82,7 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
                 let app_check = container
                     .get_provider(APP_CHECK_INTERNAL_COMPONENT_NAME)
                     .get_immediate_with_options::<FirebaseAppCheckInternal>(None, true)
-                    .map_err(|err| {
-                        internal_error(format!("failed to resolve app check provider: {err}"))
-                    })?;
+                    .map_err(|err| internal_error(format!("failed to resolve app check provider: {err}")))?;
                 let Some(app_check) = app_check else {
                     return Ok(None);
                 };
@@ -105,9 +92,7 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
                         if let Some(cached) = err.cached_token() {
                             cached.token.clone()
                         } else {
-                            return Err(internal_error(format!(
-                                "failed to obtain App Check token: {err}"
-                            )));
+                            return Err(internal_error(format!("failed to obtain App Check token: {err}")));
                         }
                     }
                 };
@@ -123,9 +108,7 @@ pub(crate) fn select_backend(app: &FirebaseApp) -> Arc<dyn DatabaseBackend> {
         match RestBackend::new(url, auth_fetcher, app_check_fetcher) {
             Ok(backend) => return Arc::new(backend),
             Err(err) => {
-                LOGGER.warn(format!(
-                    "Falling back to in-memory Realtime Database backend: {err}"
-                ));
+                LOGGER.warn(format!("Falling back to in-memory Realtime Database backend: {err}"));
             }
         }
     }
@@ -161,11 +144,7 @@ impl DatabaseBackend for InMemoryBackend {
         Ok(())
     }
 
-    async fn update(
-        &self,
-        _base_path: &[String],
-        updates: Vec<(Vec<String>, Value)>,
-    ) -> DatabaseResult<()> {
+    async fn update(&self, _base_path: &[String], updates: Vec<(Vec<String>, Value)>) -> DatabaseResult<()> {
         let mut data = self.data.lock().unwrap();
         for (path, value) in updates {
             set_at_path(&mut data, &path, value);
@@ -201,8 +180,8 @@ impl RestBackend {
         auth_token_fetcher: TokenFetcher,
         app_check_token_fetcher: TokenFetcher,
     ) -> DatabaseResult<Self> {
-        let mut url = Url::parse(&raw_url)
-            .map_err(|err| invalid_argument(format!("Invalid database_url '{raw_url}': {err}")))?;
+        let mut url =
+            Url::parse(&raw_url).map_err(|err| invalid_argument(format!("Invalid database_url '{raw_url}': {err}")))?;
 
         // Ensure the base URL ends with a slash so joins behave predictably.
         if !url.path().ends_with('/') {
@@ -263,22 +242,16 @@ impl RestBackend {
         let message = body.as_deref().and_then(extract_error_message);
 
         match status {
-            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => invalid_argument(
-                message
-                    .clone()
-                    .unwrap_or_else(|| "Invalid data payload".to_string()),
-            ),
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => permission_denied(
-                message
-                    .clone()
-                    .unwrap_or_else(|| "Permission denied".to_string()),
-            ),
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
+                invalid_argument(message.clone().unwrap_or_else(|| "Invalid data payload".to_string()))
+            }
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                permission_denied(message.clone().unwrap_or_else(|| "Permission denied".to_string()))
+            }
             _ => internal_error(format!(
                 "Database request failed with status {}{}",
                 status.as_str(),
-                message
-                    .map(|b| format!(": {b}"))
-                    .unwrap_or_else(String::new)
+                message.map(|b| format!(": {b}")).unwrap_or_else(String::new)
             )),
         }
     }
@@ -297,10 +270,7 @@ impl RestBackend {
             request = request.json(payload);
         }
 
-        request
-            .send()
-            .await
-            .map_err(|err| self.handle_reqwest_error(err))
+        request.send().await.map_err(|err| self.handle_reqwest_error(err))
     }
 
     async fn ensure_success(&self, response: Response) -> DatabaseResult<Response> {
@@ -313,10 +283,7 @@ impl RestBackend {
         }
     }
 
-    async fn query_with_tokens(
-        &self,
-        query: &[(String, String)],
-    ) -> DatabaseResult<Vec<(String, String)>> {
+    async fn query_with_tokens(&self, query: &[(String, String)]) -> DatabaseResult<Vec<(String, String)>> {
         let mut params: Vec<(String, String)> = query.to_vec();
 
         if !params.iter().any(|(key, _)| key == "auth") {
@@ -350,17 +317,11 @@ impl DatabaseBackend for RestBackend {
     async fn set(&self, path: &[String], value: Value) -> DatabaseResult<()> {
         let mut params = Vec::with_capacity(1);
         params.push(("print".to_string(), "silent".to_string()));
-        let response = self
-            .send_request(Method::PUT, path, &params, Some(&value))
-            .await?;
+        let response = self.send_request(Method::PUT, path, &params, Some(&value)).await?;
         self.ensure_success(response).await.map(|_| ())
     }
 
-    async fn update(
-        &self,
-        base_path: &[String],
-        updates: Vec<(Vec<String>, Value)>,
-    ) -> DatabaseResult<()> {
+    async fn update(&self, base_path: &[String], updates: Vec<(Vec<String>, Value)>) -> DatabaseResult<()> {
         if updates.is_empty() {
             return Ok(());
         }
@@ -368,9 +329,7 @@ impl DatabaseBackend for RestBackend {
         let mut payload = Map::with_capacity(updates.len());
         for (absolute_path, value) in updates {
             if !path_starts_with(&absolute_path, base_path) {
-                return Err(internal_error(
-                    "Database update contained a path outside the reference",
-                ));
+                return Err(internal_error("Database update contained a path outside the reference"));
             }
             let relative = &absolute_path[base_path.len()..];
             if relative.is_empty() {
@@ -393,9 +352,7 @@ impl DatabaseBackend for RestBackend {
     async fn delete(&self, path: &[String]) -> DatabaseResult<()> {
         let mut params = Vec::with_capacity(1);
         params.push(("print".to_string(), "silent".to_string()));
-        let response = self
-            .send_request(Method::DELETE, path, &params, None)
-            .await?;
+        let response = self.send_request(Method::DELETE, path, &params, None).await?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(());
         }
@@ -436,9 +393,7 @@ fn set_at_path(root: &mut Value, path: &[String], value: Value) {
             *current = Value::Object(Default::default());
         }
         let obj = current.as_object_mut().unwrap();
-        current = obj
-            .entry(segment)
-            .or_insert(Value::Object(Default::default()));
+        current = obj.entry(segment).or_insert(Value::Object(Default::default()));
     }
 
     if !current.is_object() {
@@ -472,9 +427,7 @@ fn path_starts_with(path: &[String], prefix: &[String]) -> bool {
     if prefix.len() > path.len() {
         return false;
     }
-    path.iter()
-        .zip(prefix.iter())
-        .all(|(left, right)| left == right)
+    path.iter().zip(prefix.iter()).all(|(left, right)| left == right)
 }
 
 fn delete_at_path(root: &mut Value, path: &[String]) {
@@ -547,12 +500,8 @@ mod tests {
             then.status(200).body("null");
         });
 
-        let backend = RestBackend::new(
-            server.url("/"),
-            static_token("id-token"),
-            static_token("app-check"),
-        )
-        .expect("rest backend");
+        let backend = RestBackend::new(server.url("/"), static_token("id-token"), static_token("app-check"))
+            .expect("rest backend");
 
         backend.get(&["items".to_string()], &[]).await.unwrap();
 

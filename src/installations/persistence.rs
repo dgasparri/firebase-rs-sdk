@@ -41,14 +41,10 @@ pub struct PersistedInstallation {
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 pub trait InstallationsPersistence: Send + Sync {
     async fn read(&self, app_name: &str) -> InstallationsResult<Option<PersistedInstallation>>;
-    async fn write(&self, app_name: &str, entry: &PersistedInstallation)
-        -> InstallationsResult<()>;
+    async fn write(&self, app_name: &str, entry: &PersistedInstallation) -> InstallationsResult<()>;
     async fn clear(&self, app_name: &str) -> InstallationsResult<()>;
 
     async fn try_acquire_registration_lock(&self, app_name: &str) -> InstallationsResult<bool> {
@@ -112,10 +108,7 @@ impl FilePersistence {
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 impl InstallationsPersistence for FilePersistence {
     async fn read(&self, app_name: &str) -> InstallationsResult<Option<PersistedInstallation>> {
         let path = self.file_for(app_name);
@@ -123,70 +116,39 @@ impl InstallationsPersistence for FilePersistence {
             return Ok(None);
         }
         let bytes = fs::read(&path).map_err(|err| {
-            internal_error(format!(
-                "Failed to read installations cache '{}': {}",
-                path.display(),
-                err
-            ))
+            internal_error(format!("Failed to read installations cache '{}': {}", path.display(), err))
         })?;
         let entry = serde_json::from_slice(&bytes).map_err(|err| {
-            internal_error(format!(
-                "Failed to parse installations cache '{}': {}",
-                path.display(),
-                err
-            ))
+            internal_error(format!("Failed to parse installations cache '{}': {}", path.display(), err))
         })?;
         Ok(Some(entry))
     }
 
-    async fn write(
-        &self,
-        app_name: &str,
-        entry: &PersistedInstallation,
-    ) -> InstallationsResult<()> {
+    async fn write(&self, app_name: &str, entry: &PersistedInstallation) -> InstallationsResult<()> {
         let path = self.file_for(app_name);
         let bytes = serde_json::to_vec(entry).map_err(|err| {
-            internal_error(format!(
-                "Failed to serialize installations cache '{}': {}",
-                path.display(),
-                err
-            ))
+            internal_error(format!("Failed to serialize installations cache '{}': {}", path.display(), err))
         })?;
-        fs::write(&path, bytes).map_err(|err| {
-            internal_error(format!(
-                "Failed to write installations cache '{}': {}",
-                path.display(),
-                err
-            ))
-        })
+        fs::write(&path, bytes)
+            .map_err(|err| internal_error(format!("Failed to write installations cache '{}': {}", path.display(), err)))
     }
 
     async fn clear(&self, app_name: &str) -> InstallationsResult<()> {
         let path = self.file_for(app_name);
         if path.exists() {
             fs::remove_file(&path).map_err(|err| {
-                internal_error(format!(
-                    "Failed to delete installations cache '{}': {}",
-                    path.display(),
-                    err
-                ))
+                internal_error(format!("Failed to delete installations cache '{}': {}", path.display(), err))
             })?;
         }
         Ok(())
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 mod wasm_persistence {
     #[cfg(test)]
     use super::PersistedAuthToken;
-    use super::{
-        internal_error, InstallationsPersistence, InstallationsResult, PersistedInstallation,
-    };
+    use super::{internal_error, InstallationsPersistence, InstallationsResult, PersistedInstallation};
     use crate::platform::browser::indexed_db;
     use serde::{Deserialize, Serialize};
     use std::cell::RefCell;
@@ -225,9 +187,8 @@ mod wasm_persistence {
                 .map_err(map_indexed_db_error)?;
             let entry = match stored {
                 Some(json) => {
-                    let parsed = serde_json::from_str(&json).map_err(|err| {
-                        internal_error(format!("Failed to parse stored installation: {err}"))
-                    })?;
+                    let parsed = serde_json::from_str(&json)
+                        .map_err(|err| internal_error(format!("Failed to parse stored installation: {err}")))?;
                     Some(parsed)
                 }
                 None => None,
@@ -236,15 +197,10 @@ mod wasm_persistence {
             Ok(entry)
         }
 
-        async fn write(
-            &self,
-            app_name: &str,
-            entry: &PersistedInstallation,
-        ) -> InstallationsResult<()> {
+        async fn write(&self, app_name: &str, entry: &PersistedInstallation) -> InstallationsResult<()> {
             ensure_broadcast_channel();
-            let json = serde_json::to_string(entry).map_err(|err| {
-                internal_error(format!("Failed to serialize installation: {err}"))
-            })?;
+            let json = serde_json::to_string(entry)
+                .map_err(|err| internal_error(format!("Failed to serialize installation: {err}")))?;
             let db = open_db().await?;
             indexed_db::put_string(&db, STORE_NAME, app_name, &json)
                 .await
@@ -364,10 +320,7 @@ mod wasm_persistence {
                     cell.replace(Some(channel));
                 }
                 Err(err) => {
-                    log_warning(
-                        "Failed to initialise installations BroadcastChannel",
-                        Some(&err),
-                    );
+                    log_warning("Failed to initialise installations BroadcastChannel", Some(&err));
                 }
             }
         });
@@ -428,18 +381,12 @@ mod wasm_persistence {
             let _ = persistence.clear("wasm-app").await;
             let entry = sample_entry();
 
-            persistence
-                .write("wasm-app", &entry)
-                .await
-                .expect("write entry");
+            persistence.write("wasm-app", &entry).await.expect("write entry");
             let loaded = persistence.read("wasm-app").await.expect("read entry");
             assert_eq!(loaded, Some(entry.clone()));
 
             persistence.clear("wasm-app").await.expect("clear entry");
-            let cleared = persistence
-                .read("wasm-app")
-                .await
-                .expect("read after clear");
+            let cleared = persistence.read("wasm-app").await.expect("read after clear");
             assert!(cleared.is_none());
         }
 
@@ -455,9 +402,7 @@ mod wasm_persistence {
         }
     }
 
-    fn map_indexed_db_error<E: std::fmt::Display>(
-        err: E,
-    ) -> crate::installations::error::InstallationsError {
+    fn map_indexed_db_error<E: std::fmt::Display>(err: E) -> crate::installations::error::InstallationsError {
         internal_error(format!("IndexedDB error: {err}"))
     }
 
@@ -466,11 +411,7 @@ mod wasm_persistence {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub use wasm_persistence::IndexedDbPersistence;
 
 #[cfg(all(
@@ -492,18 +433,11 @@ mod wasm_stub {
 
     #[cfg_attr(all(feature = "wasm-web", target_arch = "wasm32"), async_trait::async_trait(?Send))]
     impl InstallationsPersistence for IndexedDbPersistence {
-        async fn read(
-            &self,
-            _app_name: &str,
-        ) -> InstallationsResult<Option<PersistedInstallation>> {
+        async fn read(&self, _app_name: &str) -> InstallationsResult<Option<PersistedInstallation>> {
             Ok(None)
         }
 
-        async fn write(
-            &self,
-            _app_name: &str,
-            _entry: &PersistedInstallation,
-        ) -> InstallationsResult<()> {
+        async fn write(&self, _app_name: &str, _entry: &PersistedInstallation) -> InstallationsResult<()> {
             Ok(())
         }
 

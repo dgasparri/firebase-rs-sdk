@@ -5,20 +5,14 @@ use std::sync::{Arc, LazyLock, Mutex};
 use super::errors::{AppCheckError, AppCheckResult};
 use super::refresher::Refresher;
 use super::types::{
-    AppCheck, AppCheckProvider, AppCheckState, AppCheckToken, AppCheckTokenError,
-    AppCheckTokenErrorListener, AppCheckTokenListener, AppCheckTokenResult, ListenerHandle,
-    ListenerType, TokenErrorKind, TokenListenerEntry,
+    AppCheck, AppCheckProvider, AppCheckState, AppCheckToken, AppCheckTokenError, AppCheckTokenErrorListener,
+    AppCheckTokenListener, AppCheckTokenResult, ListenerHandle, ListenerType, TokenErrorKind, TokenListenerEntry,
 };
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::app_check::persistence::{load_token, save_token, subscribe, PersistedToken};
 
-static STATES: LazyLock<Mutex<HashMap<Arc<str>, AppCheckState>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static STATES: LazyLock<Mutex<HashMap<Arc<str>, AppCheckState>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(test)]
 pub static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -28,9 +22,7 @@ where
     F: FnMut(&mut AppCheckState) -> R,
 {
     let mut guard = STATES.lock().unwrap();
-    let state = guard
-        .entry(app_name.clone())
-        .or_insert_with(AppCheckState::new);
+    let state = guard.entry(app_name.clone()).or_insert_with(AppCheckState::new);
     f(state)
 }
 
@@ -39,10 +31,7 @@ where
     F: FnMut(&AppCheckState) -> R,
 {
     let guard = STATES.lock().unwrap();
-    let state = guard
-        .get(app_name)
-        .cloned()
-        .unwrap_or_else(AppCheckState::new);
+    let state = guard.get(app_name).cloned().unwrap_or_else(AppCheckState::new);
     f(&state)
 }
 
@@ -71,18 +60,13 @@ pub fn ensure_activation(
         state.activated = true;
         state.provider = Some(provider.clone());
         state.is_token_auto_refresh_enabled = is_token_auto_refresh_enabled;
-        #[cfg(all(
-            feature = "wasm-web",
-            target_arch = "wasm32",
-            feature = "experimental-indexed-db"
-        ))]
+        #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
         {
             if state.broadcast_handle.is_none() {
                 let app_name_clone = app_name.clone();
-                let callback: Arc<dyn Fn(Option<PersistedToken>) + Send + Sync> =
-                    Arc::new(move |persisted| {
-                        apply_persisted_token(app_name_clone.clone(), persisted);
-                    });
+                let callback: Arc<dyn Fn(Option<PersistedToken>) + Send + Sync> = Arc::new(move |persisted| {
+                    apply_persisted_token(app_name_clone.clone(), persisted);
+                });
                 state.broadcast_handle = subscribe(app_name.clone(), callback);
             }
         }
@@ -108,11 +92,7 @@ pub fn peek_token(app: &AppCheck) -> Option<AppCheckToken> {
 pub fn current_token(app: &AppCheck) -> Option<AppCheckToken> {
     let token = peek_token(app);
 
-    #[cfg(all(
-        feature = "wasm-web",
-        target_arch = "wasm32",
-        feature = "experimental-indexed-db"
-    ))]
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
     if token.is_none() {
         let app_name = app.app_name();
         let app_name_clone = app_name.clone();
@@ -136,11 +116,7 @@ pub fn store_token(app: &AppCheck, token: AppCheckToken) {
 
     crate::app_check::api::on_token_stored(app, &token);
 
-    #[cfg(all(
-        feature = "wasm-web",
-        target_arch = "wasm32",
-        feature = "experimental-indexed-db"
-    ))]
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
     persist_token_async(token.clone(), app_name.clone());
 
     for entry in entries {
@@ -170,9 +146,7 @@ where
         if let Some(refresher) = &state.token_refresher {
             return refresher.clone();
         }
-        let refresher = builder
-            .take()
-            .expect("token refresher builder already used")();
+        let refresher = builder.take().expect("token refresher builder already used")();
         state.token_refresher = Some(refresher.clone());
         refresher
     })
@@ -233,11 +207,7 @@ fn remove_listener_by_id(app_name: &Arc<str>, listener_id: u64) {
     });
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 fn persist_token_async(token: AppCheckToken, app_name: Arc<str>) {
     use std::time::UNIX_EPOCH;
 
@@ -259,11 +229,7 @@ fn persist_token_async(token: AppCheckToken, app_name: Arc<str>) {
     });
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 fn apply_persisted_token(app_name: Arc<str>, persisted: Option<PersistedToken>) {
     use std::time::{Duration, UNIX_EPOCH};
 
@@ -335,9 +301,7 @@ fn error_to_result(error: &AppCheckTokenError) -> AppCheckTokenResult {
             error: None,
             internal_error: Some(error.cause.clone()),
         },
-        TokenErrorKind::Throttled {
-            cached_token: None, ..
-        } => AppCheckTokenResult::from_error(error.cause.clone()),
+        TokenErrorKind::Throttled { cached_token: None, .. } => AppCheckTokenResult::from_error(error.cause.clone()),
     }
 }
 

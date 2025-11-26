@@ -86,11 +86,7 @@ pub(crate) struct OnDisconnectRequest {
 
 impl OnDisconnectRequest {
     pub(crate) fn new(action: OnDisconnectAction, path: Vec<String>, payload: JsonValue) -> Self {
-        Self {
-            action,
-            path,
-            payload,
-        }
+        Self { action, path, payload }
     }
 
     fn into_inner(self) -> (OnDisconnectAction, Vec<String>, JsonValue) {
@@ -247,53 +243,29 @@ impl Repo {
         Ok(())
     }
 
-    pub async fn on_disconnect_put(
-        &self,
-        path: Vec<String>,
-        payload: JsonValue,
-    ) -> DatabaseResult<()> {
+    pub async fn on_disconnect_put(&self, path: Vec<String>, payload: JsonValue) -> DatabaseResult<()> {
         self.go_online().await?;
         self.transport
-            .on_disconnect(OnDisconnectRequest::new(
-                OnDisconnectAction::Put,
-                path,
-                payload,
-            ))
+            .on_disconnect(OnDisconnectRequest::new(OnDisconnectAction::Put, path, payload))
             .await
     }
 
-    pub async fn on_disconnect_merge(
-        &self,
-        path: Vec<String>,
-        payload: JsonValue,
-    ) -> DatabaseResult<()> {
+    pub async fn on_disconnect_merge(&self, path: Vec<String>, payload: JsonValue) -> DatabaseResult<()> {
         self.go_online().await?;
         self.transport
-            .on_disconnect(OnDisconnectRequest::new(
-                OnDisconnectAction::Merge,
-                path,
-                payload,
-            ))
+            .on_disconnect(OnDisconnectRequest::new(OnDisconnectAction::Merge, path, payload))
             .await
     }
 
     pub async fn on_disconnect_cancel(&self, path: Vec<String>) -> DatabaseResult<()> {
         self.go_online().await?;
         self.transport
-            .on_disconnect(OnDisconnectRequest::new(
-                OnDisconnectAction::Cancel,
-                path,
-                JsonValue::Null,
-            ))
+            .on_disconnect(OnDisconnectRequest::new(OnDisconnectAction::Cancel, path, JsonValue::Null))
             .await
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn handle_action(
-        &self,
-        action: &str,
-        body: &serde_json::Value,
-    ) -> DatabaseResult<()> {
+    pub(crate) async fn handle_action(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
         let handler = self.event_handler.lock().unwrap().clone();
         handler(action.to_owned(), body.clone()).await
     }
@@ -371,9 +343,7 @@ async fn fetch_auth_token(app: &FirebaseApp) -> DatabaseResult<Option<String>> {
         Ok(Some(token)) if token.is_empty() => Ok(None),
         Ok(Some(token)) => Ok(Some(token)),
         Ok(None) => Ok(None),
-        Err(err) => Err(internal_error(format!(
-            "failed to obtain auth token: {err}"
-        ))),
+        Err(err) => Err(internal_error(format!("failed to obtain auth token: {err}"))),
     }
 }
 
@@ -400,9 +370,7 @@ async fn fetch_app_check_metadata(app: &FirebaseApp) -> DatabaseResult<AppCheckM
             if let Some(cached) = err.cached_token() {
                 cached.token.clone()
             } else {
-                return Err(internal_error(format!(
-                    "failed to obtain App Check token: {err}"
-                )));
+                return Err(internal_error(format!("failed to obtain App Check token: {err}")));
             }
         }
     };
@@ -437,23 +405,15 @@ mod native {
 
     use crate::logger::Logger;
 
-    static NATIVE_LOGGER: LazyLock<Logger> =
-        LazyLock::new(|| Logger::new("@firebase/database/native_websocket"));
+    static NATIVE_LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/database/native_websocket"));
 
     use std::sync::{Mutex as StdMutex, Weak};
 
-    pub(super) fn websocket_transport(
-        app: &FirebaseApp,
-        repo: Weak<Repo>,
-    ) -> Option<Arc<dyn RealtimeTransport>> {
+    pub(super) fn websocket_transport(app: &FirebaseApp, repo: Weak<Repo>) -> Option<Arc<dyn RealtimeTransport>> {
         let url = app.options().database_url?;
         let parsed = Url::parse(&url).ok()?;
         let info = RepoInfo::from_url(parsed)?;
-        Some(Arc::new(NativeWebSocketTransport::new(
-            info,
-            app.clone(),
-            repo,
-        )))
+        Some(Arc::new(NativeWebSocketTransport::new(info, app.clone(), repo)))
     }
 
     type TcpWebSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
@@ -567,11 +527,7 @@ mod native {
         }
     }
 
-    async fn connect_and_listen(
-        state: Arc<NativeState>,
-        info: RepoInfo,
-        app: FirebaseApp,
-    ) -> DatabaseResult<()> {
+    async fn connect_and_listen(state: Arc<NativeState>, info: RepoInfo, app: FirebaseApp) -> DatabaseResult<()> {
         let url = info
             .websocket_url()
             .map_err(|err| internal_error(format!("invalid database_url for websocket: {err}")))?;
@@ -592,20 +548,16 @@ mod native {
                 match message {
                     Ok(Message::Text(payload)) => {
                         if let Err(err) = handle_incoming_message(&reader_state, payload).await {
-                            NATIVE_LOGGER
-                                .warn(format!("failed to process realtime message: {err}"));
+                            NATIVE_LOGGER.warn(format!("failed to process realtime message: {err}"));
                         }
                     }
                     Ok(Message::Binary(payload)) => {
                         if let Ok(text) = String::from_utf8(payload) {
                             if let Err(err) = handle_incoming_message(&reader_state, text).await {
-                                NATIVE_LOGGER
-                                    .warn(format!("failed to process realtime message: {err}"));
+                                NATIVE_LOGGER.warn(format!("failed to process realtime message: {err}"));
                             }
                         } else {
-                            NATIVE_LOGGER.warn(
-                                "received non-UTF8 binary realtime frame; dropping".to_string(),
-                            );
+                            NATIVE_LOGGER.warn("received non-UTF8 binary realtime frame; dropping".to_string());
                         }
                     }
                     Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
@@ -637,10 +589,7 @@ mod native {
 
             if let Some(error) = pending_error {
                 if let Some(repo) = reader_state.repo() {
-                    if let Err(err) = repo
-                        .handle_action("error", &JsonValue::String(error.to_string()))
-                        .await
-                    {
+                    if let Err(err) = repo.handle_action("error", &JsonValue::String(error.to_string())).await {
                         NATIVE_LOGGER.warn(format!("failed to propagate error to repo: {err}"));
                     }
                 }
@@ -675,9 +624,7 @@ mod native {
         match message_type.as_str() {
             "d" => handle_data_message(state, object.get("d")).await?,
             "c" => {
-                NATIVE_LOGGER.debug(
-                    "control message received; ignoring until protocol port completed".to_string(),
-                );
+                NATIVE_LOGGER.debug("control message received; ignoring until protocol port completed".to_string());
             }
             _ => {
                 NATIVE_LOGGER.debug(format!("unhandled realtime frame type '{message_type}'"));
@@ -687,10 +634,7 @@ mod native {
         Ok(())
     }
 
-    async fn handle_data_message(
-        state: &NativeState,
-        data: Option<&JsonValue>,
-    ) -> DatabaseResult<()> {
+    async fn handle_data_message(state: &NativeState, data: Option<&JsonValue>) -> DatabaseResult<()> {
         let Some(JsonValue::Object(data)) = data else {
             return Ok(());
         };
@@ -705,9 +649,7 @@ mod native {
             if let Some(repo) = state.repo() {
                 let body = data.get("b").cloned().unwrap_or(JsonValue::Null);
                 if let Err(err) = repo.handle_action(action, &body).await {
-                    NATIVE_LOGGER.warn(format!(
-                        "failed to handle realtime action '{action}': {err}"
-                    ));
+                    NATIVE_LOGGER.warn(format!("failed to handle realtime action '{action}': {err}"));
                     *state.pending_error.lock().unwrap() = Some(err);
                 }
             }
@@ -754,9 +696,7 @@ mod native {
             if let Err(err) = sink.send(Message::Text(payload)).await {
                 let mut pending = state.pending.lock().await;
                 pending.push_front(command);
-                return Err(internal_error(format!(
-                    "failed to send realtime command: {err}"
-                )));
+                return Err(internal_error(format!("failed to send realtime command: {err}")));
             }
         }
 
@@ -814,21 +754,14 @@ mod native {
             let (action, path, payload) = request.into_inner();
             {
                 let mut pending = self.state.pending.lock().await;
-                pending.push_back(TransportCommand::OnDisconnect(OnDisconnectCommand {
-                    action,
-                    path,
-                    payload,
-                }));
+                pending.push_back(TransportCommand::OnDisconnect(OnDisconnectCommand { action, path, payload }));
             }
             self.ensure_connection().await?;
             self.flush_pending().await
         }
     }
 
-    fn serialize_command(
-        state: &NativeState,
-        command: &TransportCommand,
-    ) -> DatabaseResult<String> {
+    fn serialize_command(state: &NativeState, command: &TransportCommand) -> DatabaseResult<String> {
         match command {
             TransportCommand::Listen(spec) => serialize_listen(state, spec),
             TransportCommand::Unlisten(spec) => serialize_unlisten(state, spec),
@@ -866,10 +799,7 @@ mod native {
         serialize_request(state, "unlisten", body)
     }
 
-    fn serialize_on_disconnect(
-        state: &NativeState,
-        command: &OnDisconnectCommand,
-    ) -> DatabaseResult<String> {
+    fn serialize_on_disconnect(state: &NativeState, command: &OnDisconnectCommand) -> DatabaseResult<String> {
         let body = json!({
             "p": path_to_string(&command.path),
             "d": command.payload.clone(),
@@ -897,11 +827,7 @@ mod native {
         Ok(())
     }
 
-    async fn send_request_message(
-        state: &Arc<NativeState>,
-        action: &str,
-        body: JsonValue,
-    ) -> DatabaseResult<()> {
+    async fn send_request_message(state: &Arc<NativeState>, action: &str, body: JsonValue) -> DatabaseResult<()> {
         let message = serialize_request(state.as_ref(), action, body)?;
         let mut guard = state.sink.lock().await;
         let Some(sink) = guard.as_mut() else {
@@ -912,11 +838,7 @@ mod native {
             .map_err(|err| internal_error(format!("failed to send realtime request: {err}")))
     }
 
-    fn serialize_request(
-        state: &NativeState,
-        action: &str,
-        body: JsonValue,
-    ) -> DatabaseResult<String> {
+    fn serialize_request(state: &NativeState, action: &str, body: JsonValue) -> DatabaseResult<String> {
         let request_id = next_request_id(state);
         let envelope = json!({
             "t": "d",
@@ -966,24 +888,15 @@ mod wasm {
     const LONG_POLL_INTERVAL_MS: u32 = 1_500;
     const LONG_POLL_ERROR_BACKOFF_MS: u32 = 5_000;
 
-    pub(super) fn transport(
-        app: &FirebaseApp,
-        repo: Weak<Repo>,
-    ) -> Option<Arc<dyn RealtimeTransport>> {
+    pub(super) fn transport(app: &FirebaseApp, repo: Weak<Repo>) -> Option<Arc<dyn RealtimeTransport>> {
         let url = app.options().database_url?;
         let parsed = Url::parse(&url).ok()?;
         let info = RepoInfo::from_url(parsed)?;
-        Some(Arc::new(WasmRealtimeTransport::new(
-            info,
-            app.clone(),
-            repo,
-        )))
+        Some(Arc::new(WasmRealtimeTransport::new(info, app.clone(), repo)))
     }
 
-    static WASM_LOGGER: LazyLock<Logger> =
-        LazyLock::new(|| Logger::new("@firebase/database/wasm_websocket"));
-    static WASM_LONG_POLL_LOGGER: LazyLock<Logger> =
-        LazyLock::new(|| Logger::new("@firebase/database/wasm_long_poll"));
+    static WASM_LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/database/wasm_websocket"));
+    static WASM_LONG_POLL_LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/database/wasm_long_poll"));
 
     #[derive(Clone, Debug)]
     struct RepoInfo {
@@ -1016,8 +929,8 @@ mod wasm {
         fn rest_url(&self, spec: &ListenSpec) -> DatabaseResult<Url> {
             let scheme = if self.secure { "https" } else { "http" };
             let base = format!("{}://{}", scheme, self.host);
-            let mut url = Url::parse(&base)
-                .map_err(|err| internal_error(format!("failed to parse database host: {err}")))?;
+            let mut url =
+                Url::parse(&base).map_err(|err| internal_error(format!("failed to parse database host: {err}")))?;
             let path = spec.path_string();
             if path == "/" {
                 url.set_path(".json");
@@ -1038,8 +951,8 @@ mod wasm {
         fn rest_path(&self, path: &[String]) -> DatabaseResult<Url> {
             let scheme = if self.secure { "https" } else { "http" };
             let base = format!("{}://{}", scheme, self.host);
-            let mut url = Url::parse(&base)
-                .map_err(|err| internal_error(format!("failed to parse database host: {err}")))?;
+            let mut url =
+                Url::parse(&base).map_err(|err| internal_error(format!("failed to parse database host: {err}")))?;
             if path.is_empty() {
                 url.set_path(".json");
             } else {
@@ -1067,11 +980,7 @@ mod wasm {
 
     impl WasmRealtimeTransport {
         fn new(repo_info: RepoInfo, app: FirebaseApp, repo: Weak<Repo>) -> Self {
-            let websocket = Arc::new(WasmWebSocketTransport::new(
-                repo_info.clone(),
-                app.clone(),
-                repo.clone(),
-            ));
+            let websocket = Arc::new(WasmWebSocketTransport::new(repo_info.clone(), app.clone(), repo.clone()));
             let long_poll = Arc::new(WasmLongPollTransport::new(repo_info, app, repo));
             Self {
                 websocket,
@@ -1099,9 +1008,7 @@ mod wasm {
                     Ok(())
                 }
                 Err(err) => {
-                    WASM_LOGGER.warn(format!(
-                        "websocket connect failed; falling back to long-poll: {err}"
-                    ));
+                    WASM_LOGGER.warn(format!("websocket connect failed; falling back to long-poll: {err}"));
                     self.long_poll.connect().await?;
                     self.set_active(ActiveTransport::LongPoll).await;
                     Ok(())
@@ -1123,9 +1030,7 @@ mod wasm {
                 ActiveTransport::WebSocket => match self.websocket.listen(spec).await {
                     Ok(()) => Ok(()),
                     Err(err) => {
-                        WASM_LOGGER.warn(format!(
-                            "websocket listen failed; switching to long-poll: {err}"
-                        ));
+                        WASM_LOGGER.warn(format!("websocket listen failed; switching to long-poll: {err}"));
                         let _ = self.websocket.disconnect().await;
                         self.long_poll.connect().await?;
                         self.long_poll.listen(spec).await?;
@@ -1185,8 +1090,8 @@ mod wasm {
 
         async fn connect_inner(&self) -> DatabaseResult<()> {
             let url = self.repo_info.websocket_url();
-            let socket = WebSocket::new(&url)
-                .map_err(|err| internal_error(format!("failed to open websocket: {err:?}")))?;
+            let socket =
+                WebSocket::new(&url).map_err(|err| internal_error(format!("failed to open websocket: {err:?}")))?;
             socket.set_binary_type(BinaryType::Arraybuffer);
 
             let state = self.state.clone();
@@ -1222,9 +1127,7 @@ mod wasm {
                         let state_for_task = on_message_state.clone();
                         let text_owned = text.to_string();
                         spawn_local(async move {
-                            if let Err(err) =
-                                handle_incoming_message(&state_for_task, text_owned).await
-                            {
+                            if let Err(err) = handle_incoming_message(&state_for_task, text_owned).await {
                                 *state_for_task.pending_error.lock().unwrap() = Some(err);
                             }
                         });
@@ -1234,8 +1137,7 @@ mod wasm {
 
             let on_error_state = state.clone();
             let on_error = Closure::wrap(Box::new(move |_event: Event| {
-                *on_error_state.pending_error.lock().unwrap() =
-                    Some(internal_error("websocket error"));
+                *on_error_state.pending_error.lock().unwrap() = Some(internal_error("websocket error"));
             }) as Box<dyn FnMut(_)>);
 
             let on_close_state = state.clone();
@@ -1324,11 +1226,7 @@ mod wasm {
             let (action, path, payload) = request.into_inner();
             {
                 let mut pending = self.state.pending.lock().await;
-                pending.push_back(TransportCommand::OnDisconnect(OnDisconnectCommand {
-                    action,
-                    path,
-                    payload,
-                }));
+                pending.push_back(TransportCommand::OnDisconnect(OnDisconnectCommand { action, path, payload }));
             }
             self.ensure_connection().await?;
             self.flush_pending().await
@@ -1375,13 +1273,11 @@ mod wasm {
                 match command.action {
                     OnDisconnectAction::Put => {
                         self.apply_put(&command.path, &command.payload).await?;
-                        self.dispatch_local("d", &command.path, command.payload)
-                            .await?;
+                        self.dispatch_local("d", &command.path, command.payload).await?;
                     }
                     OnDisconnectAction::Merge => {
                         self.apply_merge(&command.path, &command.payload).await?;
-                        self.dispatch_local("m", &command.path, command.payload)
-                            .await?;
+                        self.dispatch_local("m", &command.path, command.payload).await?;
                     }
                     OnDisconnectAction::Cancel => {}
                 }
@@ -1405,17 +1301,19 @@ mod wasm {
                 request = request.header("X-Firebase-Client", header);
             }
 
-            let response = request.json(payload).send().await.map_err(|err| {
-                internal_error(format!("failed to apply onDisconnect PUT: {err}"))
-            })?;
+            let response = request
+                .json(payload)
+                .send()
+                .await
+                .map_err(|err| internal_error(format!("failed to apply onDisconnect PUT: {err}")))?;
 
             ensure_success(response.status(), "PUT")
         }
 
         async fn apply_merge(&self, path: &[String], payload: &JsonValue) -> DatabaseResult<()> {
-            let map = payload.as_object().ok_or_else(|| {
-                internal_error("onDisconnect.update payload must be a JSON object".to_string())
-            })?;
+            let map = payload
+                .as_object()
+                .ok_or_else(|| internal_error("onDisconnect.update payload must be a JSON object".to_string()))?;
 
             let mut url = self.repo_info.rest_path(path)?;
             if let Some(token) = fetch_auth_token(&self.app).await? {
@@ -1431,19 +1329,16 @@ mod wasm {
                 request = request.header("X-Firebase-Client", header);
             }
 
-            let response = request.json(map).send().await.map_err(|err| {
-                internal_error(format!("failed to apply onDisconnect PATCH: {err}"))
-            })?;
+            let response = request
+                .json(map)
+                .send()
+                .await
+                .map_err(|err| internal_error(format!("failed to apply onDisconnect PATCH: {err}")))?;
 
             ensure_success(response.status(), "PATCH")
         }
 
-        async fn dispatch_local(
-            &self,
-            action: &str,
-            path: &[String],
-            payload: JsonValue,
-        ) -> DatabaseResult<()> {
+        async fn dispatch_local(&self, action: &str, path: &[String], payload: JsonValue) -> DatabaseResult<()> {
             if let Some(repo) = self.state.repo() {
                 let body = json!({
                     "p": path_to_string(path),
@@ -1503,11 +1398,7 @@ mod wasm {
         }
 
         async fn on_disconnect(&self, request: OnDisconnectRequest) -> DatabaseResult<()> {
-            let OnDisconnectRequest {
-                action,
-                path,
-                payload,
-            } = request;
+            let OnDisconnectRequest { action, path, payload } = request;
             let mut pending = self.state.pending_disconnect.lock().await;
             match action {
                 OnDisconnectAction::Cancel => {
@@ -1515,11 +1406,7 @@ mod wasm {
                 }
                 OnDisconnectAction::Put | OnDisconnectAction::Merge => {
                     pending.retain(|existing| existing.path != path);
-                    pending.push(OnDisconnectCommand {
-                        action,
-                        path,
-                        payload,
-                    });
+                    pending.push(OnDisconnectCommand { action, path, payload });
                 }
             }
             Ok(())
@@ -1614,8 +1501,7 @@ mod wasm {
             match poll_once(&repo_info, &app, &client, &control, &spec).await {
                 Ok(Some(value)) => {
                     if let Err(err) = deliver_snapshot(&state, &spec, &control, value).await {
-                        WASM_LONG_POLL_LOGGER
-                            .warn(format!("failed to deliver long-poll snapshot: {err}"));
+                        WASM_LONG_POLL_LOGGER.warn(format!("failed to deliver long-poll snapshot: {err}"));
                     }
                 }
                 Ok(None) => {}
@@ -1671,16 +1557,10 @@ mod wasm {
             return Ok(None);
         }
         if !status.is_success() {
-            return Err(internal_error(format!(
-                "long-poll request failed with status {status}"
-            )));
+            return Err(internal_error(format!("long-poll request failed with status {status}")));
         }
 
-        if let Some(etag) = response
-            .headers()
-            .get("etag")
-            .and_then(|value| value.to_str().ok())
-        {
+        if let Some(etag) = response.headers().get("etag").and_then(|value| value.to_str().ok()) {
             control.set_etag(Some(etag.to_string())).await;
         }
 
@@ -1711,10 +1591,7 @@ mod wasm {
 
     async fn propagate_error(state: &Arc<WasmLongPollState>, message: String) {
         if let Some(repo) = state.repo() {
-            if let Err(err) = repo
-                .handle_action("error", &JsonValue::String(message.clone()))
-                .await
-            {
+            if let Err(err) = repo.handle_action("error", &JsonValue::String(message.clone())).await {
                 WASM_LONG_POLL_LOGGER.warn(format!("failed to propagate long-poll error: {err}"));
             }
         }
@@ -1789,9 +1666,7 @@ mod wasm {
         match message_type.as_str() {
             "d" => handle_data_message(state, object.get("d")).await?,
             "c" => {
-                WASM_LOGGER.debug(
-                    "control message received; ignoring until protocol port completed".to_string(),
-                );
+                WASM_LOGGER.debug("control message received; ignoring until protocol port completed".to_string());
             }
             _ => {
                 WASM_LOGGER.debug(format!("unhandled realtime frame type '{message_type}'"));
@@ -1801,10 +1676,7 @@ mod wasm {
         Ok(())
     }
 
-    async fn handle_data_message(
-        state: &WasmState,
-        data: Option<&JsonValue>,
-    ) -> DatabaseResult<()> {
+    async fn handle_data_message(state: &WasmState, data: Option<&JsonValue>) -> DatabaseResult<()> {
         let Some(JsonValue::Object(data)) = data else {
             return Ok(());
         };
@@ -1818,9 +1690,7 @@ mod wasm {
             if let Some(repo) = state.repo() {
                 let body = data.get("b").cloned().unwrap_or(JsonValue::Null);
                 if let Err(err) = repo.handle_action(action, &body).await {
-                    WASM_LOGGER.warn(format!(
-                        "failed to handle realtime action '{action}': {err}"
-                    ));
+                    WASM_LOGGER.warn(format!("failed to handle realtime action '{action}': {err}"));
                     *state.pending_error.lock().unwrap() = Some(err);
                 }
             }
@@ -1858,9 +1728,7 @@ mod wasm {
             if let Err(err) = socket.send_with_str(&payload) {
                 let mut pending = state.pending.lock().await;
                 pending.push_front(command);
-                return Err(internal_error(format!(
-                    "failed to send realtime command: {err:?}"
-                )));
+                return Err(internal_error(format!("failed to send realtime command: {err:?}")));
             }
         }
         Ok(())
@@ -1904,10 +1772,7 @@ mod wasm {
         serialize_request(state, "unlisten", body)
     }
 
-    fn serialize_on_disconnect(
-        state: &WasmState,
-        command: &OnDisconnectCommand,
-    ) -> DatabaseResult<String> {
+    fn serialize_on_disconnect(state: &WasmState, command: &OnDisconnectCommand) -> DatabaseResult<String> {
         let body = json!({
             "p": path_to_string(&command.path),
             "d": command.payload.clone(),
@@ -1935,11 +1800,7 @@ mod wasm {
         Ok(())
     }
 
-    async fn send_request_message(
-        state: &Arc<WasmState>,
-        action: &str,
-        body: JsonValue,
-    ) -> DatabaseResult<()> {
+    async fn send_request_message(state: &Arc<WasmState>, action: &str, body: JsonValue) -> DatabaseResult<()> {
         let message = serialize_request(state.as_ref(), action, body)?;
         let guard = state.socket.lock().await;
         let Some(socket) = guard.as_ref() else {
@@ -1953,11 +1814,7 @@ mod wasm {
             .map_err(|err| internal_error(format!("failed to send realtime request: {err:?}")))
     }
 
-    fn serialize_request(
-        state: &WasmState,
-        action: &str,
-        body: JsonValue,
-    ) -> DatabaseResult<String> {
+    fn serialize_request(state: &WasmState, action: &str, body: JsonValue) -> DatabaseResult<String> {
         let request_id = next_request_id(state);
         let envelope = json!({
             "t": "d",

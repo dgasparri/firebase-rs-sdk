@@ -5,9 +5,7 @@
 //! assumes an emulator is available but will work against any Realtime Database instance.
 
 use firebase_rs_sdk::app::{initialize_app, FirebaseAppSettings, FirebaseOptions};
-use firebase_rs_sdk::database::{
-    get_database, on_child_added, on_child_changed, on_child_removed, server_timestamp,
-};
+use firebase_rs_sdk::database::{get_database, on_child_added, on_child_changed, on_child_removed, server_timestamp};
 use serde_json::json;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
@@ -15,10 +13,7 @@ use std::sync::{Arc, Mutex};
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project_id = prompt("Firebase project ID", "child-events-demo");
-    let db_url = prompt(
-        "Realtime Database URL",
-        "http://127.0.0.1:9000/?ns=child-events-demo",
-    );
+    let db_url = prompt("Realtime Database URL", "http://127.0.0.1:9000/?ns=child-events-demo");
 
     let options = FirebaseOptions {
         project_id: Some(project_id.clone()),
@@ -49,10 +44,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let changed_capture = changed.clone();
     let changed_registration = on_child_changed(&tasks, move |result| {
         if let Ok(event) = result {
-            changed_capture.lock().unwrap().push((
-                event.snapshot.key().unwrap_or("<root>").to_string(),
-                event.snapshot.to_json(),
-            ));
+            changed_capture
+                .lock()
+                .unwrap()
+                .push((event.snapshot.key().unwrap_or("<root>").to_string(), event.snapshot.to_json()));
         }
     })
     .await?;
@@ -77,9 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let beta = tasks.child("beta")?;
     beta.set(json!({ "title": "Review PR", "created_at": server_timestamp() }))
         .await?;
-    beta.child("title")?
-        .set(json!("Review PR comments"))
-        .await?;
+    beta.child("title")?.set(json!("Review PR comments")).await?;
 
     alpha.remove().await?;
 

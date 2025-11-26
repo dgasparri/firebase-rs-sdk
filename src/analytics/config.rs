@@ -4,9 +4,7 @@ use std::time::Duration;
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::analytics::error::{
-    config_fetch_failed, internal_error, missing_measurement_id, AnalyticsResult,
-};
+use crate::analytics::error::{config_fetch_failed, internal_error, missing_measurement_id, AnalyticsResult};
 use crate::app::FirebaseApp;
 
 /// Minimal dynamic configuration returned by the Firebase Analytics config endpoint.
@@ -47,15 +45,11 @@ pub(crate) fn from_app_options(app: &FirebaseApp) -> Option<DynamicConfig> {
 pub(crate) async fn fetch_dynamic_config(app: &FirebaseApp) -> AnalyticsResult<DynamicConfig> {
     let options = app.options();
     let app_id = options.app_id.clone().ok_or_else(|| {
-        missing_measurement_id(
-            "Firebase options are missing `app_id`; unable to fetch analytics configuration",
-        )
+        missing_measurement_id("Firebase options are missing `app_id`; unable to fetch analytics configuration")
     })?;
 
     let api_key = options.api_key.clone().ok_or_else(|| {
-        missing_measurement_id(
-            "Firebase options are missing `api_key`; unable to fetch analytics configuration",
-        )
+        missing_measurement_id("Firebase options are missing `api_key`; unable to fetch analytics configuration")
     })?;
 
     let url = dynamic_config_url(&app_id);
@@ -112,10 +106,7 @@ fn dynamic_config_url(app_id: &str) -> String {
         return template.replace("{app-id}", app_id);
     }
 
-    format!(
-        "https://firebase.googleapis.com/v1alpha/projects/-/apps/{}/webConfig",
-        app_id
-    )
+    format!("https://firebase.googleapis.com/v1alpha/projects/-/apps/{}/webConfig", app_id)
 }
 
 #[derive(Deserialize)]

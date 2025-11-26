@@ -84,10 +84,7 @@ impl PreparedRequest {
     }
 
     /// Converts the prepared request into a `reqwest::RequestBuilder`.
-    pub fn into_reqwest(
-        self,
-        client: &reqwest::Client,
-    ) -> Result<reqwest::RequestBuilder, AiError> {
+    pub fn into_reqwest(self, client: &reqwest::Client) -> Result<reqwest::RequestBuilder, AiError> {
         use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
         let mut headers = HeaderMap::new();
@@ -152,11 +149,7 @@ impl RequestFactory {
                 trimmed_model
             ),
         };
-        let path = format!(
-            "/{}/{model_path}:{}",
-            DEFAULT_API_VERSION,
-            task.as_operation()
-        );
+        let path = format!("/{}/{model_path}:{}", DEFAULT_API_VERSION, task.as_operation());
         url.set_path(&path);
         if stream {
             url.query_pairs_mut().append_pair("alt", "sse");
@@ -189,22 +182,14 @@ impl RequestFactory {
         } else {
             format!("https://{base}")
         };
-        Url::parse(&url).map_err(|err| {
-            AiError::new(
-                AiErrorCode::InvalidArgument,
-                format!("Invalid base URL '{url}': {err}"),
-                None,
-            )
-        })
+        Url::parse(&url)
+            .map_err(|err| AiError::new(AiErrorCode::InvalidArgument, format!("Invalid base URL '{url}': {err}"), None))
     }
 
     fn build_headers(&self) -> Vec<(String, String)> {
         let mut headers = Vec::with_capacity(5);
         headers.push(("Content-Type".into(), "application/json".into()));
-        let client_header = format!(
-            "{}/{} fire/{}",
-            LANGUAGE_TAG, PACKAGE_VERSION, PACKAGE_VERSION
-        );
+        let client_header = format!("{}/{} fire/{}", LANGUAGE_TAG, PACKAGE_VERSION, PACKAGE_VERSION);
         headers.push(("x-goog-api-client".into(), client_header));
         headers.push(("x-goog-api-key".into(), self.settings.api_key.clone()));
 
@@ -289,8 +274,7 @@ mod tests {
 
     #[test]
     fn constructs_vertex_ai_url_with_base_override() {
-        let factory =
-            RequestFactory::new(settings_with_backend(Backend::vertex_ai("europe-west4")));
+        let factory = RequestFactory::new(settings_with_backend(Backend::vertex_ai("europe-west4")));
         let options = RequestOptions {
             timeout: Some(Duration::from_secs(10)),
             base_url: Some("https://example.com".into()),

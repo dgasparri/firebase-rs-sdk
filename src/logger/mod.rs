@@ -7,8 +7,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 
 static GLOBAL_LOG_LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Info as u8);
-static INSTANCES: LazyLock<Mutex<Vec<Weak<LoggerInner>>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
+static INSTANCES: LazyLock<Mutex<Vec<Weak<LoggerInner>>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 type SharedLogHandler = Arc<dyn Fn(&Logger, LogLevel, &[LogArgument]) + Send + Sync + 'static>;
 
@@ -64,8 +63,7 @@ impl Logger {
     where
         F: Fn(&Logger, LogLevel, &[LogArgument]) + Send + Sync + 'static,
     {
-        *self.inner.user_log_handler.write().unwrap() =
-            handler.map(|f| Arc::new(f) as SharedLogHandler);
+        *self.inner.user_log_handler.write().unwrap() = handler.map(|f| Arc::new(f) as SharedLogHandler);
     }
 
     pub fn clear_user_log_handler(&self) {
@@ -141,10 +139,7 @@ impl Logger {
         I: IntoIterator<Item = T>,
         T: IntoLogArgument,
     {
-        let arguments = args
-            .into_iter()
-            .map(|arg| arg.into_log_argument())
-            .collect();
+        let arguments = args.into_iter().map(|arg| arg.into_log_argument()).collect();
         self.dispatch(level, arguments);
     }
 
@@ -567,22 +562,20 @@ pub fn set_user_log_handler(callback: Option<LogCallback>, options: Option<LogOp
             let custom_level = options.level;
             with_instances(|logger| {
                 let handler_cb = Arc::clone(&cb);
-                logger.set_user_log_handler(Some(
-                    move |instance: &Logger, level, args: &[LogArgument]| {
-                        let threshold = custom_level.unwrap_or_else(|| instance.log_level());
-                        if level < threshold {
-                            return;
-                        }
-                        let message = build_message(args);
-                        let params = LogCallbackParams {
-                            level,
-                            message,
-                            args: args.iter().map(LogArgument::to_callback_value).collect(),
-                            logger_type: instance.name().to_owned(),
-                        };
-                        handler_cb(params);
-                    },
-                ));
+                logger.set_user_log_handler(Some(move |instance: &Logger, level, args: &[LogArgument]| {
+                    let threshold = custom_level.unwrap_or_else(|| instance.log_level());
+                    if level < threshold {
+                        return;
+                    }
+                    let message = build_message(args);
+                    let params = LogCallbackParams {
+                        level,
+                        message,
+                        args: args.iter().map(LogArgument::to_callback_value).collect(),
+                        logger_type: instance.name().to_owned(),
+                    };
+                    handler_cb(params);
+                }));
             });
         }
         None => {
@@ -628,10 +621,7 @@ mod tests {
             if level < instance.log_level() {
                 return;
             }
-            handler_records
-                .lock()
-                .unwrap()
-                .push((level, build_message(args)));
+            handler_records.lock().unwrap().push((level, build_message(args)));
         });
 
         logger.debug("debug message");
@@ -668,10 +658,7 @@ mod tests {
             if level < instance.log_level() {
                 return;
             }
-            handler_records
-                .lock()
-                .unwrap()
-                .push((level, build_message(args)));
+            handler_records.lock().unwrap().push((level, build_message(args)));
         });
 
         logger.debug("debug message");

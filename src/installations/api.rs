@@ -9,22 +9,16 @@ use rand::{thread_rng, RngCore};
 
 use crate::app;
 use crate::app::FirebaseApp;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
 use crate::installations::config::{extract_app_config, AppConfig};
-use crate::installations::constants::{
-    INSTALLATIONS_COMPONENT_NAME, INSTALLATIONS_INTERNAL_COMPONENT_NAME,
-};
+use crate::installations::constants::{INSTALLATIONS_COMPONENT_NAME, INSTALLATIONS_INTERNAL_COMPONENT_NAME};
 use crate::installations::error::{internal_error, InstallationsResult};
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use crate::installations::persistence::FilePersistence;
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
 use crate::installations::persistence::IndexedDbPersistence;
-use crate::installations::persistence::{
-    InstallationsPersistence, PersistedAuthToken, PersistedInstallation,
-};
+use crate::installations::persistence::{InstallationsPersistence, PersistedAuthToken, PersistedInstallation};
 use crate::installations::rest::{RegisteredInstallation, RestClient};
 use crate::installations::types::{InstallationEntryData, InstallationToken};
 use crate::platform::runtime;
@@ -385,10 +379,7 @@ impl Installations {
 
     async fn persist_entry(&self, entry: &InstallationEntry) -> InstallationsResult<()> {
         let persisted = entry.to_persisted()?;
-        self.inner
-            .persistence
-            .write(self.inner.app.name(), &persisted)
-            .await
+        self.inner.persistence.write(self.inner.app.name(), &persisted).await
     }
 
     async fn persist_current_state(&self) -> InstallationsResult<()> {
@@ -431,10 +422,7 @@ impl Installations {
             .release_registration_lock(self.inner.app.name())
             .await;
 
-        INSTALLATIONS_CACHE
-            .lock()
-            .unwrap()
-            .remove(self.inner.app.name());
+        INSTALLATIONS_CACHE.lock().unwrap().remove(self.inner.app.name());
 
         Ok(())
     }
@@ -452,9 +440,7 @@ fn generate_fid() -> InstallationsResult<String> {
             return Ok(fid);
         }
     }
-    Err(internal_error(
-        "Failed to generate a valid Firebase Installation ID",
-    ))
+    Err(internal_error("Failed to generate a valid Firebase Installation ID"))
 }
 
 static INSTALLATIONS_COMPONENT: LazyLock<()> = LazyLock::new(|| {
@@ -481,17 +467,16 @@ fn installations_factory(
     container: &crate::component::ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: INSTALLATIONS_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
-    let installations =
-        Installations::new((*app).clone()).map_err(|err| ComponentError::InitializationFailed {
-            name: INSTALLATIONS_COMPONENT_NAME.to_string(),
-            reason: err.to_string(),
         })?;
+    let installations = Installations::new((*app).clone()).map_err(|err| ComponentError::InitializationFailed {
+        name: INSTALLATIONS_COMPONENT_NAME.to_string(),
+        reason: err.to_string(),
+    })?;
     Ok(Arc::new(installations) as DynService)
 }
 
@@ -518,8 +503,7 @@ pub fn get_installations(app: Option<FirebaseApp>) -> InstallationsResult<Arc<In
             #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
             {
                 use futures::executor::block_on;
-                block_on(crate::app::get_app(None))
-                    .map_err(|err| internal_error(err.to_string()))?
+                block_on(crate::app::get_app(None)).map_err(|err| internal_error(err.to_string()))?
             }
         }
     };
@@ -553,9 +537,8 @@ pub fn get_installations(app: Option<FirebaseApp>) -> InstallationsResult<Arc<In
                     .insert(app.name().to_string(), instance.clone());
                 Ok(instance)
             } else {
-                let installations = Installations::new(app.clone()).map_err(|err| {
-                    internal_error(format!("Failed to initialize installations: {}", err))
-                })?;
+                let installations = Installations::new(app.clone())
+                    .map_err(|err| internal_error(format!("Failed to initialize installations: {}", err)))?;
                 let arc = Arc::new(installations);
                 INSTALLATIONS_CACHE
                     .lock()
@@ -573,9 +556,7 @@ pub async fn delete_installations(installations: &Installations) -> Installation
     installations.delete().await
 }
 
-pub fn get_installations_internal(
-    app: Option<FirebaseApp>,
-) -> InstallationsResult<Arc<InstallationsInternal>> {
+pub fn get_installations_internal(app: Option<FirebaseApp>) -> InstallationsResult<Arc<InstallationsInternal>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
@@ -589,8 +570,7 @@ pub fn get_installations_internal(
             #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
             {
                 use futures::executor::block_on;
-                block_on(crate::app::get_app(None))
-                    .map_err(|err| internal_error(err.to_string()))?
+                block_on(crate::app::get_app(None)).map_err(|err| internal_error(err.to_string()))?
             }
         }
     };
@@ -613,19 +593,18 @@ fn installations_internal_factory(
     container: &crate::component::ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: INSTALLATIONS_INTERNAL_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
 
-    let installations = get_installations(Some((*app).clone())).map_err(|err| {
-        ComponentError::InitializationFailed {
+    let installations =
+        get_installations(Some((*app).clone())).map_err(|err| ComponentError::InitializationFailed {
             name: INSTALLATIONS_INTERNAL_COMPONENT_NAME.to_string(),
             reason: err.to_string(),
-        }
-    })?;
+        })?;
 
     let internal = InstallationsInternal { installations };
 
@@ -655,10 +634,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "installations-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("installations-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -688,16 +664,12 @@ mod tests {
         panic::catch_unwind(AssertUnwindSafe(|| MockServer::start())).ok()
     }
 
-    async fn setup_installations(
-        server: &MockServer,
-    ) -> (Arc<Installations>, PathBuf, String, FirebaseApp) {
+    async fn setup_installations(server: &MockServer) -> (Arc<Installations>, PathBuf, String, FirebaseApp) {
         let cache_dir = unique_cache_dir();
         std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
         std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
         let settings = unique_settings();
-        let app = initialize_app(base_options(), Some(settings.clone()))
-            .await
-            .unwrap();
+        let app = initialize_app(base_options(), Some(settings.clone())).await.unwrap();
         let app_name = app.name().to_string();
         let installations = get_installations(Some(app.clone())).unwrap();
         std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
@@ -747,9 +719,7 @@ mod tests {
     async fn on_id_change_notifies_after_registration() {
         let _env_guard = env_guard();
         let Some(server) = try_start_server() else {
-            eprintln!(
-                "Skipping on_id_change_notifies_after_registration: unable to start mock server"
-            );
+            eprintln!("Skipping on_id_change_notifies_after_registration: unable to start mock server");
             return;
         };
         let create_mock = server.mock(|when, then| {
@@ -860,10 +830,7 @@ mod tests {
         let persistence = FilePersistence::new(cache_dir.clone()).unwrap();
 
         let settings = unique_settings();
-        let app_name = settings
-            .name
-            .clone()
-            .unwrap_or_else(|| "[DEFAULT]".to_string());
+        let app_name = settings.name.clone().unwrap_or_else(|| "[DEFAULT]".to_string());
 
         let token = InstallationToken {
             token: "cached-token".into(),
@@ -879,9 +846,7 @@ mod tests {
         std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
         std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
 
-        let app = initialize_app(base_options(), Some(settings))
-            .await
-            .unwrap();
+        let app = initialize_app(base_options(), Some(settings)).await.unwrap();
         let installations = get_installations(Some(app)).unwrap();
 
         std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
@@ -924,10 +889,7 @@ mod tests {
         let persistence = FilePersistence::new(cache_dir.clone()).unwrap();
 
         let settings = unique_settings();
-        let app_name = settings
-            .name
-            .clone()
-            .unwrap_or_else(|| "[DEFAULT]".to_string());
+        let app_name = settings.name.clone().unwrap_or_else(|| "[DEFAULT]".to_string());
 
         let token = InstallationToken {
             token: "token1".into(),
@@ -943,9 +905,7 @@ mod tests {
         std::env::set_var("FIREBASE_INSTALLATIONS_API_URL", server.base_url());
         std::env::set_var("FIREBASE_INSTALLATIONS_CACHE_DIR", &cache_dir);
 
-        let app = initialize_app(base_options(), Some(settings))
-            .await
-            .unwrap();
+        let app = initialize_app(base_options(), Some(settings)).await.unwrap();
         let installations = get_installations(Some(app)).unwrap();
 
         std::env::remove_var("FIREBASE_INSTALLATIONS_API_URL");
@@ -957,9 +917,7 @@ mod tests {
 
         let hits = delete_mock.hits();
         if hits == 0 {
-            eprintln!(
-                "Skipping delete request assertion: local HTTP requests appear to be blocked"
-            );
+            eprintln!("Skipping delete request assertion: local HTTP requests appear to be blocked");
         } else {
             assert_eq!(hits, 1);
         }
@@ -979,9 +937,7 @@ mod tests {
 
         let new_fid = installations.get_id().await.unwrap();
         if recreate_mock.hits() == 0 {
-            eprintln!(
-                "Expected re-registration after delete but mock server did not observe the call"
-            );
+            eprintln!("Expected re-registration after delete but mock server did not observe the call");
         } else {
             assert_eq!(new_fid, "fid-after-delete");
         }
@@ -993,9 +949,7 @@ mod tests {
     async fn internal_component_exposes_id_and_token() {
         let _env_guard = env_guard();
         let Some(server) = try_start_server() else {
-            eprintln!(
-                "Skipping internal_component_exposes_id_and_token: unable to start mock server"
-            );
+            eprintln!("Skipping internal_component_exposes_id_and_token: unable to start mock server");
             return;
         };
 
@@ -1025,9 +979,7 @@ mod tests {
         let internal = get_installations_internal(Some(app)).unwrap();
 
         if create_mock.hits() == 0 {
-            eprintln!(
-                "Skipping internal component assertions: initial registration request not observed"
-            );
+            eprintln!("Skipping internal component assertions: initial registration request not observed");
             let _ = fs::remove_dir_all(cache_dir);
             return;
         }
@@ -1038,9 +990,7 @@ mod tests {
 
         let token_internal = internal.get_token(true).await.unwrap();
         if refresh_mock.hits() == 0 {
-            eprintln!(
-                "Skipping token assertion in internal_component_exposes_id_and_token: no request observed"
-            );
+            eprintln!("Skipping token assertion in internal_component_exposes_id_and_token: no request observed");
         } else {
             assert_eq!(token_internal.token, "token-internal");
         }

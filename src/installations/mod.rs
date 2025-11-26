@@ -8,14 +8,13 @@ mod rest;
 mod types;
 
 pub use api::{
-    delete_installations, get_installations, get_installations_internal,
-    register_installations_component, IdChangeUnsubscribe, Installations, InstallationsInternal,
+    delete_installations, get_installations, get_installations_internal, register_installations_component,
+    IdChangeUnsubscribe, Installations, InstallationsInternal,
 };
 pub use config::{extract_app_config, AppConfig};
 
 pub use error::{
-    internal_error, invalid_argument, request_failed, InstallationsError, InstallationsErrorCode,
-    InstallationsResult,
+    internal_error, invalid_argument, request_failed, InstallationsError, InstallationsErrorCode, InstallationsResult,
 };
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]

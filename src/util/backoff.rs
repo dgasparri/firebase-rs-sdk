@@ -21,23 +21,13 @@ impl Default for BackoffConfig {
 }
 
 pub fn calculate_backoff_millis(backoff_count: u32) -> u64 {
-    calculate_backoff_with_rng(
-        backoff_count,
-        BackoffConfig::default(),
-        &mut rand::thread_rng(),
-    )
+    calculate_backoff_with_rng(backoff_count, BackoffConfig::default(), &mut rand::thread_rng())
 }
 
-fn calculate_backoff_with_rng<R: Rng + ?Sized>(
-    backoff_count: u32,
-    config: BackoffConfig,
-    rng: &mut R,
-) -> u64 {
+fn calculate_backoff_with_rng<R: Rng + ?Sized>(backoff_count: u32, config: BackoffConfig, rng: &mut R) -> u64 {
     let base = (config.interval_millis as f64) * config.backoff_factor.powi(backoff_count as i32);
     let jitter = RANDOM_FACTOR * base * rng.gen_range(-1.0..=1.0);
-    let value = (base + jitter)
-        .round()
-        .clamp(0.0, MAX_BACKOFF_MILLIS as f64);
+    let value = (base + jitter).round().clamp(0.0, MAX_BACKOFF_MILLIS as f64);
     value as u64
 }
 

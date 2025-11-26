@@ -15,10 +15,7 @@ impl MutationManager {
         Self { transport }
     }
 
-    pub async fn execute_mutation(
-        &self,
-        mutation_ref: MutationRef,
-    ) -> DataConnectResult<MutationResult> {
+    pub async fn execute_mutation(&self, mutation_ref: MutationRef) -> DataConnectResult<MutationResult> {
         let data = self
             .transport
             .invoke_mutation(mutation_ref.operation_name(), mutation_ref.variables())

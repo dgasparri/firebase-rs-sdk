@@ -1,7 +1,6 @@
 use crate::auth::error::{map_mfa_error_code, AuthError, AuthResult};
 use crate::auth::model::{
-    GetAccountInfoResponse, MfaEnrollmentInfo, ProviderUserInfo, SignInWithPasswordRequest,
-    SignInWithPasswordResponse,
+    GetAccountInfoResponse, MfaEnrollmentInfo, ProviderUserInfo, SignInWithPasswordRequest, SignInWithPasswordResponse,
 };
 use crate::auth::types::{ActionCodeOperation, ActionCodeSettings};
 use reqwest::{Client, StatusCode};
@@ -31,10 +30,7 @@ struct SendOobCodeRequest {
     android_package_name: Option<String>,
     #[serde(rename = "androidInstallApp", skip_serializing_if = "Option::is_none")]
     android_install_app: Option<bool>,
-    #[serde(
-        rename = "androidMinimumVersionCode",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "androidMinimumVersionCode", skip_serializing_if = "Option::is_none")]
     android_minimum_version_code: Option<String>,
     #[serde(rename = "canHandleCodeInApp", skip_serializing_if = "Option::is_none")]
     can_handle_code_in_app: Option<bool>,
@@ -181,38 +177,16 @@ struct ErrorBody {
     message: Option<String>,
 }
 
-pub async fn send_password_reset_email(
-    client: &Client,
-    endpoint: &str,
-    api_key: &str,
-    email: &str,
-) -> AuthResult<()> {
+pub async fn send_password_reset_email(client: &Client, endpoint: &str, api_key: &str, email: &str) -> AuthResult<()> {
     let mut request = SendOobCodeRequest::new(ActionCodeOperation::PasswordReset);
     request.email = Some(email.to_owned());
-    send_oob_code_async(
-        client.clone(),
-        endpoint.to_owned(),
-        api_key.to_owned(),
-        request,
-    )
-    .await
+    send_oob_code_async(client.clone(), endpoint.to_owned(), api_key.to_owned(), request).await
 }
 
-pub async fn send_email_verification(
-    client: &Client,
-    endpoint: &str,
-    api_key: &str,
-    id_token: &str,
-) -> AuthResult<()> {
+pub async fn send_email_verification(client: &Client, endpoint: &str, api_key: &str, id_token: &str) -> AuthResult<()> {
     let mut request = SendOobCodeRequest::new(ActionCodeOperation::VerifyEmail);
     request.id_token = Some(id_token.to_owned());
-    send_oob_code_async(
-        client.clone(),
-        endpoint.to_owned(),
-        api_key.to_owned(),
-        request,
-    )
-    .await
+    send_oob_code_async(client.clone(), endpoint.to_owned(), api_key.to_owned(), request).await
 }
 
 async fn send_oob_code_async(
@@ -255,23 +229,12 @@ pub async fn send_sign_in_link_to_email(
         ));
     }
     apply_action_code_settings(&mut request, settings)?;
-    send_oob_code_async(
-        client.clone(),
-        endpoint.to_owned(),
-        api_key.to_owned(),
-        request,
-    )
-    .await
+    send_oob_code_async(client.clone(), endpoint.to_owned(), api_key.to_owned(), request).await
 }
 
-fn apply_action_code_settings(
-    request: &mut SendOobCodeRequest,
-    settings: &ActionCodeSettings,
-) -> AuthResult<()> {
+fn apply_action_code_settings(request: &mut SendOobCodeRequest, settings: &ActionCodeSettings) -> AuthResult<()> {
     if settings.url.trim().is_empty() {
-        return Err(AuthError::InvalidCredential(
-            "ActionCodeSettings.url must not be empty".into(),
-        ));
+        return Err(AuthError::InvalidCredential("ActionCodeSettings.url must not be empty".into()));
     }
     if let Some(domain) = settings.dynamic_link_domain.as_ref() {
         if domain.trim().is_empty() {
@@ -431,13 +394,7 @@ pub async fn update_account(
     api_key: &str,
     params: &UpdateAccountRequest,
 ) -> AuthResult<UpdateAccountResponse> {
-    update_account_async(
-        client.clone(),
-        endpoint.to_owned(),
-        api_key.to_owned(),
-        params.clone(),
-    )
-    .await
+    update_account_async(client.clone(), endpoint.to_owned(), api_key.to_owned(), params.clone()).await
 }
 
 async fn update_account_async(
@@ -511,13 +468,7 @@ pub async fn verify_password(
     api_key: &str,
     request: &SignInWithPasswordRequest,
 ) -> AuthResult<SignInWithPasswordResponse> {
-    verify_password_async(
-        client.clone(),
-        endpoint.to_owned(),
-        api_key.to_owned(),
-        request.clone(),
-    )
-    .await
+    verify_password_async(client.clone(), endpoint.to_owned(), api_key.to_owned(), request.clone()).await
 }
 
 async fn verify_password_async(
@@ -546,27 +497,11 @@ async fn verify_password_async(
     }
 }
 
-pub async fn delete_account(
-    client: &Client,
-    endpoint: &str,
-    api_key: &str,
-    id_token: &str,
-) -> AuthResult<()> {
-    delete_account_async(
-        client.clone(),
-        endpoint.to_owned(),
-        api_key.to_owned(),
-        id_token.to_owned(),
-    )
-    .await
+pub async fn delete_account(client: &Client, endpoint: &str, api_key: &str, id_token: &str) -> AuthResult<()> {
+    delete_account_async(client.clone(), endpoint.to_owned(), api_key.to_owned(), id_token.to_owned()).await
 }
 
-async fn delete_account_async(
-    client: Client,
-    endpoint: String,
-    api_key: String,
-    id_token: String,
-) -> AuthResult<()> {
+async fn delete_account_async(client: Client, endpoint: String, api_key: String, id_token: String) -> AuthResult<()> {
     let url = identity_toolkit_url(&endpoint, "accounts:delete", &api_key);
     let request = DeleteAccountRequest { id_token };
 
@@ -604,13 +539,7 @@ pub async fn get_account_info(
     api_key: &str,
     id_token: &str,
 ) -> AuthResult<GetAccountInfoResponse> {
-    get_account_info_async(
-        client.clone(),
-        endpoint.to_owned(),
-        api_key.to_owned(),
-        id_token.to_owned(),
-    )
-    .await
+    get_account_info_async(client.clone(), endpoint.to_owned(), api_key.to_owned(), id_token.to_owned()).await
 }
 
 async fn get_account_info_async(

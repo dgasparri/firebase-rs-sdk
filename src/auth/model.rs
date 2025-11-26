@@ -138,8 +138,7 @@ impl AuthCredential {
 
     /// Serializes the credential into a JSON string.
     pub fn to_json_string(&self) -> AuthResult<String> {
-        serde_json::to_string(&self.to_json())
-            .map_err(|err| AuthError::InvalidCredential(err.to_string()))
+        serde_json::to_string(&self.to_json()).map_err(|err| AuthError::InvalidCredential(err.to_string()))
     }
 
     /// Reconstructs a credential from a JSON value previously produced via [`to_json`].
@@ -147,23 +146,16 @@ impl AuthCredential {
         let provider_id = value
             .get("providerId")
             .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AuthError::InvalidCredential("Credential JSON missing providerId".into())
-            })?
+            .ok_or_else(|| AuthError::InvalidCredential("Credential JSON missing providerId".into()))?
             .to_string();
 
         let sign_in_method = value
             .get("signInMethod")
             .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AuthError::InvalidCredential("Credential JSON missing signInMethod".into())
-            })?
+            .ok_or_else(|| AuthError::InvalidCredential("Credential JSON missing signInMethod".into()))?
             .to_string();
 
-        let token_response = value
-            .get("tokenResponse")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+        let token_response = value.get("tokenResponse").cloned().unwrap_or_else(|| json!({}));
 
         Ok(Self {
             provider_id,
@@ -174,8 +166,7 @@ impl AuthCredential {
 
     /// Reconstructs a credential from its JSON string representation.
     pub fn from_json_str(data: &str) -> AuthResult<Self> {
-        let value: Value = serde_json::from_str(data)
-            .map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
+        let value: Value = serde_json::from_str(data).map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
         Self::from_json(value)
     }
 }

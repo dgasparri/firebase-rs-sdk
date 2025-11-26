@@ -42,9 +42,7 @@ impl Timestamp {
 
     pub fn to_system_time(&self) -> SystemTime {
         if self.seconds >= 0 {
-            UNIX_EPOCH
-                + Duration::from_secs(self.seconds as u64)
-                + Duration::from_nanos(self.nanos as u64)
+            UNIX_EPOCH + Duration::from_secs(self.seconds as u64) + Duration::from_nanos(self.nanos as u64)
         } else {
             UNIX_EPOCH
                 - Duration::from_secs((-self.seconds) as u64)

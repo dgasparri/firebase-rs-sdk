@@ -1,17 +1,9 @@
 //! Browser persistence helpers for App Check tokens using IndexedDB.
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub use wasm::*;
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 mod wasm {
     use std::sync::Arc;
 
@@ -26,8 +18,7 @@ mod wasm {
     use crate::app_check::errors::{AppCheckError, AppCheckResult};
     use crate::app_check::types::AppCheckTokenResult;
     use crate::platform::browser::indexed_db::{
-        delete_database, delete_key, get_string, open_database_with_store, put_string,
-        IndexedDbError,
+        delete_database, delete_key, get_string, open_database_with_store, put_string, IndexedDbError,
     };
 
     const DB_NAME: &str = "firebase-app-check";
@@ -57,9 +48,7 @@ mod wasm {
         match get_string(&db, STORE_NAME, app_id).await {
             Ok(Some(json)) => {
                 let parsed = serde_json::from_str(&json).map_err(|err| {
-                    AppCheckError::Internal(format!(
-                        "Failed to parse persisted App Check token: {err}"
-                    ))
+                    AppCheckError::Internal(format!("Failed to parse persisted App Check token: {err}"))
                 })?;
                 Ok(Some(parsed))
             }
@@ -71,9 +60,7 @@ mod wasm {
     pub async fn save_token(app_id: &str, token: &PersistedToken) -> AppCheckResult<()> {
         let db = open_database().await?;
         let json = serde_json::to_string(token).map_err(|err| {
-            AppCheckError::Internal(format!(
-                "Failed to serialize App Check token for storage: {err}"
-            ))
+            AppCheckError::Internal(format!("Failed to serialize App Check token for storage: {err}"))
         })?;
         put_string(&db, STORE_NAME, app_id, &json)
             .await
@@ -206,9 +193,7 @@ mod wasm {
         async fn roundtrip_token_persists_value() {
             reset_persistence().await.expect("reset persistence");
 
-            save_token("app", &token("abc", 1234))
-                .await
-                .expect("save token");
+            save_token("app", &token("abc", 1234)).await.expect("save token");
             let loaded = load_token("app").await.expect("load token");
             assert!(loaded.is_some());
             let loaded = loaded.unwrap();

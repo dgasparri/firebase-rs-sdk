@@ -12,12 +12,8 @@ use crate::firestore::remote::remote_syncer::RemoteSyncer;
 use crate::firestore::remote::serializer::JsonProtoSerializer;
 use crate::firestore::remote::streams::listen::{ListenStream, ListenStreamDelegate, ListenTarget};
 use crate::firestore::remote::streams::write::{WriteResponse, WriteStream, WriteStreamDelegate};
-use crate::firestore::remote::watch_change::{
-    DocumentDelete, DocumentRemove, WatchChange, WatchTargetChange,
-};
-use crate::firestore::remote::watch_change_aggregator::{
-    TargetMetadataProvider, WatchChangeAggregator,
-};
+use crate::firestore::remote::watch_change::{DocumentDelete, DocumentRemove, WatchChange, WatchTargetChange};
+use crate::firestore::remote::watch_change_aggregator::{TargetMetadataProvider, WatchChangeAggregator};
 
 #[cfg(test)]
 use crate::firestore::remote::remote_event::RemoteEvent;
@@ -95,11 +91,7 @@ impl RemoteStore {
         serializer: JsonProtoSerializer,
         remote_syncer: Arc<dyn RemoteSyncer>,
     ) -> Self {
-        let inner = Arc::new(RemoteStoreInner::new(
-            network_layer,
-            serializer,
-            remote_syncer,
-        ));
+        let inner = Arc::new(RemoteStoreInner::new(network_layer, serializer, remote_syncer));
         Self { inner }
     }
 
@@ -151,11 +143,7 @@ struct RemoteStoreInner {
 }
 
 impl RemoteStoreInner {
-    fn new(
-        network_layer: NetworkLayer,
-        serializer: JsonProtoSerializer,
-        remote_syncer: Arc<dyn RemoteSyncer>,
-    ) -> Self {
+    fn new(network_layer: NetworkLayer, serializer: JsonProtoSerializer, remote_syncer: Arc<dyn RemoteSyncer>) -> Self {
         Self {
             state: Mutex::new(RemoteStoreState::default()),
             network_layer,
@@ -255,11 +243,7 @@ impl RemoteStoreInner {
             let provider = Arc::new(SyncerMetadataProvider::new(Arc::clone(&self.remote_syncer)));
             state.watch_aggregator = Some(WatchChangeAggregator::new(provider));
             let delegate = Arc::new(RemoteListenDelegate::new(Arc::downgrade(self)));
-            let stream = Arc::new(ListenStream::new(
-                self.network_layer.clone(),
-                self.serializer.clone(),
-                delegate,
-            ));
+            let stream = Arc::new(ListenStream::new(self.network_layer.clone(), self.serializer.clone(), delegate));
             let targets = state.listen_targets.values().cloned().collect::<Vec<_>>();
             state.watch_stream = Some(stream.clone());
             (stream, targets)
@@ -274,19 +258,13 @@ impl RemoteStoreInner {
     async fn start_write_stream(self: &Arc<Self>) -> FirestoreResult<()> {
         {
             let mut state = self.state.lock().await;
-            if !Self::can_use_network_locked(&state)
-                || state.write_stream.is_some()
-                || state.write_pipeline.is_empty()
+            if !Self::can_use_network_locked(&state) || state.write_stream.is_some() || state.write_pipeline.is_empty()
             {
                 return Ok(());
             }
             state.write_handshake_complete = false;
             let delegate = Arc::new(RemoteWriteDelegate::new(Arc::downgrade(self)));
-            let stream = Arc::new(WriteStream::new(
-                self.network_layer.clone(),
-                self.serializer.clone(),
-                delegate,
-            ));
+            let stream = Arc::new(WriteStream::new(self.network_layer.clone(), self.serializer.clone(), delegate));
             state.write_stream = Some(stream);
         }
         Ok(())
@@ -297,8 +275,7 @@ impl RemoteStoreInner {
             let (should_fetch, last_batch_id) = {
                 let state = self.state.lock().await;
                 (
-                    Self::can_use_network_locked(&state)
-                        && state.write_pipeline.len() < MAX_PENDING_WRITES,
+                    Self::can_use_network_locked(&state) && state.write_pipeline.len() < MAX_PENDING_WRITES,
                     state.last_batch_id,
                 )
             };
@@ -307,10 +284,7 @@ impl RemoteStoreInner {
                 break;
             }
 
-            let maybe_batch = self
-                .remote_syncer
-                .next_mutation_batch(last_batch_id)
-                .await?;
+            let maybe_batch = self.remote_syncer.next_mutation_batch(last_batch_id).await?;
             let batch = match maybe_batch {
                 Some(batch) if !batch.is_empty() => batch,
                 _ => break,
@@ -417,8 +391,7 @@ impl RemoteStoreInner {
         self.remote_syncer
             .notify_stream_token_change(Some(response.stream_token.clone()));
 
-        let result =
-            MutationBatchResult::from(batch, response.commit_time, response.write_results)?;
+        let result = MutationBatchResult::from(batch, response.commit_time, response.write_results)?;
         self.remote_syncer.apply_successful_write(result).await?;
         self.fill_write_pipeline().await
     }
@@ -443,9 +416,7 @@ impl RemoteStoreInner {
         error: FirestoreError,
     ) -> FirestoreResult<()> {
         for target_id in change.target_ids {
-            self.remote_syncer
-                .reject_listen(target_id, error.clone())
-                .await?;
+            self.remote_syncer.reject_listen(target_id, error.clone()).await?;
         }
         {
             let mut state = self.state.lock().await;
@@ -466,9 +437,7 @@ impl RemoteStoreInner {
         (watch, write)
     }
 
-    fn take_watch_stream_locked(
-        state: &mut RemoteStoreState,
-    ) -> Option<Arc<ListenStream<RemoteListenDelegate>>> {
+    fn take_watch_stream_locked(state: &mut RemoteStoreState) -> Option<Arc<ListenStream<RemoteListenDelegate>>> {
         state.watch_aggregator = None;
         state.watch_stream.take()
     }
@@ -498,13 +467,7 @@ impl RemoteStoreInner {
             let stream = state.watch_stream.clone();
             let targets: Vec<(i32, ListenTarget)> = target_ids
                 .iter()
-                .filter_map(|id| {
-                    state
-                        .listen_targets
-                        .get(id)
-                        .cloned()
-                        .map(|target| (*id, target))
-                })
+                .filter_map(|id| state.listen_targets.get(id).cloned().map(|target| (*id, target)))
                 .collect();
             (targets, stream)
         };
@@ -607,9 +570,7 @@ mod tests {
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_syncer::{box_remote_store_future, RemoteStoreFuture};
     use crate::firestore::remote::serializer::JsonProtoSerializer;
-    use crate::firestore::remote::stream::{
-        InMemoryTransport, MultiplexedConnection, MultiplexedStream,
-    };
+    use crate::firestore::remote::stream::{InMemoryTransport, MultiplexedConnection, MultiplexedStream};
     use crate::firestore::{LimitType, QueryDefinition};
     use crate::platform::runtime;
     use async_trait::async_trait;
@@ -633,31 +594,21 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl RemoteSyncer for TestRemoteSyncer {
-        fn apply_remote_event(
-            &self,
-            event: RemoteEvent,
-        ) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
+        fn apply_remote_event(&self, event: RemoteEvent) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
             box_remote_store_future(async move {
                 self.events.lock().await.push(event);
                 Ok(())
             })
         }
 
-        fn reject_listen(
-            &self,
-            target_id: i32,
-            _error: FirestoreError,
-        ) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
+        fn reject_listen(&self, target_id: i32, _error: FirestoreError) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
             box_remote_store_future(async move {
                 self.rejected.lock().await.push(target_id);
                 Ok(())
             })
         }
 
-        fn apply_successful_write(
-            &self,
-            result: MutationBatchResult,
-        ) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
+        fn apply_successful_write(&self, result: MutationBatchResult) -> RemoteStoreFuture<'_, FirestoreResult<()>> {
             box_remote_store_future(async move {
                 self.writes.lock().await.push(result);
                 Ok(())
@@ -675,10 +626,7 @@ mod tests {
             })
         }
 
-        fn get_remote_keys_for_target(
-            &self,
-            target_id: i32,
-        ) -> BTreeSet<crate::firestore::model::DocumentKey> {
+        fn get_remote_keys_for_target(&self, target_id: i32) -> BTreeSet<crate::firestore::model::DocumentKey> {
             self.remote_keys
                 .lock()
                 .unwrap()
@@ -698,9 +646,7 @@ mod tests {
         }
     }
 
-    fn setup_remote_store(
-        syncer: Arc<TestRemoteSyncer>,
-    ) -> (RemoteStore, Arc<MultiplexedConnection>) {
+    fn setup_remote_store(syncer: Arc<TestRemoteSyncer>) -> (RemoteStore, Arc<MultiplexedConnection>) {
         let (client_transport, server_transport) = InMemoryTransport::pair();
         let client_connection = Arc::new(MultiplexedConnection::new(client_transport));
         let server_connection = Arc::new(MultiplexedConnection::new(server_transport));
@@ -712,10 +658,7 @@ mod tests {
         )
         .build();
         let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));
-        (
-            RemoteStore::new(network, serializer, syncer),
-            server_connection,
-        )
+        (RemoteStore::new(network, serializer, syncer), server_connection)
     }
 
     fn sample_query_definition() -> QueryDefinition {
@@ -743,16 +686,12 @@ mod tests {
         let (store, server_connection) = setup_remote_store(Arc::clone(&syncer));
 
         let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));
-        let target = ListenTarget::for_query(&serializer, 1, &sample_query_definition())
-            .expect("query target");
+        let target = ListenTarget::for_query(&serializer, 1, &sample_query_definition()).expect("query target");
 
         store.enable_network().await.expect("enable network");
         store.listen(target.clone()).await.expect("listen target");
 
-        let server_stream = server_connection
-            .open_stream()
-            .await
-            .expect("server open listen");
+        let server_stream = server_connection.open_stream().await.expect("server open listen");
         let frame = server_stream.next().await.expect("handshake");
         let payload = frame.expect("payload");
         let json: serde_json::Value = serde_json::from_slice(&payload).unwrap();
@@ -783,16 +722,12 @@ mod tests {
         let (store, server_connection) = setup_remote_store(Arc::clone(&syncer));
 
         let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));
-        let target = ListenTarget::for_query(&serializer, 1, &sample_query_definition())
-            .expect("query target");
+        let target = ListenTarget::for_query(&serializer, 1, &sample_query_definition()).expect("query target");
 
         store.enable_network().await.expect("enable network");
         store.listen(target.clone()).await.expect("listen target");
 
-        let server_stream = server_connection
-            .open_stream()
-            .await
-            .expect("server open listen");
+        let server_stream = server_connection.open_stream().await.expect("server open listen");
 
         let first_frame = server_stream.next().await.expect("handshake");
         let payload = first_frame.expect("payload");
@@ -829,10 +764,7 @@ mod tests {
             }
         }
 
-        assert!(
-            saw_add,
-            "expected query to be re-listened after existence filter reset"
-        );
+        assert!(saw_add, "expected query to be re-listened after existence filter reset");
 
         if !saw_remove {
             log::debug!("re-listen completed without explicit removeTarget frame");
@@ -851,19 +783,14 @@ mod tests {
         let (store, server_connection) = setup_remote_store(Arc::clone(&syncer));
 
         let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));
-        let target1 = ListenTarget::for_query(&serializer, 1, &sample_query_definition())
-            .expect("query target 1");
-        let target2 = ListenTarget::for_query(&serializer, 2, &sample_query_definition())
-            .expect("query target 2");
+        let target1 = ListenTarget::for_query(&serializer, 1, &sample_query_definition()).expect("query target 1");
+        let target2 = ListenTarget::for_query(&serializer, 2, &sample_query_definition()).expect("query target 2");
 
         store.enable_network().await.expect("enable network");
         store.listen(target1.clone()).await.expect("listen target1");
         store.listen(target2.clone()).await.expect("listen target2");
 
-        let server_stream = server_connection
-            .open_stream()
-            .await
-            .expect("server open listen");
+        let server_stream = server_connection.open_stream().await.expect("server open listen");
 
         // Drain initial addTarget frames.
         for _ in 0..2 {

@@ -80,11 +80,7 @@ impl AggregateSpec {
     }
 
     /// Registers a new aggregate keyed by `alias`.
-    pub fn insert(
-        &mut self,
-        alias: impl Into<String>,
-        field: AggregateField,
-    ) -> FirestoreResult<()> {
+    pub fn insert(&mut self, alias: impl Into<String>, field: AggregateField) -> FirestoreResult<()> {
         let alias = alias.into();
         if alias.trim().is_empty() {
             return Err(invalid_argument(
@@ -96,11 +92,7 @@ impl AggregateSpec {
     }
 
     /// Registers a new aggregate keyed by `alias`, returning the updated spec for chaining.
-    pub fn with_field(
-        mut self,
-        alias: impl Into<String>,
-        field: AggregateField,
-    ) -> FirestoreResult<Self> {
+    pub fn with_field(mut self, alias: impl Into<String>, field: AggregateField) -> FirestoreResult<Self> {
         self.insert(alias, field)?;
         Ok(self)
     }
@@ -136,11 +128,7 @@ pub struct AggregateQuerySnapshot {
 }
 
 impl AggregateQuerySnapshot {
-    pub(crate) fn new(
-        query: Query,
-        spec: AggregateSpec,
-        data: BTreeMap<String, FirestoreValue>,
-    ) -> Self {
+    pub(crate) fn new(query: Query, spec: AggregateSpec, data: BTreeMap<String, FirestoreValue>) -> Self {
         Self { query, spec, data }
     }
 

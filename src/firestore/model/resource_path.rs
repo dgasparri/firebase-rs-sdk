@@ -15,9 +15,7 @@ impl ResourcePath {
     }
 
     pub fn root() -> Self {
-        Self {
-            segments: Vec::new(),
-        }
+        Self { segments: Vec::new() }
     }
 
     pub fn from_segments<I, S>(segments: I) -> Self
@@ -121,10 +119,7 @@ impl ResourcePath {
         if self.len() > other.len() {
             return false;
         }
-        self.segments
-            .iter()
-            .zip(other.segments.iter())
-            .all(|(l, r)| l == r)
+        self.segments.iter().zip(other.segments.iter()).all(|(l, r)| l == r)
     }
 
     pub fn comparator(left: &Self, right: &Self) -> Ordering {

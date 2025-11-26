@@ -60,8 +60,7 @@ async fn sign_in_with_idp_async(
     api_key: String,
     request: SignInWithIdpRequest,
 ) -> AuthResult<SignInWithIdpResponse> {
-    let url =
-        format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key={api_key}");
+    let url = format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key={api_key}");
 
     let response = client
         .post(&url)
@@ -73,9 +72,7 @@ async fn sign_in_with_idp_async(
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Err(AuthError::InvalidCredential(format!(
-            "signInWithIdp failed ({status}): {body}"
-        )));
+        return Err(AuthError::InvalidCredential(format!("signInWithIdp failed ({status}): {body}")));
     }
 
     response

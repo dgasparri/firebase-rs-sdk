@@ -75,11 +75,7 @@ impl ListenTarget {
         let parent = if parent_path.is_empty() {
             format!("{}/documents", serializer.database_name())
         } else {
-            format!(
-                "{}/documents/{}",
-                serializer.database_name(),
-                parent_path.canonical_string()
-            )
+            format!("{}/documents/{}", serializer.database_name(), parent_path.canonical_string())
         };
 
         let structured_query = encode_structured_query(serializer, definition)?;
@@ -233,10 +229,7 @@ where
             add_target.insert("once".to_string(), json!(true));
         }
         if let Some(token) = target.resume_token() {
-            add_target.insert(
-                "resumeToken".to_string(),
-                json!(BASE64_STANDARD.encode(token)),
-            );
+            add_target.insert("resumeToken".to_string(), json!(BASE64_STANDARD.encode(token)));
         }
         match target.payload() {
             TargetPayload::Query {
@@ -283,11 +276,7 @@ where
         self.should_continue()
     }
 
-    async fn on_open(
-        &self,
-        stream: Arc<dyn StreamHandle>,
-        _credentials: StreamCredentials,
-    ) -> FirestoreResult<()> {
+    async fn on_open(&self, stream: Arc<dyn StreamHandle>, _credentials: StreamCredentials) -> FirestoreResult<()> {
         let targets = {
             let mut guard = self.state.lock().await;
             guard.stream = Some(Arc::clone(&stream));
@@ -406,8 +395,7 @@ mod tests {
         let left_connection = Arc::new(MultiplexedConnection::new(left_transport));
         let right_connection = Arc::new(MultiplexedConnection::new(right_transport));
         let datastore = StreamingDatastoreImpl::new(Arc::clone(&left_connection));
-        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> =
-            Arc::new(datastore);
+        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> = Arc::new(datastore);
 
         let auth_provider: TokenProviderArc = Arc::new(NoopTokenProvider::default());
         let layer = NetworkLayer::builder(datastore, auth_provider).build();
@@ -419,17 +407,10 @@ mod tests {
         listen.watch(target).await.expect("watch target");
 
         let peer_stream = right_connection.open_stream().await.expect("peer stream");
-        let payload = peer_stream
-            .next()
-            .await
-            .expect("handshake")
-            .expect("payload");
+        let payload = peer_stream.next().await.expect("handshake").expect("payload");
 
         let json: JsonValue = serde_json::from_slice(&payload).expect("json");
-        assert_eq!(
-            json.get("database"),
-            Some(&json!("projects/project/databases/(default)"))
-        );
+        assert_eq!(json.get("database"), Some(&json!("projects/project/databases/(default)")));
         assert!(json.get("addTarget").is_some());
 
         listen.stop();
@@ -443,8 +424,7 @@ mod tests {
         let left_connection = Arc::new(MultiplexedConnection::new(left_transport));
         let right_connection = Arc::new(MultiplexedConnection::new(right_transport));
         let datastore = StreamingDatastoreImpl::new(Arc::clone(&left_connection));
-        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> =
-            Arc::new(datastore);
+        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> = Arc::new(datastore);
 
         let auth_provider: TokenProviderArc = Arc::new(NoopTokenProvider::default());
         let layer = NetworkLayer::builder(datastore, auth_provider).build();
@@ -455,11 +435,7 @@ mod tests {
         listen.watch(target).await.expect("watch target");
 
         let peer_stream = right_connection.open_stream().await.expect("peer stream");
-        let _ = peer_stream
-            .next()
-            .await
-            .expect("watch request")
-            .expect("payload");
+        let _ = peer_stream.next().await.expect("watch request").expect("payload");
 
         let target_change = json!({
             "targetChange": {

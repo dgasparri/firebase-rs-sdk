@@ -6,8 +6,7 @@ use crate::app_check::FirebaseAppCheckInternal;
 use crate::auth::Auth;
 use crate::component::Provider;
 use crate::storage::constants::{
-    DEFAULT_HOST, DEFAULT_MAX_OPERATION_RETRY_TIME_MS, DEFAULT_MAX_UPLOAD_RETRY_TIME_MS,
-    DEFAULT_PROTOCOL,
+    DEFAULT_HOST, DEFAULT_MAX_OPERATION_RETRY_TIME_MS, DEFAULT_MAX_UPLOAD_RETRY_TIME_MS, DEFAULT_PROTOCOL,
 };
 use crate::storage::error::{internal_error, no_default_bucket, StorageResult};
 use crate::storage::location::Location;
@@ -121,12 +120,7 @@ impl FirebaseStorageImpl {
         self.state.lock().unwrap().is_using_emulator
     }
 
-    pub fn connect_emulator(
-        &self,
-        host: &str,
-        port: u16,
-        mock_user_token: Option<String>,
-    ) -> StorageResult<()> {
+    pub fn connect_emulator(&self, host: &str, port: u16, mock_user_token: Option<String>) -> StorageResult<()> {
         let host_string = format!("{host}:{port}");
         let bucket = self.compute_bucket_for_host(&host_string)?;
         let mut state = self.state.lock().unwrap();
@@ -202,10 +196,7 @@ impl FirebaseStorageImpl {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn run_streaming_request<O>(
-        &self,
-        info: RequestInfo<O>,
-    ) -> StorageResult<StreamingResponse> {
+    pub async fn run_streaming_request<O>(&self, info: RequestInfo<O>) -> StorageResult<StreamingResponse> {
         let client = self.http_client()?;
         let info = self.prepare_request(info).await?;
         client.execute_streaming(info).await
@@ -221,31 +212,23 @@ impl FirebaseStorageImpl {
 
         if let Some(headers) = self.app_check_headers().await? {
             if !headers.token.is_empty() {
-                info.headers
-                    .insert("X-Firebase-AppCheck".to_string(), headers.token);
+                info.headers.insert("X-Firebase-AppCheck".to_string(), headers.token);
             }
             if let Some(heartbeat) = headers.heartbeat {
                 if !heartbeat.is_empty() {
-                    info.headers
-                        .insert("X-Firebase-Client".to_string(), heartbeat);
+                    info.headers.insert("X-Firebase-Client".to_string(), heartbeat);
                 }
             }
         }
 
         if !info.headers.contains_key("X-Firebase-Storage-Version") {
-            let version = format!(
-                "webjs/{}",
-                self.firebase_version.as_deref().unwrap_or("AppManager")
-            );
-            info.headers
-                .insert("X-Firebase-Storage-Version".to_string(), version);
+            let version = format!("webjs/{}", self.firebase_version.as_deref().unwrap_or("AppManager"));
+            info.headers.insert("X-Firebase-Storage-Version".to_string(), version);
         }
 
         if let Some(app_id) = self.app.options().app_id {
             if !app_id.is_empty() {
-                info.headers
-                    .entry("X-Firebase-GMPID".to_string())
-                    .or_insert(app_id);
+                info.headers.entry("X-Firebase-GMPID".to_string()).or_insert(app_id);
             }
         }
 
@@ -260,26 +243,17 @@ impl FirebaseStorageImpl {
             return Ok(Some(token));
         }
 
-        let auth = match self
-            .auth_provider
-            .get_immediate_with_options::<Auth>(None, true)
-        {
+        let auth = match self.auth_provider.get_immediate_with_options::<Auth>(None, true) {
             Ok(Some(auth)) => auth,
             Ok(None) => return Ok(None),
-            Err(err) => {
-                return Err(internal_error(format!(
-                    "failed to resolve auth provider: {err}"
-                )))
-            }
+            Err(err) => return Err(internal_error(format!("failed to resolve auth provider: {err}"))),
         };
 
         match auth.get_token(false).await {
             Ok(Some(token)) if token.is_empty() => Ok(None),
             Ok(Some(token)) => Ok(Some(token)),
             Ok(None) => Ok(None),
-            Err(err) => Err(internal_error(format!(
-                "failed to obtain auth token: {err}"
-            ))),
+            Err(err) => Err(internal_error(format!("failed to obtain auth token: {err}"))),
         }
     }
 
@@ -290,11 +264,7 @@ impl FirebaseStorageImpl {
         {
             Ok(Some(app_check)) => app_check,
             Ok(None) => return Ok(None),
-            Err(err) => {
-                return Err(internal_error(format!(
-                    "failed to resolve app check provider: {err}"
-                )))
-            }
+            Err(err) => return Err(internal_error(format!("failed to resolve app check provider: {err}"))),
         };
 
         let token = match app_check.get_token(false).await {
@@ -303,9 +273,7 @@ impl FirebaseStorageImpl {
                 if let Some(cached) = err.cached_token() {
                     cached.token.clone()
                 } else {
-                    return Err(internal_error(format!(
-                        "failed to obtain App Check token: {err}"
-                    )));
+                    return Err(internal_error(format!("failed to obtain App Check token: {err}")));
                 }
             }
         };
@@ -313,11 +281,10 @@ impl FirebaseStorageImpl {
         if token.is_empty() {
             Ok(None)
         } else {
-            let heartbeat = app_check.heartbeat_header().await.map_err(|err| {
-                internal_error(format!(
-                    "failed to obtain App Check heartbeat header: {err}"
-                ))
-            })?;
+            let heartbeat = app_check
+                .heartbeat_header()
+                .await
+                .map_err(|err| internal_error(format!("failed to obtain App Check heartbeat header: {err}")))?;
 
             Ok(Some(AppCheckHeaders { token, heartbeat }))
         }
@@ -343,12 +310,9 @@ mod tests {
     use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use crate::app_check::{
-        box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture,
-        AppCheckToken,
+        box_app_check_future, AppCheckOptions, AppCheckProvider, AppCheckProviderFuture, AppCheckToken,
     };
-    use crate::app_check::{
-        clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl,
-    };
+    use crate::app_check::{clear_registry, clear_state_for_tests, initialize_app_check, test_guard, token_with_ttl};
     use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions};
     use crate::component::{Component, ComponentType};
     use crate::storage::request::{RequestInfo, ResponseHandler};
@@ -361,10 +325,7 @@ mod tests {
     fn unique_settings(prefix: &str) -> FirebaseAppSettings {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "{prefix}-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("{prefix}-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -379,12 +340,7 @@ mod tests {
 
     fn test_request() -> RequestInfo<()> {
         let handler: ResponseHandler<()> = Arc::new(|_| Ok(()));
-        RequestInfo::new(
-            "https://example.com",
-            Method::GET,
-            Duration::from_secs(5),
-            handler,
-        )
+        RequestInfo::new("https://example.com", Method::GET, Duration::from_secs(5), handler)
     }
 
     async fn build_storage_with<F, Fut>(configure: F) -> FirebaseStorageImpl
@@ -400,14 +356,8 @@ mod tests {
         let container = app.container();
         let auth_provider = container.get_provider("auth-internal");
         let app_check_provider = container.get_provider("app-check-internal");
-        FirebaseStorageImpl::new(
-            app,
-            auth_provider,
-            app_check_provider,
-            None,
-            Some("test-sdk".into()),
-        )
-        .expect("storage construction should succeed")
+        FirebaseStorageImpl::new(app, auth_provider, app_check_provider, None, Some("test-sdk".into()))
+            .expect("storage construction should succeed")
     }
 
     #[tokio::test]
@@ -419,24 +369,12 @@ mod tests {
 
         let prepared = storage.prepare_request(test_request()).await.unwrap();
 
-        assert_eq!(
-            prepared.headers.get("Authorization"),
-            Some(&"Firebase mock-token".to_string())
-        );
+        assert_eq!(prepared.headers.get("Authorization"), Some(&"Firebase mock-token".to_string()));
 
-        let expected_version = format!(
-            "webjs/{}",
-            storage.firebase_version().unwrap_or("AppManager")
-        );
-        assert_eq!(
-            prepared.headers.get("X-Firebase-Storage-Version"),
-            Some(&expected_version)
-        );
+        let expected_version = format!("webjs/{}", storage.firebase_version().unwrap_or("AppManager"));
+        assert_eq!(prepared.headers.get("X-Firebase-Storage-Version"), Some(&expected_version));
 
-        assert_eq!(
-            prepared.headers.get("X-Firebase-GMPID"),
-            Some(&"1:123:web:abc".to_string())
-        );
+        assert_eq!(prepared.headers.get("X-Firebase-GMPID"), Some(&"1:123:web:abc".to_string()));
 
         assert!(prepared.headers.get("X-Firebase-AppCheck").is_none());
     }
@@ -445,12 +383,8 @@ mod tests {
     struct StaticAppCheckProvider;
 
     impl AppCheckProvider for StaticAppCheckProvider {
-        fn get_token(
-            &self,
-        ) -> AppCheckProviderFuture<'_, crate::app_check::AppCheckResult<AppCheckToken>> {
-            box_app_check_future(async {
-                token_with_ttl("app-check-token", Duration::from_secs(60))
-            })
+        fn get_token(&self) -> AppCheckProviderFuture<'_, crate::app_check::AppCheckResult<AppCheckToken>> {
+            box_app_check_future(async { token_with_ttl("app-check-token", Duration::from_secs(60)) })
         }
     }
 
@@ -467,9 +401,7 @@ mod tests {
             Arc::new(
                 move |_: &crate::component::ComponentContainer,
                       _: InstanceFactoryOptions|
-                      -> Result<DynService, ComponentError> {
-                    Ok(internal.clone() as DynService)
-                },
+                      -> Result<DynService, ComponentError> { Ok(internal.clone() as DynService) },
             )
         };
 

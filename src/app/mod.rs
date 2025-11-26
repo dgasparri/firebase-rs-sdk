@@ -13,8 +13,8 @@ mod types;
 
 #[doc(inline)]
 pub use api::{
-    delete_app, get_app, get_apps, initialize_app, initialize_server_app, on_log, register_version,
-    set_log_level, SDK_VERSION,
+    delete_app, get_app, get_apps, initialize_app, initialize_server_app, on_log, register_version, set_log_level,
+    SDK_VERSION,
 };
 
 #[cfg(test)]
@@ -40,11 +40,7 @@ pub use heartbeat::clear_heartbeat_store_for_tests;
 #[allow(unused_imports)]
 pub(crate) use heartbeat::storage_for_app;
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 #[doc(inline)]
 pub use heartbeat::IndexedDbHeartbeatStorage;
 
@@ -62,8 +58,8 @@ pub use platform_logger::PlatformLoggerServiceImpl;
 #[doc(inline)]
 #[allow(unused_imports)]
 pub(crate) use registry::{
-    add_component, add_or_overwrite_component, clear_components, get_provider,
-    is_firebase_server_app, register_component, remove_service_instance, APPS, SERVER_APPS,
+    add_component, add_or_overwrite_component, clear_components, get_provider, is_firebase_server_app,
+    register_component, remove_service_instance, APPS, SERVER_APPS,
 };
 
 // pub(crate) also in registry.rs
@@ -73,11 +69,10 @@ pub(crate) use registry::{apps_guard, registered_components_guard, server_apps_g
 
 #[doc(inline)]
 pub use types::{
-    deep_equal_config, deep_equal_options, get_default_app_config, is_browser, is_web_worker,
-    AppHook, FirebaseApp, FirebaseAppConfig, FirebaseAppInternals, FirebaseAppSettings,
-    FirebaseAuthTokenData, FirebaseOptions, FirebaseServerApp, FirebaseServerAppSettings,
-    FirebaseService, FirebaseServiceFactory, FirebaseServiceInternals, FirebaseServiceNamespace,
-    HeartbeatService, HeartbeatStorage, HeartbeatsInStorage, PlatformLoggerService,
+    deep_equal_config, deep_equal_options, get_default_app_config, is_browser, is_web_worker, AppHook, FirebaseApp,
+    FirebaseAppConfig, FirebaseAppInternals, FirebaseAppSettings, FirebaseAuthTokenData, FirebaseOptions,
+    FirebaseServerApp, FirebaseServerAppSettings, FirebaseService, FirebaseServiceFactory, FirebaseServiceInternals,
+    FirebaseServiceNamespace, HeartbeatService, HeartbeatStorage, HeartbeatsInStorage, PlatformLoggerService,
     SingleDateHeartbeat, VersionService,
 };
 

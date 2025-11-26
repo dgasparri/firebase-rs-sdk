@@ -13,8 +13,7 @@ use crate::app_check::recaptcha::{self, RecaptchaFlow};
 
 pub struct CustomProviderOptions {
     pub get_token: Arc<dyn Fn() -> AppCheckResult<AppCheckToken> + Send + Sync + 'static>,
-    pub get_limited_use_token:
-        Option<Arc<dyn Fn() -> AppCheckResult<AppCheckToken> + Send + Sync + 'static>>,
+    pub get_limited_use_token: Option<Arc<dyn Fn() -> AppCheckResult<AppCheckToken> + Send + Sync + 'static>>,
 }
 
 impl CustomProviderOptions {
@@ -129,12 +128,9 @@ impl RecaptchaProviderCore {
         let (app, heartbeat) = {
             let mut guard = self.state.lock().unwrap();
             throw_if_throttled(&mut guard.throttle)?;
-            let app = guard
-                .app
-                .clone()
-                .ok_or_else(|| AppCheckError::ProviderError {
-                    message: "ReCAPTCHA provider used before initialize()".into(),
-                })?;
+            let app = guard.app.clone().ok_or_else(|| AppCheckError::ProviderError {
+                message: "ReCAPTCHA provider used before initialize()".into(),
+            })?;
             let heartbeat = guard.heartbeat.clone();
             (app, heartbeat)
         };
@@ -147,9 +143,7 @@ impl RecaptchaProviderCore {
         }
 
         let request = match self.flow {
-            RecaptchaFlow::V3 => {
-                get_exchange_recaptcha_v3_request(&app, recaptcha_token.token.clone())?
-            }
+            RecaptchaFlow::V3 => get_exchange_recaptcha_v3_request(&app, recaptcha_token.token.clone())?,
             RecaptchaFlow::Enterprise => {
                 get_exchange_recaptcha_enterprise_request(&app, recaptcha_token.token.clone())?
             }
@@ -247,10 +241,7 @@ fn set_backoff(http_status: u16, previous: Option<ThrottleData>) -> ThrottleData
 
 fn throw_if_throttled(throttle: &mut Option<ThrottleData>) -> AppCheckResult<()> {
     if let Some(data) = throttle {
-        if let Some(retry_after) = data
-            .allow_requests_after
-            .checked_duration_since(Instant::now())
-        {
+        if let Some(retry_after) = data.allow_requests_after.checked_duration_since(Instant::now()) {
             if !retry_after.is_zero() {
                 return Err(AppCheckError::Throttled {
                     http_status: data.http_status,
@@ -269,9 +260,7 @@ mod tests {
     use super::*;
     use crate::app::{FirebaseApp, FirebaseAppConfig, FirebaseOptions};
     use crate::app_check::client;
-    use crate::app_check::recaptcha::{
-        self, RecaptchaDriver, RecaptchaFlow, RecaptchaTokenDetails,
-    };
+    use crate::app_check::recaptcha::{self, RecaptchaDriver, RecaptchaFlow, RecaptchaTokenDetails};
     use crate::component::ComponentContainer;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{LazyLock, Mutex as StdMutex, MutexGuard};
@@ -433,23 +422,11 @@ mod tests {
         provider.initialize(&app);
 
         let err = provider.get_token().await.err().expect("initial throttle");
-        assert!(matches!(
-            err,
-            AppCheckError::InitialThrottle {
-                http_status: 503,
-                ..
-            }
-        ));
+        assert!(matches!(err, AppCheckError::InitialThrottle { http_status: 503, .. }));
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
 
         let err = provider.get_token().await.err().expect("throttled");
-        assert!(matches!(
-            err,
-            AppCheckError::Throttled {
-                http_status: 503,
-                ..
-            }
-        ));
+        assert!(matches!(err, AppCheckError::Throttled { http_status: 503, .. }));
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
 
         {
@@ -460,13 +437,7 @@ mod tests {
         }
 
         let err = provider.get_token().await.err().expect("second throttle");
-        assert!(matches!(
-            err,
-            AppCheckError::InitialThrottle {
-                http_status: 503,
-                ..
-            }
-        ));
+        assert!(matches!(err, AppCheckError::InitialThrottle { http_status: 503, .. }));
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
 
         {

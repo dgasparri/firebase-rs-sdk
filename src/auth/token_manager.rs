@@ -98,11 +98,7 @@ pub struct TokenUpdate {
 
 impl TokenUpdate {
     /// Creates a token update payload produced by backend responses.
-    pub fn new(
-        access_token: Option<String>,
-        refresh_token: Option<String>,
-        expires_in: Option<Duration>,
-    ) -> Self {
+    pub fn new(access_token: Option<String>, refresh_token: Option<String>, expires_in: Option<Duration>) -> Self {
         Self {
             access_token,
             refresh_token,

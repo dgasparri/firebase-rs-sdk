@@ -88,9 +88,7 @@ impl ActionCodeOperation {
             "PASSWORD_RESET" => Some(ActionCodeOperation::PasswordReset),
             "RECOVER_EMAIL" => Some(ActionCodeOperation::RecoverEmail),
             "EMAIL_SIGNIN" => Some(ActionCodeOperation::EmailSignIn),
-            "REVERT_SECOND_FACTOR_ADDITION" => {
-                Some(ActionCodeOperation::RevertSecondFactorAddition)
-            }
+            "REVERT_SECOND_FACTOR_ADDITION" => Some(ActionCodeOperation::RevertSecondFactorAddition),
             "VERIFY_AND_CHANGE_EMAIL" => Some(ActionCodeOperation::VerifyAndChangeEmail),
             "VERIFY_EMAIL" => Some(ActionCodeOperation::VerifyEmail),
             _ => None,
@@ -201,8 +199,7 @@ pub struct AdditionalUserInfo {
 type ConfirmationFuture = Pin<Box<dyn Future<Output = AuthResult<UserCredential>> + 'static>>;
 
 #[cfg(not(target_arch = "wasm32"))]
-type ConfirmationFuture =
-    Pin<Box<dyn Future<Output = AuthResult<UserCredential>> + Send + 'static>>;
+type ConfirmationFuture = Pin<Box<dyn Future<Output = AuthResult<UserCredential>> + Send + 'static>>;
 
 #[cfg(target_arch = "wasm32")]
 type ConfirmationHandler = Arc<dyn Fn(&str) -> ConfirmationFuture + 'static>;
@@ -294,12 +291,7 @@ impl MultiFactorInfo {
         let factor_id = enrollment
             .factor_id
             .clone()
-            .or_else(|| {
-                enrollment
-                    .phone_info
-                    .as_ref()
-                    .map(|_| PHONE_PROVIDER_ID.to_string())
-            })
+            .or_else(|| enrollment.phone_info.as_ref().map(|_| PHONE_PROVIDER_ID.to_string()))
             .unwrap_or_else(|| "unknown".to_string());
 
         let display_name = if factor_id == WEBAUTHN_FACTOR_ID {
@@ -318,10 +310,7 @@ impl MultiFactorInfo {
         Some(Self {
             uid,
             display_name,
-            enrollment_time: enrollment
-                .enrolled_at
-                .as_ref()
-                .map(|value| value.to_string()),
+            enrollment_time: enrollment.enrolled_at.as_ref().map(|value| value.to_string()),
             factor_id,
         })
     }
@@ -523,12 +512,7 @@ impl TotpSecret {
         let encoded_issuer: String = byte_serialize(default_issuer.as_bytes()).collect();
         format!(
             "otpauth://totp/{}:{}?secret={}&issuer={}&algorithm={}&digits={}",
-            default_issuer,
-            default_account,
-            self.secret_key,
-            encoded_issuer,
-            self.hashing_algorithm,
-            self.code_length
+            default_issuer, default_account, self.secret_key, encoded_issuer, self.hashing_algorithm, self.code_length
         )
     }
 
@@ -591,10 +575,7 @@ pub struct WebAuthnMultiFactorAssertion {
 }
 
 impl WebAuthnMultiFactorAssertion {
-    pub fn for_sign_in(
-        enrollment_id: impl Into<String>,
-        response: WebAuthnAssertionResponse,
-    ) -> Self {
+    pub fn for_sign_in(enrollment_id: impl Into<String>, response: WebAuthnAssertionResponse) -> Self {
         Self {
             kind: WebAuthnAssertionKind::SignIn {
                 enrollment_id: enrollment_id.into(),
@@ -677,21 +658,12 @@ impl MultiFactorAssertion {
         MultiFactorAssertion::Totp(TotpMultiFactorAssertion::for_enrollment(secret, otp))
     }
 
-    pub(crate) fn from_totp_sign_in(
-        enrollment_id: impl Into<String>,
-        otp: impl Into<String>,
-    ) -> Self {
+    pub(crate) fn from_totp_sign_in(enrollment_id: impl Into<String>, otp: impl Into<String>) -> Self {
         MultiFactorAssertion::Totp(TotpMultiFactorAssertion::for_sign_in(enrollment_id, otp))
     }
 
-    pub(crate) fn from_passkey(
-        enrollment_id: impl Into<String>,
-        response: WebAuthnAssertionResponse,
-    ) -> Self {
-        MultiFactorAssertion::WebAuthn(WebAuthnMultiFactorAssertion::for_sign_in(
-            enrollment_id,
-            response,
-        ))
+    pub(crate) fn from_passkey(enrollment_id: impl Into<String>, response: WebAuthnAssertionResponse) -> Self {
+        MultiFactorAssertion::WebAuthn(WebAuthnMultiFactorAssertion::for_sign_in(enrollment_id, response))
     }
 }
 
@@ -699,24 +671,15 @@ impl MultiFactorAssertion {
 pub struct TotpMultiFactorGenerator;
 
 impl TotpMultiFactorGenerator {
-    pub fn assertion_for_enrollment(
-        secret: TotpSecret,
-        otp: impl Into<String>,
-    ) -> MultiFactorAssertion {
+    pub fn assertion_for_enrollment(secret: TotpSecret, otp: impl Into<String>) -> MultiFactorAssertion {
         MultiFactorAssertion::from_totp_enrollment(secret, otp)
     }
 
-    pub fn assertion_for_sign_in(
-        enrollment_id: impl Into<String>,
-        otp: impl Into<String>,
-    ) -> MultiFactorAssertion {
+    pub fn assertion_for_sign_in(enrollment_id: impl Into<String>, otp: impl Into<String>) -> MultiFactorAssertion {
         MultiFactorAssertion::from_totp_sign_in(enrollment_id, otp)
     }
 
-    pub async fn generate_secret(
-        auth: &FirebaseAuth,
-        session: &MultiFactorSession,
-    ) -> AuthResult<TotpSecret> {
+    pub async fn generate_secret(auth: &FirebaseAuth, session: &MultiFactorSession) -> AuthResult<TotpSecret> {
         let inner = auth.inner_arc();
         inner.start_totp_mfa_enrollment(session).await
     }
@@ -808,10 +771,7 @@ impl WebAuthnCredentialDescriptor {
             .and_then(|candidate| candidate.as_str())
             .unwrap_or("public-key")
             .to_string();
-        let transports = value
-            .get("transports")
-            .map(parse_transports)
-            .unwrap_or_default();
+        let transports = value.get("transports").map(parse_transports).unwrap_or_default();
         Some(Self {
             id,
             cred_type,
@@ -845,9 +805,7 @@ impl WebAuthnMultiFactorGenerator {
         MultiFactorAssertion::from_passkey(enrollment_id, response)
     }
 
-    pub fn assertion_for_enrollment(
-        attestation: WebAuthnAttestationResponse,
-    ) -> MultiFactorAssertion {
+    pub fn assertion_for_enrollment(attestation: WebAuthnAttestationResponse) -> MultiFactorAssertion {
         MultiFactorAssertion::WebAuthn(WebAuthnMultiFactorAssertion::for_enrollment(attestation))
     }
 }
@@ -868,15 +826,12 @@ impl WebAuthnSignInChallenge {
         let challenge = self
             .challenge()
             .ok_or_else(|| AuthError::InvalidCredential("WebAuthn challenge is missing".into()))?;
-        base64_decode_bytes(challenge).map_err(|_| {
-            AuthError::InvalidCredential("WebAuthn challenge is not valid base64url".into())
-        })
+        base64_decode_bytes(challenge)
+            .map_err(|_| AuthError::InvalidCredential("WebAuthn challenge is not valid base64url".into()))
     }
 
     pub fn challenge(&self) -> Option<&str> {
-        self.payload
-            .get("challenge")
-            .and_then(|value| value.as_str())
+        self.payload.get("challenge").and_then(|value| value.as_str())
     }
 
     pub fn rp_id(&self) -> Option<&str> {
@@ -884,9 +839,7 @@ impl WebAuthnSignInChallenge {
     }
 
     pub fn user_handle(&self) -> Option<&str> {
-        self.payload
-            .get("userHandle")
-            .and_then(|value| value.as_str())
+        self.payload.get("userHandle").and_then(|value| value.as_str())
     }
 
     /// Returns the credential descriptors that can satisfy this challenge.
@@ -941,15 +894,12 @@ impl WebAuthnEnrollmentChallenge {
         let challenge = self
             .challenge()
             .ok_or_else(|| AuthError::InvalidCredential("WebAuthn challenge is missing".into()))?;
-        base64_decode_bytes(challenge).map_err(|_| {
-            AuthError::InvalidCredential("WebAuthn challenge is not valid base64url".into())
-        })
+        base64_decode_bytes(challenge)
+            .map_err(|_| AuthError::InvalidCredential("WebAuthn challenge is not valid base64url".into()))
     }
 
     pub fn challenge(&self) -> Option<&str> {
-        self.payload
-            .get("challenge")
-            .and_then(|value| value.as_str())
+        self.payload.get("challenge").and_then(|value| value.as_str())
     }
 
     pub fn rp_id(&self) -> Option<&str> {
@@ -1030,36 +980,26 @@ impl WebAuthnAssertionResponse {
     }
 
     pub fn credential_id(&self) -> Option<&str> {
-        self.payload
-            .get("credentialId")
-            .and_then(|value| value.as_str())
+        self.payload.get("credentialId").and_then(|value| value.as_str())
     }
 
     pub fn client_data_json(&self) -> Option<&str> {
-        self.payload
-            .get("clientDataJSON")
-            .and_then(|value| value.as_str())
+        self.payload.get("clientDataJSON").and_then(|value| value.as_str())
     }
 
     /// Returns the authenticator data associated with the assertion response.
     pub fn authenticator_data(&self) -> Option<&str> {
-        self.payload
-            .get("authenticatorData")
-            .and_then(|value| value.as_str())
+        self.payload.get("authenticatorData").and_then(|value| value.as_str())
     }
 
     /// Returns the raw signature produced by the authenticator, base64url encoded.
     pub fn signature(&self) -> Option<&str> {
-        self.payload
-            .get("signature")
-            .and_then(|value| value.as_str())
+        self.payload.get("signature").and_then(|value| value.as_str())
     }
 
     /// Returns the optional user handle provided by the authenticator.
     pub fn user_handle(&self) -> Option<&str> {
-        self.payload
-            .get("userHandle")
-            .and_then(|value| value.as_str())
+        self.payload.get("userHandle").and_then(|value| value.as_str())
     }
 
     fn set_field(&mut self, key: &str, value: Value) {
@@ -1110,37 +1050,26 @@ impl WebAuthnAttestationResponse {
     }
 
     pub fn credential_id(&self) -> Option<&str> {
-        self.payload
-            .get("credentialId")
-            .and_then(|value| value.as_str())
+        self.payload.get("credentialId").and_then(|value| value.as_str())
     }
 
     pub fn client_data_json(&self) -> Option<&str> {
-        self.payload
-            .get("clientDataJSON")
-            .and_then(|value| value.as_str())
+        self.payload.get("clientDataJSON").and_then(|value| value.as_str())
     }
 
     /// Returns the attestation object emitted by the authenticator, base64url encoded.
     pub fn attestation_object(&self) -> Option<&str> {
-        self.payload
-            .get("attestationObject")
-            .and_then(|value| value.as_str())
+        self.payload.get("attestationObject").and_then(|value| value.as_str())
     }
 
     /// Returns the credential public key when provided by the platform authenticator.
     pub fn credential_public_key(&self) -> Option<&str> {
-        self.payload
-            .get("credentialPublicKey")
-            .and_then(|value| value.as_str())
+        self.payload.get("credentialPublicKey").and_then(|value| value.as_str())
     }
 
     /// Returns the transports declared by the authenticator for the newly enrolled credential.
     pub fn transports(&self) -> Vec<WebAuthnTransport> {
-        self.payload
-            .get("transports")
-            .map(parse_transports)
-            .unwrap_or_default()
+        self.payload.get("transports").map(parse_transports).unwrap_or_default()
     }
 
     fn set_field(&mut self, key: &str, value: Value) {
@@ -1311,9 +1240,7 @@ impl MultiFactorResolver {
         verifier: Arc<dyn ApplicationVerifier>,
     ) -> AuthResult<String> {
         let pending = self.session.pending_credential().ok_or_else(|| {
-            AuthError::InvalidCredential(
-                "Multi-factor session is not valid for challenge resolution".into(),
-            )
+            AuthError::InvalidCredential("Multi-factor session is not valid for challenge resolution".into())
         })?;
 
         self.auth
@@ -1322,36 +1249,22 @@ impl MultiFactorResolver {
     }
 
     /// Initiates a passkey/WebAuthn challenge for the provided factor hint.
-    pub async fn start_passkey_sign_in(
-        &self,
-        hint: &MultiFactorInfo,
-    ) -> AuthResult<WebAuthnSignInChallenge> {
+    pub async fn start_passkey_sign_in(&self, hint: &MultiFactorInfo) -> AuthResult<WebAuthnSignInChallenge> {
         if hint.factor_id != WEBAUTHN_FACTOR_ID {
-            return Err(AuthError::InvalidCredential(
-                "Hint does not reference a WebAuthn factor".into(),
-            ));
+            return Err(AuthError::InvalidCredential("Hint does not reference a WebAuthn factor".into()));
         }
 
         let pending = self.session.pending_credential().ok_or_else(|| {
-            AuthError::InvalidCredential(
-                "Multi-factor session is not valid for challenge resolution".into(),
-            )
+            AuthError::InvalidCredential("Multi-factor session is not valid for challenge resolution".into())
         })?;
 
-        self.auth
-            .start_passkey_multi_factor_sign_in(pending, &hint.uid)
-            .await
+        self.auth.start_passkey_multi_factor_sign_in(pending, &hint.uid).await
     }
 
     /// Resolves the pending multi-factor challenge using the supplied assertion.
-    pub async fn resolve_sign_in(
-        &self,
-        assertion: MultiFactorAssertion,
-    ) -> AuthResult<UserCredential> {
+    pub async fn resolve_sign_in(&self, assertion: MultiFactorAssertion) -> AuthResult<UserCredential> {
         let pending = self.session.pending_credential().ok_or_else(|| {
-            AuthError::InvalidCredential(
-                "Multi-factor session is not valid for challenge resolution".into(),
-            )
+            AuthError::InvalidCredential("Multi-factor session is not valid for challenge resolution".into())
         })?;
 
         match assertion {
@@ -1371,9 +1284,7 @@ impl MultiFactorResolver {
             }
             MultiFactorAssertion::Totp(assertion) => {
                 let enrollment_id = assertion.enrollment_id().ok_or_else(|| {
-                    AuthError::InvalidCredential(
-                        "TOTP assertions require an enrollment identifier".into(),
-                    )
+                    AuthError::InvalidCredential("TOTP assertions require an enrollment identifier".into())
                 })?;
 
                 self.auth
@@ -1388,9 +1299,7 @@ impl MultiFactorResolver {
             }
             MultiFactorAssertion::WebAuthn(assertion) => {
                 let (enrollment_id, response) = assertion.into_sign_in().ok_or_else(|| {
-                    AuthError::InvalidCredential(
-                        "WebAuthn assertion is not valid for sign-in".to_string(),
-                    )
+                    AuthError::InvalidCredential("WebAuthn assertion is not valid for sign-in".to_string())
                 })?;
                 self.auth
                     .finalize_passkey_multi_factor_sign_in(
@@ -1427,10 +1336,7 @@ impl MultiFactorUser {
     }
 
     /// Generates a TOTP enrollment secret for the provided session.
-    pub async fn generate_totp_secret(
-        &self,
-        session: &MultiFactorSession,
-    ) -> AuthResult<TotpSecret> {
+    pub async fn generate_totp_secret(&self, session: &MultiFactorSession) -> AuthResult<TotpSecret> {
         self.auth.start_totp_mfa_enrollment(session).await
     }
 
@@ -1448,13 +1354,11 @@ impl MultiFactorUser {
                         "TOTP enrollment requires an enrollment session".into(),
                     ));
                 }
-                let id_token = session.id_token().ok_or_else(|| {
-                    AuthError::InvalidCredential("Missing ID token for enrollment".into())
-                })?;
+                let id_token = session
+                    .id_token()
+                    .ok_or_else(|| AuthError::InvalidCredential("Missing ID token for enrollment".into()))?;
                 let secret = assertion.secret().ok_or_else(|| {
-                    AuthError::InvalidCredential(
-                        "TOTP enrollment assertions require a generated secret".into(),
-                    )
+                    AuthError::InvalidCredential("TOTP enrollment assertions require a generated secret".into())
                 })?;
                 self.auth
                     .complete_totp_mfa_enrollment(id_token, secret, assertion.otp(), display_name)
@@ -1554,32 +1458,17 @@ impl FirebaseAuth {
     }
 
     /// Signs a user in with an email and password.
-    pub async fn sign_in_with_email_and_password(
-        &self,
-        email: &str,
-        password: &str,
-    ) -> AuthResult<UserCredential> {
-        self.inner
-            .sign_in_with_email_and_password(email, password)
-            .await
+    pub async fn sign_in_with_email_and_password(&self, email: &str, password: &str) -> AuthResult<UserCredential> {
+        self.inner.sign_in_with_email_and_password(email, password).await
     }
 
     /// Creates a new user with the provided email and password.
-    pub async fn create_user_with_email_and_password(
-        &self,
-        email: &str,
-        password: &str,
-    ) -> AuthResult<UserCredential> {
-        self.inner
-            .create_user_with_email_and_password(email, password)
-            .await
+    pub async fn create_user_with_email_and_password(&self, email: &str, password: &str) -> AuthResult<UserCredential> {
+        self.inner.create_user_with_email_and_password(email, password).await
     }
 
     /// Registers an observer that is notified whenever the auth state changes.
-    pub fn on_auth_state_changed(
-        &self,
-        observer: PartialObserver<Arc<User>>,
-    ) -> impl FnOnce() + Send + 'static {
+    pub fn on_auth_state_changed(&self, observer: PartialObserver<Arc<User>>) -> impl FnOnce() + Send + 'static {
         self.inner.on_auth_state_changed(observer)
     }
 }
@@ -1587,15 +1476,11 @@ impl FirebaseAuth {
 /// Returns a [`MultiFactorResolver`] that can be used to complete a pending multi-factor flow.
 ///
 /// Mirrors the JavaScript helper exported from `packages/auth/src/mfa/mfa_resolver.ts`.
-pub fn get_multi_factor_resolver(
-    auth: &FirebaseAuth,
-    error: &AuthError,
-) -> AuthResult<MultiFactorResolver> {
+pub fn get_multi_factor_resolver(auth: &FirebaseAuth, error: &AuthError) -> AuthResult<MultiFactorResolver> {
     match error {
-        AuthError::MultiFactorRequired(mfa_error) => Ok(MultiFactorResolver::from_error(
-            auth.inner_arc(),
-            mfa_error.clone(),
-        )),
+        AuthError::MultiFactorRequired(mfa_error) => {
+            Ok(MultiFactorResolver::from_error(auth.inner_arc(), mfa_error.clone()))
+        }
         _ => Err(AuthError::InvalidCredential(
             "The supplied error does not contain multi-factor context".into(),
         )),
@@ -1643,10 +1528,7 @@ mod tests {
         assert_eq!(allow.len(), 2);
         assert_eq!(allow[0].id(), "cred-1");
         assert_eq!(allow[0].credential_type(), "public-key");
-        assert_eq!(
-            allow[0].transports(),
-            &[WebAuthnTransport::Usb, WebAuthnTransport::Internal]
-        );
+        assert_eq!(allow[0].transports(), &[WebAuthnTransport::Usb, WebAuthnTransport::Internal]);
         assert_eq!(allow[1].id(), "cred-2");
         assert!(allow[1].transports().is_empty());
         assert_eq!(challenge.user_handle(), Some("user-handle"));
@@ -1681,10 +1563,7 @@ mod tests {
             .with_credential_public_key("NEWKEY");
         assert_eq!(updated.attestation_object(), Some("UPDATED"));
         assert_eq!(updated.credential_public_key(), Some("NEWKEY"));
-        assert_eq!(
-            updated.transports(),
-            vec![WebAuthnTransport::Internal, WebAuthnTransport::Usb]
-        );
+        assert_eq!(updated.transports(), vec![WebAuthnTransport::Internal, WebAuthnTransport::Usb]);
     }
 
     #[test]

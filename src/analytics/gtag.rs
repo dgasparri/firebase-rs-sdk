@@ -75,8 +75,7 @@ pub struct GlobalGtagRegistry(Arc<GtagRegistry>);
 
 impl GlobalGtagRegistry {
     pub fn shared() -> Self {
-        static INSTANCE: LazyLock<Arc<GtagRegistry>> =
-            LazyLock::new(|| Arc::new(GtagRegistry::new()));
+        static INSTANCE: LazyLock<Arc<GtagRegistry>> = LazyLock::new(|| Arc::new(GtagRegistry::new()));
         Self(INSTANCE.clone())
     }
 

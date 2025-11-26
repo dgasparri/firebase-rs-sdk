@@ -97,11 +97,7 @@ impl FunctionsError {
         self.details.as_ref()
     }
 
-    pub fn with_details(
-        code: FunctionsErrorCode,
-        message: impl Into<String>,
-        details: Option<JsonValue>,
-    ) -> Self {
+    pub fn with_details(code: FunctionsErrorCode, message: impl Into<String>, details: Option<JsonValue>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -128,10 +124,7 @@ pub fn internal_error(message: impl Into<String>) -> FunctionsError {
     FunctionsError::new(FunctionsErrorCode::Internal, message)
 }
 
-pub(crate) fn error_for_http_response(
-    status: u16,
-    body: Option<&JsonValue>,
-) -> Option<FunctionsError> {
+pub(crate) fn error_for_http_response(status: u16, body: Option<&JsonValue>) -> Option<FunctionsError> {
     use FunctionsErrorCode as Code;
 
     let mut code = code_for_http_status(status);

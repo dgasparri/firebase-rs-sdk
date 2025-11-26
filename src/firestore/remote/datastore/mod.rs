@@ -48,9 +48,9 @@ impl WriteOperation {
     /// Returns the document key targeted by this write.
     pub fn key(&self) -> &DocumentKey {
         match self {
-            WriteOperation::Set { key, .. }
-            | WriteOperation::Update { key, .. }
-            | WriteOperation::Delete { key } => key,
+            WriteOperation::Set { key, .. } | WriteOperation::Update { key, .. } | WriteOperation::Delete { key } => {
+                key
+            }
         }
     }
 }

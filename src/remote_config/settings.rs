@@ -19,10 +19,7 @@ pub struct RemoteConfigSettings {
 
 impl RemoteConfigSettings {
     /// Creates a new settings object after validating values.
-    pub fn new(
-        fetch_timeout_millis: u64,
-        minimum_fetch_interval_millis: u64,
-    ) -> RemoteConfigResult<Self> {
+    pub fn new(fetch_timeout_millis: u64, minimum_fetch_interval_millis: u64) -> RemoteConfigResult<Self> {
         validate_fetch_timeout(fetch_timeout_millis)?;
         validate_minimum_fetch_interval(minimum_fetch_interval_millis)?;
         Ok(Self {
@@ -47,10 +44,7 @@ impl RemoteConfigSettings {
         Ok(())
     }
 
-    pub(crate) fn set_minimum_fetch_interval_millis(
-        &mut self,
-        value: u64,
-    ) -> RemoteConfigResult<()> {
+    pub(crate) fn set_minimum_fetch_interval_millis(&mut self, value: u64) -> RemoteConfigResult<()> {
         validate_minimum_fetch_interval(value)?;
         self.minimum_fetch_interval_millis = value;
         Ok(())
@@ -81,9 +75,7 @@ impl RemoteConfigSettingsUpdate {
 
 pub(crate) fn validate_fetch_timeout(value: u64) -> RemoteConfigResult<()> {
     if value == 0 {
-        return Err(invalid_argument(
-            "fetch_timeout_millis must be greater than zero",
-        ));
+        return Err(invalid_argument("fetch_timeout_millis must be greater than zero"));
     }
     Ok(())
 }
@@ -100,14 +92,8 @@ mod tests {
     #[test]
     fn defaults_align_with_js_sdk() {
         let defaults = RemoteConfigSettings::default();
-        assert_eq!(
-            defaults.fetch_timeout_millis(),
-            DEFAULT_FETCH_TIMEOUT_MILLIS
-        );
-        assert_eq!(
-            defaults.minimum_fetch_interval_millis(),
-            DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS
-        );
+        assert_eq!(defaults.fetch_timeout_millis(), DEFAULT_FETCH_TIMEOUT_MILLIS);
+        assert_eq!(defaults.minimum_fetch_interval_millis(), DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS);
     }
 
     #[test]

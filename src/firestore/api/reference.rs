@@ -38,9 +38,7 @@ impl CollectionReference {
 
     /// The last segment of the collection path.
     pub fn id(&self) -> &str {
-        self.path
-            .last_segment()
-            .expect("Collection path always has id")
+        self.path.last_segment().expect("Collection path always has id")
     }
 
     /// Returns the document that logically contains this collection, if any.
@@ -57,9 +55,7 @@ impl CollectionReference {
     ///
     /// When `document_id` is `None`, an auto-ID is generated.
     pub fn doc(&self, document_id: Option<&str>) -> FirestoreResult<DocumentReference> {
-        let id = document_id
-            .map(|id| id.to_string())
-            .unwrap_or_else(generate_auto_id);
+        let id = document_id.map(|id| id.to_string()).unwrap_or_else(generate_auto_id);
         if id.contains('/') {
             return Err(invalid_argument("Document ID cannot contain '/'."));
         }
@@ -141,11 +137,7 @@ impl DocumentReference {
 
 impl Display for DocumentReference {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "DocumentReference({})",
-            self.key.path().canonical_string()
-        )
+        write!(f, "DocumentReference({})", self.key.path().canonical_string())
     }
 }
 
@@ -188,10 +180,7 @@ where
     /// Returns a typed document reference within this collection.
     pub fn doc(&self, document_id: Option<&str>) -> FirestoreResult<ConvertedDocumentReference<C>> {
         let document = self.inner.doc(document_id)?;
-        Ok(ConvertedDocumentReference::new(
-            document,
-            Arc::clone(&self.converter),
-        ))
+        Ok(ConvertedDocumentReference::new(document, Arc::clone(&self.converter)))
     }
 
     /// Provides access to the untyped collection reference.
@@ -219,10 +208,7 @@ where
     C: FirestoreDataConverter,
 {
     fn new(reference: DocumentReference, converter: Arc<C>) -> Self {
-        Self {
-            reference,
-            converter,
-        }
+        Self { reference, converter }
     }
 
     /// Accesses the underlying Firestore instance.
@@ -274,10 +260,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "firestore-ref-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("firestore-ref-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -287,9 +270,7 @@ mod tests {
             project_id: Some("test-project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let firestore = get_firestore(Some(app)).await.unwrap();
         Firestore::from_arc(firestore)
     }

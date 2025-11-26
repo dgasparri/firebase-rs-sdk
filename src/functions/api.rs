@@ -3,9 +3,7 @@ use std::time::Duration;
 
 use crate::app;
 use crate::app::FirebaseApp;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
 use crate::functions::constants::FUNCTIONS_COMPONENT_NAME;
 use crate::functions::context::ContextProvider;
@@ -41,11 +39,7 @@ impl Functions {
     fn new(app: FirebaseApp, endpoint: Endpoint) -> Self {
         let context = ContextProvider::new(app.clone());
         Self {
-            inner: Arc::new(FunctionsInner {
-                app,
-                endpoint,
-                context,
-            }),
+            inner: Arc::new(FunctionsInner { app, endpoint, context }),
         }
     }
 
@@ -87,10 +81,7 @@ impl Functions {
     /// # }
     /// # let _ = demo;
     /// ```
-    pub fn https_callable<Request, Response>(
-        &self,
-        name: &str,
-    ) -> FunctionsResult<CallableFunction<Request, Response>>
+    pub fn https_callable<Request, Response>(&self, name: &str) -> FunctionsResult<CallableFunction<Request, Response>>
     where
         Request: serde::Serialize + 'static,
         Response: serde::de::DeserializeOwned + 'static,
@@ -109,9 +100,9 @@ impl Functions {
     fn callable_url(&self, name: &str) -> FunctionsResult<String> {
         let sanitized = name.trim_start_matches('/');
         let options = self.inner.app.options();
-        let project_id = options.project_id.ok_or_else(|| {
-            invalid_argument("FirebaseOptions.project_id is required to call Functions")
-        })?;
+        let project_id = options
+            .project_id
+            .ok_or_else(|| invalid_argument("FirebaseOptions.project_id is required to call Functions"))?;
         self.inner.endpoint.callable_url(&project_id, sanitized)
     }
 
@@ -151,13 +142,11 @@ where
     /// This method is available on all targets and should be awaited within the caller's async
     /// runtime.
     pub async fn call_async(&self, data: &Request) -> FunctionsResult<Response> {
-        let payload = serde_json::to_value(data).map_err(|err| {
-            internal_error(format!("Failed to serialize callable payload: {err}"))
-        })?;
+        let payload = serde_json::to_value(data)
+            .map_err(|err| internal_error(format!("Failed to serialize callable payload: {err}")))?;
         let body = json!({ "data": payload });
         let url = self.functions.callable_url(&self.name)?;
-        let mut request =
-            CallableRequest::new(url, body, Duration::from_millis(DEFAULT_TIMEOUT_MS));
+        let mut request = CallableRequest::new(url, body, Duration::from_millis(DEFAULT_TIMEOUT_MS));
         request
             .headers
             .insert("Content-Type".to_string(), "application/json".to_string());
@@ -172,24 +161,18 @@ where
         }
         if let Some(token) = context.messaging_token {
             if !token.is_empty() {
-                request
-                    .headers
-                    .insert("Firebase-Instance-ID-Token".to_string(), token);
+                request.headers.insert("Firebase-Instance-ID-Token".to_string(), token);
             }
         }
         if let Some(token) = context.app_check_token {
             if !token.is_empty() {
-                request
-                    .headers
-                    .insert("X-Firebase-AppCheck".to_string(), token);
+                request.headers.insert("X-Firebase-AppCheck".to_string(), token);
             }
         }
 
         if let Some(header) = context.app_check_heartbeat {
             if !header.is_empty() {
-                request
-                    .headers
-                    .insert("X-Firebase-Client".to_string(), header);
+                request.headers.insert("X-Firebase-Client".to_string(), header);
             }
         }
 
@@ -213,20 +196,13 @@ where
     match body {
         JsonValue::Object(mut map) => {
             if let Some(data_value) = map.remove("data").or_else(|| map.remove("result")) {
-                serde_json::from_value(data_value).map_err(|err| {
-                    internal_error(format!(
-                        "Failed to deserialize callable response payload: {err}"
-                    ))
-                })
+                serde_json::from_value(data_value)
+                    .map_err(|err| internal_error(format!("Failed to deserialize callable response payload: {err}")))
             } else {
-                Err(internal_error(
-                    "Callable response JSON is missing a data field",
-                ))
+                Err(internal_error("Callable response JSON is missing a data field"))
             }
         }
-        JsonValue::Null => Err(internal_error(
-            "Callable response did not contain a JSON payload",
-        )),
+        JsonValue::Null => Err(internal_error("Callable response did not contain a JSON payload")),
         other => Err(internal_error(format!(
             "Unexpected callable response shape: expected object, got {other}"
         ))),
@@ -287,10 +263,7 @@ impl Endpoint {
             return Ok(format!("{}/{}", domain.trim_end_matches('/'), name));
         }
 
-        Ok(format!(
-            "https://{}-{}.cloudfunctions.net/{}",
-            self.region, project_id, name
-        ))
+        Ok(format!("https://{}-{}.cloudfunctions.net/{}", self.region, project_id, name))
     }
 }
 
@@ -305,13 +278,9 @@ impl Default for Endpoint {
 }
 
 static FUNCTIONS_COMPONENT: LazyLock<()> = LazyLock::new(|| {
-    let component = Component::new(
-        FUNCTIONS_COMPONENT_NAME,
-        Arc::new(functions_factory),
-        ComponentType::Public,
-    )
-    .with_instantiation_mode(InstantiationMode::Lazy)
-    .with_multiple_instances(true);
+    let component = Component::new(FUNCTIONS_COMPONENT_NAME, Arc::new(functions_factory), ComponentType::Public)
+        .with_instantiation_mode(InstantiationMode::Lazy)
+        .with_multiple_instances(true);
     let _ = app::register_component(component);
 });
 
@@ -319,12 +288,12 @@ fn functions_factory(
     container: &crate::component::ComponentContainer,
     options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: FUNCTIONS_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
 
     let endpoint = Endpoint::new(options.instance_identifier.clone());
     let functions = Functions::new((*app).clone(), endpoint);
@@ -385,10 +354,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "functions-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("functions-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -398,9 +364,7 @@ mod tests {
         let server = match panic::catch_unwind(|| MockServer::start()) {
             Ok(server) => server,
             Err(_) => {
-                eprintln!(
-                    "Skipping https_callable_invokes_backend: unable to bind mock server in this environment"
-                );
+                eprintln!("Skipping https_callable_invokes_backend: unable to bind mock server in this environment");
                 return;
             }
         };
@@ -408,20 +372,15 @@ mod tests {
             when.method(POST)
                 .path("/callable/hello")
                 .json_body(json!({ "data": { "message": "ping" } }));
-            then.status(200)
-                .json_body(json!({ "data": { "message": "pong" } }));
+            then.status(200).json_body(json!({ "data": { "message": "pong" } }));
         });
 
         let options = FirebaseOptions {
             project_id: Some("demo-project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
-        let functions = get_functions(Some(app), Some(&server.url("/callable")))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let functions = get_functions(Some(app), Some(&server.url("/callable"))).await.unwrap();
         let callable = functions
             .https_callable::<serde_json::Value, serde_json::Value>("hello")
             .unwrap();
@@ -438,9 +397,7 @@ mod tests {
         let server = match panic::catch_unwind(|| MockServer::start()) {
             Ok(server) => server,
             Err(_) => {
-                eprintln!(
-                    "Skipping https_callable_includes_context_headers: unable to bind mock server"
-                );
+                eprintln!("Skipping https_callable_includes_context_headers: unable to bind mock server");
                 return;
             }
         };
@@ -452,20 +409,15 @@ mod tests {
                 .header("firebase-instance-id-token", "iid-token")
                 .header("x-firebase-appcheck", "app-check-token")
                 .json_body(json!({ "data": { "ping": true } }));
-            then.status(200)
-                .json_body(json!({ "data": { "ok": true } }));
+            then.status(200).json_body(json!({ "data": { "ok": true } }));
         });
 
         let options = FirebaseOptions {
             project_id: Some("demo-project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
-        let functions = get_functions(Some(app), Some(&server.url("/callable")))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let functions = get_functions(Some(app), Some(&server.url("/callable"))).await.unwrap();
         functions.set_context_overrides(CallContext {
             auth_token: Some("auth-token".into()),
             messaging_token: Some("iid-token".into()),

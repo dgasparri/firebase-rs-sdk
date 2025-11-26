@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use crate::auth::error::AuthError;
 use crate::auth::Auth;
-use crate::firestore::{
-    internal_error, unauthenticated, unavailable, FirestoreError, FirestoreResult,
-};
+use crate::firestore::{internal_error, unauthenticated, unavailable, FirestoreError, FirestoreResult};
 use crate::firestore::{TokenProvider, TokenProviderArc};
 
 pub struct AuthTokenProvider {
@@ -43,10 +41,7 @@ impl Clone for AuthTokenProvider {
 impl TokenProvider for AuthTokenProvider {
     async fn get_token(&self) -> FirestoreResult<Option<String>> {
         let force_refresh = self.force_refresh.swap(false, Ordering::SeqCst);
-        self.auth
-            .get_token(force_refresh)
-            .await
-            .map_err(map_auth_error)
+        self.auth.get_token(force_refresh).await.map_err(map_auth_error)
     }
 
     fn invalidate_token(&self) {
@@ -60,9 +55,7 @@ fn map_auth_error(error: AuthError) -> FirestoreError {
         AuthError::Network(message) => unavailable(message),
         AuthError::Firebase(firebase_error) => unauthenticated(firebase_error.message),
         AuthError::App(app_error) => internal_error(app_error.to_string()),
-        AuthError::NotImplemented(feature) => {
-            internal_error(format!("{feature} is not implemented"))
-        }
+        AuthError::NotImplemented(feature) => internal_error(format!("{feature} is not implemented")),
         AuthError::MultiFactorRequired(err) => unauthenticated(err.to_string()),
         AuthError::MultiFactor(err) => unauthenticated(err.to_string()),
     }

@@ -9,9 +9,7 @@ use serde_json::{Map, Number, Value};
 
 use crate::app;
 use crate::app::FirebaseApp;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
 use crate::database::backend::{select_backend, DatabaseBackend};
 use crate::database::constants::DATABASE_COMPONENT_NAME;
@@ -23,8 +21,7 @@ use crate::database::realtime::{ListenSpec, Repo};
 use crate::logger::Logger;
 use crate::platform::runtime;
 
-static REALTIME_LOGGER: LazyLock<Logger> =
-    LazyLock::new(|| Logger::new("@firebase/database/realtime"));
+static REALTIME_LOGGER: LazyLock<Logger> = LazyLock::new(|| Logger::new("@firebase/database/realtime"));
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -131,10 +128,7 @@ struct Listener {
 #[derive(Clone)]
 enum ListenerTarget {
     Reference(Vec<String>),
-    Query {
-        path: Vec<String>,
-        params: QueryParams,
-    },
+    Query { path: Vec<String>, params: QueryParams },
 }
 
 impl ListenerTarget {
@@ -230,10 +224,7 @@ pub struct ListenerRegistration {
 
 impl ListenerRegistration {
     fn new(database: Database, id: u64) -> Self {
-        Self {
-            database,
-            id: Some(id),
-        }
+        Self { database, id: Some(id) }
     }
 
     pub fn detach(mut self) {
@@ -272,22 +263,14 @@ impl QueryConstraint {
             QueryConstraintKind::OrderByKey => query.order_by_key(),
             QueryConstraintKind::OrderByValue => query.order_by_value(),
             QueryConstraintKind::OrderByPriority => query.order_by_priority(),
-            QueryConstraintKind::Start {
-                value,
-                name,
-                inclusive,
-            } => {
+            QueryConstraintKind::Start { value, name, inclusive } => {
                 if inclusive {
                     query.start_at_with_key(value, name)
                 } else {
                     query.start_after_with_key(value, name)
                 }
             }
-            QueryConstraintKind::End {
-                value,
-                name,
-                inclusive,
-            } => {
+            QueryConstraintKind::End { value, name, inclusive } => {
                 if inclusive {
                     query.end_at_with_key(value, name)
                 } else {
@@ -480,10 +463,7 @@ pub async fn push(reference: &DatabaseReference) -> DatabaseResult<DatabaseRefer
 ///
 /// Mirrors the modular `push(ref, value)` overload from the JS SDK
 /// (`packages/database/src/api/Reference_impl.ts`).
-pub async fn push_with_value<V>(
-    reference: &DatabaseReference,
-    value: V,
-) -> DatabaseResult<DatabaseReference>
+pub async fn push_with_value<V>(reference: &DatabaseReference, value: V) -> DatabaseResult<DatabaseReference>
 where
     V: Into<Value>,
 {
@@ -492,10 +472,7 @@ where
 
 /// Registers a `value` listener for the provided reference.
 #[allow(dead_code)]
-pub async fn on_value<F>(
-    reference: &DatabaseReference,
-    callback: F,
-) -> DatabaseResult<ListenerRegistration>
+pub async fn on_value<F>(reference: &DatabaseReference, callback: F) -> DatabaseResult<ListenerRegistration>
 where
     F: Fn(Result<DataSnapshot, DatabaseError>) + Send + Sync + 'static,
 {
@@ -503,10 +480,7 @@ where
 }
 
 /// Registers a `child_added` listener for the provided reference.
-pub async fn on_child_added<F>(
-    reference: &DatabaseReference,
-    callback: F,
-) -> DatabaseResult<ListenerRegistration>
+pub async fn on_child_added<F>(reference: &DatabaseReference, callback: F) -> DatabaseResult<ListenerRegistration>
 where
     F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
@@ -514,10 +488,7 @@ where
 }
 
 /// Registers a `child_changed` listener for the provided reference.
-pub async fn on_child_changed<F>(
-    reference: &DatabaseReference,
-    callback: F,
-) -> DatabaseResult<ListenerRegistration>
+pub async fn on_child_changed<F>(reference: &DatabaseReference, callback: F) -> DatabaseResult<ListenerRegistration>
 where
     F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
@@ -525,10 +496,7 @@ where
 }
 
 /// Registers a `child_removed` listener for the provided reference.
-pub async fn on_child_removed<F>(
-    reference: &DatabaseReference,
-    callback: F,
-) -> DatabaseResult<ListenerRegistration>
+pub async fn on_child_removed<F>(reference: &DatabaseReference, callback: F) -> DatabaseResult<ListenerRegistration>
 where
     F: Fn(Result<ChildEvent, DatabaseError>) + Send + Sync + 'static,
 {
@@ -541,10 +509,7 @@ where
 /// to commit the write or `None` to abort. The operation currently uses a
 /// best-effort optimistic strategy when hitting the REST backend; concurrent
 /// writers may lead to retries from user-space code.
-pub async fn run_transaction<F>(
-    reference: &DatabaseReference,
-    mut update: F,
-) -> DatabaseResult<TransactionResult>
+pub async fn run_transaction<F>(reference: &DatabaseReference, mut update: F) -> DatabaseResult<TransactionResult>
 where
     F: FnMut(Value) -> Option<Value>,
 {
@@ -553,11 +518,7 @@ where
 
 /// Writes a value together with a priority, mirroring the modular `setWithPriority()` helper
 /// (`packages/database/src/api/Reference_impl.ts`).
-pub async fn set_with_priority<V, P>(
-    reference: &DatabaseReference,
-    value: V,
-    priority: P,
-) -> DatabaseResult<()>
+pub async fn set_with_priority<V, P>(reference: &DatabaseReference, value: V, priority: P) -> DatabaseResult<()>
 where
     V: Into<Value>,
     P: Into<Value>,
@@ -608,11 +569,7 @@ impl Database {
         *self.inner.root_cache.lock().unwrap() = None;
     }
 
-    async fn handle_realtime_action(
-        &self,
-        action: &str,
-        body: &serde_json::Value,
-    ) -> DatabaseResult<()> {
+    async fn handle_realtime_action(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
         match action {
             "d" | "m" => self.handle_realtime_data(action, body).await,
             "c" => {
@@ -622,9 +579,7 @@ impl Database {
             }
             "ac" | "apc" => {
                 REALTIME_LOGGER.warn(format!("credential revoked by server ({action})"));
-                self.fail_listeners(internal_error(format!(
-                    "realtime credential revoked: {action}"
-                )));
+                self.fail_listeners(internal_error(format!("realtime credential revoked: {action}")));
                 Ok(())
             }
             "error" => {
@@ -633,17 +588,11 @@ impl Database {
                 Ok(())
             }
             "sd" => Ok(()),
-            other => Err(internal_error(format!(
-                "unhandled realtime action '{other}'"
-            ))),
+            other => Err(internal_error(format!("unhandled realtime action '{other}'"))),
         }
     }
 
-    async fn handle_realtime_data(
-        &self,
-        action: &str,
-        body: &serde_json::Value,
-    ) -> DatabaseResult<()> {
+    async fn handle_realtime_data(&self, action: &str, body: &serde_json::Value) -> DatabaseResult<()> {
         let Some(path) = body.get("p").and_then(|value| value.as_str()) else {
             return Ok(());
         };
@@ -657,9 +606,7 @@ impl Database {
             "d" => apply_realtime_value(&mut new_root, &segments, data.clone()),
             "m" => {
                 let Value::Object(map) = &data else {
-                    return Err(invalid_argument(
-                        "Realtime merge payload must be a JSON object",
-                    ));
+                    return Err(invalid_argument("Realtime merge payload must be a JSON object"));
                 };
                 for (key, value) in map.iter() {
                     let mut child_path = segments.clone();
@@ -670,13 +617,10 @@ impl Database {
             _ => {}
         }
 
-        REALTIME_LOGGER.debug(format!(
-            "realtime payload action={action} path={path} data={data:?}"
-        ));
+        REALTIME_LOGGER.debug(format!("realtime payload action={action} path={path} data={data:?}"));
 
         let new_root_for_cache = new_root.clone();
-        self.dispatch_listeners(&segments, &old_root, &new_root)
-            .await?;
+        self.dispatch_listeners(&segments, &old_root, &new_root).await?;
         self.cache_root(new_root_for_cache);
         Ok(())
     }
@@ -736,9 +680,7 @@ impl Database {
 
         if should_disconnect {
             if let Err(err) = self.go_offline().await {
-                REALTIME_LOGGER.warn(format!(
-                    "failed to go offline after listener revocation: {err}"
-                ));
+                REALTIME_LOGGER.warn(format!("failed to go offline after listener revocation: {err}"));
             }
         }
     }
@@ -858,9 +800,7 @@ impl Database {
                 callback(Ok(snapshot));
             }
             ListenerKind::Child { event, callback } => {
-                if let Err(err) =
-                    self.fire_initial_child_events(&target, event, &callback, &current_root)
-                {
+                if let Err(err) = self.fire_initial_child_events(&target, event, &callback, &current_root) {
                     self.remove_listener(id);
                     return Err(err);
                 }
@@ -883,9 +823,7 @@ impl Database {
             let spec = listener.spec.clone();
             runtime::spawn_detached(async move {
                 if let Err(err) = repo.unlisten(spec).await {
-                    REALTIME_LOGGER.warn(format!(
-                        "failed to detach realtime listener during cleanup: {err}"
-                    ));
+                    REALTIME_LOGGER.warn(format!("failed to detach realtime listener during cleanup: {err}"));
                 }
             });
         }
@@ -894,9 +832,7 @@ impl Database {
             let database = self.clone();
             runtime::spawn_detached(async move {
                 if let Err(err) = database.go_offline().await {
-                    REALTIME_LOGGER.warn(format!(
-                        "failed to go offline after removing last listener: {err}"
-                    ));
+                    REALTIME_LOGGER.warn(format!("failed to go offline after removing last listener: {err}"));
                 }
             });
         }
@@ -940,11 +876,7 @@ impl Database {
         Ok(value)
     }
 
-    async fn snapshot_from_root(
-        &self,
-        target: &ListenerTarget,
-        root: &Value,
-    ) -> DatabaseResult<DataSnapshot> {
+    async fn snapshot_from_root(&self, target: &ListenerTarget, root: &Value) -> DatabaseResult<DataSnapshot> {
         match target {
             ListenerTarget::Reference(path) => {
                 let value = value_at_path(root, path);
@@ -1054,12 +986,7 @@ impl Database {
         Ok(())
     }
 
-    fn child_snapshot(
-        &self,
-        parent_path: &[String],
-        child_key: &str,
-        value: Value,
-    ) -> DataSnapshot {
+    fn child_snapshot(&self, parent_path: &[String], child_key: &str, value: Value) -> DataSnapshot {
         let mut segments = parent_path.to_vec();
         segments.push(child_key.to_string());
         let reference = self.reference_from_segments(segments);
@@ -1166,10 +1093,7 @@ impl DatabaseReference {
     {
         let user_fn: ValueListenerCallback = Arc::new(callback);
         self.database
-            .register_listener(
-                ListenerTarget::Reference(self.path.clone()),
-                ListenerKind::Value(user_fn),
-            )
+            .register_listener(ListenerTarget::Reference(self.path.clone()), ListenerKind::Value(user_fn))
             .await
     }
 
@@ -1241,11 +1165,7 @@ impl DatabaseReference {
         self.resolve_value_for_path(&self.path, value).await
     }
 
-    pub(crate) async fn resolve_for_absolute_path(
-        &self,
-        path: &[String],
-        value: Value,
-    ) -> DatabaseResult<Value> {
+    pub(crate) async fn resolve_for_absolute_path(&self, path: &[String], value: Value) -> DatabaseResult<Value> {
         self.resolve_value_for_path(path, value).await
     }
 
@@ -1298,9 +1218,7 @@ impl DatabaseReference {
             let mut segments = self.path.clone();
             let relative = normalize_path(&key)?;
             if relative.is_empty() {
-                return Err(invalid_argument(
-                    "Database update path cannot reference the current location",
-                ));
+                return Err(invalid_argument("Database update path cannot reference the current location"));
             }
             segments.extend(relative);
             let resolved = self.resolve_value_for_path(&segments, value).await?;
@@ -1309,11 +1227,7 @@ impl DatabaseReference {
 
         let old_root = self.database.root_snapshot().await?;
         let ops_for_local = operations.clone();
-        self.database
-            .inner
-            .backend
-            .update(&self.path, operations)
-            .await?;
+        self.database.inner.backend.update(&self.path, operations).await?;
 
         let mut new_root = old_root.clone();
         for (absolute, value) in ops_for_local {
@@ -1357,14 +1271,10 @@ impl DatabaseReference {
         let priority = priority.into();
         validate_priority_value(&priority)?;
         if matches!(self.key(), Some(".length" | ".keys")) {
-            return Err(invalid_argument(
-                "set_with_priority failed: read-only child key",
-            ));
+            return Err(invalid_argument("set_with_priority failed: read-only child key"));
         }
 
-        let value = self
-            .resolve_value_for_path(&self.path, value.into())
-            .await?;
+        let value = self.resolve_value_for_path(&self.path, value.into()).await?;
         let payload = pack_with_priority(value, priority);
         let payload_for_local = payload.clone();
         let old_root = self.database.root_snapshot().await?;
@@ -1526,11 +1436,7 @@ impl DatabaseQuery {
     }
 
     /// Applies a keyed `startAfter(value, name)` constraint to the query.
-    pub fn start_after_with_key(
-        mut self,
-        value: Value,
-        name: Option<String>,
-    ) -> DatabaseResult<Self> {
+    pub fn start_after_with_key(mut self, value: Value, name: Option<String>) -> DatabaseResult<Self> {
         let bound = QueryBound {
             value,
             name,
@@ -1562,11 +1468,7 @@ impl DatabaseQuery {
     }
 
     /// Applies a keyed `endBefore(value, name)` constraint to the query.
-    pub fn end_before_with_key(
-        mut self,
-        value: Value,
-        name: Option<String>,
-    ) -> DatabaseResult<Self> {
+    pub fn end_before_with_key(mut self, value: Value, name: Option<String>) -> DatabaseResult<Self> {
         let bound = QueryBound {
             value,
             name,
@@ -1654,9 +1556,7 @@ pub(crate) fn normalize_path(path: &str) -> DatabaseResult<Vec<String>> {
     let mut segments = Vec::new();
     for segment in trimmed.split('/') {
         if segment.is_empty() {
-            return Err(invalid_argument(
-                "Database path cannot contain empty segments",
-            ));
+            return Err(invalid_argument("Database path cannot contain empty segments"));
         }
         segments.push(segment.to_string());
     }
@@ -1686,10 +1586,7 @@ fn is_prefix(prefix: &[String], path: &[String]) -> bool {
     if prefix.len() > path.len() {
         return false;
     }
-    prefix
-        .iter()
-        .zip(path.iter())
-        .all(|(left, right)| left == right)
+    prefix.iter().zip(path.iter()).all(|(left, right)| left == right)
 }
 
 fn apply_realtime_value(root: &mut Value, path: &[String], value: Value) {
@@ -1704,9 +1601,7 @@ fn apply_realtime_value(root: &mut Value, path: &[String], value: Value) {
             *current = Value::Object(Map::new());
         }
         let obj = current.as_object_mut().expect("object ensured");
-        current = obj
-            .entry(segment.clone())
-            .or_insert(Value::Object(Map::new()));
+        current = obj.entry(segment.clone()).or_insert(Value::Object(Map::new()));
     }
 
     if value.is_null() {
@@ -1727,9 +1622,7 @@ fn apply_realtime_value(root: &mut Value, path: &[String], value: Value) {
 pub(crate) fn validate_priority_value(priority: &Value) -> DatabaseResult<()> {
     match priority {
         Value::Null | Value::Number(_) | Value::String(_) => Ok(()),
-        _ => Err(invalid_argument(
-            "Priority must be a string, number, or null",
-        )),
+        _ => Err(invalid_argument("Priority must be a string, number, or null")),
     }
 }
 
@@ -1741,10 +1634,7 @@ pub(crate) fn pack_with_priority(value: Value, priority: Value) -> Value {
 }
 
 fn extract_data_ref<'a>(value: &'a Value) -> &'a Value {
-    value
-        .as_object()
-        .and_then(|obj| obj.get(".value"))
-        .unwrap_or(value)
+    value.as_object().and_then(|obj| obj.get(".value")).unwrap_or(value)
 }
 
 fn extract_data_owned(value: &Value) -> Value {
@@ -1809,9 +1699,9 @@ fn resolve_server_placeholder(spec: Value, current: Option<&Value>) -> DatabaseR
         }
         Value::Object(mut map) => {
             if let Some(delta) = map.remove("increment") {
-                let delta = delta.as_f64().ok_or_else(|| {
-                    invalid_argument("ServerValue.increment delta must be numeric")
-                })?;
+                let delta = delta
+                    .as_f64()
+                    .ok_or_else(|| invalid_argument("ServerValue.increment delta must be numeric"))?;
                 let base = current
                     .and_then(|value| match value {
                         Value::Number(number) => number.as_f64(),
@@ -1819,9 +1709,8 @@ fn resolve_server_placeholder(spec: Value, current: Option<&Value>) -> DatabaseR
                     })
                     .unwrap_or(0.0);
                 let total = base + delta;
-                let number = Number::from_f64(total).ok_or_else(|| {
-                    invalid_argument("ServerValue.increment produced an invalid number")
-                })?;
+                let number = Number::from_f64(total)
+                    .ok_or_else(|| invalid_argument("ServerValue.increment produced an invalid number"))?;
                 Ok(Value::Number(number))
             } else {
                 Err(invalid_argument("Unsupported server value placeholder"))
@@ -1917,24 +1806,20 @@ fn current_time_millis() -> DatabaseResult<u64> {
 }
 
 static DATABASE_COMPONENT: LazyLock<Component> = LazyLock::new(|| {
-    Component::new(
-        DATABASE_COMPONENT_NAME,
-        Arc::new(database_factory),
-        ComponentType::Public,
-    )
-    .with_instantiation_mode(InstantiationMode::Lazy)
+    Component::new(DATABASE_COMPONENT_NAME, Arc::new(database_factory), ComponentType::Public)
+        .with_instantiation_mode(InstantiationMode::Lazy)
 });
 
 fn database_factory(
     container: &crate::component::ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: DATABASE_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
 
     let database = Database::new((*app).clone());
     Ok(Arc::new(database) as DynService)
@@ -2012,10 +1897,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "database-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("database-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -2032,10 +1914,7 @@ mod tests {
 
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("messages").unwrap();
-        reference
-            .set(json!({ "hello": "world" }))
-            .await
-            .expect("in-memory set");
+        reference.set(json!({ "hello": "world" })).await.expect("in-memory set");
         let value = reference.get().await.expect("in-memory get");
         assert_eq!(value, json!({ "hello": "world" }));
     }
@@ -2046,15 +1925,10 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let ref_root = database.reference("/messages").unwrap();
-        ref_root
-            .set(json!({ "greeting": "hello" }))
-            .await
-            .expect("set");
+        ref_root.set(json!({ "greeting": "hello" })).await.expect("set");
         let value = ref_root.get().await.unwrap();
         assert_eq!(value, json!({ "greeting": "hello" }));
     }
@@ -2065,9 +1939,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let queue = database.reference("queue").unwrap();
 
@@ -2088,9 +1960,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let messages = database.reference("messages").unwrap();
 
@@ -2114,9 +1984,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let root = database.reference("items").unwrap();
         root.set(json!({ "a": { "count": 1 } })).await.unwrap();
@@ -2131,15 +1999,11 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let item = database.reference("items/main").unwrap();
 
-        item.set_with_priority(json!({ "count": 1 }), json!(5))
-            .await
-            .unwrap();
+        item.set_with_priority(json!({ "count": 1 }), json!(5)).await.unwrap();
 
         let stored = item.get().await.unwrap();
         assert_eq!(
@@ -2157,9 +2021,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let item = database.reference("items/main").unwrap();
 
@@ -2182,9 +2044,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let created_at = database.reference("meta/created_at").unwrap();
 
@@ -2206,9 +2066,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let counter = database.reference("counters/main").unwrap();
 
@@ -2225,9 +2083,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let scores = database.reference("scores").unwrap();
 
@@ -2246,9 +2102,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -2265,9 +2119,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let counter = database.reference("counters/main").unwrap();
         counter.set(json!(1)).await.unwrap();
@@ -2292,9 +2144,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let flag = database.reference("flags/feature").unwrap();
         flag.set(json!(true)).await.unwrap();
@@ -2325,15 +2175,11 @@ mod tests {
                 .path("/messages.json")
                 .query_param("print", "silent")
                 .json_body(json!({ "greeting": "hello" }));
-            then.status(200)
-                .header("content-type", "application/json")
-                .body("null");
+            then.status(200).header("content-type", "application/json").body("null");
         });
 
         let get_mock = server.mock(|when, then| {
-            when.method(GET)
-                .path("/messages.json")
-                .query_param("format", "export");
+            when.method(GET).path("/messages.json").query_param("format", "export");
             then.status(200)
                 .header("content-type", "application/json")
                 .body(r#"{"greeting":"hello"}"#);
@@ -2344,9 +2190,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("/messages").unwrap();
 
@@ -2368,9 +2212,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
 
         let nested = database.reference("users/alice/profile").unwrap();
@@ -2389,9 +2231,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
 
         let reference = database.reference("items/foo").unwrap();
@@ -2430,9 +2270,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
 
         database
@@ -2460,20 +2298,10 @@ mod tests {
             .await
             .unwrap();
 
-        let foo = database
-            .reference("items/foo")
-            .unwrap()
-            .get()
-            .await
-            .unwrap();
+        let foo = database.reference("items/foo").unwrap().get().await.unwrap();
         assert_eq!(foo, json!({"count": 2}));
 
-        let bar = database
-            .reference("items/bar")
-            .unwrap()
-            .get()
-            .await
-            .unwrap();
+        let bar = database.reference("items/bar").unwrap().get().await.unwrap();
         assert_eq!(bar, json!({"value": true}));
     }
 
@@ -2483,9 +2311,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let profiles = database.reference("profiles").unwrap();
 
@@ -2537,9 +2363,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let items = database.reference("items").unwrap();
 
@@ -2556,10 +2380,10 @@ mod tests {
         let registration = items
             .on_child_added(move |result| {
                 if let Ok(event) = result {
-                    capture.lock().unwrap().push((
-                        event.snapshot.key().unwrap().to_string(),
-                        event.previous_name.clone(),
-                    ));
+                    capture
+                        .lock()
+                        .unwrap()
+                        .push((event.snapshot.key().unwrap().to_string(), event.previous_name.clone()));
                 }
             })
             .await
@@ -2572,12 +2396,7 @@ mod tests {
             assert_eq!(events[1].0, "b");
         }
 
-        items
-            .child("c")
-            .unwrap()
-            .set(json!({ "count": 3 }))
-            .await
-            .unwrap();
+        items.child("c").unwrap().set(json!({ "count": 3 })).await.unwrap();
 
         {
             let events = added_events.lock().unwrap();
@@ -2600,9 +2419,7 @@ mod tests {
                     ".value": { "count": 1 },
                     ".priority": 3
                 }));
-            then.status(200)
-                .header("content-type", "application/json")
-                .body("null");
+            then.status(200).header("content-type", "application/json").body("null");
         });
 
         let options = FirebaseOptions {
@@ -2610,9 +2427,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -2633,9 +2448,7 @@ mod tests {
                 .path_contains("/messages/")
                 .query_param("print", "silent")
                 .json_body(json!({ "text": "hello" }));
-            then.status(200)
-                .header("content-type", "application/json")
-                .body("null");
+            then.status(200).header("content-type", "application/json").body("null");
         });
 
         let options = FirebaseOptions {
@@ -2643,9 +2456,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let messages = database.reference("messages").unwrap();
 
@@ -2667,9 +2478,7 @@ mod tests {
                 .path("/items.json")
                 .query_param("print", "silent")
                 .json_body(json!({ "a/count": 2, "b": { "flag": true } }));
-            then.status(200)
-                .header("content-type", "application/json")
-                .body("null");
+            then.status(200).header("content-type", "application/json").body("null");
         });
 
         let options = FirebaseOptions {
@@ -2677,9 +2486,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -2696,9 +2503,7 @@ mod tests {
         let server = MockServer::start();
 
         let delete_mock = server.mock(|when, then| {
-            when.method(DELETE)
-                .path("/items.json")
-                .query_param("print", "silent");
+            when.method(DELETE).path("/items.json").query_param("print", "silent");
             then.status(200).body("null");
         });
 
@@ -2707,9 +2512,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
@@ -2735,9 +2538,7 @@ mod tests {
             database_url: Some(format!("{}?ns=demo-ns", server.url("/"))),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("messages").unwrap();
 
@@ -2766,16 +2567,11 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
-        let filtered = compose_query(
-            reference,
-            vec![order_by_child("score"), start_at(100), limit_to_first(5)],
-        )
-        .expect("compose query with constraints");
+        let filtered = compose_query(reference, vec![order_by_child("score"), start_at(100), limit_to_first(5)])
+            .expect("compose query with constraints");
 
         let value = filtered.get().await.unwrap();
         assert_eq!(value, json!({ "a": { "score": 120 } }));
@@ -2803,9 +2599,7 @@ mod tests {
             database_url: Some(server.url("/")),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let filtered = compose_query(
             database.reference("items").unwrap(),
@@ -2824,9 +2618,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
 
         let err = database
@@ -2845,16 +2637,10 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
 
-        let err = database
-            .reference("items")
-            .unwrap()
-            .order_by_child("")
-            .unwrap_err();
+        let err = database.reference("items").unwrap().order_by_child("").unwrap_err();
 
         assert_eq!(err.code_str(), "database/invalid-argument");
     }
@@ -2865,14 +2651,11 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("items").unwrap();
 
-        let err =
-            compose_query(reference, vec![order_by_key(), order_by_child("score")]).unwrap_err();
+        let err = compose_query(reference, vec![order_by_key(), order_by_child("score")]).unwrap_err();
 
         assert_eq!(err.code_str(), "database/invalid-argument");
     }
@@ -2883,9 +2666,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let reference = database.reference("counters/main").unwrap();
 
@@ -2925,9 +2706,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let database = get_database(Some(app)).await.unwrap();
         let scores = database.reference("scores").unwrap();
 
@@ -2943,18 +2722,15 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::<Value>::new()));
         let captured = events.clone();
 
-        let _registration = compose_query(
-            scores.clone(),
-            vec![order_by_child("score"), limit_to_last(1)],
-        )
-        .unwrap()
-        .on_value(move |result| {
-            if let Ok(snapshot) = result {
-                captured.lock().unwrap().push(snapshot.value().clone());
-            }
-        })
-        .await
-        .unwrap();
+        let _registration = compose_query(scores.clone(), vec![order_by_child("score"), limit_to_last(1)])
+            .unwrap()
+            .on_value(move |result| {
+                if let Ok(snapshot) = result {
+                    captured.lock().unwrap().push(snapshot.value().clone());
+                }
+            })
+            .await
+            .unwrap();
 
         {
             let events = events.lock().unwrap();
@@ -2969,12 +2745,7 @@ mod tests {
             );
         }
 
-        scores
-            .child("d")
-            .unwrap()
-            .set(json!({ "score": 50 }))
-            .await
-            .unwrap();
+        scores.child("d").unwrap().set(json!({ "score": 50 })).await.unwrap();
 
         let events = events.lock().unwrap();
         assert_eq!(events.len(), 2);

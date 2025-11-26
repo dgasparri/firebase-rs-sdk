@@ -84,10 +84,7 @@ async fn seed_cities(client: &FirestoreClient) -> FirestoreResult<()> {
         data.insert("name".into(), FirestoreValue::from_string(name));
         data.insert("state".into(), FirestoreValue::from_string(state));
         data.insert("country".into(), FirestoreValue::from_string(country));
-        data.insert(
-            "population".into(),
-            FirestoreValue::from_integer(population),
-        );
+        data.insert("population".into(), FirestoreValue::from_integer(population));
         client.set_doc(&format!("cities/{id}"), data, None).await?;
     }
 

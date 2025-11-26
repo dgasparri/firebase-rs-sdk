@@ -105,15 +105,9 @@ impl Connection {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|err| internal_error(err.to_string()))?;
+        let response = request.send().await.map_err(|err| internal_error(err.to_string()))?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|err| internal_error(err.to_string()))?;
+        let text = response.text().await.map_err(|err| internal_error(err.to_string()))?;
         if status.is_success() {
             if text.is_empty() {
                 Ok(JsonValue::Null)
@@ -136,15 +130,9 @@ impl Connection {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|err| internal_error(err.to_string()))?;
+        let response = request.send().await.map_err(|err| internal_error(err.to_string()))?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|err| internal_error(err.to_string()))?;
+        let text = response.text().await.map_err(|err| internal_error(err.to_string()))?;
         if status.is_success() {
             if text.is_empty() {
                 Ok(Some(JsonValue::Null))
@@ -160,12 +148,7 @@ impl Connection {
         }
     }
 
-    fn build_request(
-        &self,
-        method: Method,
-        path: &str,
-        context: &RequestContext,
-    ) -> RequestBuilder {
+    fn build_request(&self, method: Method, path: &str, context: &RequestContext) -> RequestBuilder {
         let url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
         let mut builder = self.client.request(method, url);
         #[cfg(not(target_arch = "wasm32"))]

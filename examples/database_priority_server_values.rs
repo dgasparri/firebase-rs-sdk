@@ -66,9 +66,7 @@ async fn main() -> DatabaseResult<()> {
 
     // Later, adjust the priority and bump a counter atomically.
     set_priority(&task, priority_lower).await?;
-    let stats = database
-        .reference("stats/processed")
-        .expect("stats reference");
+    let stats = database.reference("stats/processed").expect("stats reference");
     stats.set(json!(0)).await?;
     stats.set(increment(increment_delta)).await?;
 

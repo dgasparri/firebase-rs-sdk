@@ -64,9 +64,7 @@ struct ErrorBody {
     status: String,
 }
 
-fn convert_auth_token(
-    response: GenerateAuthTokenResponse,
-) -> InstallationsResult<InstallationToken> {
+fn convert_auth_token(response: GenerateAuthTokenResponse) -> InstallationsResult<InstallationToken> {
     let expires_at = SystemTime::now() + parse_expires_in(&response.expires_in)?;
     Ok(InstallationToken {
         token: response.token,

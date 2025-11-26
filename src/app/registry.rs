@@ -8,8 +8,7 @@ use crate::app::types::{FirebaseApp, FirebaseServerApp, HeartbeatService};
 use crate::component::constants::DEFAULT_ENTRY_NAME;
 use crate::platform::runtime;
 
-pub static APPS: LazyLock<Mutex<HashMap<String, FirebaseApp>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+pub static APPS: LazyLock<Mutex<HashMap<String, FirebaseApp>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub static SERVER_APPS: LazyLock<Mutex<HashMap<String, FirebaseServerApp>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -19,9 +18,7 @@ pub(crate) fn apps_guard() -> MutexGuard<'static, HashMap<String, FirebaseApp>> 
 }
 
 pub(crate) fn server_apps_guard() -> MutexGuard<'static, HashMap<String, FirebaseServerApp>> {
-    SERVER_APPS
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
+    SERVER_APPS.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
 pub(crate) fn registered_components_guard() -> MutexGuard<'static, HashMap<Arc<str>, Component>> {
@@ -99,10 +96,7 @@ pub fn get_provider(app: &FirebaseApp, name: &str) -> Provider {
         let service_clone = service.clone();
         runtime::spawn_detached(async move {
             if let Err(err) = service_clone.trigger_heartbeat().await {
-                LOGGER.debug(format!(
-                    "Failed to trigger heartbeat for app {}: {}",
-                    app_name, err
-                ));
+                LOGGER.debug(format!("Failed to trigger heartbeat for app {}: {}", app_name, err));
             }
         });
     }
@@ -183,17 +177,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn add_component_attaches_to_app() {
         with_serialized_test(|| async {
-            let app = api::initialize_app(test_options(), None)
-                .await
-                .expect("app init");
+            let app = api::initialize_app(test_options(), None).await.expect("app init");
             let factory: InstanceFactory = Arc::new(|_, _| Ok(Arc::new(()) as DynService));
             let c = make_component("internal-comp", factory);
             add_component(&app, &c);
 
-            assert!(app
-                .container()
-                .get_provider("internal-comp")
-                .is_component_set());
+            assert!(app.container().get_provider("internal-comp").is_component_set());
         })
         .await;
     }
@@ -201,9 +190,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn add_or_overwrite_component_replaces_existing_instance() {
         with_serialized_test(|| async {
-            let app = api::initialize_app(test_options(), None)
-                .await
-                .expect("app init");
+            let app = api::initialize_app(test_options(), None).await.expect("app init");
 
             let counter = Arc::new(AtomicUsize::new(0));
             let base_counter = counter.clone();
@@ -244,9 +231,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn clear_components_drops_registry_entries() {
         with_serialized_test(|| async {
-            let app = api::initialize_app(test_options(), None)
-                .await
-                .expect("app init");
+            let app = api::initialize_app(test_options(), None).await.expect("app init");
             let factory: InstanceFactory = Arc::new(|_, _| Ok(Arc::new(()) as DynService));
             register_component(make_component("clearable", factory));
             assert!(registered_components_guard()
@@ -265,9 +250,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn register_component_propagates_to_existing_apps() {
         with_serialized_test(|| async {
-            let app = api::initialize_app(test_options(), None)
-                .await
-                .expect("app init");
+            let app = api::initialize_app(test_options(), None).await.expect("app init");
             let factory: InstanceFactory = Arc::new(|_, _| Ok(Arc::new("shared") as DynService));
 
             register_component(make_component("late", factory));
@@ -281,9 +264,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn register_component_attaches_when_already_registered() {
         with_serialized_test(|| async {
-            let app = api::initialize_app(test_options(), None)
-                .await
-                .expect("app init");
+            let app = api::initialize_app(test_options(), None).await.expect("app init");
             let factory: InstanceFactory = Arc::new(|_, _| Ok(Arc::new("shared") as DynService));
             let component = make_component("late", factory);
 
@@ -303,9 +284,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn get_provider_and_remove_service_instance_reset_cached_instance() {
         with_serialized_test(|| async {
-            let app = api::initialize_app(test_options(), None)
-                .await
-                .expect("app init");
+            let app = api::initialize_app(test_options(), None).await.expect("app init");
             let counter = Arc::new(AtomicUsize::new(0));
             let counter_clone = counter.clone();
             let factory: InstanceFactory = Arc::new(move |_, _| {
@@ -315,19 +294,11 @@ mod tests {
             add_component(&app, &make_component("provider", factory));
 
             let provider = get_provider(&app, "provider");
-            let first = provider
-                .get_immediate::<usize>()
-                .expect("first")
-                .as_ref()
-                .clone();
+            let first = provider.get_immediate::<usize>().expect("first").as_ref().clone();
             assert_eq!(first, 1);
 
             remove_service_instance(&app, "provider", None);
-            let second = provider
-                .get_immediate::<usize>()
-                .expect("second")
-                .as_ref()
-                .clone();
+            let second = provider.get_immediate::<usize>().expect("second").as_ref().clone();
             assert_eq!(second, 2);
         })
         .await;
@@ -342,10 +313,9 @@ mod tests {
                 app_check_token: None,
                 release_on_deref: Some(true),
             };
-            let server_app =
-                api::initialize_server_app(Some(test_options()), Some(server_settings))
-                    .await
-                    .expect("server app");
+            let server_app = api::initialize_server_app(Some(test_options()), Some(server_settings))
+                .await
+                .expect("server app");
             assert!(is_firebase_server_app(server_app.base()));
 
             drop(server_app);

@@ -21,16 +21,10 @@ pub(crate) fn apply_document_overlays(
     Ok(current)
 }
 
-fn apply_overlay_once(
-    current: Option<MapValue>,
-    write: &WriteOperation,
-) -> FirestoreResult<Option<MapValue>> {
+fn apply_overlay_once(current: Option<MapValue>, write: &WriteOperation) -> FirestoreResult<Option<MapValue>> {
     match write {
         WriteOperation::Set {
-            data,
-            mask,
-            transforms,
-            ..
+            data, mask, transforms, ..
         } => apply_set_overlay(current, data, mask.as_deref(), transforms),
         WriteOperation::Update {
             data,
@@ -50,10 +44,7 @@ fn apply_set_overlay(
 ) -> FirestoreResult<Option<MapValue>> {
     let mut fields = match mask {
         Some(mask) => {
-            let mut fields = current
-                .as_ref()
-                .map(|map| map.fields().clone())
-                .unwrap_or_default();
+            let mut fields = current.as_ref().map(|map| map.fields().clone()).unwrap_or_default();
             for path in mask {
                 if let Some(value) = value_for_field_path(data, path) {
                     set_value_at_field_path(&mut fields, path, value);
@@ -76,17 +67,11 @@ fn apply_update_overlay(
     field_paths: &[FieldPath],
     transforms: &[FieldTransform],
 ) -> FirestoreResult<Option<MapValue>> {
-    let mut fields = current
-        .as_ref()
-        .map(|map| map.fields().clone())
-        .unwrap_or_default();
+    let mut fields = current.as_ref().map(|map| map.fields().clone()).unwrap_or_default();
 
     for path in field_paths {
         let value = value_for_field_path(data, path).ok_or_else(|| {
-            invalid_argument(format!(
-                "Failed to resolve value for update path {}",
-                path.canonical_string()
-            ))
+            invalid_argument(format!("Failed to resolve value for update path {}", path.canonical_string()))
         })?;
         set_value_at_field_path(&mut fields, path, value);
     }
@@ -111,9 +96,7 @@ fn apply_field_transforms(
             TransformOperation::ServerTimestamp => FirestoreValue::from_timestamp(Timestamp::now()),
             TransformOperation::ArrayUnion(elements) => array_union(current_value, elements),
             TransformOperation::ArrayRemove(elements) => array_remove(current_value, elements),
-            TransformOperation::NumericIncrement(operand) => {
-                numeric_increment(current_value, operand)?
-            }
+            TransformOperation::NumericIncrement(operand) => numeric_increment(current_value, operand)?,
         };
         set_value_at_field_path(fields, path, new_value);
     }
@@ -156,10 +139,7 @@ fn array_remove(existing: Option<FirestoreValue>, removals: &[FirestoreValue]) -
     FirestoreValue::from_array(filtered)
 }
 
-fn numeric_increment(
-    existing: Option<FirestoreValue>,
-    operand: &FirestoreValue,
-) -> FirestoreResult<FirestoreValue> {
+fn numeric_increment(existing: Option<FirestoreValue>, operand: &FirestoreValue) -> FirestoreResult<FirestoreValue> {
     let result = match (existing, operand.kind()) {
         (Some(value), ValueKind::Integer(delta)) => match value.kind() {
             ValueKind::Integer(current) => {
@@ -179,11 +159,7 @@ fn numeric_increment(
         },
         (None, ValueKind::Integer(delta)) => FirestoreValue::from_integer(*delta),
         (None, ValueKind::Double(delta)) => FirestoreValue::from_double(*delta),
-        (_, _) => {
-            return Err(invalid_argument(
-                "FieldValue.increment() requires a numeric operand",
-            ))
-        }
+        (_, _) => return Err(invalid_argument("FieldValue.increment() requires a numeric operand")),
     };
 
     Ok(result)

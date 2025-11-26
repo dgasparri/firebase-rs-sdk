@@ -6,29 +6,13 @@ use std::sync::{Arc, Mutex as StdMutex};
 use async_lock::Mutex;
 use async_trait::async_trait;
 
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 use crate::firestore::model::DatabaseId;
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 use crate::firestore::remote::serializer::JsonProtoSerializer;
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 use base64::Engine;
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 use serde_json::{json, Value};
 
 use crate::firestore::api::query::compute_doc_changes;
@@ -44,9 +28,7 @@ use crate::firestore::remote::datastore::WriteOperation;
 use crate::firestore::remote::mutation::{MutationBatch, MutationBatchResult};
 use crate::firestore::remote::remote_event::RemoteEvent;
 use crate::firestore::remote::streams::write::WriteResult;
-use crate::firestore::remote::syncer_bridge::{
-    RemoteSyncerBridge, RemoteSyncerDelegate, TargetMetadataUpdate,
-};
+use crate::firestore::remote::syncer_bridge::{RemoteSyncerBridge, RemoteSyncerDelegate, TargetMetadataUpdate};
 use crate::firestore::remote::watch_change::WatchDocument;
 
 #[derive(Clone, Debug, Default)]
@@ -100,10 +82,7 @@ pub struct PersistedQueryViewState {
 impl PersistedQueryViewState {
     fn new(mut metadata: QuerySnapshotMetadata, documents: Vec<DocumentSnapshot>) -> Self {
         metadata.set_sync_state_changed(false);
-        Self {
-            metadata,
-            documents,
-        }
+        Self { metadata, documents }
     }
 
     fn metadata(&self) -> &QuerySnapshotMetadata {
@@ -187,17 +166,12 @@ impl MemoryLocalStore {
     }
 
     pub fn with_persistence(persistence: Arc<dyn LocalStorePersistence>) -> Arc<Self> {
-        let store =
-            Arc::new(Self::new_internal(Some(Arc::clone(&persistence)))) as Arc<MemoryLocalStore>;
+        let store = Arc::new(Self::new_internal(Some(Arc::clone(&persistence)))) as Arc<MemoryLocalStore>;
         persistence.schedule_initial_load(Arc::clone(&store));
         store
     }
 
-    #[cfg(all(
-        feature = "wasm-web",
-        feature = "experimental-indexed-db",
-        target_arch = "wasm32"
-    ))]
+    #[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
     pub fn new_with_indexed_db(db_name: impl Into<String>) -> Arc<Self> {
         let persistence = Arc::new(IndexedDbPersistence::new(db_name));
         Self::with_persistence(persistence)
@@ -209,9 +183,7 @@ impl MemoryLocalStore {
         writes: Vec<WriteOperation>,
     ) -> FirestoreResult<i32> {
         if writes.is_empty() {
-            return Err(invalid_argument(
-                "mutation batch must contain at least one write",
-            ));
+            return Err(invalid_argument("mutation batch must contain at least one write"));
         }
 
         let batch_id = self.next_batch_id.fetch_add(1, Ordering::SeqCst);
@@ -302,11 +274,7 @@ impl MemoryLocalStore {
     }
 
     pub fn target_metadata_snapshot(&self, target_id: i32) -> Option<TargetMetadataSnapshot> {
-        self.target_metadata
-            .lock()
-            .unwrap()
-            .get(&target_id)
-            .cloned()
+        self.target_metadata.lock().unwrap().get(&target_id).cloned()
     }
 
     pub fn limbo_documents_snapshot(&self) -> BTreeSet<DocumentKey> {
@@ -337,18 +305,11 @@ impl MemoryLocalStore {
     }
 
     pub fn restore_query_view_state(&self, target_id: i32, state: PersistedQueryViewState) {
-        self.restored_query_views
-            .lock()
-            .unwrap()
-            .insert(target_id, state);
+        self.restored_query_views.lock().unwrap().insert(target_id, state);
     }
 
     fn stored_query_view_state(&self, target_id: i32) -> Option<PersistedQueryViewState> {
-        self.restored_query_views
-            .lock()
-            .unwrap()
-            .get(&target_id)
-            .cloned()
+        self.restored_query_views.lock().unwrap().get(&target_id).cloned()
     }
 
     fn record_query_view_state(
@@ -395,22 +356,13 @@ impl MemoryLocalStore {
         };
 
         if let Some(callback) = callback {
-            let snapshot = QuerySnapshot::new(
-                query,
-                state.clone_documents(),
-                state.metadata().clone(),
-                Vec::new(),
-            );
+            let snapshot = QuerySnapshot::new(query, state.clone_documents(), state.metadata().clone(), Vec::new());
             (callback)(snapshot);
         }
     }
 
     pub async fn restore_overlay_key(&self, key: DocumentKey) {
-        self.overlays
-            .lock()
-            .await
-            .entry(key)
-            .or_insert_with(Vec::new);
+        self.overlays.lock().await.entry(key).or_insert_with(Vec::new);
     }
 
     async fn document_snapshot_for_key(
@@ -428,10 +380,7 @@ impl MemoryLocalStore {
             guard.get(key).cloned()
         };
 
-        let has_overlay = overlay_ops
-            .as_ref()
-            .map(|ops| !ops.is_empty())
-            .unwrap_or(false);
+        let has_overlay = overlay_ops.as_ref().map(|ops| !ops.is_empty()).unwrap_or(false);
 
         let mut data = maybe_doc.map(|doc| doc.fields.clone());
         if let Some(ops) = overlay_ops.as_ref() {
@@ -444,11 +393,7 @@ impl MemoryLocalStore {
         Ok(DocumentSnapshot::new(key.clone(), data, metadata))
     }
 
-    async fn compute_query_state(
-        &self,
-        target_id: i32,
-        query: &Query,
-    ) -> FirestoreResult<QueryViewState> {
+    async fn compute_query_state(&self, target_id: i32, query: &Query) -> FirestoreResult<QueryViewState> {
         let target_snapshot = self.target_metadata_snapshot(target_id);
         let from_cache = target_snapshot
             .as_ref()
@@ -457,9 +402,7 @@ impl MemoryLocalStore {
         let resume_token = target_snapshot
             .as_ref()
             .and_then(|snapshot| snapshot.resume_token.clone());
-        let snapshot_version = target_snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.snapshot_version);
+        let snapshot_version = target_snapshot.as_ref().and_then(|snapshot| snapshot.snapshot_version);
 
         let definition = query.definition();
 
@@ -503,8 +446,7 @@ impl MemoryLocalStore {
         previous_documents: Option<&[DocumentSnapshot]>,
     ) -> FirestoreResult<QuerySnapshot> {
         let state = self.compute_query_state(target_id, query).await?;
-        let previous_documents =
-            previous_documents.and_then(|docs| if docs.is_empty() { None } else { Some(docs) });
+        let previous_documents = previous_documents.and_then(|docs| if docs.is_empty() { None } else { Some(docs) });
         let doc_changes = compute_doc_changes(previous_documents, &state.documents);
 
         let mut metadata = QuerySnapshotMetadata::new(
@@ -523,12 +465,7 @@ impl MemoryLocalStore {
             metadata.set_sync_state_changed(true);
         }
 
-        Ok(QuerySnapshot::new(
-            query.clone(),
-            state.documents,
-            metadata,
-            doc_changes,
-        ))
+        Ok(QuerySnapshot::new(query.clone(), state.documents, metadata, doc_changes))
     }
 
     async fn emit_query_snapshot(&self, target_id: i32) -> FirestoreResult<()> {
@@ -540,8 +477,7 @@ impl MemoryLocalStore {
         if let Some(entries) = listeners {
             let mut updates: Vec<(u64, QuerySnapshotMetadata, Vec<DocumentSnapshot>)> = Vec::new();
             let mut callbacks = Vec::new();
-            let mut state_for_persistence: Option<(QuerySnapshotMetadata, Vec<DocumentSnapshot>)> =
-                None;
+            let mut state_for_persistence: Option<(QuerySnapshotMetadata, Vec<DocumentSnapshot>)> = None;
 
             for entry in entries {
                 let previous_docs = if entry.last_documents.is_empty() {
@@ -550,12 +486,7 @@ impl MemoryLocalStore {
                     Some(entry.last_documents.as_slice())
                 };
                 let snapshot = self
-                    .build_query_snapshot(
-                        target_id,
-                        &entry.query,
-                        entry.last_metadata.as_ref(),
-                        previous_docs,
-                    )
+                    .build_query_snapshot(target_id, &entry.query, entry.last_metadata.as_ref(), previous_docs)
                     .await?;
                 let metadata = snapshot.metadata().clone();
                 let documents = snapshot.documents().to_vec();
@@ -694,8 +625,7 @@ impl MemoryLocalStore {
         query: Query,
         callback: QueryListenerCallback,
     ) -> FirestoreResult<QueryListenerRegistration> {
-        self.register_query_listener_internal(target_id, query, callback)
-            .await
+        self.register_query_listener_internal(target_id, query, callback).await
     }
 
     async fn clear_all(&self) {
@@ -775,8 +705,7 @@ impl QueryListenerRegistration {
 
     pub fn detach(&mut self) {
         if !self.detached {
-            self.store
-                .remove_query_listener(self.target_id, self.listener_id);
+            self.store.remove_query_listener(self.target_id, self.listener_id);
             self.detached = true;
         }
     }
@@ -785,8 +714,7 @@ impl QueryListenerRegistration {
 impl Drop for QueryListenerRegistration {
     fn drop(&mut self) {
         if !self.detached {
-            self.store
-                .remove_query_listener(self.target_id, self.listener_id);
+            self.store.remove_query_listener(self.target_id, self.listener_id);
         }
     }
 }
@@ -819,10 +747,7 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
             let persistence = self.persistence.as_ref().map(Arc::clone);
             let keys: Vec<_> = event.document_updates.keys().cloned().collect();
             let mut overlays = self.overlays.lock().await;
-            let cleared: Vec<_> = keys
-                .into_iter()
-                .filter(|key| overlays.remove(key).is_some())
-                .collect();
+            let cleared: Vec<_> = keys.into_iter().filter(|key| overlays.remove(key).is_some()).collect();
             if let Some(persistence) = persistence {
                 for key in cleared {
                     persistence.clear_document_overlay(&key);
@@ -882,11 +807,7 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
         Ok(())
     }
 
-    async fn handle_rejected_listen(
-        &self,
-        target_id: i32,
-        error: FirestoreError,
-    ) -> FirestoreResult<()> {
+    async fn handle_rejected_listen(&self, target_id: i32, error: FirestoreError) -> FirestoreResult<()> {
         self.rejected_targets.lock().await.push((target_id, error));
         Ok(())
     }
@@ -905,10 +826,7 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
         let keys = result.batch.document_keys();
         if !keys.is_empty() {
             let mut overlays = self.overlays.lock().await;
-            let cleared: Vec<_> = keys
-                .into_iter()
-                .filter(|key| overlays.remove(key).is_some())
-                .collect();
+            let cleared: Vec<_> = keys.into_iter().filter(|key| overlays.remove(key).is_some()).collect();
             if let Some(persistence) = persistence {
                 for key in cleared {
                     persistence.clear_document_overlay(&key);
@@ -919,11 +837,7 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
         Ok(())
     }
 
-    async fn handle_failed_write(
-        &self,
-        batch_id: i32,
-        error: FirestoreError,
-    ) -> FirestoreResult<()> {
+    async fn handle_failed_write(&self, batch_id: i32, error: FirestoreError) -> FirestoreResult<()> {
         {
             let mut outstanding = self.outstanding_batches.lock().await;
             if let Some(pos) = outstanding.iter().position(|id| *id == batch_id) {
@@ -991,10 +905,7 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
             for key in removed_documents {
                 entry.remote_keys.remove(&key);
             }
-            for key in added_documents
-                .into_iter()
-                .chain(modified_documents.into_iter())
-            {
+            for key in added_documents.into_iter().chain(modified_documents.into_iter()) {
                 entry.remote_keys.insert(key);
             }
             entry.clone()
@@ -1059,11 +970,7 @@ impl RemoteSyncerDelegate for MemoryLocalStore {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 #[derive(Clone, Debug)]
 struct IndexedDbPersistence {
     db_name: String,
@@ -1073,30 +980,14 @@ struct IndexedDbPersistence {
     version: u32,
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 const TARGETS_CATALOG_KEY: &str = "__targets_catalog__";
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 const OVERLAYS_CATALOG_KEY: &str = "__overlays_catalog__";
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 const VIEW_STATES_CATALOG_KEY: &str = "__view_states_catalog__";
 
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 impl IndexedDbPersistence {
     fn new(db_name: impl Into<String>) -> Self {
         Self {
@@ -1122,10 +1013,7 @@ impl IndexedDbPersistence {
     fn encode_view_metadata(metadata: &QuerySnapshotMetadata) -> Value {
         let mut object = serde_json::Map::new();
         object.insert("fromCache".into(), json!(metadata.from_cache()));
-        object.insert(
-            "hasPendingWrites".into(),
-            json!(metadata.has_pending_writes()),
-        );
+        object.insert("hasPendingWrites".into(), json!(metadata.has_pending_writes()));
         if let Some(token) = metadata.resume_token() {
             object.insert(
                 "resumeToken".into(),
@@ -1146,15 +1034,9 @@ impl IndexedDbPersistence {
 
     fn encode_document(serializer: &JsonProtoSerializer, snapshot: &DocumentSnapshot) -> Value {
         let mut object = serde_json::Map::new();
-        object.insert(
-            "key".into(),
-            json!(snapshot.document_key().path().canonical_string()),
-        );
+        object.insert("key".into(), json!(snapshot.document_key().path().canonical_string()));
         object.insert("fromCache".into(), json!(snapshot.from_cache()));
-        object.insert(
-            "hasPendingWrites".into(),
-            json!(snapshot.has_pending_writes()),
-        );
+        object.insert("hasPendingWrites".into(), json!(snapshot.has_pending_writes()));
         if let Some(map) = snapshot.map_value() {
             object.insert("fields".into(), serializer.encode_document_fields(map));
         }
@@ -1177,14 +1059,8 @@ impl IndexedDbPersistence {
 
     fn decode_view_metadata(value: &Value) -> Option<QuerySnapshotMetadata> {
         let object = value.as_object()?;
-        let from_cache = object
-            .get("fromCache")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let has_pending = object
-            .get("hasPendingWrites")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let from_cache = object.get("fromCache").and_then(Value::as_bool).unwrap_or(false);
+        let has_pending = object.get("hasPendingWrites").and_then(Value::as_bool).unwrap_or(false);
         let resume_token = object
             .get("resumeToken")
             .and_then(Value::as_str)
@@ -1203,21 +1079,12 @@ impl IndexedDbPersistence {
         ))
     }
 
-    fn decode_document(
-        serializer: &JsonProtoSerializer,
-        value: &Value,
-    ) -> Option<DocumentSnapshot> {
+    fn decode_document(serializer: &JsonProtoSerializer, value: &Value) -> Option<DocumentSnapshot> {
         let object = value.as_object()?;
         let key_str = object.get("key")?.as_str()?;
         let key = DocumentKey::from_string(key_str).ok()?;
-        let from_cache = object
-            .get("fromCache")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let has_pending = object
-            .get("hasPendingWrites")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let from_cache = object.get("fromCache").and_then(Value::as_bool).unwrap_or(false);
+        let has_pending = object.get("hasPendingWrites").and_then(Value::as_bool).unwrap_or(false);
         let data = if let Some(fields) = object.get("fields") {
             serializer.decode_document_fields(fields).ok().flatten()
         } else {
@@ -1285,8 +1152,7 @@ impl IndexedDbPersistence {
         store: &str,
         catalog_key: &str,
     ) -> crate::platform::browser::indexed_db::IndexedDbResult<BTreeSet<String>> {
-        let existing =
-            crate::platform::browser::indexed_db::get_string(db, store, catalog_key).await?;
+        let existing = crate::platform::browser::indexed_db::get_string(db, store, catalog_key).await?;
         if let Some(json) = existing {
             let parsed: Value = serde_json::from_str(&json).unwrap_or_else(|_| json!([]));
             if let Some(array) = parsed.as_array() {
@@ -1325,21 +1191,14 @@ impl IndexedDbPersistence {
             let nanos = json.get("nanos")?.as_i64()? as i32;
             Some(Timestamp::new(seconds, nanos))
         });
-        let current = value
-            .get("current")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let current = value.get("current").and_then(Value::as_bool).unwrap_or(false);
         let remote_keys = value
             .get("remoteKeys")
             .and_then(Value::as_array)
             .map(|array| {
                 array
                     .iter()
-                    .filter_map(|entry| {
-                        entry
-                            .as_str()
-                            .and_then(|path| DocumentKey::from_string(path).ok())
-                    })
+                    .filter_map(|entry| entry.as_str().and_then(|path| DocumentKey::from_string(path).ok()))
                     .collect::<BTreeSet<_>>()
             })
             .unwrap_or_default();
@@ -1367,23 +1226,13 @@ impl IndexedDbPersistence {
         let version = self.version;
 
         self.spawn(async move {
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name,
-                version,
-                &targets_store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &targets_store).await
             {
-                if let Ok(catalog) =
-                    Self::get_catalog(&db, &targets_store, TARGETS_CATALOG_KEY).await
-                {
+                if let Ok(catalog) = Self::get_catalog(&db, &targets_store, TARGETS_CATALOG_KEY).await {
                     for target_key in catalog {
-                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
-                            &db,
-                            &targets_store,
-                            &target_key,
-                        )
-                        .await
+                        if let Ok(Some(payload)) =
+                            crate::platform::browser::indexed_db::get_string(&db, &targets_store, &target_key).await
                         {
                             if let Some(snapshot) = Self::decode_target_snapshot(&payload) {
                                 store.restore_target_snapshot(snapshot);
@@ -1393,23 +1242,13 @@ impl IndexedDbPersistence {
                 }
             }
 
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name,
-                version,
-                &overlays_store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &overlays_store).await
             {
-                if let Ok(catalog) =
-                    Self::get_catalog(&db, &overlays_store, OVERLAYS_CATALOG_KEY).await
-                {
+                if let Ok(catalog) = Self::get_catalog(&db, &overlays_store, OVERLAYS_CATALOG_KEY).await {
                     for key_path in catalog {
-                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
-                            &db,
-                            &overlays_store,
-                            &key_path,
-                        )
-                        .await
+                        if let Ok(Some(payload)) =
+                            crate::platform::browser::indexed_db::get_string(&db, &overlays_store, &key_path).await
                         {
                             if let Some(key) = Self::decode_overlay(&payload) {
                                 store.restore_overlay_key(key).await;
@@ -1419,23 +1258,14 @@ impl IndexedDbPersistence {
                 }
             }
 
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name,
-                version,
-                &view_states_store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &view_states_store)
+                    .await
             {
-                if let Ok(catalog) =
-                    Self::get_catalog(&db, &view_states_store, VIEW_STATES_CATALOG_KEY).await
-                {
+                if let Ok(catalog) = Self::get_catalog(&db, &view_states_store, VIEW_STATES_CATALOG_KEY).await {
                     for key in catalog {
-                        if let Ok(Some(payload)) = crate::platform::browser::indexed_db::get_string(
-                            &db,
-                            &view_states_store,
-                            &key,
-                        )
-                        .await
+                        if let Ok(Some(payload)) =
+                            crate::platform::browser::indexed_db::get_string(&db, &view_states_store, &key).await
                         {
                             if let Ok(target_id) = key.parse::<i32>() {
                                 if let Some(state) = Self::decode_view_state(&payload) {
@@ -1450,11 +1280,7 @@ impl IndexedDbPersistence {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 impl LocalStorePersistence for IndexedDbPersistence {
     fn save_target_metadata(&self, snapshot: TargetMetadataSnapshot) {
         let store = self.targets_store.clone();
@@ -1463,18 +1289,13 @@ impl LocalStorePersistence for IndexedDbPersistence {
         let payload = Self::encode_target_snapshot(&snapshot);
         let key = snapshot.target_id.to_string();
         self.spawn(async move {
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name, version, &store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &store).await
             {
-                let _ =
-                    crate::platform::browser::indexed_db::put_string(&db, &store, &key, &payload)
-                        .await;
+                let _ = crate::platform::browser::indexed_db::put_string(&db, &store, &key, &payload).await;
                 if let Ok(mut catalog) = Self::get_catalog(&db, &store, TARGETS_CATALOG_KEY).await {
                     if catalog.insert(key.clone()) {
-                        let _ =
-                            Self::save_catalog(&db, &store, TARGETS_CATALOG_KEY, &catalog).await;
+                        let _ = Self::save_catalog(&db, &store, TARGETS_CATALOG_KEY, &catalog).await;
                     }
                 }
             }
@@ -1487,16 +1308,13 @@ impl LocalStorePersistence for IndexedDbPersistence {
         let version = self.version;
         let key = target_id.to_string();
         self.spawn(async move {
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name, version, &store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &store).await
             {
                 let _ = crate::platform::browser::indexed_db::delete_key(&db, &store, &key).await;
                 if let Ok(mut catalog) = Self::get_catalog(&db, &store, TARGETS_CATALOG_KEY).await {
                     if catalog.remove(&key) {
-                        let _ =
-                            Self::save_catalog(&db, &store, TARGETS_CATALOG_KEY, &catalog).await;
+                        let _ = Self::save_catalog(&db, &store, TARGETS_CATALOG_KEY, &catalog).await;
                     }
                 }
             }
@@ -1510,20 +1328,13 @@ impl LocalStorePersistence for IndexedDbPersistence {
         let key_path = key.path().canonical_string();
         let payload = Self::encode_overlay(key, overlay);
         self.spawn(async move {
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name, version, &store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &store).await
             {
-                let _ = crate::platform::browser::indexed_db::put_string(
-                    &db, &store, &key_path, &payload,
-                )
-                .await;
-                if let Ok(mut catalog) = Self::get_catalog(&db, &store, OVERLAYS_CATALOG_KEY).await
-                {
+                let _ = crate::platform::browser::indexed_db::put_string(&db, &store, &key_path, &payload).await;
+                if let Ok(mut catalog) = Self::get_catalog(&db, &store, OVERLAYS_CATALOG_KEY).await {
                     if catalog.insert(key_path.clone()) {
-                        let _ =
-                            Self::save_catalog(&db, &store, OVERLAYS_CATALOG_KEY, &catalog).await;
+                        let _ = Self::save_catalog(&db, &store, OVERLAYS_CATALOG_KEY, &catalog).await;
                     }
                 }
             }
@@ -1536,18 +1347,13 @@ impl LocalStorePersistence for IndexedDbPersistence {
         let version = self.version;
         let key_path = key.path().canonical_string();
         self.spawn(async move {
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name, version, &store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &store).await
             {
-                let _ =
-                    crate::platform::browser::indexed_db::delete_key(&db, &store, &key_path).await;
-                if let Ok(mut catalog) = Self::get_catalog(&db, &store, OVERLAYS_CATALOG_KEY).await
-                {
+                let _ = crate::platform::browser::indexed_db::delete_key(&db, &store, &key_path).await;
+                if let Ok(mut catalog) = Self::get_catalog(&db, &store, OVERLAYS_CATALOG_KEY).await {
                     if catalog.remove(&key_path) {
-                        let _ =
-                            Self::save_catalog(&db, &store, OVERLAYS_CATALOG_KEY, &catalog).await;
+                        let _ = Self::save_catalog(&db, &store, OVERLAYS_CATALOG_KEY, &catalog).await;
                     }
                 }
             }
@@ -1561,20 +1367,13 @@ impl LocalStorePersistence for IndexedDbPersistence {
         let key = target_id.to_string();
         let payload = Self::encode_view_state(state);
         self.spawn(async move {
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name, version, &store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &store).await
             {
-                let _ =
-                    crate::platform::browser::indexed_db::put_string(&db, &store, &key, &payload)
-                        .await;
-                if let Ok(mut catalog) =
-                    Self::get_catalog(&db, &store, VIEW_STATES_CATALOG_KEY).await
-                {
+                let _ = crate::platform::browser::indexed_db::put_string(&db, &store, &key, &payload).await;
+                if let Ok(mut catalog) = Self::get_catalog(&db, &store, VIEW_STATES_CATALOG_KEY).await {
                     if catalog.insert(key.clone()) {
-                        let _ = Self::save_catalog(&db, &store, VIEW_STATES_CATALOG_KEY, &catalog)
-                            .await;
+                        let _ = Self::save_catalog(&db, &store, VIEW_STATES_CATALOG_KEY, &catalog).await;
                     }
                 }
             }
@@ -1587,18 +1386,13 @@ impl LocalStorePersistence for IndexedDbPersistence {
         let version = self.version;
         let key = target_id.to_string();
         self.spawn(async move {
-            if let Ok(db) = crate::platform::browser::indexed_db::open_database_with_store(
-                &db_name, version, &store,
-            )
-            .await
+            if let Ok(db) =
+                crate::platform::browser::indexed_db::open_database_with_store(&db_name, version, &store).await
             {
                 let _ = crate::platform::browser::indexed_db::delete_key(&db, &store, &key).await;
-                if let Ok(mut catalog) =
-                    Self::get_catalog(&db, &store, VIEW_STATES_CATALOG_KEY).await
-                {
+                if let Ok(mut catalog) = Self::get_catalog(&db, &store, VIEW_STATES_CATALOG_KEY).await {
                     if catalog.remove(&key) {
-                        let _ = Self::save_catalog(&db, &store, VIEW_STATES_CATALOG_KEY, &catalog)
-                            .await;
+                        let _ = Self::save_catalog(&db, &store, VIEW_STATES_CATALOG_KEY, &catalog).await;
                     }
                 }
             }
@@ -1628,9 +1422,7 @@ mod tests {
     use crate::firestore::api::database::{get_firestore, Firestore};
     use crate::firestore::api::query::{DocumentChangeType, Query};
     use crate::firestore::model::{DatabaseId, ResourcePath};
-    use crate::firestore::remote::datastore::{
-        NoopTokenProvider, StreamingDatastoreImpl, TokenProviderArc,
-    };
+    use crate::firestore::remote::datastore::{NoopTokenProvider, StreamingDatastoreImpl, TokenProviderArc};
     use crate::firestore::remote::network::NetworkLayer;
     use crate::firestore::remote::remote_event::RemoteEvent;
     use crate::firestore::remote::remote_store::RemoteStore;
@@ -1675,10 +1467,7 @@ mod tests {
         fn clear_document_overlay(&self, _: &DocumentKey) {}
 
         fn save_query_view_state(&self, target_id: i32, state: &PersistedQueryViewState) {
-            self.view_states
-                .lock()
-                .unwrap()
-                .insert(target_id, state.clone());
+            self.view_states.lock().unwrap().insert(target_id, state.clone());
         }
 
         fn clear_query_view_state(&self, target_id: i32) {
@@ -1710,10 +1499,7 @@ mod tests {
     fn unique_app_settings() -> FirebaseAppSettings {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "firestore-memory-local-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("firestore-memory-local-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -1748,35 +1534,23 @@ mod tests {
         let server_connection = Arc::new(MultiplexedConnection::new(server_transport));
 
         let datastore = StreamingDatastoreImpl::new(Arc::clone(&client_connection));
-        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> =
-            Arc::new(datastore);
+        let datastore: Arc<dyn crate::firestore::remote::datastore::StreamingDatastore> = Arc::new(datastore);
         let token_provider: TokenProviderArc = Arc::new(NoopTokenProvider::default());
         let network = NetworkLayer::builder(datastore, token_provider).build();
         let serializer = JsonProtoSerializer::new(DatabaseId::new("test", "(default)"));
 
         let local_store = Arc::new(MemoryLocalStore::new());
         let bridge = Arc::new(RemoteSyncerBridge::new(Arc::clone(&local_store)));
-        let remote_store = RemoteStore::new(
-            network,
-            serializer.clone(),
-            bridge.clone() as Arc<dyn RemoteSyncer>,
-        );
+        let remote_store = RemoteStore::new(network, serializer.clone(), bridge.clone() as Arc<dyn RemoteSyncer>);
 
         remote_store.enable_network().await.expect("enable network");
 
         let target = ListenTarget::for_query(&serializer, 1, &query_definition()).unwrap();
         remote_store.listen(target).await.expect("listen target");
 
-        let listen_stream = server_connection
-            .open_stream()
-            .await
-            .expect("listen stream");
+        let listen_stream = server_connection.open_stream().await.expect("listen stream");
 
-        let add_target = listen_stream
-            .next()
-            .await
-            .expect("addTarget frame")
-            .expect("payload");
+        let add_target = listen_stream.next().await.expect("addTarget frame").expect("payload");
         let add_json: serde_json::Value = serde_json::from_slice(&add_target).unwrap();
         assert!(add_json.get("addTarget").is_some());
 
@@ -1810,11 +1584,7 @@ mod tests {
 
         let write_stream = server_connection.open_stream().await.expect("write stream");
 
-        let handshake = write_stream
-            .next()
-            .await
-            .expect("handshake frame")
-            .expect("payload");
+        let handshake = write_stream.next().await.expect("handshake frame").expect("payload");
         let handshake_json: serde_json::Value = serde_json::from_slice(&handshake).unwrap();
         assert_eq!(
             handshake_json.get("database"),
@@ -1830,11 +1600,7 @@ mod tests {
             .await
             .expect("send handshake response");
 
-        let write_request = write_stream
-            .next()
-            .await
-            .expect("write frame")
-            .expect("payload");
+        let write_request = write_stream.next().await.expect("write frame").expect("payload");
         let write_json: serde_json::Value = serde_json::from_slice(&write_request).unwrap();
         let writes = write_json
             .get("writes")
@@ -1938,10 +1704,7 @@ mod tests {
 
         let key = DocumentKey::from_string("cities/sf").unwrap();
         let mut fields = BTreeMap::new();
-        fields.insert(
-            "name".to_string(),
-            FirestoreValue::from_string("San Francisco"),
-        );
+        fields.insert("name".to_string(), FirestoreValue::from_string("San Francisco"));
         let data = MapValue::new(fields);
         let write = WriteOperation::Set {
             key: key.clone(),
@@ -2051,10 +1814,7 @@ mod tests {
         raw_persistence.save_target_metadata(metadata_snapshot);
 
         let mut fields = BTreeMap::new();
-        fields.insert(
-            "name".to_string(),
-            FirestoreValue::from_string("San Francisco"),
-        );
+        fields.insert("name".to_string(), FirestoreValue::from_string("San Francisco"));
         let map = MapValue::new(fields);
         let watch_doc = WatchDocument {
             key: key.clone(),
@@ -2111,20 +1871,11 @@ mod tests {
             let snapshot = guard[0].clone();
             assert_eq!(snapshot.doc_changes().len(), 0);
             assert_eq!(snapshot.documents().len(), 1);
-            assert_eq!(
-                snapshot.resume_token().map(|token| token.to_vec()),
-                Some(vec![1, 2, 3])
-            );
-            assert_eq!(
-                snapshot.snapshot_version().map(|ts| (ts.seconds, ts.nanos)),
-                Some((42, 0))
-            );
+            assert_eq!(snapshot.resume_token().map(|token| token.to_vec()), Some(vec![1, 2, 3]));
+            assert_eq!(snapshot.snapshot_version().map(|ts| (ts.seconds, ts.nanos)), Some((42, 0)));
             let doc = &snapshot.documents()[0];
             let data = doc.data().expect("document data");
-            assert_eq!(
-                data.get("name").cloned(),
-                Some(FirestoreValue::from_string("San Francisco"))
-            );
+            assert_eq!(data.get("name").cloned(), Some(FirestoreValue::from_string("San Francisco")));
         }
 
         drop(registration);

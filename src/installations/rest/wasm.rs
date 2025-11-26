@@ -6,14 +6,12 @@ use web_sys::{Request, RequestInit, RequestMode, Response, Window};
 
 use crate::installations::config::AppConfig;
 use crate::installations::error::{
-    internal_error, invalid_argument, request_failed as request_failed_err, InstallationsError,
-    InstallationsResult,
+    internal_error, invalid_argument, request_failed as request_failed_err, InstallationsError, InstallationsResult,
 };
 
 use super::{
-    convert_auth_token, CreateInstallationRequest, GenerateAuthTokenInstallation,
-    GenerateAuthTokenRequest, RegisteredInstallation, INSTALLATIONS_API_URL, INTERNAL_AUTH_VERSION,
-    SDK_VERSION,
+    convert_auth_token, CreateInstallationRequest, GenerateAuthTokenInstallation, GenerateAuthTokenRequest,
+    RegisteredInstallation, INSTALLATIONS_API_URL, INTERNAL_AUTH_VERSION, SDK_VERSION,
 };
 
 #[derive(Clone, Debug)]
@@ -23,18 +21,14 @@ pub struct RestClient {
 
 impl RestClient {
     pub fn new() -> InstallationsResult<Self> {
-        let base_url = std::env::var("FIREBASE_INSTALLATIONS_API_URL")
-            .unwrap_or_else(|_| INSTALLATIONS_API_URL.to_string());
+        let base_url =
+            std::env::var("FIREBASE_INSTALLATIONS_API_URL").unwrap_or_else(|_| INSTALLATIONS_API_URL.to_string());
         Self::with_base_url(&base_url)
     }
 
     pub fn with_base_url(base_url: &str) -> InstallationsResult<Self> {
-        let base_url = url::Url::parse(base_url).map_err(|err| {
-            invalid_argument(format!(
-                "Invalid installations endpoint '{}': {}",
-                base_url, err
-            ))
-        })?;
+        let base_url = url::Url::parse(base_url)
+            .map_err(|err| invalid_argument(format!("Invalid installations endpoint '{}': {}", base_url, err)))?;
         Ok(Self { base_url })
     }
 
@@ -59,14 +53,10 @@ impl RestClient {
             ("x-goog-api-key", config.api_key.clone()),
         ];
 
-        let response = self
-            .send_with_retry(&url, "POST", &headers, Some(body))
-            .await?;
+        let response = self.send_with_retry(&url, "POST", &headers, Some(body)).await?;
 
         if response.ok() {
-            let parsed = self
-                .parse_json::<super::CreateInstallationResponse>(&response)
-                .await?;
+            let parsed = self.parse_json::<super::CreateInstallationResponse>(&response).await?;
             return Ok(RegisteredInstallation {
                 fid: parsed.fid.unwrap_or_else(|| fid.to_owned()),
                 refresh_token: parsed.refresh_token,
@@ -105,20 +95,13 @@ impl RestClient {
             ("content-type", "application/json".to_string()),
             ("accept", "application/json".to_string()),
             ("x-goog-api-key", config.api_key.clone()),
-            (
-                "authorization",
-                format!("{} {}", INTERNAL_AUTH_VERSION, refresh_token),
-            ),
+            ("authorization", format!("{} {}", INTERNAL_AUTH_VERSION, refresh_token)),
         ];
 
-        let response = self
-            .send_with_retry(&url, "POST", &headers, Some(body))
-            .await?;
+        let response = self.send_with_retry(&url, "POST", &headers, Some(body)).await?;
 
         if response.ok() {
-            let parsed = self
-                .parse_json::<super::GenerateAuthTokenResponse>(&response)
-                .await?;
+            let parsed = self.parse_json::<super::GenerateAuthTokenResponse>(&response).await?;
             return super::convert_auth_token(parsed);
         }
 
@@ -135,10 +118,7 @@ impl RestClient {
         let headers = vec![
             ("accept", "application/json".to_string()),
             ("x-goog-api-key", config.api_key.clone()),
-            (
-                "authorization",
-                format!("{} {}", INTERNAL_AUTH_VERSION, refresh_token),
-            ),
+            ("authorization", format!("{} {}", INTERNAL_AUTH_VERSION, refresh_token)),
         ];
 
         let response = self.send_with_retry(&url, "DELETE", &headers, None).await?;
@@ -150,11 +130,7 @@ impl RestClient {
         }
     }
 
-    fn installations_endpoint(
-        &self,
-        config: &AppConfig,
-        fid: Option<&str>,
-    ) -> InstallationsResult<url::Url> {
+    fn installations_endpoint(&self, config: &AppConfig, fid: Option<&str>) -> InstallationsResult<url::Url> {
         let mut url = self.base_url.clone();
         {
             let mut segments = url
@@ -226,14 +202,11 @@ impl RestClient {
         T: serde::de::DeserializeOwned,
     {
         let text = self.response_text(response).await?;
-        serde_json::from_str(&text)
-            .map_err(|err| internal_error(format!("Invalid response payload: {}", err)))
+        serde_json::from_str(&text).map_err(|err| internal_error(format!("Invalid response payload: {}", err)))
     }
 
     async fn response_text(&self, response: &Response) -> InstallationsResult<String> {
-        let promise = response
-            .text()
-            .map_err(|err| internal_error(js_value_to_string(err)))?;
+        let promise = response.text().map_err(|err| internal_error(js_value_to_string(err)))?;
         let value = JsFuture::from(promise)
             .await
             .map_err(|err| internal_error(js_value_to_string(err)))?;

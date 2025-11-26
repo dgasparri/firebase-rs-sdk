@@ -3,9 +3,7 @@ use std::cmp::Ordering;
 use crate::firestore::api::snapshot::DocumentSnapshot;
 use crate::firestore::model::FieldPath;
 use crate::firestore::value::{FirestoreValue, MapValue, ValueKind};
-use crate::firestore::{
-    Bound, FieldFilter, FilterOperator, LimitType, OrderBy, OrderDirection, QueryDefinition,
-};
+use crate::firestore::{Bound, FieldFilter, FilterOperator, LimitType, OrderBy, OrderDirection, QueryDefinition};
 
 /// Applies the provided query definition to a set of candidate documents and returns
 /// the filtered, ordered, and bounded result set.
@@ -26,14 +24,11 @@ pub(crate) fn apply_query_to_documents(
     filtered.sort_by(|left, right| compare_snapshots(left, right, definition.result_order_by()));
 
     if let Some(bound) = definition.result_start_at() {
-        filtered.retain(|snapshot| {
-            !is_before_start_bound(snapshot, bound, definition.result_order_by())
-        });
+        filtered.retain(|snapshot| !is_before_start_bound(snapshot, bound, definition.result_order_by()));
     }
 
     if let Some(bound) = definition.result_end_at() {
-        filtered
-            .retain(|snapshot| !is_after_end_bound(snapshot, bound, definition.result_order_by()));
+        filtered.retain(|snapshot| !is_after_end_bound(snapshot, bound, definition.result_order_by()));
     }
 
     if let Some(limit) = definition.limit() {
@@ -74,25 +69,19 @@ fn evaluate_filter(filter: &FieldFilter, value: &FirestoreValue) -> bool {
         FilterOperator::Equal => value == filter.value(),
         FilterOperator::NotEqual => value != filter.value(),
         FilterOperator::LessThan => compare_values(value, filter.value()) == Some(Ordering::Less),
-        FilterOperator::LessThanOrEqual => matches!(
-            compare_values(value, filter.value()),
-            Some(Ordering::Less | Ordering::Equal)
-        ),
-        FilterOperator::GreaterThan => {
-            compare_values(value, filter.value()) == Some(Ordering::Greater)
+        FilterOperator::LessThanOrEqual => {
+            matches!(compare_values(value, filter.value()), Some(Ordering::Less | Ordering::Equal))
         }
-        FilterOperator::GreaterThanOrEqual => matches!(
-            compare_values(value, filter.value()),
-            Some(Ordering::Greater | Ordering::Equal)
-        ),
+        FilterOperator::GreaterThan => compare_values(value, filter.value()) == Some(Ordering::Greater),
+        FilterOperator::GreaterThanOrEqual => {
+            matches!(compare_values(value, filter.value()), Some(Ordering::Greater | Ordering::Equal))
+        }
         FilterOperator::ArrayContains => match value.kind() {
             ValueKind::Array(array) => array_contains(array, filter.value()),
             _ => false,
         },
         FilterOperator::ArrayContainsAny => match (value.kind(), filter.value().kind()) {
-            (ValueKind::Array(array), ValueKind::Array(needles)) => {
-                array_contains_any(array, needles)
-            }
+            (ValueKind::Array(array), ValueKind::Array(needles)) => array_contains_any(array, needles),
             _ => false,
         },
         FilterOperator::In => match filter.value().kind() {
@@ -101,8 +90,7 @@ fn evaluate_filter(filter: &FieldFilter, value: &FirestoreValue) -> bool {
         },
         FilterOperator::NotIn => match filter.value().kind() {
             ValueKind::Array(values) => {
-                !matches!(value.kind(), ValueKind::Null)
-                    && values.values().iter().all(|needle| needle != value)
+                !matches!(value.kind(), ValueKind::Null) && values.values().iter().all(|needle| needle != value)
             }
             _ => false,
         },
@@ -131,15 +119,10 @@ fn find_in_map<'a>(map: &'a MapValue, segments: &'a [String]) -> Option<&'a Fire
     }
 }
 
-fn compare_snapshots(
-    left: &DocumentSnapshot,
-    right: &DocumentSnapshot,
-    order_by: &[OrderBy],
-) -> Ordering {
+fn compare_snapshots(left: &DocumentSnapshot, right: &DocumentSnapshot, order_by: &[OrderBy]) -> Ordering {
     for order in order_by {
         let left_value = get_field_value(left, order.field()).unwrap_or_else(FirestoreValue::null);
-        let right_value =
-            get_field_value(right, order.field()).unwrap_or_else(FirestoreValue::null);
+        let right_value = get_field_value(right, order.field()).unwrap_or_else(FirestoreValue::null);
 
         let mut ordering = compare_values(&left_value, &right_value).unwrap_or(Ordering::Equal);
         if order.direction() == OrderDirection::Descending {
@@ -174,10 +157,7 @@ fn array_contains_any(
     array: &crate::firestore::value::ArrayValue,
     needles: &crate::firestore::value::ArrayValue,
 ) -> bool {
-    needles
-        .values()
-        .iter()
-        .any(|needle| array_contains(array, needle))
+    needles.values().iter().any(|needle| array_contains(array, needle))
 }
 
 fn is_before_start_bound(snapshot: &DocumentSnapshot, bound: &Bound, order_by: &[OrderBy]) -> bool {
@@ -198,19 +178,14 @@ fn is_after_end_bound(snapshot: &DocumentSnapshot, bound: &Bound, order_by: &[Or
     }
 }
 
-fn compare_snapshot_to_bound(
-    snapshot: &DocumentSnapshot,
-    bound: &Bound,
-    order_by: &[OrderBy],
-) -> Ordering {
+fn compare_snapshot_to_bound(snapshot: &DocumentSnapshot, bound: &Bound, order_by: &[OrderBy]) -> Ordering {
     for (index, order) in order_by.iter().enumerate() {
         if index >= bound.values().len() {
             break;
         }
 
         let bound_value = &bound.values()[index];
-        let snapshot_value =
-            get_field_value(snapshot, order.field()).unwrap_or_else(FirestoreValue::null);
+        let snapshot_value = get_field_value(snapshot, order.field()).unwrap_or_else(FirestoreValue::null);
 
         let mut ordering = compare_values(&snapshot_value, bound_value).unwrap_or(Ordering::Equal);
         if order.direction() == OrderDirection::Descending {
@@ -244,10 +219,7 @@ mod tests {
     fn snapshot_for(id: &str, population: i64) -> DocumentSnapshot {
         let key = DocumentKey::from_string(&format!("cities/{id}")).unwrap();
         let mut map = BTreeMap::new();
-        map.insert(
-            "population".into(),
-            FirestoreValue::from_integer(population),
-        );
+        map.insert("population".into(), FirestoreValue::from_integer(population));
         let metadata = SnapshotMetadata::new(false, false);
         DocumentSnapshot::new(key, Some(MapValue::new(map)), metadata)
     }
@@ -255,20 +227,13 @@ mod tests {
     #[test]
     fn applies_limit_and_ordering() {
         let query = build_query()
-            .order_by(
-                FieldPath::from_dot_separated("population").unwrap(),
-                OrderDirection::Ascending,
-            )
+            .order_by(FieldPath::from_dot_separated("population").unwrap(), OrderDirection::Ascending)
             .unwrap()
             .limit(2)
             .unwrap();
         let definition = query.definition();
 
-        let docs = vec![
-            snapshot_for("sf", 100),
-            snapshot_for("nyc", 50),
-            snapshot_for("la", 75),
-        ];
+        let docs = vec![snapshot_for("sf", 100), snapshot_for("nyc", 50), snapshot_for("la", 75)];
 
         let result = apply_query_to_documents(docs, &definition);
         assert_eq!(result.len(), 2);

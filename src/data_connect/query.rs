@@ -7,8 +7,7 @@ use serde_json::Value;
 
 use crate::data_connect::error::{DataConnectError, DataConnectResult};
 use crate::data_connect::reference::{
-    encode_query_key, string_to_system_time, DataSource, OpResult, QueryRef, QueryResult,
-    SerializedQuerySnapshot,
+    encode_query_key, string_to_system_time, DataSource, OpResult, QueryRef, QueryResult, SerializedQuerySnapshot,
 };
 use crate::data_connect::transport::DataConnectTransport;
 use crate::platform::runtime;
@@ -111,8 +110,7 @@ impl QueryManager {
         handlers: QuerySubscriptionHandlers,
         initial_cache: Option<OpResult>,
     ) -> DataConnectResult<QuerySubscriptionHandle> {
-        self.inner
-            .subscribe(self.clone(), query_ref, handlers, initial_cache)
+        self.inner.subscribe(self.clone(), query_ref, handlers, initial_cache)
     }
 }
 

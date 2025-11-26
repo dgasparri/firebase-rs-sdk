@@ -8,8 +8,8 @@ mod wasm {
     use wasm_bindgen::JsCast;
     use wasm_bindgen::JsValue;
     use web_sys::{
-        PerformanceNavigationTiming, PerformanceObserver, PerformanceObserverEntryList,
-        PerformanceObserverInit, PerformanceResourceTiming,
+        PerformanceNavigationTiming, PerformanceObserver, PerformanceObserverEntryList, PerformanceObserverInit,
+        PerformanceResourceTiming,
     };
 
     use crate::performance::api::Performance;
@@ -43,8 +43,7 @@ mod wasm {
             .get(0)
             .dyn_into::<PerformanceNavigationTiming>()
             .map_err(|_| internal("navigation entry cast failed"))?;
-        let start_time_us =
-            ((dom_perf.time_origin() + entry.start_time()) * 1000.0).max(0.0) as u128;
+        let start_time_us = ((dom_perf.time_origin() + entry.start_time()) * 1000.0).max(0.0) as u128;
         let duration_us = (entry.duration() * 1000.0) as u64;
         let duration = std::time::Duration::from_micros(duration_us);
         let mut metrics = HashMap::new();
@@ -55,13 +54,7 @@ mod wasm {
         let perf_clone = performance.clone();
         runtime::spawn_detached(async move {
             if let Err(err) = perf_clone
-                .record_auto_trace(
-                    PAGE_LOAD_TRACE,
-                    start_time_us,
-                    duration,
-                    metrics,
-                    HashMap::new(),
-                )
+                .record_auto_trace(PAGE_LOAD_TRACE, start_time_us, duration, metrics, HashMap::new())
                 .await
             {
                 log::debug!("failed to record auto trace: {}", err);
@@ -71,31 +64,28 @@ mod wasm {
     }
 
     fn observe_resources(performance: Performance) -> PerformanceResult<()> {
-        let callback = Closure::wrap(Box::new(
-            move |list: PerformanceObserverEntryList, _: JsValue| {
-                if !performance.instrumentation_enabled() {
-                    return;
+        let callback = Closure::wrap(Box::new(move |list: PerformanceObserverEntryList, _: JsValue| {
+            if !performance.instrumentation_enabled() {
+                return;
+            }
+            let entries = list.get_entries();
+            for idx in 0..entries.length() {
+                let entry = entries.get(idx);
+                if entry.is_undefined() || entry.is_null() {
+                    continue;
                 }
-                let entries = list.get_entries();
-                for idx in 0..entries.length() {
-                    let entry = entries.get(idx);
-                    if entry.is_undefined() || entry.is_null() {
-                        continue;
-                    }
-                    if let Ok(resource) = entry.dyn_into::<PerformanceResourceTiming>() {
-                        if let Some(record) = build_network_record(&resource) {
-                            let perf_clone = performance.clone();
-                            runtime::spawn_detached(async move {
-                                if let Err(err) = perf_clone.record_auto_network(record).await {
-                                    log::debug!("failed to record auto network trace: {}", err);
-                                }
-                            });
-                        }
+                if let Ok(resource) = entry.dyn_into::<PerformanceResourceTiming>() {
+                    if let Some(record) = build_network_record(&resource) {
+                        let perf_clone = performance.clone();
+                        runtime::spawn_detached(async move {
+                            if let Err(err) = perf_clone.record_auto_network(record).await {
+                                log::debug!("failed to record auto network trace: {}", err);
+                            }
+                        });
                     }
                 }
-            },
-        )
-            as Box<dyn FnMut(PerformanceObserverEntryList, JsValue)>);
+            }
+        }) as Box<dyn FnMut(PerformanceObserverEntryList, JsValue)>);
 
         let observer = PerformanceObserver::new(callback.as_ref().unchecked_ref())
             .map_err(|err| internal(&format!("observer init: {err:?}")))?;

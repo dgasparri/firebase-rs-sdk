@@ -116,11 +116,7 @@ pub struct AiError {
 
 impl AiError {
     /// Creates a new AI error with the provided code, message, and optional custom data.
-    pub fn new(
-        code: AiErrorCode,
-        message: impl Into<String>,
-        custom_error_data: Option<CustomErrorData>,
-    ) -> Self {
+    pub fn new(code: AiErrorCode, message: impl Into<String>, custom_error_data: Option<CustomErrorData>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -187,11 +183,7 @@ mod tests {
             .with_status(429)
             .with_status_text("Too Many Requests")
             .with_error_details(vec![details.clone()]);
-        let err = AiError::new(
-            AiErrorCode::FetchError,
-            "quota exceeded",
-            Some(data.clone()),
-        );
+        let err = AiError::new(AiErrorCode::FetchError, "quota exceeded", Some(data.clone()));
         assert_eq!(err.custom_error_data, Some(data));
         assert!(err.code_str().contains("fetch-error"));
     }

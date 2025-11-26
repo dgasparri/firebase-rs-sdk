@@ -23,34 +23,26 @@ use crate::auth::model::MfaEnrollmentInfo;
 use crate::auth::model::{
     AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider, GetAccountInfoResponse,
     SignInWithCustomTokenRequest, SignInWithCustomTokenResponse, SignInWithEmailLinkRequest,
-    SignInWithEmailLinkResponse, SignInWithPasswordRequest, SignInWithPasswordResponse,
-    SignUpRequest, SignUpResponse, User, UserCredential, UserInfo,
+    SignInWithEmailLinkResponse, SignInWithPasswordRequest, SignInWithPasswordResponse, SignUpRequest, SignUpResponse,
+    User, UserCredential, UserInfo,
 };
-#[cfg(all(
-    feature = "wasm-web",
-    feature = "experimental-indexed-db",
-    target_arch = "wasm32"
-))]
+#[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
 use crate::auth::persistence::indexed_db::IndexedDbPersistence;
 use crate::auth::persistence::{
-    AuthPersistence, InMemoryPersistence, PersistedAuthState, PersistenceListener,
-    PersistenceSubscription,
+    AuthPersistence, InMemoryPersistence, PersistedAuthState, PersistenceListener, PersistenceSubscription,
 };
 use crate::auth::types::{
-    ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl,
-    ApplicationVerifier, ConfirmationResult, MultiFactorError, MultiFactorInfo,
-    MultiFactorOperation, MultiFactorSession, MultiFactorSessionType, MultiFactorSignInContext,
-    MultiFactorUser, TotpSecret, WebAuthnAssertionResponse, WebAuthnAttestationResponse,
-    WebAuthnEnrollmentChallenge, WebAuthnSignInChallenge, WEBAUTHN_FACTOR_ID,
+    ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings, ActionCodeUrl, ApplicationVerifier,
+    ConfirmationResult, MultiFactorError, MultiFactorInfo, MultiFactorOperation, MultiFactorSession,
+    MultiFactorSessionType, MultiFactorSignInContext, MultiFactorUser, TotpSecret, WebAuthnAssertionResponse,
+    WebAuthnAttestationResponse, WebAuthnEnrollmentChallenge, WebAuthnSignInChallenge, WEBAUTHN_FACTOR_ID,
 };
 use crate::auth::{
-    InMemoryRedirectPersistence, OAuthCredential, OAuthPopupHandler, OAuthRedirectHandler,
-    PendingRedirectEvent, RedirectOperation, RedirectPersistence,
+    InMemoryRedirectPersistence, OAuthCredential, OAuthPopupHandler, OAuthRedirectHandler, PendingRedirectEvent,
+    RedirectOperation, RedirectPersistence,
 };
 use crate::auth::{PhoneAuthCredential, PHONE_PROVIDER_ID};
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentContainer, ComponentType};
 //#[cfg(feature = "firestore")]
 use crate::firestore::TokenProviderArc;
@@ -58,29 +50,26 @@ use crate::platform::runtime::{sleep as runtime_sleep, spawn_detached};
 use crate::platform::token::{AsyncTokenProvider, TokenError};
 use crate::util::PartialObserver;
 use account::{
-    apply_action_code, confirm_password_reset, delete_account, get_account_info,
-    reset_password_info, send_email_verification, send_password_reset_email,
-    send_sign_in_link_to_email, update_account, verify_password, UpdateAccountRequest,
-    UpdateAccountResponse, UpdateString,
+    apply_action_code, confirm_password_reset, delete_account, get_account_info, reset_password_info,
+    send_email_verification, send_password_reset_email, send_sign_in_link_to_email, update_account, verify_password,
+    UpdateAccountRequest, UpdateAccountResponse, UpdateString,
 };
 use idp::{sign_in_with_idp, SignInWithIdpRequest, SignInWithIdpResponse};
 use mfa::{
     finalize_passkey_mfa_enrollment, finalize_passkey_mfa_sign_in, finalize_phone_mfa_enrollment,
-    finalize_phone_mfa_sign_in, finalize_totp_mfa_enrollment, finalize_totp_mfa_sign_in,
-    start_passkey_mfa_enrollment, start_passkey_mfa_sign_in, start_phone_mfa_enrollment,
-    start_phone_mfa_sign_in, start_totp_mfa_enrollment, withdraw_mfa,
-    FinalizePasskeyMfaEnrollmentRequest, FinalizePasskeyMfaSignInRequest,
-    FinalizePhoneMfaEnrollmentRequest, FinalizePhoneMfaSignInRequest,
-    FinalizeTotpMfaEnrollmentRequest, FinalizeTotpMfaSignInRequest, PhoneEnrollmentInfo,
-    PhoneSignInInfo, PhoneVerificationInfo, StartPasskeyMfaEnrollmentRequest,
-    StartPasskeyMfaSignInRequest, StartPhoneMfaEnrollmentRequest, StartPhoneMfaSignInRequest,
-    StartTotpMfaEnrollmentRequest, TotpSignInVerificationInfo, TotpVerificationInfo,
+    finalize_phone_mfa_sign_in, finalize_totp_mfa_enrollment, finalize_totp_mfa_sign_in, start_passkey_mfa_enrollment,
+    start_passkey_mfa_sign_in, start_phone_mfa_enrollment, start_phone_mfa_sign_in, start_totp_mfa_enrollment,
+    withdraw_mfa, FinalizePasskeyMfaEnrollmentRequest, FinalizePasskeyMfaSignInRequest,
+    FinalizePhoneMfaEnrollmentRequest, FinalizePhoneMfaSignInRequest, FinalizeTotpMfaEnrollmentRequest,
+    FinalizeTotpMfaSignInRequest, PhoneEnrollmentInfo, PhoneSignInInfo, PhoneVerificationInfo,
+    StartPasskeyMfaEnrollmentRequest, StartPasskeyMfaSignInRequest, StartPhoneMfaEnrollmentRequest,
+    StartPhoneMfaSignInRequest, StartTotpMfaEnrollmentRequest, TotpSignInVerificationInfo, TotpVerificationInfo,
     WebAuthnVerificationInfo, WithdrawMfaRequest,
 };
 use phone::{
     link_with_phone_number as api_link_with_phone_number, send_phone_verification_code,
-    sign_in_with_phone_number as api_sign_in_with_phone_number, verify_phone_number_for_existing,
-    PhoneSignInResponse, SendPhoneVerificationCodeRequest, SignInWithPhoneNumberRequest,
+    sign_in_with_phone_number as api_sign_in_with_phone_number, verify_phone_number_for_existing, PhoneSignInResponse,
+    SendPhoneVerificationCodeRequest, SignInWithPhoneNumberRequest,
 };
 use serde_json::Value;
 
@@ -138,9 +127,7 @@ pub struct Auth {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AsyncTokenProvider for Arc<Auth> {
     async fn get_token(&self, force_refresh: bool) -> Result<Option<String>, TokenError> {
-        self.get_token(force_refresh)
-            .await
-            .map_err(TokenError::from_error)
+        self.get_token(force_refresh).await.map_err(TokenError::from_error)
     }
 }
 
@@ -157,25 +144,18 @@ impl Auth {
 
     /// Constructs an `Auth` instance using in-memory persistence.
     pub fn new(app: FirebaseApp) -> AuthResult<Self> {
-        #[cfg(all(
-            feature = "wasm-web",
-            feature = "experimental-indexed-db",
-            target_arch = "wasm32"
-        ))]
-        let persistence: Arc<dyn AuthPersistence + Send + Sync> =
-            Arc::new(IndexedDbPersistence::new());
+        #[cfg(all(feature = "wasm-web", feature = "experimental-indexed-db", target_arch = "wasm32"))]
+        let persistence: Arc<dyn AuthPersistence + Send + Sync> = Arc::new(IndexedDbPersistence::new());
 
         #[cfg(all(
             feature = "wasm-web",
             not(feature = "experimental-indexed-db"),
             target_arch = "wasm32"
         ))]
-        let persistence: Arc<dyn AuthPersistence + Send + Sync> =
-            Arc::new(InMemoryPersistence::default());
+        let persistence: Arc<dyn AuthPersistence + Send + Sync> = Arc::new(InMemoryPersistence::default());
 
         #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
-        let persistence: Arc<dyn AuthPersistence + Send + Sync> =
-            Arc::new(InMemoryPersistence::default());
+        let persistence: Arc<dyn AuthPersistence + Send + Sync> = Arc::new(InMemoryPersistence::default());
         Self::new_with_persistence(app, persistence)
     }
 
@@ -249,11 +229,7 @@ impl Auth {
     }
 
     /// Signs a user in using the email/password REST endpoint.
-    pub async fn sign_in_with_email_and_password(
-        &self,
-        email: &str,
-        password: &str,
-    ) -> AuthResult<UserCredential> {
+    pub async fn sign_in_with_email_and_password(&self, email: &str, password: &str) -> AuthResult<UserCredential> {
         let api_key = self.api_key()?;
 
         let request = SignInWithPasswordRequest {
@@ -304,20 +280,14 @@ impl Auth {
     }
 
     /// Creates a new user using email/password credentials.
-    pub async fn create_user_with_email_and_password(
-        &self,
-        email: &str,
-        password: &str,
-    ) -> AuthResult<UserCredential> {
+    pub async fn create_user_with_email_and_password(&self, email: &str, password: &str) -> AuthResult<UserCredential> {
         let api_key = self.api_key()?;
         let mut request = SignUpRequest::default();
         request.email = Some(email.to_owned());
         request.password = Some(password.to_owned());
         request.return_secure_token = Some(true);
 
-        let response: SignUpResponse = self
-            .execute_request("accounts:signUp", &api_key, &request)
-            .await?;
+        let response: SignUpResponse = self.execute_request("accounts:signUp", &api_key, &request).await?;
 
         let local_id = response
             .local_id
@@ -450,9 +420,7 @@ impl Auth {
         let mut request = SignUpRequest::default();
         request.return_secure_token = Some(true);
 
-        let response: SignUpResponse = self
-            .execute_request("accounts:signUp", &api_key, &request)
-            .await?;
+        let response: SignUpResponse = self.execute_request("accounts:signUp", &api_key, &request).await?;
 
         let local_id = response
             .local_id
@@ -537,12 +505,8 @@ impl Auth {
     ) -> AuthResult<ConfirmationResult> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
-        self.start_phone_flow(
-            phone_number,
-            verifier,
-            PhoneFinalization::Reauth { id_token },
-        )
-        .await
+        self.start_phone_flow(phone_number, verifier, PhoneFinalization::Reauth { id_token })
+            .await
     }
 
     /// Signs in using a credential produced by [`PhoneAuthProvider::credential`].
@@ -605,10 +569,7 @@ impl Auth {
     }
 
     /// Registers an observer that is invoked whenever auth state changes.
-    pub fn on_auth_state_changed(
-        &self,
-        observer: PartialObserver<Arc<User>>,
-    ) -> impl FnOnce() + Send + 'static {
+    pub fn on_auth_state_changed(&self, observer: PartialObserver<Arc<User>>) -> impl FnOnce() + Send + 'static {
         if let Some(user) = self.current_user() {
             if let Some(next) = observer.next.clone() {
                 next(&user);
@@ -631,8 +592,7 @@ impl Auth {
     {
         let client = self.rest_client.clone();
         let url = self.endpoint_url(path, api_key)?;
-        let body =
-            serde_json::to_vec(request).map_err(|err| AuthError::Network(err.to_string()))?;
+        let body = serde_json::to_vec(request).map_err(|err| AuthError::Network(err.to_string()))?;
 
         let response = client
             .post(url)
@@ -643,17 +603,11 @@ impl Auth {
             .map_err(|err| AuthError::Network(err.to_string()))?;
 
         if !response.status().is_success() {
-            let message = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
+            let message = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
             return Err(AuthError::Network(message));
         }
 
-        response
-            .json()
-            .await
-            .map_err(|err| AuthError::Network(err.to_string()))
+        response.json().await.map_err(|err| AuthError::Network(err.to_string()))
     }
 
     async fn start_phone_flow(
@@ -669,24 +623,13 @@ impl Auth {
         let auth = Arc::clone(self);
         let flow_holder = Arc::new(flow);
 
-        Ok(ConfirmationResult::new(
-            verification_id,
-            move |code: &str| {
-                let auth = Arc::clone(&auth);
-                let session = Arc::clone(&session_info);
-                let flow = Arc::clone(&flow_holder);
-                let code = code.to_owned();
-                async move {
-                    Auth::finalize_phone_confirmation(
-                        auth,
-                        (*session).clone(),
-                        code,
-                        (*flow).clone(),
-                    )
-                    .await
-                }
-            },
-        ))
+        Ok(ConfirmationResult::new(verification_id, move |code: &str| {
+            let auth = Arc::clone(&auth);
+            let session = Arc::clone(&session_info);
+            let flow = Arc::clone(&flow_holder);
+            let code = code.to_owned();
+            async move { Auth::finalize_phone_confirmation(auth, (*session).clone(), code, (*flow).clone()).await }
+        }))
     }
 
     pub(crate) async fn send_phone_verification(
@@ -697,8 +640,7 @@ impl Auth {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         let request = self.build_phone_verification_request(phone_number, verifier)?;
-        let response =
-            send_phone_verification_code(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = send_phone_verification_code(&self.rest_client, &endpoint, &api_key, &request).await?;
         Ok(response.session_info)
     }
 
@@ -772,10 +714,7 @@ impl Auth {
         Ok(info)
     }
 
-    fn build_phone_sign_in_info(
-        &self,
-        verifier: Arc<dyn ApplicationVerifier>,
-    ) -> AuthResult<PhoneSignInInfo> {
+    fn build_phone_sign_in_info(&self, verifier: Arc<dyn ApplicationVerifier>) -> AuthResult<PhoneSignInInfo> {
         let token = verifier.verify()?;
         let verifier_type = verifier.verifier_type().to_lowercase();
         let mut info = PhoneSignInInfo {
@@ -823,34 +762,30 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            start_phone_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = start_phone_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
 
         let session_info = response.phone_session_info.session_info;
         let auth = Arc::clone(self);
         let display_name = display_name.map(|value| value.to_string());
         let id_token_for_flow = id_token.clone();
-        Ok(ConfirmationResult::new(
-            session_info.clone(),
-            move |code: &str| {
-                let auth = Arc::clone(&auth);
-                let code = code.to_string();
-                let session = session_info.clone();
-                let display = display_name.clone();
-                let id_token_value = id_token_for_flow.clone();
-                async move {
-                    auth.complete_phone_mfa_enrollment(
-                        PhoneMfaEnrollmentFinalization {
-                            id_token: id_token_value,
-                            session_info: session,
-                            display_name: display,
-                        },
-                        code,
-                    )
-                    .await
-                }
-            },
-        ))
+        Ok(ConfirmationResult::new(session_info.clone(), move |code: &str| {
+            let auth = Arc::clone(&auth);
+            let code = code.to_string();
+            let session = session_info.clone();
+            let display = display_name.clone();
+            let id_token_value = id_token_for_flow.clone();
+            async move {
+                auth.complete_phone_mfa_enrollment(
+                    PhoneMfaEnrollmentFinalization {
+                        id_token: id_token_value,
+                        session_info: session,
+                        display_name: display,
+                    },
+                    code,
+                )
+                .await
+            }
+        }))
     }
 
     pub(crate) async fn start_totp_mfa_enrollment(
@@ -863,9 +798,9 @@ impl Auth {
             ));
         }
 
-        let id_token = session.id_token().ok_or_else(|| {
-            AuthError::InvalidCredential("Missing ID token for TOTP enrollment".into())
-        })?;
+        let id_token = session
+            .id_token()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing ID token for TOTP enrollment".into()))?;
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         let request = StartTotpMfaEnrollmentRequest {
@@ -874,8 +809,7 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            start_totp_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = start_totp_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
         let info = response.totp_session_info;
         let deadline = if info.finalize_enrollment_time <= 0 {
             UNIX_EPOCH
@@ -906,9 +840,9 @@ impl Auth {
             ));
         }
 
-        let id_token = session.id_token().ok_or_else(|| {
-            AuthError::InvalidCredential("Missing ID token for enrollment".into())
-        })?;
+        let id_token = session
+            .id_token()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing ID token for enrollment".into()))?;
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         let request = StartPasskeyMfaEnrollmentRequest {
@@ -918,8 +852,7 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            start_passkey_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = start_passkey_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
         let challenge = WebAuthnEnrollmentChallenge::from_value(response.webauthn_enrollment_info)?;
         Ok(challenge)
     }
@@ -940,8 +873,7 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            start_phone_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = start_phone_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
         Ok(response.phone_response_info.session_info)
     }
 
@@ -959,8 +891,7 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            start_passkey_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = start_passkey_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
         let challenge = WebAuthnSignInChallenge::from_value(response.webauthn_sign_in_info)?;
         Ok(challenge)
     }
@@ -982,14 +913,9 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            finalize_phone_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = finalize_phone_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
 
-        self.update_current_user_tokens(
-            response.id_token.clone(),
-            response.refresh_token.clone(),
-            None,
-        )?;
+        self.update_current_user_tokens(response.id_token.clone(), response.refresh_token.clone(), None)?;
         let user = self.refresh_current_user_profile().await?;
 
         Ok(UserCredential {
@@ -1018,14 +944,9 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            finalize_totp_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = finalize_totp_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
 
-        self.update_current_user_tokens(
-            response.id_token.clone(),
-            response.refresh_token.clone(),
-            None,
-        )?;
+        self.update_current_user_tokens(response.id_token.clone(), response.refresh_token.clone(), None)?;
         let user = self.refresh_current_user_profile().await?;
 
         Ok(UserCredential {
@@ -1047,9 +968,9 @@ impl Auth {
             ));
         }
 
-        let id_token = session.id_token().ok_or_else(|| {
-            AuthError::InvalidCredential("Missing ID token for enrollment".into())
-        })?;
+        let id_token = session
+            .id_token()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing ID token for enrollment".into()))?;
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         let request = FinalizePasskeyMfaEnrollmentRequest {
@@ -1061,15 +982,9 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            finalize_passkey_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request)
-                .await?;
+        let response = finalize_passkey_mfa_enrollment(&self.rest_client, &endpoint, &api_key, &request).await?;
 
-        self.update_current_user_tokens(
-            response.id_token.clone(),
-            response.refresh_token.clone(),
-            None,
-        )?;
+        self.update_current_user_tokens(response.id_token.clone(), response.refresh_token.clone(), None)?;
         let user = self.refresh_current_user_profile().await?;
 
         Ok(UserCredential {
@@ -1098,13 +1013,13 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            finalize_phone_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = finalize_phone_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
 
         let context = context.as_ref();
-        let local_id = context.local_id.as_deref().ok_or_else(|| {
-            AuthError::InvalidCredential("Missing localId for multi-factor sign-in".into())
-        })?;
+        let local_id = context
+            .local_id
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing localId for multi-factor sign-in".into()))?;
 
         let payload = SignInResponsePayload {
             local_id,
@@ -1140,13 +1055,13 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            finalize_totp_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = finalize_totp_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
 
         let context = context.as_ref();
-        let local_id = context.local_id.as_deref().ok_or_else(|| {
-            AuthError::InvalidCredential("Missing localId for multi-factor sign-in".into())
-        })?;
+        let local_id = context
+            .local_id
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing localId for multi-factor sign-in".into()))?;
 
         let payload = SignInResponsePayload {
             local_id,
@@ -1182,13 +1097,13 @@ impl Auth {
             tenant_id: None,
         };
 
-        let response =
-            finalize_passkey_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
+        let response = finalize_passkey_mfa_sign_in(&self.rest_client, &endpoint, &api_key, &request).await?;
 
         let context = context.as_ref();
-        let local_id = context.local_id.as_deref().ok_or_else(|| {
-            AuthError::InvalidCredential("Missing localId for multi-factor sign-in".into())
-        })?;
+        let local_id = context
+            .local_id
+            .as_deref()
+            .ok_or_else(|| AuthError::InvalidCredential("Missing localId for multi-factor sign-in".into()))?;
 
         let provider_id = context.provider_id.as_deref().unwrap_or(WEBAUTHN_FACTOR_ID);
 
@@ -1249,9 +1164,7 @@ impl Auth {
             email: email.map(|value| value.to_string()),
             phone_number: phone_number.map(|value| value.to_string()),
             photo_url: None,
-            provider_id: provider_id
-                .unwrap_or(EmailAuthProvider::PROVIDER_ID)
-                .to_string(),
+            provider_id: provider_id.unwrap_or(EmailAuthProvider::PROVIDER_ID).to_string(),
         };
         User::new(self.app.clone(), info)
     }
@@ -1271,14 +1184,8 @@ impl Auth {
 
         let mut user = self.build_user(local_id, email, phone_number, provider_id);
         user.set_anonymous(anonymous);
-        let expiration = expires_in
-            .map(|value| self.parse_expires_in(value))
-            .transpose()?;
-        user.update_tokens(
-            Some(id_token.to_string()),
-            Some(refresh_token.to_string()),
-            expiration,
-        );
+        let expiration = expires_in.map(|value| self.parse_expires_in(value)).transpose()?;
+        user.update_tokens(Some(id_token.to_string()), Some(refresh_token.to_string()), expiration);
         let user_arc = Arc::new(user);
         *self.current_user.lock().unwrap() = Some(user_arc.clone());
         self.after_token_update(user_arc.clone())?;
@@ -1324,9 +1231,7 @@ impl Auth {
             .users
             .into_iter()
             .find(|user| user.local_id.as_deref() == Some(current.uid()))
-            .ok_or_else(|| {
-                AuthError::InvalidCredential("Account info missing current user".into())
-            })?;
+            .ok_or_else(|| AuthError::InvalidCredential("Account info missing current user".into()))?;
 
         let provider_id = account
             .provider_user_info
@@ -1336,26 +1241,17 @@ impl Auth {
             .unwrap_or_else(|| current.info().provider_id.clone());
 
         let info = UserInfo {
-            uid: account
-                .local_id
-                .clone()
-                .unwrap_or_else(|| current.uid().to_string()),
+            uid: account.local_id.clone().unwrap_or_else(|| current.uid().to_string()),
             display_name: account
                 .display_name
                 .clone()
                 .or_else(|| current.info().display_name.clone()),
-            email: account
-                .email
-                .clone()
-                .or_else(|| current.info().email.clone()),
+            email: account.email.clone().or_else(|| current.info().email.clone()),
             phone_number: account
                 .phone_number
                 .clone()
                 .or_else(|| current.info().phone_number.clone()),
-            photo_url: account
-                .photo_url
-                .clone()
-                .or_else(|| current.info().photo_url.clone()),
+            photo_url: account.photo_url.clone().or_else(|| current.info().photo_url.clone()),
             provider_id,
         };
 
@@ -1430,9 +1326,7 @@ impl Auth {
             }
         }
         let session = MultiFactorSession::sign_in(pending_credential);
-        AuthError::MultiFactorRequired(MultiFactorError::new(
-            operation, session, hints, context, user,
-        ))
+        AuthError::MultiFactorRequired(MultiFactorError::new(operation, session, hints, context, user))
     }
 
     async fn finalize_phone_confirmation(
@@ -1449,8 +1343,7 @@ impl Auth {
 
         let response = match &flow {
             PhoneFinalization::SignIn => {
-                api_sign_in_with_phone_number(&self.rest_client, &endpoint, &api_key, &request)
-                    .await?
+                api_sign_in_with_phone_number(&self.rest_client, &endpoint, &api_key, &request).await?
             }
             PhoneFinalization::Link { id_token } => {
                 request.id_token = Some(id_token.clone());
@@ -1458,8 +1351,7 @@ impl Auth {
             }
             PhoneFinalization::Reauth { id_token } => {
                 request.id_token = Some(id_token.clone());
-                verify_phone_number_for_existing(&self.rest_client, &endpoint, &api_key, &request)
-                    .await?
+                verify_phone_number_for_existing(&self.rest_client, &endpoint, &api_key, &request).await?
             }
         };
 
@@ -1523,21 +1415,12 @@ impl Auth {
                 context.anonymous = false;
             }
 
-            return Err(self.build_multi_factor_error(
-                operation,
-                pending,
-                mfa_info,
-                context,
-                user_for_error,
-            ));
+            return Err(self.build_multi_factor_error(operation, pending, mfa_info, context, user_for_error));
         }
 
-        let local_id =
-            local_id.ok_or_else(|| AuthError::InvalidCredential("Missing localId".into()))?;
-        let id_token =
-            id_token.ok_or_else(|| AuthError::InvalidCredential("Missing idToken".into()))?;
-        let refresh_token = refresh_token
-            .ok_or_else(|| AuthError::InvalidCredential("Missing refreshToken".into()))?;
+        let local_id = local_id.ok_or_else(|| AuthError::InvalidCredential("Missing localId".into()))?;
+        let id_token = id_token.ok_or_else(|| AuthError::InvalidCredential("Missing idToken".into()))?;
+        let refresh_token = refresh_token.ok_or_else(|| AuthError::InvalidCredential("Missing refreshToken".into()))?;
         let is_new_user = is_new_user.unwrap_or(false);
 
         let operation = match flow {
@@ -1570,10 +1453,7 @@ impl Auth {
     }
 
     fn map_mfa_info(entries: &[MfaEnrollmentInfo]) -> Option<MultiFactorInfo> {
-        entries
-            .iter()
-            .filter_map(MultiFactorInfo::from_enrollment)
-            .next()
+        entries.iter().filter_map(MultiFactorInfo::from_enrollment).next()
     }
 
     fn api_key(&self) -> AuthResult<String> {
@@ -1586,9 +1466,9 @@ impl Auth {
     }
 
     fn parse_expires_in(&self, value: &str) -> AuthResult<Duration> {
-        let seconds = value.parse::<u64>().map_err(|err| {
-            AuthError::InvalidCredential(format!("Invalid expiresIn value: {err}"))
-        })?;
+        let seconds = value
+            .parse::<u64>()
+            .map_err(|err| AuthError::InvalidCredential(format!("Invalid expiresIn value: {err}")))?;
         Ok(Duration::from_secs(seconds))
     }
 
@@ -1598,13 +1478,9 @@ impl Auth {
             .ok_or_else(|| AuthError::InvalidCredential("Missing refresh token".into()))?;
         let api_key = self.api_key()?;
         let secure_endpoint = self.secure_token_endpoint();
-        let response = token::refresh_id_token_with_endpoint(
-            &self.rest_client,
-            &secure_endpoint,
-            &api_key,
-            &refresh_token,
-        )
-        .await?;
+        let response =
+            token::refresh_id_token_with_endpoint(&self.rest_client, &secure_endpoint, &api_key, &refresh_token)
+                .await?;
         let expires_in = self.parse_expires_in(&response.expires_in)?;
         user.update_tokens(
             Some(response.id_token.clone()),
@@ -1623,10 +1499,7 @@ impl Auth {
             None => return Ok(None),
         };
 
-        let needs_refresh = force_refresh
-            || user
-                .token_manager()
-                .should_refresh(self.token_refresh_tolerance);
+        let needs_refresh = force_refresh || user.token_manager().should_refresh(self.token_refresh_tolerance);
 
         if needs_refresh {
             let token = self.refresh_user_token(&user).await?;
@@ -1719,10 +1592,7 @@ impl Auth {
     }
 
     /// Signs in using an OAuth credential produced by popup/redirect flows.
-    pub async fn sign_in_with_oauth_credential(
-        &self,
-        credential: AuthCredential,
-    ) -> AuthResult<UserCredential> {
+    pub async fn sign_in_with_oauth_credential(&self, credential: AuthCredential) -> AuthResult<UserCredential> {
         self.exchange_oauth_credential(credential, MultiFactorOperation::SignIn, None)
             .await
     }
@@ -1750,32 +1620,17 @@ impl Auth {
     /// auth.send_sign_in_link_to_email("user@example.com", &settings).await?;
     /// # Ok(()) }
     /// ```
-    pub async fn send_sign_in_link_to_email(
-        &self,
-        email: &str,
-        settings: &ActionCodeSettings,
-    ) -> AuthResult<()> {
+    pub async fn send_sign_in_link_to_email(&self, email: &str, settings: &ActionCodeSettings) -> AuthResult<()> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
         send_sign_in_link_to_email(&self.rest_client, &endpoint, &api_key, email, settings).await
     }
 
     /// Confirms a password reset OOB code and applies the new password.
-    pub async fn confirm_password_reset(
-        &self,
-        oob_code: &str,
-        new_password: &str,
-    ) -> AuthResult<()> {
+    pub async fn confirm_password_reset(&self, oob_code: &str, new_password: &str) -> AuthResult<()> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
-        confirm_password_reset(
-            &self.rest_client,
-            &endpoint,
-            &api_key,
-            oob_code,
-            new_password,
-        )
-        .await
+        confirm_password_reset(&self.rest_client, &endpoint, &api_key, oob_code, new_password).await
     }
 
     /// Sends an email verification message to the currently signed-in user.
@@ -1809,11 +1664,7 @@ impl Auth {
     /// }
     /// # Ok(()) }
     /// ```
-    pub async fn sign_in_with_email_link(
-        &self,
-        email: &str,
-        email_link: &str,
-    ) -> AuthResult<UserCredential> {
+    pub async fn sign_in_with_email_link(&self, email: &str, email_link: &str) -> AuthResult<UserCredential> {
         let api_key = self.api_key()?;
         let action_url = ActionCodeUrl::parse(email_link)
             .ok_or_else(|| AuthError::InvalidCredential("Invalid email action link".into()))?;
@@ -1919,16 +1770,14 @@ impl Auth {
     pub async fn check_action_code(&self, oob_code: &str) -> AuthResult<ActionCodeInfo> {
         let api_key = self.api_key()?;
         let endpoint = self.identity_toolkit_endpoint();
-        let response =
-            reset_password_info(&self.rest_client, &endpoint, &api_key, oob_code, None).await?;
+        let response = reset_password_info(&self.rest_client, &endpoint, &api_key, oob_code, None).await?;
 
         let request_type = response
             .request_type
             .as_deref()
             .ok_or_else(|| AuthError::InvalidCredential("Missing requestType".into()))?;
-        let operation = ActionCodeOperation::from_request_type(request_type).ok_or_else(|| {
-            AuthError::InvalidCredential(format!("Unknown requestType: {request_type}"))
-        })?;
+        let operation = ActionCodeOperation::from_request_type(request_type)
+            .ok_or_else(|| AuthError::InvalidCredential(format!("Unknown requestType: {request_type}")))?;
 
         let email = if operation == ActionCodeOperation::VerifyAndChangeEmail {
             response.new_email.as_deref()
@@ -1941,10 +1790,7 @@ impl Auth {
             response.new_email.as_deref()
         };
 
-        let multi_factor_info = response
-            .mfa_info
-            .as_ref()
-            .and_then(|infos| Self::map_mfa_info(infos));
+        let multi_factor_info = response.mfa_info.as_ref().and_then(|infos| Self::map_mfa_info(infos));
 
         let data = ActionCodeInfoData {
             email: email.map(|value| value.to_string()),
@@ -1977,11 +1823,7 @@ impl Auth {
     }
 
     /// Updates the current user's display name and photo URL.
-    pub async fn update_profile(
-        &self,
-        display_name: Option<&str>,
-        photo_url: Option<&str>,
-    ) -> AuthResult<Arc<User>> {
+    pub async fn update_profile(&self, display_name: Option<&str>, photo_url: Option<&str>) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         let mut request = UpdateAccountRequest::new(id_token);
@@ -2051,10 +1893,7 @@ impl Auth {
     }
 
     /// Links an OAuth credential with the currently signed-in user.
-    pub async fn link_with_oauth_credential(
-        &self,
-        credential: AuthCredential,
-    ) -> AuthResult<UserCredential> {
+    pub async fn link_with_oauth_credential(&self, credential: AuthCredential) -> AuthResult<UserCredential> {
         let user = self.require_current_user()?;
         let id_token = user.get_id_token(false)?;
         self.exchange_oauth_credential(credential, MultiFactorOperation::Link, Some(id_token))
@@ -2062,11 +1901,7 @@ impl Auth {
     }
 
     /// Reauthenticates the current user with email and password.
-    pub async fn reauthenticate_with_password(
-        &self,
-        email: &str,
-        password: &str,
-    ) -> AuthResult<Arc<User>> {
+    pub async fn reauthenticate_with_password(&self, email: &str, password: &str) -> AuthResult<Arc<User>> {
         let request = SignInWithPasswordRequest {
             email: email.to_string(),
             password: password.to_string(),
@@ -2080,10 +1915,7 @@ impl Auth {
     }
 
     /// Reauthenticates the current user with an OAuth credential.
-    pub async fn reauthenticate_with_oauth_credential(
-        &self,
-        credential: AuthCredential,
-    ) -> AuthResult<Arc<User>> {
+    pub async fn reauthenticate_with_oauth_credential(&self, credential: AuthCredential) -> AuthResult<Arc<User>> {
         let user = self.require_current_user()?;
         let result = self
             .exchange_oauth_credential(
@@ -2333,11 +2165,7 @@ impl Auth {
         Ok(())
     }
 
-    fn sync_from_persistence(
-        &self,
-        state: Option<PersistedAuthState>,
-        notify_listeners: bool,
-    ) -> AuthResult<()> {
+    fn sync_from_persistence(&self, state: Option<PersistedAuthState>, notify_listeners: bool) -> AuthResult<()> {
         {
             let cache = self.persisted_state_cache.lock().unwrap();
             if *cache == state {
@@ -2382,11 +2210,8 @@ impl Auth {
             }
         });
 
-        user.token_manager().initialize(
-            state.access_token.clone(),
-            state.refresh_token.clone(),
-            expiration_time,
-        );
+        user.token_manager()
+            .initialize(state.access_token.clone(), state.refresh_token.clone(), expiration_time);
 
         Arc::new(user)
     }
@@ -2413,15 +2238,18 @@ impl Auth {
         response: &SignInWithIdpResponse,
         oauth_credential: &OAuthCredential,
     ) -> AuthResult<Arc<User>> {
-        let id_token = response.id_token.clone().ok_or_else(|| {
-            AuthError::InvalidCredential("signInWithIdp response missing idToken".into())
-        })?;
-        let refresh_token = response.refresh_token.clone().ok_or_else(|| {
-            AuthError::InvalidCredential("signInWithIdp response missing refreshToken".into())
-        })?;
-        let local_id = response.local_id.clone().ok_or_else(|| {
-            AuthError::InvalidCredential("signInWithIdp response missing localId".into())
-        })?;
+        let id_token = response
+            .id_token
+            .clone()
+            .ok_or_else(|| AuthError::InvalidCredential("signInWithIdp response missing idToken".into()))?;
+        let refresh_token = response
+            .refresh_token
+            .clone()
+            .ok_or_else(|| AuthError::InvalidCredential("signInWithIdp response missing refreshToken".into()))?;
+        let local_id = response
+            .local_id
+            .clone()
+            .ok_or_else(|| AuthError::InvalidCredential("signInWithIdp response missing localId".into()))?;
 
         let provider_id = response
             .provider_id
@@ -2467,12 +2295,14 @@ impl Auth {
         current_user: &Arc<User>,
         response: &UpdateAccountResponse,
     ) -> AuthResult<Arc<User>> {
-        let id_token = response.id_token.clone().ok_or_else(|| {
-            AuthError::InvalidCredential("accounts:update response missing idToken".into())
-        })?;
-        let refresh_token = response.refresh_token.clone().ok_or_else(|| {
-            AuthError::InvalidCredential("accounts:update response missing refreshToken".into())
-        })?;
+        let id_token = response
+            .id_token
+            .clone()
+            .ok_or_else(|| AuthError::InvalidCredential("accounts:update response missing idToken".into()))?;
+        let refresh_token = response
+            .refresh_token
+            .clone()
+            .ok_or_else(|| AuthError::InvalidCredential("accounts:update response missing refreshToken".into()))?;
 
         let expires_in = response
             .expires_in
@@ -2485,10 +2315,7 @@ impl Auth {
             .clone()
             .unwrap_or_else(|| current_user.uid().to_string());
 
-        let email = response
-            .email
-            .clone()
-            .or_else(|| current_user.info().email.clone());
+        let email = response.email.clone().or_else(|| current_user.info().email.clone());
 
         let display_name = match response.display_name.as_deref() {
             Some(value) if value.is_empty() => None,
@@ -2543,9 +2370,7 @@ impl Auth {
             .checked_sub(self.token_refresh_tolerance)
             .unwrap_or(expiration);
         let now = SystemTime::now();
-        let delay = trigger_time
-            .duration_since(now)
-            .unwrap_or(Duration::from_secs(0));
+        let delay = trigger_time.duration_since(now).unwrap_or(Duration::from_secs(0));
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
         *self.refresh_cancel.lock().unwrap() = Some(cancel_flag.clone());
@@ -2702,22 +2527,21 @@ fn auth_factory(
     container: &ComponentContainer,
     _options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: "auth".to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
     let auth = Auth::new((*app).clone()).map_err(|err| ComponentError::InitializationFailed {
         name: "auth".to_string(),
         reason: err.to_string(),
     })?;
     let auth = Arc::new(auth);
-    auth.initialize()
-        .map_err(|err| ComponentError::InitializationFailed {
-            name: "auth".to_string(),
-            reason: err.to_string(),
-        })?;
+    auth.initialize().map_err(|err| ComponentError::InitializationFailed {
+        name: "auth".to_string(),
+        reason: err.to_string(),
+    })?;
     Ok(auth as DynService)
 }
 
@@ -2736,13 +2560,11 @@ pub fn auth_for_app(app: FirebaseApp) -> AuthResult<Arc<Auth>> {
 mod tests {
     use super::*;
     use crate::auth::error::MultiFactorAuthErrorCode;
-    use crate::auth::types::{
-        ActionCodeSettings, AndroidSettings, ApplicationVerifier, IosSettings,
-    };
+    use crate::auth::types::{ActionCodeSettings, AndroidSettings, ApplicationVerifier, IosSettings};
     use crate::auth::{
         get_multi_factor_resolver, FirebaseAuth, PhoneAuthProvider, PhoneMultiFactorGenerator,
-        TotpMultiFactorGenerator, WebAuthnAssertionResponse, WebAuthnAttestationResponse,
-        WebAuthnMultiFactorGenerator, WEBAUTHN_FACTOR_ID,
+        TotpMultiFactorGenerator, WebAuthnAssertionResponse, WebAuthnAttestationResponse, WebAuthnMultiFactorGenerator,
+        WEBAUTHN_FACTOR_ID,
     };
     use crate::test_support::{start_mock_server, test_firebase_app_with_api_key};
     use httpmock::prelude::*;
@@ -2840,20 +2662,11 @@ mod tests {
             .expect("sign-in should succeed");
 
         mock.assert();
-        assert_eq!(
-            credential.provider_id.as_deref(),
-            Some(EmailAuthProvider::PROVIDER_ID)
-        );
+        assert_eq!(credential.provider_id.as_deref(), Some(EmailAuthProvider::PROVIDER_ID));
         assert_eq!(credential.operation_type.as_deref(), Some("signIn"));
         assert_eq!(credential.user.uid(), "uid-123");
-        assert_eq!(
-            credential.user.token_manager().access_token(),
-            Some("id-token".to_string())
-        );
-        assert_eq!(
-            credential.user.refresh_token(),
-            Some("refresh-token".to_string())
-        );
+        assert_eq!(credential.user.token_manager().access_token(), Some("id-token".to_string()));
+        assert_eq!(credential.user.refresh_token(), Some("refresh-token".to_string()));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -2890,15 +2703,11 @@ mod tests {
         sign_in_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
 
         assert_eq!(resolver.hints().len(), 1);
         assert_eq!(resolver.hints()[0].uid, "enroll1");
-        assert_eq!(
-            resolver.session().pending_credential(),
-            Some("PENDING_TOKEN")
-        );
+        assert_eq!(resolver.session().pending_credential(), Some("PENDING_TOKEN"));
 
         let verifier = Arc::new(StaticVerifier {
             token: "recaptcha-token",
@@ -2955,14 +2764,8 @@ mod tests {
 
         finalize_mock.assert();
         assert_eq!(result.user.uid(), TEST_UID);
-        assert_eq!(
-            result.provider_id.as_deref(),
-            Some(EmailAuthProvider::PROVIDER_ID)
-        );
-        assert_eq!(
-            result.user.token_manager().access_token(),
-            Some("mfa-id-token".to_string())
-        );
+        assert_eq!(result.provider_id.as_deref(), Some(EmailAuthProvider::PROVIDER_ID));
+        assert_eq!(result.user.token_manager().access_token(), Some("mfa-id-token".to_string()));
         assert_eq!(
             result.user.token_manager().refresh_token(),
             Some("mfa-refresh-token".to_string())
@@ -3004,15 +2807,11 @@ mod tests {
         reauth_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
 
         assert_eq!(resolver.hints().len(), 1);
         assert_eq!(resolver.hints()[0].uid, "enroll1");
-        assert_eq!(
-            resolver.session().pending_credential(),
-            Some("REAUTH_PENDING")
-        );
+        assert_eq!(resolver.session().pending_credential(), Some("REAUTH_PENDING"));
 
         let verifier = Arc::new(StaticVerifier {
             token: "recaptcha-token",
@@ -3069,10 +2868,7 @@ mod tests {
 
         finalize_mock.assert();
         assert_eq!(result.operation_type.as_deref(), Some("reauthenticate"));
-        assert_eq!(
-            result.provider_id.as_deref(),
-            Some(EmailAuthProvider::PROVIDER_ID)
-        );
+        assert_eq!(result.provider_id.as_deref(), Some(EmailAuthProvider::PROVIDER_ID));
         assert_eq!(
             result.user.token_manager().access_token(),
             Some("reauth-mfa-id-token".to_string())
@@ -3119,15 +2915,11 @@ mod tests {
         link_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
 
         assert_eq!(resolver.hints().len(), 1);
         assert_eq!(resolver.hints()[0].uid, "enroll1");
-        assert_eq!(
-            resolver.session().pending_credential(),
-            Some("LINK_PENDING")
-        );
+        assert_eq!(resolver.session().pending_credential(), Some("LINK_PENDING"));
 
         let verifier = Arc::new(StaticVerifier {
             token: "recaptcha-token",
@@ -3193,10 +2985,7 @@ mod tests {
             result.user.token_manager().refresh_token(),
             Some("link-mfa-refresh-token".to_string())
         );
-        assert_eq!(
-            result.user.info().phone_number.as_deref(),
-            Some("+15551234567")
-        );
+        assert_eq!(result.user.info().phone_number.as_deref(), Some("+15551234567"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -3237,15 +3026,11 @@ mod tests {
         link_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
 
         assert_eq!(resolver.hints().len(), 1);
         assert_eq!(resolver.hints()[0].uid, "passkey-enroll");
-        assert_eq!(
-            resolver.session().pending_credential(),
-            Some("LINK_PENDING")
-        );
+        assert_eq!(resolver.session().pending_credential(), Some("LINK_PENDING"));
 
         let start_mock = server.mock(|when, then| {
             when.method(POST)
@@ -3300,10 +3085,7 @@ mod tests {
         }))
         .expect("verification payload should be valid");
 
-        let assertion = WebAuthnMultiFactorGenerator::assertion_for_sign_in(
-            "passkey-enroll",
-            assertion_response,
-        );
+        let assertion = WebAuthnMultiFactorGenerator::assertion_for_sign_in("passkey-enroll", assertion_response);
 
         let result = resolver
             .resolve_sign_in(assertion)
@@ -3357,8 +3139,7 @@ mod tests {
         sign_in_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
 
         let start_mock = server.mock(|when, then| {
             when.method(POST)
@@ -3406,10 +3187,9 @@ mod tests {
             }));
         });
 
-        let assertion_response = WebAuthnAssertionResponse::try_from(verification_info)
-            .expect("verification payload should be valid");
-        let assertion =
-            WebAuthnMultiFactorGenerator::assertion_for_sign_in("enroll1", assertion_response);
+        let assertion_response =
+            WebAuthnAssertionResponse::try_from(verification_info).expect("verification payload should be valid");
+        let assertion = WebAuthnMultiFactorGenerator::assertion_for_sign_in("enroll1", assertion_response);
         let result = resolver
             .resolve_sign_in(assertion)
             .await
@@ -3417,14 +3197,8 @@ mod tests {
 
         finalize_mock.assert();
         assert_eq!(result.user.uid(), TEST_UID);
-        assert_eq!(
-            result.provider_id.as_deref(),
-            Some(EmailAuthProvider::PROVIDER_ID)
-        );
-        assert_eq!(
-            result.user.token_manager().access_token(),
-            Some("passkey-id-token".to_string())
-        );
+        assert_eq!(result.provider_id.as_deref(), Some(EmailAuthProvider::PROVIDER_ID));
+        assert_eq!(result.user.token_manager().access_token(), Some("passkey-id-token".to_string()));
         assert_eq!(
             result.user.token_manager().refresh_token(),
             Some("passkey-refresh-token".to_string())
@@ -3475,17 +3249,13 @@ mod tests {
         sign_in_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
 
         assert_eq!(resolver.hints().len(), 2);
         assert_eq!(resolver.hints()[0].uid, "first");
         assert_eq!(resolver.hints()[0].display_name.as_deref(), Some("Phone"));
         assert_eq!(resolver.hints()[1].uid, "second");
-        assert_eq!(
-            resolver.hints()[1].display_name.as_deref(),
-            Some("Security Key")
-        );
+        assert_eq!(resolver.hints()[1].display_name.as_deref(), Some("Security Key"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -3522,8 +3292,7 @@ mod tests {
         sign_in_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
 
         let start_mock = server.mock(|when, then| {
             when.method(POST)
@@ -3566,10 +3335,7 @@ mod tests {
         sign_in_user(&auth, &server).await;
 
         let multi_factor = auth.multi_factor();
-        let session = multi_factor
-            .get_session()
-            .await
-            .expect("session should be created");
+        let session = multi_factor.get_session().await.expect("session should be created");
 
         let start_mock = server.mock(|when, then| {
             when.method(POST)
@@ -3647,10 +3413,7 @@ mod tests {
         finalize_mock.assert();
         lookup_mock.assert();
         assert_eq!(result.provider_id.as_deref(), Some(WEBAUTHN_FACTOR_ID));
-        assert_eq!(
-            result.user.token_manager().access_token(),
-            Some("passkey-id-token".to_string())
-        );
+        assert_eq!(result.user.token_manager().access_token(), Some("passkey-id-token".to_string()));
         assert_eq!(
             result.user.token_manager().refresh_token(),
             Some("passkey-refresh-token".to_string())
@@ -3664,10 +3427,7 @@ mod tests {
         sign_in_user(&auth, &server).await;
 
         let multi_factor = auth.multi_factor();
-        let session = multi_factor
-            .get_session()
-            .await
-            .expect("session should be created");
+        let session = multi_factor.get_session().await.expect("session should be created");
 
         let start_mock = server.mock(|when, then| {
             when.method(POST)
@@ -3775,8 +3535,7 @@ mod tests {
         sign_in_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
 
         let start_mock = server.mock(|when, then| {
             when.method(POST)
@@ -3859,10 +3618,7 @@ mod tests {
         sign_in_user(&auth, &server).await;
 
         let multi_factor = auth.multi_factor();
-        let session = multi_factor
-            .get_session()
-            .await
-            .expect("session should be created");
+        let session = multi_factor.get_session().await.expect("session should be created");
 
         let start_mock = server.mock(|when, then| {
             when.method(POST)
@@ -3931,8 +3687,7 @@ mod tests {
             }));
         });
 
-        let assertion =
-            TotpMultiFactorGenerator::assertion_for_enrollment(secret.clone(), "654321");
+        let assertion = TotpMultiFactorGenerator::assertion_for_enrollment(secret.clone(), "654321");
         let result = multi_factor
             .enroll(&session, assertion, Some("Authenticator"))
             .await
@@ -3942,10 +3697,7 @@ mod tests {
         lookup_mock.assert();
         assert_eq!(result.provider_id.as_deref(), Some("totp"));
         assert_eq!(result.operation_type.as_deref(), Some("enroll"));
-        assert_eq!(
-            result.user.token_manager().access_token(),
-            Some("totp-id-token".to_string())
-        );
+        assert_eq!(result.user.token_manager().access_token(), Some("totp-id-token".to_string()));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -3982,8 +3734,7 @@ mod tests {
         sign_in_mock.assert();
 
         let firebase_auth = FirebaseAuth::new(auth.clone());
-        let resolver = get_multi_factor_resolver(&firebase_auth, &error)
-            .expect("resolver should be constructed");
+        let resolver = get_multi_factor_resolver(&firebase_auth, &error).expect("resolver should be constructed");
         assert_eq!(resolver.hints()[0].factor_id, "totp");
 
         let finalize_mock = server.mock(|when, then| {
@@ -4011,10 +3762,7 @@ mod tests {
 
         finalize_mock.assert();
         assert_eq!(result.user.uid(), TEST_UID);
-        assert_eq!(
-            result.provider_id.as_deref(),
-            Some(EmailAuthProvider::PROVIDER_ID)
-        );
+        assert_eq!(result.provider_id.as_deref(), Some(EmailAuthProvider::PROVIDER_ID));
         assert_eq!(
             result.user.token_manager().access_token(),
             Some("totp-signin-token".to_string())
@@ -4050,20 +3798,11 @@ mod tests {
             .expect("sign-up should succeed");
 
         mock.assert();
-        assert_eq!(
-            credential.provider_id.as_deref(),
-            Some(EmailAuthProvider::PROVIDER_ID)
-        );
+        assert_eq!(credential.provider_id.as_deref(), Some(EmailAuthProvider::PROVIDER_ID));
         assert_eq!(credential.operation_type.as_deref(), Some("signUp"));
         assert_eq!(credential.user.uid(), "uid-456");
-        assert_eq!(
-            credential.user.token_manager().access_token(),
-            Some("new-id-token".to_string())
-        );
-        assert_eq!(
-            credential.user.refresh_token(),
-            Some("new-refresh-token".to_string())
-        );
+        assert_eq!(credential.user.token_manager().access_token(), Some("new-id-token".to_string()));
+        assert_eq!(credential.user.refresh_token(), Some("new-refresh-token".to_string()));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4089,9 +3828,7 @@ mod tests {
             }));
         });
 
-        let result = auth
-            .sign_in_with_email_and_password("user@example.com", "secret")
-            .await;
+        let result = auth.sign_in_with_email_and_password("user@example.com", "secret").await;
 
         mock.assert();
         assert!(matches!(
@@ -4109,8 +3846,7 @@ mod tests {
             when.method(POST)
                 .path("/v1/accounts:signInWithPassword")
                 .query_param("key", TEST_API_KEY);
-            then.status(400)
-                .body("{\"error\":{\"message\":\"INVALID_PASSWORD\"}}");
+            then.status(400).body("{\"error\":{\"message\":\"INVALID_PASSWORD\"}}");
         });
 
         let result = auth
@@ -4247,10 +3983,7 @@ mod tests {
 
         mock.assert();
         assert_eq!(credential.user.uid(), "email-link-uid");
-        assert_eq!(
-            credential.provider_id.as_deref(),
-            Some(EmailAuthProvider::PROVIDER_ID)
-        );
+        assert_eq!(credential.provider_id.as_deref(), Some(EmailAuthProvider::PROVIDER_ID));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4349,8 +4082,7 @@ mod tests {
                     "recaptchaToken": "recaptcha-token",
                     "clientType": CLIENT_TYPE_WEB
                 }));
-            then.status(200)
-                .json_body(json!({ "sessionInfo": "session-info" }));
+            then.status(200).json_body(json!({ "sessionInfo": "session-info" }));
         });
 
         let confirmation = auth
@@ -4403,10 +4135,7 @@ mod tests {
         assert_eq!(credential.user.uid(), "phone-uid");
         assert_eq!(credential.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
         assert_eq!(credential.operation_type.as_deref(), Some("signIn"));
-        assert_eq!(
-            credential.user.info().phone_number.as_deref(),
-            Some("+15551234567")
-        );
+        assert_eq!(credential.user.info().phone_number.as_deref(), Some("+15551234567"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4428,8 +4157,7 @@ mod tests {
                     "recaptchaToken": "recaptcha-token",
                     "clientType": CLIENT_TYPE_WEB
                 }));
-            then.status(200)
-                .json_body(json!({ "sessionInfo": "provider-session" }));
+            then.status(200).json_body(json!({ "sessionInfo": "provider-session" }));
         });
 
         let provider = PhoneAuthProvider::new(auth.clone());
@@ -4561,10 +4289,7 @@ mod tests {
             .expect("start MFA enrollment");
         enroll_start.assert();
 
-        let credential = confirmation
-            .confirm("654321")
-            .await
-            .expect("finalize MFA enrollment");
+        let credential = confirmation.confirm("654321").await.expect("finalize MFA enrollment");
 
         enroll_finalize.assert();
         lookup.assert();
@@ -4572,10 +4297,7 @@ mod tests {
         assert_eq!(credential.operation_type.as_deref(), Some("enroll"));
         assert_eq!(credential.provider_id.as_deref(), Some(PHONE_PROVIDER_ID));
 
-        let factors = mfa_user
-            .enrolled_factors()
-            .await
-            .expect("load enrolled factors");
+        let factors = mfa_user.enrolled_factors().await.expect("load enrolled factors");
         assert_eq!(factors.len(), 1);
         assert_eq!(factors[0].uid, "enrollment-id");
         assert_eq!(factors[0].factor_id, "phone");
@@ -4663,10 +4385,7 @@ mod tests {
 
         mock.assert();
         assert_eq!(user.info().display_name.as_deref(), Some("New Name"));
-        assert_eq!(
-            user.token_manager().access_token(),
-            Some(TEST_ID_TOKEN.to_string())
-        );
+        assert_eq!(user.token_manager().access_token(), Some(TEST_ID_TOKEN.to_string()));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4758,10 +4477,7 @@ mod tests {
 
         mock.assert();
         assert_eq!(user.info().email.as_deref(), Some("new@example.com"));
-        assert_eq!(
-            user.token_manager().access_token(),
-            Some(UPDATED_ID_TOKEN.to_string())
-        );
+        assert_eq!(user.token_manager().access_token(), Some(UPDATED_ID_TOKEN.to_string()));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4795,10 +4511,7 @@ mod tests {
 
         mock.assert();
         assert_eq!(user.uid(), TEST_UID);
-        assert_eq!(
-            user.token_manager().refresh_token(),
-            Some(UPDATED_REFRESH_TOKEN.to_string())
-        );
+        assert_eq!(user.token_manager().refresh_token(), Some(UPDATED_REFRESH_TOKEN.to_string()));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4817,9 +4530,7 @@ mod tests {
             then.status(200);
         });
 
-        auth.delete_user()
-            .await
-            .expect("delete user should succeed");
+        auth.delete_user().await.expect("delete user should succeed");
 
         mock.assert();
         assert!(auth.current_user().is_none());
@@ -4857,14 +4568,8 @@ mod tests {
         mock.assert();
         assert_eq!(user.uid(), REAUTH_UID);
         assert_eq!(user.info().email.as_deref(), Some(REAUTH_EMAIL));
-        assert_eq!(
-            user.token_manager().access_token(),
-            Some(REAUTH_ID_TOKEN.to_string())
-        );
-        assert_eq!(
-            auth.current_user().expect("current user set").uid(),
-            REAUTH_UID
-        );
+        assert_eq!(user.token_manager().access_token(), Some(REAUTH_ID_TOKEN.to_string()));
+        assert_eq!(auth.current_user().expect("current user set").uid(), REAUTH_UID);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4955,10 +4660,7 @@ mod tests {
             }));
         });
 
-        let response = auth
-            .get_account_info()
-            .await
-            .expect("get account info should succeed");
+        let response = auth.get_account_info().await.expect("get account info should succeed");
 
         mock.assert();
         assert_eq!(response.users.len(), 1);
@@ -4969,10 +4671,7 @@ mod tests {
             .as_ref()
             .expect("providers present");
         assert_eq!(providers.len(), 1);
-        assert_eq!(
-            providers[0].provider_id.as_deref(),
-            Some(GOOGLE_PROVIDER_ID)
-        );
+        assert_eq!(providers[0].provider_id.as_deref(), Some(GOOGLE_PROVIDER_ID));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4985,8 +4684,7 @@ mod tests {
             when.method(POST)
                 .path("/v1/accounts:lookup")
                 .query_param("key", TEST_API_KEY);
-            then.status(400)
-                .body("{\"error\":{\"message\":\"INVALID_ID_TOKEN\"}}");
+            then.status(400).body("{\"error\":{\"message\":\"INVALID_ID_TOKEN\"}}");
         });
 
         let result = auth.get_account_info().await;

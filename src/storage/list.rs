@@ -59,26 +59,21 @@ pub fn parse_list_result(
     bucket: &str,
     response: serde_json::Value,
 ) -> StorageResult<ListResult> {
-    let parsed: ListResponse = serde_json::from_value(response.clone()).map_err(|err| {
-        internal_error(format!("invalid list response: {err}; payload: {response}"))
-    })?;
+    let parsed: ListResponse = serde_json::from_value(response.clone())
+        .map_err(|err| internal_error(format!("invalid list response: {err}; payload: {response}")))?;
 
     let mut result = ListResult::default();
 
     for prefix in parsed.prefixes {
         let trimmed = prefix.trim_end_matches('/');
         let location = Location::new(bucket, trimmed);
-        result
-            .prefixes
-            .push(StorageReference::new(storage.clone(), location));
+        result.prefixes.push(StorageReference::new(storage.clone(), location));
     }
 
     for item in parsed.items {
         let item_bucket = item.bucket.unwrap_or_else(|| bucket.to_string());
         let location = Location::new(item_bucket, item.name);
-        result
-            .items
-            .push(StorageReference::new(storage.clone(), location));
+        result.items.push(StorageReference::new(storage.clone(), location));
     }
 
     result.next_page_token = parsed.next_page_token;
@@ -95,10 +90,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "storage-list-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("storage-list-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -108,9 +100,7 @@ mod tests {
             storage_bucket: Some("my-bucket".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let container = app.container();
         let auth_provider = container.get_provider("auth-internal");
         let app_check_provider = container.get_provider("app-check-internal");

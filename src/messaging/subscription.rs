@@ -13,11 +13,7 @@
 ))]
 use crate::messaging::error::{unsupported_browser, MessagingResult};
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 mod wasm {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
@@ -26,8 +22,8 @@ mod wasm {
     use wasm_bindgen_futures::JsFuture;
 
     use crate::messaging::error::{
-        internal_error, invalid_argument, token_subscribe_failed, token_unsubscribe_failed,
-        unsupported_browser, MessagingResult,
+        internal_error, invalid_argument, token_subscribe_failed, token_unsubscribe_failed, unsupported_browser,
+        MessagingResult,
     };
     use crate::messaging::sw_manager::ServiceWorkerRegistrationHandle;
 
@@ -62,11 +58,7 @@ mod wasm {
             let auth = extract_key(&self.inner, "auth")?;
             let p256dh = extract_key(&self.inner, "p256dh")?;
 
-            Ok(PushSubscriptionDetails {
-                endpoint,
-                auth,
-                p256dh,
-            })
+            Ok(PushSubscriptionDetails { endpoint, auth, p256dh })
         }
 
         pub async fn unsubscribe(self) -> MessagingResult<bool> {
@@ -134,13 +126,13 @@ mod wasm {
                     .await
                     .map_err(|err| token_subscribe_failed(format_js_error("subscribe", err)))?;
 
-                value.dyn_into().map_err(|_| {
-                    token_subscribe_failed("PushManager.subscribe returned unexpected value")
-                })?
+                value
+                    .dyn_into()
+                    .map_err(|_| token_subscribe_failed("PushManager.subscribe returned unexpected value"))?
             } else {
-                existing.dyn_into().map_err(|_| {
-                    token_subscribe_failed("getSubscription returned unexpected value")
-                })?
+                existing
+                    .dyn_into()
+                    .map_err(|_| token_subscribe_failed("getSubscription returned unexpected value"))?
             };
 
             let handle = PushSubscriptionHandle::new(subscription);
@@ -164,29 +156,20 @@ mod wasm {
         Ok(js_sys::Uint8Array::from(bytes.as_slice()))
     }
 
-    fn extract_key(
-        subscription: &web_sys::PushSubscription,
-        name: &str,
-    ) -> MessagingResult<String> {
+    fn extract_key(subscription: &web_sys::PushSubscription, name: &str) -> MessagingResult<String> {
         let key_name = match name {
             "p256dh" => web_sys::PushEncryptionKeyName::P256dh,
             "auth" => web_sys::PushEncryptionKeyName::Auth,
-            other => {
-                return Err(token_subscribe_failed(format!(
-                    "Unsupported push encryption key name: {other}"
-                )))
-            }
+            other => return Err(token_subscribe_failed(format!("Unsupported push encryption key name: {other}"))),
         };
-        let buffer = subscription.get_key(key_name).map_err(|err| {
-            token_subscribe_failed(format_js_error("PushSubscription.getKey", err))
-        })?;
+        let buffer = subscription
+            .get_key(key_name)
+            .map_err(|err| token_subscribe_failed(format_js_error("PushSubscription.getKey", err)))?;
         if let Some(buffer) = buffer {
             let view = js_sys::Uint8Array::new(&buffer);
             Ok(base64::engine::general_purpose::STANDARD.encode(view.to_vec()))
         } else {
-            Err(token_subscribe_failed(format!(
-                "Push subscription missing {name} key"
-            )))
+            Err(token_subscribe_failed(format!("Push subscription missing {name} key")))
         }
     }
 
@@ -200,14 +183,9 @@ mod wasm {
     pub use PushSubscriptionManager as Manager;
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub use wasm::{
-    Details as PushSubscriptionDetails, Handle as PushSubscriptionHandle,
-    Manager as PushSubscriptionManager,
+    Details as PushSubscriptionDetails, Handle as PushSubscriptionHandle, Manager as PushSubscriptionManager,
 };
 
 #[cfg(any(

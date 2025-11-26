@@ -8,32 +8,19 @@ use serde::Serialize;
 use serde_json::json;
 
 use async_lock::Mutex as AsyncMutex;
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use async_lock::OnceCell as AsyncOnceCell;
 
 use crate::app::errors::AppResult;
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::app::logger::LOGGER;
 use crate::app::platform_logger::PlatformLoggerServiceImpl;
 use crate::app::types::{
-    FirebaseApp, HeartbeatService, HeartbeatStorage, HeartbeatsInStorage, PlatformLoggerService,
-    SingleDateHeartbeat,
+    FirebaseApp, HeartbeatService, HeartbeatStorage, HeartbeatsInStorage, PlatformLoggerService, SingleDateHeartbeat,
 };
 use crate::component::ComponentContainer;
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::platform::browser::indexed_db;
 
 const MAX_NUM_STORED_HEARTBEATS: usize = 30;
@@ -91,11 +78,7 @@ impl HeartbeatServiceImpl {
         if heartbeats.len() <= MAX_NUM_STORED_HEARTBEATS {
             return;
         }
-        if let Some((index, _)) = heartbeats
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, hb)| hb.date.clone())
-        {
+        if let Some((index, _)) = heartbeats.iter().enumerate().min_by_key(|(_, hb)| hb.date.clone()) {
             heartbeats.remove(index);
         }
     }
@@ -106,9 +89,7 @@ impl HeartbeatServiceImpl {
         let mut unsent = Vec::new();
 
         for hb in heartbeats.iter().cloned() {
-            let entry = selected
-                .iter_mut()
-                .find(|existing| existing.agent == hb.agent);
+            let entry = selected.iter_mut().find(|existing| existing.agent == hb.agent);
             if let Some(existing) = entry {
                 existing.dates.push(hb.date.clone());
             } else {
@@ -124,10 +105,7 @@ impl HeartbeatServiceImpl {
                 }
             }
 
-            if let Some(existing) = selected
-                .iter_mut()
-                .find(|existing| existing.agent == hb.agent)
-            {
+            if let Some(existing) = selected.iter_mut().find(|existing| existing.agent == hb.agent) {
                 existing.dates.pop();
                 if existing.dates.is_empty() {
                     selected.retain(|entry| entry.agent != hb.agent);
@@ -147,10 +125,7 @@ impl HeartbeatServiceImpl {
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 impl HeartbeatService for HeartbeatServiceImpl {
     async fn trigger_heartbeat(&self) -> AppResult<()> {
         let mut cache = self.load_cache().await?;
@@ -160,16 +135,11 @@ impl HeartbeatService for HeartbeatServiceImpl {
             return Ok(());
         }
 
-        if cache
-            .heartbeats
-            .iter()
-            .any(|heartbeat| heartbeat.date == date)
-        {
+        if cache.heartbeats.iter().any(|heartbeat| heartbeat.date == date) {
             return Ok(());
         }
 
-        let agent =
-            Self::platform_agent(&self.app.container()).unwrap_or_else(|| "unknown".to_string());
+        let agent = Self::platform_agent(&self.app.container()).unwrap_or_else(|| "unknown".to_string());
         cache.heartbeats.push(SingleDateHeartbeat { date, agent });
         Self::prune_oldest(&mut cache.heartbeats);
         self.storage.overwrite(&cache).await?;
@@ -222,15 +192,10 @@ impl InMemoryHeartbeatStorage {
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 impl HeartbeatStorage for InMemoryHeartbeatStorage {
     async fn read(&self) -> AppResult<HeartbeatsInStorage> {
-        let store = HEARTBEAT_STORE
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let store = HEARTBEAT_STORE.lock().unwrap_or_else(|poison| poison.into_inner());
         Ok(store
             .get(&self.key)
             .cloned()
@@ -259,59 +224,31 @@ pub fn clear_heartbeat_store_for_tests() {
 }
 
 pub(crate) fn storage_for_app(app: &FirebaseApp) -> Arc<dyn HeartbeatStorage> {
-    #[cfg(all(
-        feature = "wasm-web",
-        target_arch = "wasm32",
-        feature = "experimental-indexed-db"
-    ))]
+    #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
     {
         Arc::new(IndexedDbHeartbeatStorage::new(app.clone()))
     }
 
-    #[cfg(not(all(
-        feature = "wasm-web",
-        target_arch = "wasm32",
-        feature = "experimental-indexed-db"
-    )))]
+    #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")))]
     {
         Arc::new(InMemoryHeartbeatStorage::new(app))
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 const HEARTBEAT_DB_NAME: &str = "firebase-heartbeat-database";
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 const HEARTBEAT_DB_VERSION: u32 = 1;
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 const HEARTBEAT_STORE_NAME: &str = "firebase-heartbeat-store";
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub struct IndexedDbHeartbeatStorage {
     app: FirebaseApp,
     support: AsyncOnceCell<bool>,
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 impl IndexedDbHeartbeatStorage {
     pub fn new(app: FirebaseApp) -> Self {
         Self {
@@ -353,21 +290,14 @@ impl IndexedDbHeartbeatStorage {
     }
 
     async fn read_inner(&self) -> Option<HeartbeatsInStorage> {
-        let db = indexed_db::open_database_with_store(
-            HEARTBEAT_DB_NAME,
-            HEARTBEAT_DB_VERSION,
-            HEARTBEAT_STORE_NAME,
-        )
-        .await
-        .ok()?;
+        let db = indexed_db::open_database_with_store(HEARTBEAT_DB_NAME, HEARTBEAT_DB_VERSION, HEARTBEAT_STORE_NAME)
+            .await
+            .ok()?;
         match indexed_db::get_string(&db, HEARTBEAT_STORE_NAME, &self.key()).await {
             Ok(Some(payload)) => match serde_json::from_str::<HeartbeatsInStorage>(&payload) {
                 Ok(value) => Some(value),
                 Err(err) => {
-                    LOGGER.warn(format!(
-                        "Failed to decode heartbeats from IndexedDB: {}",
-                        err
-                    ));
+                    LOGGER.warn(format!("Failed to decode heartbeats from IndexedDB: {}", err));
                     None
                 }
             },
@@ -386,25 +316,15 @@ impl IndexedDbHeartbeatStorage {
         let json = match serde_json::to_string(value) {
             Ok(json) => json,
             Err(err) => {
-                LOGGER.warn(format!(
-                    "Failed to serialize heartbeats for IndexedDB: {}",
-                    err
-                ));
+                LOGGER.warn(format!("Failed to serialize heartbeats for IndexedDB: {}", err));
                 return;
             }
         };
 
-        match indexed_db::open_database_with_store(
-            HEARTBEAT_DB_NAME,
-            HEARTBEAT_DB_VERSION,
-            HEARTBEAT_STORE_NAME,
-        )
-        .await
+        match indexed_db::open_database_with_store(HEARTBEAT_DB_NAME, HEARTBEAT_DB_VERSION, HEARTBEAT_STORE_NAME).await
         {
             Ok(db) => {
-                if let Err(err) =
-                    indexed_db::put_string(&db, HEARTBEAT_STORE_NAME, &self.key(), &json).await
-                {
+                if let Err(err) = indexed_db::put_string(&db, HEARTBEAT_STORE_NAME, &self.key(), &json).await {
                     LOGGER.warn(format!(
                         "Failed to write heartbeats to IndexedDB: {}",
                         format_indexed_db_error(&err)
@@ -421,11 +341,7 @@ impl IndexedDbHeartbeatStorage {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 fn format_indexed_db_error(error: &indexed_db::Error) -> String {
     match error {
         indexed_db::Error::Unsupported(_) => "IndexedDB not supported".to_string(),
@@ -433,19 +349,12 @@ fn format_indexed_db_error(error: &indexed_db::Error) -> String {
     }
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 #[cfg_attr(
     all(feature = "wasm-web", target_arch = "wasm32"),
     async_trait::async_trait(?Send)
 )]
-#[cfg_attr(
-    not(all(feature = "wasm-web", target_arch = "wasm32")),
-    async_trait::async_trait
-)]
+#[cfg_attr(not(all(feature = "wasm-web", target_arch = "wasm32")), async_trait::async_trait)]
 impl HeartbeatStorage for IndexedDbHeartbeatStorage {
     async fn read(&self) -> AppResult<HeartbeatsInStorage> {
         if !self.is_supported().await {
@@ -532,18 +441,12 @@ mod tests {
         let storage: Arc<dyn HeartbeatStorage> = Arc::new(InMemoryHeartbeatStorage::new(&app));
         let service = HeartbeatServiceImpl::new(app.clone(), storage);
 
-        service
-            .trigger_heartbeat()
-            .await
-            .expect("trigger heartbeat");
+        service.trigger_heartbeat().await.expect("trigger heartbeat");
         let header = service.heartbeats_header().await.expect("header result");
         assert!(header.is_some(), "expected heartbeat header payload");
 
         // Subsequent call without new heartbeats should return None.
-        let second = service
-            .heartbeats_header()
-            .await
-            .expect("second header result");
+        let second = service.heartbeats_header().await.expect("second header result");
         assert!(second.is_none());
     }
 }

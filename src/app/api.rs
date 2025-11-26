@@ -8,9 +8,8 @@ use crate::app::errors::{AppError, AppResult};
 use crate::app::logger::{self, LogCallback, LogLevel, LogOptions, LOGGER};
 use crate::app::registry::{self, apps_guard, registered_components_guard, server_apps_guard};
 use crate::app::types::{
-    deep_equal_config, deep_equal_options, get_default_app_config, FirebaseApp, FirebaseAppConfig,
-    FirebaseAppSettings, FirebaseOptions, FirebaseServerApp, FirebaseServerAppSettings,
-    VersionService,
+    deep_equal_config, deep_equal_options, get_default_app_config, FirebaseApp, FirebaseAppConfig, FirebaseAppSettings,
+    FirebaseOptions, FirebaseServerApp, FirebaseServerAppSettings, VersionService,
 };
 use crate::app::types::{is_browser, is_web_worker};
 use crate::component::types::{DynService, InstanceFactory, InstantiationMode};
@@ -18,15 +17,12 @@ use sha2::{Digest, Sha256};
 
 pub static SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-static REGISTERED_VERSIONS: LazyLock<Mutex<HashMap<String, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static REGISTERED_VERSIONS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 static GLOBAL_APP_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn global_app_guard() -> MutexGuard<'static, ()> {
-    GLOBAL_APP_LOCK
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
+    GLOBAL_APP_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
 fn merged_settings(raw: Option<FirebaseAppSettings>) -> FirebaseAppSettings {
@@ -34,10 +30,7 @@ fn merged_settings(raw: Option<FirebaseAppSettings>) -> FirebaseAppSettings {
 }
 
 fn normalize_name(settings: &FirebaseAppSettings) -> AppResult<String> {
-    let name = settings
-        .name
-        .clone()
-        .unwrap_or_else(|| DEFAULT_ENTRY_NAME.to_string());
+    let name = settings.name.clone().unwrap_or_else(|| DEFAULT_ENTRY_NAME.to_string());
     if name.trim().is_empty() {
         return Err(AppError::BadAppName { app_name: name });
     }
@@ -117,9 +110,7 @@ fn validate_token_ttl(token: Option<&str>, token_name: &str) {
 
     let now = chrono::Utc::now().timestamp_millis();
     if exp <= now {
-        LOGGER.warn(format!(
-            "FirebaseServerApp {token_name} is invalid: the token has expired."
-        ));
+        LOGGER.warn(format!("FirebaseServerApp {token_name} is invalid: the token has expired."));
     }
 }
 
@@ -163,10 +154,7 @@ fn server_app_hash(options: &FirebaseOptions, settings: &FirebaseServerAppSettin
 ///
 /// When an app with the same normalized name already exists, the existing instance is
 /// returned as long as the configuration matches. A mismatch results in `AppError::DuplicateApp`.
-pub async fn initialize_app(
-    options: FirebaseOptions,
-    settings: Option<FirebaseAppSettings>,
-) -> AppResult<FirebaseApp> {
+pub async fn initialize_app(options: FirebaseOptions, settings: Option<FirebaseAppSettings>) -> AppResult<FirebaseApp> {
     ensure_core_components_registered().await;
     let _guard = global_app_guard();
     let settings = merged_settings(settings);
@@ -180,9 +168,7 @@ pub async fn initialize_app(
     {
         let apps = apps_guard();
         if let Some(existing) = apps.get(&name) {
-            if deep_equal_options(&options, &existing.options())
-                && deep_equal_config(&config, &existing.config())
-            {
+            if deep_equal_options(&options, &existing.options()) && deep_equal_config(&config, &existing.config()) {
                 return Ok(existing.clone());
             } else {
                 return Err(AppError::DuplicateApp { app_name: name });
@@ -320,12 +306,7 @@ pub async fn initialize_server_app(
 
     let base_app = FirebaseApp::new(
         app_options.clone(),
-        FirebaseAppConfig::new(
-            name.clone(),
-            server_settings
-                .automatic_data_collection_enabled
-                .unwrap_or(true),
-        ),
+        FirebaseAppConfig::new(name.clone(), server_settings.automatic_data_collection_enabled.unwrap_or(true)),
         container.clone(),
     );
 
@@ -361,11 +342,7 @@ pub async fn initialize_server_app(
 /// Registers a library version component so it can be queried by other Firebase services.
 pub fn register_version(library: &str, version: &str, variant: Option<&str>) {
     let _guard = global_app_guard();
-    let mut library_key = PLATFORM_LOG_STRING
-        .get(library)
-        .copied()
-        .unwrap_or(library)
-        .to_string();
+    let mut library_key = PLATFORM_LOG_STRING.get(library).copied().unwrap_or(library).to_string();
     if let Some(variant) = variant {
         library_key.push('-');
         library_key.push_str(variant);
@@ -485,9 +462,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn initialize_app_creates_default_app() {
         with_serialized_test(|| async {
-            let app = super::initialize_app(test_options(), None)
-                .await
-                .expect("init app");
+            let app = super::initialize_app(test_options(), None).await.expect("init app");
             assert_eq!(app.name(), DEFAULT_ENTRY_NAME);
         })
         .await;
@@ -514,12 +489,8 @@ mod tests {
     async fn initialize_app_with_same_options_returns_same_instance() {
         with_serialized_test(|| async {
             let opts = test_options();
-            let app1 = super::initialize_app(opts.clone(), None)
-                .await
-                .expect("first init");
-            let app2 = super::initialize_app(opts, None)
-                .await
-                .expect("second init");
+            let app1 = super::initialize_app(opts.clone(), None).await.expect("first init");
+            let app2 = super::initialize_app(opts, None).await.expect("second init");
             let container1 = app1.container().inner.clone();
             let container2 = app2.container().inner.clone();
             assert!(Arc::ptr_eq(&container1, &container2));
@@ -569,9 +540,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn automatic_data_collection_defaults_true() {
         with_serialized_test(|| async {
-            let app = super::initialize_app(test_options(), None)
-                .await
-                .expect("init app");
+            let app = super::initialize_app(test_options(), None).await.expect("init app");
             assert!(app.automatic_data_collection_enabled());
         })
         .await;
@@ -602,9 +571,7 @@ mod tests {
             let _ = registry::register_component(make_test_component(&name1));
             let _ = registry::register_component(make_test_component(&name2));
 
-            let app = super::initialize_app(test_options(), None)
-                .await
-                .expect("init app");
+            let app = super::initialize_app(test_options(), None).await.expect("init app");
             assert!(app.container().get_provider(&name1).is_component_set());
             assert!(app.container().get_provider(&name2).is_component_set());
         })
@@ -614,9 +581,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn delete_app_marks_app_deleted_and_clears_registry() {
         with_serialized_test(|| async {
-            let app = super::initialize_app(test_options(), None)
-                .await
-                .expect("init app");
+            let app = super::initialize_app(test_options(), None).await.expect("init app");
             let name = app.name().to_string();
             {
                 let apps = registry::apps_guard();
@@ -688,9 +653,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn get_app_returns_existing_app() {
         with_serialized_test(|| async {
-            let created = super::initialize_app(test_options(), None)
-                .await
-                .expect("init app");
+            let created = super::initialize_app(test_options(), None).await.expect("init app");
             let fetched = super::get_app(None).await.expect("get app");
             assert_eq!(created.name(), fetched.name());
         })

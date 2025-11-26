@@ -21,13 +21,8 @@ impl FirestoreDataConverter for UserConverter {
 }
 
 #[allow(dead_code)]
-async fn example_with_converter(
-    firestore: &Firestore,
-    client: &FirestoreClient,
-) -> FirestoreResult<Option<MyUser>> {
-    let users = firestore
-        .collection("typed-users")?
-        .with_converter(UserConverter);
+async fn example_with_converter(firestore: &Firestore, client: &FirestoreClient) -> FirestoreResult<Option<MyUser>> {
+    let users = firestore.collection("typed-users")?.with_converter(UserConverter);
     let doc = users.doc(Some("ada"))?;
     client
         .set_doc_with_converter(

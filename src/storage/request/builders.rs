@@ -16,16 +16,12 @@ use crate::storage::{SetMetadataRequest, UploadMetadata};
 
 use super::{RequestBody, RequestInfo, ResponseHandler};
 
-pub fn get_metadata_request(
-    storage: &FirebaseStorageImpl,
-    location: &Location,
-) -> RequestInfo<Value> {
+pub fn get_metadata_request(storage: &FirebaseStorageImpl, location: &Location) -> RequestInfo<Value> {
     let base_url = format!("{}/v0{}", storage.host(), location.full_server_url());
     let timeout = Duration::from_millis(storage.max_operation_retry_time());
 
     let handler: ResponseHandler<Value> = Arc::new(|payload| {
-        serde_json::from_slice(&payload.body)
-            .map_err(|err| internal_error(format!("failed to parse metadata: {err}")))
+        serde_json::from_slice(&payload.body).map_err(|err| internal_error(format!("failed to parse metadata: {err}")))
     });
 
     RequestInfo::new(base_url, Method::GET, timeout, handler)
@@ -42,8 +38,7 @@ pub fn update_metadata_request(
     let timeout = Duration::from_millis(storage.max_operation_retry_time());
 
     let handler: ResponseHandler<Value> = Arc::new(|payload| {
-        serde_json::from_slice(&payload.body)
-            .map_err(|err| internal_error(format!("failed to parse metadata: {err}")))
+        serde_json::from_slice(&payload.body).map_err(|err| internal_error(format!("failed to parse metadata: {err}")))
     });
 
     RequestInfo::new(base_url, Method::PATCH, timeout, handler)
@@ -54,11 +49,7 @@ pub fn update_metadata_request(
         ))
 }
 
-pub fn list_request(
-    storage: &FirebaseStorageImpl,
-    location: &Location,
-    options: &ListOptions,
-) -> RequestInfo<Value> {
+pub fn list_request(storage: &FirebaseStorageImpl, location: &Location, options: &ListOptions) -> RequestInfo<Value> {
     let base_url = format!("{}/v0{}", storage.host(), location.bucket_only_server_url());
     let timeout = Duration::from_millis(storage.max_operation_retry_time());
     let handler: ResponseHandler<Value> = Arc::new(|payload| {
@@ -88,24 +79,17 @@ pub fn download_bytes_request(
     let handler: ResponseHandler<Vec<u8>> = Arc::new(|payload| Ok(payload.body));
 
     let mut request = RequestInfo::new(base_url, Method::GET, timeout, handler);
-    request
-        .query_params
-        .insert("alt".to_string(), "media".to_string());
+    request.query_params.insert("alt".to_string(), "media".to_string());
 
     if let Some(limit) = max_download_size_bytes {
-        request
-            .headers
-            .insert("Range".to_string(), format!("bytes=0-{limit}"));
+        request.headers.insert("Range".to_string(), format!("bytes=0-{limit}"));
         request.success_codes = vec![200, 206];
     }
 
     request
 }
 
-pub fn download_url_request(
-    storage: &FirebaseStorageImpl,
-    location: &Location,
-) -> RequestInfo<Option<String>> {
+pub fn download_url_request(storage: &FirebaseStorageImpl, location: &Location) -> RequestInfo<Option<String>> {
     let url_part = location.full_server_url();
     let base_url = format!("{}/v0{}", storage.host(), url_part.clone());
     let timeout = Duration::from_millis(storage.max_operation_retry_time());
@@ -122,11 +106,8 @@ pub fn download_url_request(
             .filter(|s| !s.is_empty())
         {
             if let Some(token) = tokens.split(',').find(|segment| !segment.is_empty()) {
-                let encoded_token: String =
-                    form_urlencoded::byte_serialize(token.as_bytes()).collect();
-                return Ok(Some(format!(
-                    "{download_base}?alt=media&token={encoded_token}"
-                )));
+                let encoded_token: String = form_urlencoded::byte_serialize(token.as_bytes()).collect();
+                return Ok(Some(format!("{download_base}?alt=media&token={encoded_token}")));
             }
         }
 
@@ -138,10 +119,7 @@ pub fn download_url_request(
     request
 }
 
-pub fn delete_object_request(
-    storage: &FirebaseStorageImpl,
-    location: &Location,
-) -> RequestInfo<()> {
+pub fn delete_object_request(storage: &FirebaseStorageImpl, location: &Location) -> RequestInfo<()> {
     let base_url = format!("{}/v0{}", storage.host(), location.full_server_url());
     let timeout = Duration::from_millis(storage.max_operation_retry_time());
 
@@ -163,12 +141,7 @@ pub struct ResumableUploadStatus {
 }
 
 impl ResumableUploadStatus {
-    pub fn new(
-        current: u64,
-        total: u64,
-        finalized: bool,
-        metadata: Option<ObjectMetadata>,
-    ) -> Self {
+    pub fn new(current: u64, total: u64, finalized: bool, metadata: Option<ObjectMetadata>) -> Self {
         Self {
             current,
             total,
@@ -189,8 +162,7 @@ pub fn multipart_upload_request(
 
     let total_size = data.len() as u64;
     let (resource, content_type) = build_upload_resource(location, metadata.clone(), total_size);
-    let resource_json =
-        serde_json::to_string(&resource).expect("upload metadata serialization should never fail");
+    let resource_json = serde_json::to_string(&resource).expect("upload metadata serialization should never fail");
 
     let boundary = generate_boundary();
     let mut body = Vec::with_capacity(resource_json.len() + data.len() + boundary.len() * 4 + 200);
@@ -200,12 +172,7 @@ pub fn multipart_upload_request(
         "Content-Type: application/json; charset=utf-8",
         resource_json.as_bytes(),
     );
-    push_multipart_segment(
-        &mut body,
-        &boundary,
-        &format!("Content-Type: {content_type}"),
-        &data,
-    );
+    push_multipart_segment(&mut body, &boundary, &format!("Content-Type: {content_type}"), &data);
     finalize_multipart(&mut body, &boundary);
 
     let handler: ResponseHandler<ObjectMetadata> = Arc::new(|payload| {
@@ -220,14 +187,12 @@ pub fn multipart_upload_request(
         .with_query_param("uploadType", "multipart")
         .with_query_param("name", location.path());
 
-    request.headers.insert(
-        "Content-Type".to_string(),
-        format!("multipart/related; boundary={boundary}"),
-    );
-    request.headers.insert(
-        "X-Goog-Upload-Protocol".to_string(),
-        "multipart".to_string(),
-    );
+    request
+        .headers
+        .insert("Content-Type".to_string(), format!("multipart/related; boundary={boundary}"));
+    request
+        .headers
+        .insert("X-Goog-Upload-Protocol".to_string(), "multipart".to_string());
 
     request
 }
@@ -242,16 +207,13 @@ pub fn create_resumable_upload_request(
     let timeout = Duration::from_millis(storage.max_upload_retry_time());
 
     let (resource, content_type) = build_upload_resource(location, metadata.clone(), total_size);
-    let resource_json =
-        serde_json::to_string(&resource).expect("upload metadata serialization should never fail");
+    let resource_json = serde_json::to_string(&resource).expect("upload metadata serialization should never fail");
 
     let handler: ResponseHandler<String> = Arc::new(|payload| {
         let status = header_value(&payload.headers, "X-Goog-Upload-Status")
             .ok_or_else(|| internal_error("missing resumable upload status header"))?;
         if !matches!(status.to_ascii_lowercase().as_str(), "active" | "final") {
-            return Err(internal_error(format!(
-                "unexpected resumable upload status: {status}"
-            )));
+            return Err(internal_error(format!("unexpected resumable upload status: {status}")));
         }
 
         let upload_url = header_value(&payload.headers, "X-Goog-Upload-URL")
@@ -265,21 +227,18 @@ pub fn create_resumable_upload_request(
         .with_headers(default_json_headers())
         .with_body(RequestBody::Text(resource_json));
 
-    request.headers.insert(
-        "X-Goog-Upload-Protocol".to_string(),
-        "resumable".to_string(),
-    );
+    request
+        .headers
+        .insert("X-Goog-Upload-Protocol".to_string(), "resumable".to_string());
     request
         .headers
         .insert("X-Goog-Upload-Command".to_string(), "start".to_string());
-    request.headers.insert(
-        "X-Goog-Upload-Header-Content-Length".to_string(),
-        total_size.to_string(),
-    );
-    request.headers.insert(
-        "X-Goog-Upload-Header-Content-Type".to_string(),
-        content_type,
-    );
+    request
+        .headers
+        .insert("X-Goog-Upload-Header-Content-Length".to_string(), total_size.to_string());
+    request
+        .headers
+        .insert("X-Goog-Upload-Header-Content-Type".to_string(), content_type);
 
     request
 }
@@ -295,9 +254,7 @@ pub fn get_resumable_upload_status_request(
         let status = header_value(&payload.headers, "X-Goog-Upload-Status")
             .ok_or_else(|| internal_error("missing resumable upload status header"))?;
         if !matches!(status.to_ascii_lowercase().as_str(), "active" | "final") {
-            return Err(internal_error(format!(
-                "unexpected resumable upload status: {status}"
-            )));
+            return Err(internal_error(format!("unexpected resumable upload status: {status}")));
         }
         let received = header_value(&payload.headers, "X-Goog-Upload-Size-Received")
             .ok_or_else(|| internal_error("missing upload size header"))?;
@@ -317,10 +274,9 @@ pub fn get_resumable_upload_status_request(
     request
         .headers
         .insert("X-Goog-Upload-Command".to_string(), "query".to_string());
-    request.headers.insert(
-        "X-Goog-Upload-Protocol".to_string(),
-        "resumable".to_string(),
-    );
+    request
+        .headers
+        .insert("X-Goog-Upload-Protocol".to_string(), "resumable".to_string());
     request
 }
 
@@ -341,18 +297,14 @@ pub fn continue_resumable_upload_request(
         let status = header_value(&payload.headers, "X-Goog-Upload-Status")
             .ok_or_else(|| internal_error("missing resumable upload status header"))?;
         if !matches!(status.to_ascii_lowercase().as_str(), "active" | "final") {
-            return Err(internal_error(format!(
-                "unexpected resumable upload status: {status}"
-            )));
+            return Err(internal_error(format!("unexpected resumable upload status: {status}")));
         }
 
         let new_current = (start_offset + bytes_to_upload).min(total_size);
 
         let metadata = if status.eq_ignore_ascii_case("final") {
             if payload.body.is_empty() {
-                return Err(internal_error(
-                    "final resumable response missing metadata payload",
-                ));
+                return Err(internal_error("final resumable response missing metadata payload"));
             }
             let value: Value = serde_json::from_slice(&payload.body)
                 .map_err(|err| internal_error(format!("failed to parse upload metadata: {err}")))?;
@@ -369,8 +321,7 @@ pub fn continue_resumable_upload_request(
         ))
     });
 
-    let mut request = RequestInfo::new(upload_url, Method::POST, timeout, handler)
-        .with_body(RequestBody::Bytes(chunk));
+    let mut request = RequestInfo::new(upload_url, Method::POST, timeout, handler).with_body(RequestBody::Bytes(chunk));
 
     let mut command = String::from("upload");
     if finalize && empty_chunk {
@@ -379,20 +330,16 @@ pub fn continue_resumable_upload_request(
         command.push_str(", finalize");
     }
 
-    request.headers.insert(
-        "X-Goog-Upload-Protocol".to_string(),
-        "resumable".to_string(),
-    );
     request
         .headers
-        .insert("X-Goog-Upload-Command".to_string(), command);
+        .insert("X-Goog-Upload-Protocol".to_string(), "resumable".to_string());
+    request.headers.insert("X-Goog-Upload-Command".to_string(), command);
     request
         .headers
         .insert("X-Goog-Upload-Offset".to_string(), start_offset.to_string());
-    request.headers.insert(
-        "Content-Type".to_string(),
-        "application/octet-stream".to_string(),
-    );
+    request
+        .headers
+        .insert("Content-Type".to_string(), "application/octet-stream".to_string());
 
     request.success_codes = vec![200, 201, 308];
     request
@@ -433,20 +380,10 @@ fn finalize_multipart(body: &mut Vec<u8>, boundary: &str) {
     body.extend_from_slice(b"--");
 }
 
-fn build_upload_resource(
-    location: &Location,
-    metadata: Option<UploadMetadata>,
-    total_size: u64,
-) -> (Value, String) {
+fn build_upload_resource(location: &Location, metadata: Option<UploadMetadata>, total_size: u64) -> (Value, String) {
     let mut map = Map::new();
-    map.insert(
-        "name".to_string(),
-        Value::String(location.path().to_string()),
-    );
-    map.insert(
-        "fullPath".to_string(),
-        Value::String(location.path().to_string()),
-    );
+    map.insert("name".to_string(), Value::String(location.path().to_string()));
+    map.insert("fullPath".to_string(), Value::String(location.path().to_string()));
     map.insert("size".to_string(), Value::String(total_size.to_string()));
 
     let mut content_type = String::from("application/octet-stream");
@@ -484,10 +421,7 @@ fn build_upload_resource(
     }
 
     if !map.contains_key("contentType") {
-        map.insert(
-            "contentType".to_string(),
-            Value::String(content_type.clone()),
-        );
+        map.insert("contentType".to_string(), Value::String(content_type.clone()));
     }
 
     (Value::Object(map), content_type)
@@ -516,10 +450,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         FirebaseAppSettings {
-            name: Some(format!(
-                "storage-request-{}",
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            )),
+            name: Some(format!("storage-request-{}", COUNTER.fetch_add(1, Ordering::SeqCst))),
             ..Default::default()
         }
     }
@@ -529,9 +460,7 @@ mod tests {
             storage_bucket: Some("my-bucket".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let container = app.container();
         let auth_provider = container.get_provider("auth-internal");
         let app_check_provider = container.get_provider("app-check-internal");
@@ -581,19 +510,10 @@ mod tests {
         options.page_token = Some("token123".into());
         let request = list_request(&storage, &location, &options);
         assert_eq!(request.method, Method::GET);
-        assert_eq!(
-            request.query_params.get("delimiter"),
-            Some(&"/".to_string())
-        );
+        assert_eq!(request.query_params.get("delimiter"), Some(&"/".to_string()));
         assert_eq!(request.query_params.get("prefix"), Some(&"".to_string()));
-        assert_eq!(
-            request.query_params.get("maxResults"),
-            Some(&"25".to_string())
-        );
-        assert_eq!(
-            request.query_params.get("pageToken"),
-            Some(&"token123".to_string())
-        );
+        assert_eq!(request.query_params.get("maxResults"), Some(&"25".to_string()));
+        assert_eq!(request.query_params.get("pageToken"), Some(&"token123".to_string()));
     }
 
     #[tokio::test]
@@ -603,10 +523,7 @@ mod tests {
         let request = download_bytes_request(&storage, &location, Some(1024));
         assert_eq!(request.method, Method::GET);
         assert_eq!(request.query_params.get("alt"), Some(&"media".to_string()));
-        assert_eq!(
-            request.headers.get("Range"),
-            Some(&"bytes=0-1024".to_string())
-        );
+        assert_eq!(request.headers.get("Range"), Some(&"bytes=0-1024".to_string()));
         assert_eq!(request.success_codes, vec![200, 206]);
     }
 
@@ -653,26 +570,15 @@ mod tests {
 
         let request = multipart_upload_request(&storage, &location, bytes.clone(), Some(metadata));
         assert_eq!(request.method, Method::POST);
-        assert_eq!(
-            request.query_params.get("uploadType"),
-            Some(&"multipart".to_string())
-        );
-        assert_eq!(
-            request.query_params.get("name"),
-            Some(&"photos/dog.jpg".to_string())
-        );
+        assert_eq!(request.query_params.get("uploadType"), Some(&"multipart".to_string()));
+        assert_eq!(request.query_params.get("name"), Some(&"photos/dog.jpg".to_string()));
         let content_type = request.headers.get("Content-Type").unwrap();
         assert!(content_type.starts_with("multipart/related; boundary="));
-        assert_eq!(
-            request.headers.get("X-Goog-Upload-Protocol"),
-            Some(&"multipart".to_string())
-        );
+        assert_eq!(request.headers.get("X-Goog-Upload-Protocol"), Some(&"multipart".to_string()));
 
         match &request.body {
             RequestBody::Bytes(body) => {
-                assert!(body
-                    .windows(bytes.len())
-                    .any(|window| window == bytes.as_slice()));
+                assert!(body.windows(bytes.len()).any(|window| window == bytes.as_slice()));
             }
             other => panic!("unexpected request body: {other:?}"),
         }
@@ -687,10 +593,7 @@ mod tests {
         metadata.crc32c = Some("deadbeef".into());
         let request = create_resumable_upload_request(&storage, &location, Some(metadata), 2048);
 
-        assert_eq!(
-            request.query_params.get("uploadType"),
-            Some(&"resumable".to_string())
-        );
+        assert_eq!(request.query_params.get("uploadType"), Some(&"resumable".to_string()));
 
         let mut headers = HashMap::new();
         headers.insert("X-Goog-Upload-Status".to_string(), "active".to_string());
@@ -713,19 +616,12 @@ mod tests {
     async fn get_resumable_upload_status_reads_headers() {
         let storage = build_storage().await;
         let location = Location::new("my-bucket", "videos/clip.mp4");
-        let request = get_resumable_upload_status_request(
-            &storage,
-            &location,
-            "https://example.com/upload/session",
-            4096,
-        );
+        let request =
+            get_resumable_upload_status_request(&storage, &location, "https://example.com/upload/session", 4096);
 
         let mut headers = HashMap::new();
         headers.insert("X-Goog-Upload-Status".to_string(), "active".to_string());
-        headers.insert(
-            "X-Goog-Upload-Size-Received".to_string(),
-            "1024".to_string(),
-        );
+        headers.insert("X-Goog-Upload-Size-Received".to_string(), "1024".to_string());
         let payload = ResponsePayload {
             status: StatusCode::OK,
             headers,

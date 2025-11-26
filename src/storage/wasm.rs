@@ -40,9 +40,7 @@ pub(crate) fn readable_stream_async_reader(
     let reader_value = stream.get_reader();
     let reader = reader_value
         .dyn_into::<web_sys::ReadableStreamDefaultReader>()
-        .map_err(|err| {
-            internal_error(format_js_error("ReadableStreamDefaultReader", err.into()))
-        })?;
+        .map_err(|err| internal_error(format_js_error("ReadableStreamDefaultReader", err.into())))?;
     Ok(ReadableStreamAsyncReader::new(reader))
 }
 
@@ -69,11 +67,7 @@ impl ReadableStreamAsyncReader {
 impl Unpin for ReadableStreamAsyncReader {}
 
 impl AsyncRead for ReadableStreamAsyncReader {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize, IoError>> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<usize, IoError>> {
         if buf.is_empty() {
             return Poll::Ready(Ok(0));
         }

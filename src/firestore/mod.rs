@@ -11,9 +11,7 @@ mod value;
 pub(crate) use api::aggregate::AggregateOperation;
 
 #[doc(inline)]
-pub use api::aggregate::{
-    AggregateDefinition, AggregateField, AggregateQuerySnapshot, AggregateSpec,
-};
+pub use api::aggregate::{AggregateDefinition, AggregateField, AggregateQuerySnapshot, AggregateSpec};
 
 #[doc(inline)]
 pub use api::converter::{FirestoreDataConverter, PassthroughConverter};
@@ -26,17 +24,16 @@ pub use api::document::FirestoreClient;
 
 #[doc(inline)]
 pub use api::operations::{
-    encode_document_data, encode_set_data, encode_update_document_data, validate_document_path,
-    EncodedSetData, EncodedUpdateData, FieldTransform, SetOptions, TransformOperation,
+    encode_document_data, encode_set_data, encode_update_document_data, validate_document_path, EncodedSetData,
+    EncodedUpdateData, FieldTransform, SetOptions, TransformOperation,
 };
 
 pub(crate) use api::operations::{set_value_at_field_path, value_for_field_path};
 
 #[doc(inline)]
 pub use api::query::{
-    ConvertedQuery, DocumentChangeType, FilterOperator, LimitType, OrderDirection, Query,
-    QueryDocumentChange, QuerySnapshot, QuerySnapshotMetadata, TypedQueryDocumentChange,
-    TypedQuerySnapshot,
+    ConvertedQuery, DocumentChangeType, FilterOperator, LimitType, OrderDirection, Query, QueryDocumentChange,
+    QuerySnapshot, QuerySnapshotMetadata, TypedQueryDocumentChange, TypedQuerySnapshot,
 };
 
 #[allow(unused_imports)]
@@ -44,8 +41,7 @@ pub(crate) use api::query::{compute_doc_changes, Bound, FieldFilter, OrderBy, Qu
 
 #[doc(inline)]
 pub use api::reference::{
-    CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference,
-    DocumentReference,
+    CollectionReference, ConvertedCollectionReference, ConvertedDocumentReference, DocumentReference,
 };
 
 #[doc(inline)]
@@ -59,15 +55,13 @@ pub use constants::{DEFAULT_DATABASE_ID, FIRESTORE_COMPONENT_NAME};
 
 #[doc(inline)]
 pub use error::{
-    deadline_exceeded, internal_error, invalid_argument, missing_project_id, not_found,
-    permission_denied, resource_exhausted, unauthenticated, unavailable, FirestoreError,
-    FirestoreErrorCode, FirestoreResult,
+    deadline_exceeded, internal_error, invalid_argument, missing_project_id, not_found, permission_denied,
+    resource_exhausted, unauthenticated, unavailable, FirestoreError, FirestoreErrorCode, FirestoreResult,
 };
 
 #[doc(inline)]
 pub use local::memory::{
-    LocalStorePersistence, MemoryLocalStore, PersistedQueryViewState, QueryListenerRegistration,
-    TargetMetadataSnapshot,
+    LocalStorePersistence, MemoryLocalStore, PersistedQueryViewState, QueryListenerRegistration, TargetMetadataSnapshot,
 };
 
 #[allow(unused_imports)]
@@ -77,9 +71,7 @@ pub(crate) use local::overlay::apply_document_overlays;
 pub use local::sync_engine::SyncEngine;
 
 #[doc(inline)]
-pub use model::{
-    DatabaseId, DocumentKey, FieldPath, GeoPoint, IntoFieldPath, ResourcePath, Timestamp,
-};
+pub use model::{DatabaseId, DocumentKey, FieldPath, GeoPoint, IntoFieldPath, ResourcePath, Timestamp};
 
 #[allow(unused_imports)]
 pub(crate) use query_evaluator::apply_query_to_documents;
@@ -88,15 +80,13 @@ pub(crate) use query_evaluator::apply_query_to_documents;
 pub use remote::connection::{Connection, ConnectionBuilder, RequestContext};
 
 #[doc(inline)]
-pub use remote::network::{
-    NetworkLayer, NetworkLayerBuilder, NetworkStreamHandler, StreamCredentials,
-};
+pub use remote::network::{NetworkLayer, NetworkLayerBuilder, NetworkStreamHandler, StreamCredentials};
 
 #[doc(inline)]
 pub use remote::datastore::{
-    Datastore, HttpDatastore, HttpDatastoreBuilder, InMemoryDatastore, NoopTokenProvider,
-    RetrySettings, StreamHandle, StreamingDatastore, StreamingDatastoreImpl, StreamingFuture,
-    StreamingHandleImpl, TokenProvider, TokenProviderArc, WriteOperation,
+    Datastore, HttpDatastore, HttpDatastoreBuilder, InMemoryDatastore, NoopTokenProvider, RetrySettings, StreamHandle,
+    StreamingDatastore, StreamingDatastoreImpl, StreamingFuture, StreamingHandleImpl, TokenProvider, TokenProviderArc,
+    WriteOperation,
 };
 
 #[allow(unused_imports)]
@@ -126,19 +116,15 @@ pub use remote::stream::WebSocketTransport;
 
 #[doc(inline)]
 pub use remote::stream::{
-    FrameKind, InMemoryTransport, MultiplexedConnection, MultiplexedConnectionHandle,
-    MultiplexedStream, StreamId, StreamTransport, TransportFrame,
+    FrameKind, InMemoryTransport, MultiplexedConnection, MultiplexedConnectionHandle, MultiplexedStream, StreamId,
+    StreamTransport, TransportFrame,
 };
 
 #[doc(inline)]
-pub use remote::stream::persistent::{
-    PersistentStream, PersistentStreamDelegate, PersistentStreamHandle, StreamKind,
-};
+pub use remote::stream::persistent::{PersistentStream, PersistentStreamDelegate, PersistentStreamHandle, StreamKind};
 
 #[doc(inline)]
-pub use remote::streams::listen::{
-    ListenStream, ListenStreamDelegate, ListenTarget, TargetPayload,
-};
+pub use remote::streams::listen::{ListenStream, ListenStreamDelegate, ListenTarget, TargetPayload};
 
 #[doc(inline)]
 pub use remote::streams::write::{WriteResponse, WriteResult, WriteStream, WriteStreamDelegate};
@@ -151,8 +137,8 @@ pub use remote::syncer_bridge::{RemoteSyncerBridge, RemoteSyncerDelegate, Target
 
 #[doc(inline)]
 pub use remote::watch_change::{
-    decode_watch_change, DocumentChange, DocumentDelete, DocumentRemove, ExistenceFilterChange,
-    TargetChangeState, WatchChange, WatchDocument, WatchTargetChange,
+    decode_watch_change, DocumentChange, DocumentDelete, DocumentRemove, ExistenceFilterChange, TargetChangeState,
+    WatchChange, WatchDocument, WatchTargetChange,
 };
 
 #[doc(inline)]

@@ -96,11 +96,7 @@ pub(crate) struct FieldFilter {
 
 impl FieldFilter {
     fn new(field: FieldPath, operator: FilterOperator, value: FirestoreValue) -> Self {
-        Self {
-            field,
-            operator,
-            value,
-        }
+        Self { field, operator, value }
     }
 
     pub(crate) fn field(&self) -> &FieldPath {
@@ -182,10 +178,7 @@ pub struct Query {
 }
 
 impl Query {
-    pub(crate) fn new(
-        firestore: Firestore,
-        collection_path: ResourcePath,
-    ) -> FirestoreResult<Self> {
+    pub(crate) fn new(firestore: Firestore, collection_path: ResourcePath) -> FirestoreResult<Self> {
         if collection_path.len() % 2 == 0 {
             return Err(invalid_argument(
                 "Queries must reference a collection (odd number of path segments)",
@@ -205,17 +198,12 @@ impl Query {
         })
     }
 
-    pub(crate) fn new_collection_group(
-        firestore: Firestore,
-        collection_id: String,
-    ) -> FirestoreResult<Self> {
+    pub(crate) fn new_collection_group(firestore: Firestore, collection_id: String) -> FirestoreResult<Self> {
         if collection_id.is_empty() {
             return Err(invalid_argument("Collection ID must not be empty"));
         }
         if collection_id.contains('/') {
-            return Err(invalid_argument(
-                "Collection ID must not contain '/' characters",
-            ));
+            return Err(invalid_argument("Collection ID must not contain '/' characters"));
         }
         Ok(Self {
             firestore,
@@ -258,24 +246,18 @@ impl Query {
         let field_path = field.into();
         self.validate_filter(&field_path, operator, &value)?;
         let mut next = self.clone();
-        next.filters
-            .push(FieldFilter::new(field_path, operator, value));
+        next.filters.push(FieldFilter::new(field_path, operator, value));
         Ok(next)
     }
 
-    pub fn order_by(
-        &self,
-        field: impl Into<FieldPath>,
-        direction: OrderDirection,
-    ) -> FirestoreResult<Self> {
+    pub fn order_by(&self, field: impl Into<FieldPath>, direction: OrderDirection) -> FirestoreResult<Self> {
         if self.start_at.is_some() || self.end_at.is_some() {
             return Err(invalid_argument(
                 "order_by clauses must be added before specifying start/end cursors",
             ));
         }
         let mut next = self.clone();
-        next.explicit_order_by
-            .push(OrderBy::new(field.into(), direction));
+        next.explicit_order_by.push(OrderBy::new(field.into(), direction));
         Ok(next)
     }
 
@@ -294,9 +276,7 @@ impl Query {
             return Err(invalid_argument("limit must be greater than zero"));
         }
         if self.explicit_order_by.is_empty() {
-            return Err(invalid_argument(
-                "limit_to_last requires at least one order_by clause",
-            ));
+            return Err(invalid_argument("limit_to_last requires at least one order_by clause"));
         }
         let mut next = self.clone();
         next.limit = Some(value);
@@ -325,9 +305,7 @@ impl Query {
         I: IntoIterator<Item = FieldPath>,
     {
         if self.projection.is_some() {
-            return Err(invalid_argument(
-                "projection already specified for this query",
-            ));
+            return Err(invalid_argument("projection already specified for this query"));
         }
         let mut unique = Vec::new();
         for field in fields {
@@ -336,9 +314,7 @@ impl Query {
             }
         }
         if unique.is_empty() {
-            return Err(invalid_argument(
-                "projection must specify at least one field",
-            ));
+            return Err(invalid_argument("projection must specify at least one field"));
         }
         let mut next = self.clone();
         next.projection = Some(unique);
@@ -347,11 +323,7 @@ impl Query {
 
     pub(crate) fn definition(&self) -> QueryDefinition {
         let (collection_path, parent_path, collection_group) = match &self.collection_group {
-            Some(group) => (
-                self.collection_path.clone(),
-                self.collection_path.clone(),
-                Some(group.clone()),
-            ),
+            Some(group) => (self.collection_path.clone(), self.collection_path.clone(), Some(group.clone())),
             None => {
                 let parent_path = self.collection_path.without_last();
                 (self.collection_path.clone(), parent_path, None)
@@ -364,10 +336,7 @@ impl Query {
         let mut request_end = self.end_at.clone();
 
         if self.limit_type == LimitType::Last {
-            request_order = request_order
-                .into_iter()
-                .map(|order| order.flipped())
-                .collect();
+            request_order = request_order.into_iter().map(|order| order.flipped()).collect();
             request_start = self.end_at.clone();
             request_end = self.start_at.clone();
         }
@@ -397,30 +366,18 @@ impl Query {
         ConvertedQuery::new(self.clone(), Arc::new(converter))
     }
 
-    fn apply_start_bound(
-        &self,
-        values: Vec<FirestoreValue>,
-        inclusive: bool,
-    ) -> FirestoreResult<Self> {
+    fn apply_start_bound(&self, values: Vec<FirestoreValue>, inclusive: bool) -> FirestoreResult<Self> {
         if values.is_empty() {
-            return Err(invalid_argument(
-                "startAt/startAfter require at least one cursor value",
-            ));
+            return Err(invalid_argument("startAt/startAfter require at least one cursor value"));
         }
         let mut next = self.clone();
         next.start_at = Some(Bound::new(values, inclusive));
         Ok(next)
     }
 
-    fn apply_end_bound(
-        &self,
-        values: Vec<FirestoreValue>,
-        inclusive: bool,
-    ) -> FirestoreResult<Self> {
+    fn apply_end_bound(&self, values: Vec<FirestoreValue>, inclusive: bool) -> FirestoreResult<Self> {
         if values.is_empty() {
-            return Err(invalid_argument(
-                "endAt/endBefore require at least one cursor value",
-            ));
+            return Err(invalid_argument("endAt/endBefore require at least one cursor value"));
         }
         let mut next = self.clone();
         next.end_at = Some(Bound::new(values, inclusive));
@@ -430,10 +387,7 @@ impl Query {
     fn normalized_order_by(&self) -> Vec<OrderBy> {
         let mut order = self.explicit_order_by.clone();
         if !order.iter().any(|existing| existing.is_document_id()) {
-            order.push(OrderBy::new(
-                FieldPath::document_id(),
-                OrderDirection::Ascending,
-            ));
+            order.push(OrderBy::new(FieldPath::document_id(), OrderDirection::Ascending));
         }
         order
     }
@@ -468,9 +422,7 @@ impl Query {
             }
             FilterOperator::NotEqual => {
                 if is_nan(value) {
-                    return Err(invalid_argument(
-                        "Invalid query. You cannot use '!=' filters with NaN values.",
-                    ));
+                    return Err(invalid_argument("Invalid query. You cannot use '!=' filters with NaN values."));
                 }
             }
             _ => {}
@@ -523,10 +475,7 @@ fn ensure_value_supported(operator: FilterOperator, value: &FirestoreValue) -> F
     Ok(())
 }
 
-fn ensure_disjunctive_filter(
-    operator: FilterOperator,
-    value: &FirestoreValue,
-) -> FirestoreResult<()> {
+fn ensure_disjunctive_filter(operator: FilterOperator, value: &FirestoreValue) -> FirestoreResult<()> {
     let array = match value.kind() {
         ValueKind::Array(array) => array,
         _ => {
@@ -600,10 +549,7 @@ mod tests {
     fn snapshot_for(id: &str, population: i64) -> DocumentSnapshot {
         let key = DocumentKey::from_string(&format!("cities/{id}")).unwrap();
         let mut map = BTreeMap::new();
-        map.insert(
-            "population".into(),
-            FirestoreValue::from_integer(population),
-        );
+        map.insert("population".into(), FirestoreValue::from_integer(population));
         let metadata = SnapshotMetadata::new(false, false);
         DocumentSnapshot::new(key, Some(MapValue::new(map)), metadata)
     }
@@ -654,16 +600,9 @@ mod tests {
     #[test]
     fn in_filter_accepts_valid_values() {
         let query = build_query();
-        let values = FirestoreValue::from_array(vec![
-            FirestoreValue::from_integer(1),
-            FirestoreValue::from_integer(2),
-        ]);
+        let values = FirestoreValue::from_array(vec![FirestoreValue::from_integer(1), FirestoreValue::from_integer(2)]);
         let _ = query
-            .where_field(
-                FieldPath::from_dot_separated("rank").unwrap(),
-                FilterOperator::In,
-                values,
-            )
+            .where_field(FieldPath::from_dot_separated("rank").unwrap(), FilterOperator::In, values)
             .expect("valid in filter");
     }
 
@@ -698,11 +637,7 @@ mod tests {
     #[test]
     fn compute_doc_changes_tracks_add_modify_remove() {
         let previous = vec![snapshot_for("sf", 100), snapshot_for("la", 200)];
-        let current = vec![
-            snapshot_for("la", 200),
-            snapshot_for("sf", 150),
-            snapshot_for("ny", 50),
-        ];
+        let current = vec![snapshot_for("la", 200), snapshot_for("sf", 150), snapshot_for("ny", 50)];
 
         let changes = compute_doc_changes(Some(&previous), &current);
         assert_eq!(changes.len(), 3);
@@ -773,11 +708,7 @@ mod tests {
             let mut fields = BTreeMap::new();
             fields.insert("team".into(), FirestoreValue::from_integer(team));
             fields.insert("score".into(), FirestoreValue::from_integer(score));
-            DocumentSnapshot::new(
-                key,
-                Some(MapValue::new(fields)),
-                SnapshotMetadata::new(false, false),
-            )
+            DocumentSnapshot::new(key, Some(MapValue::new(fields)), SnapshotMetadata::new(false, false))
         };
 
         let previous = vec![doc("a", 1, 10), doc("b", 1, 20), doc("c", 2, 5)];
@@ -922,11 +853,7 @@ where
         Ok(Self::new(query, Arc::clone(&self.converter)))
     }
 
-    pub fn order_by(
-        &self,
-        field: impl Into<FieldPath>,
-        direction: OrderDirection,
-    ) -> FirestoreResult<Self> {
+    pub fn order_by(&self, field: impl Into<FieldPath>, direction: OrderDirection) -> FirestoreResult<Self> {
         let query = self.inner.order_by(field, direction)?;
         Ok(Self::new(query, Arc::clone(&self.converter)))
     }
@@ -1193,11 +1120,7 @@ pub(crate) fn compute_doc_changes(
                 if let Some(old_index) = previous_map.remove(&key) {
                     let prev_doc = &prev_docs[old_index];
                     if !document_snapshots_equal(prev_doc, doc) || old_index != new_index {
-                        changes.push(QueryDocumentChange::modified(
-                            doc.clone(),
-                            old_index,
-                            new_index,
-                        ));
+                        changes.push(QueryDocumentChange::modified(doc.clone(), old_index, new_index));
                     }
                 } else {
                     changes.push(QueryDocumentChange::added(doc.clone(), new_index));
@@ -1257,12 +1180,7 @@ where
             .cloned()
             .map(|change| {
                 let typed_doc = change.doc.clone().into_typed(Arc::clone(&converter));
-                TypedQueryDocumentChange::new(
-                    change.change_type,
-                    typed_doc,
-                    change.old_index,
-                    change.new_index,
-                )
+                TypedQueryDocumentChange::new(change.change_type, typed_doc, change.old_index, change.new_index)
             })
             .collect()
     }
@@ -1305,12 +1223,7 @@ impl<C> TypedQueryDocumentChange<C>
 where
     C: FirestoreDataConverter,
 {
-    fn new(
-        change_type: DocumentChangeType,
-        doc: TypedDocumentSnapshot<C>,
-        old_index: i32,
-        new_index: i32,
-    ) -> Self {
+    fn new(change_type: DocumentChangeType, doc: TypedDocumentSnapshot<C>, old_index: i32, new_index: i32) -> Self {
         Self {
             change_type,
             doc,

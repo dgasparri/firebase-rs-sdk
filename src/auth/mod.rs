@@ -13,8 +13,8 @@ mod types;
 
 #[doc(inline)]
 pub use api::{
-    auth_for_app, refresh_id_token, refresh_id_token_with_endpoint, register_auth_component, Auth,
-    AuthBuilder, RefreshTokenResponse,
+    auth_for_app, refresh_id_token, refresh_id_token_with_endpoint, register_auth_component, Auth, AuthBuilder,
+    RefreshTokenResponse,
 };
 
 #[allow(unused_imports)]
@@ -28,11 +28,10 @@ pub(crate) use error::map_mfa_error_code;
 
 #[doc(inline)]
 pub use model::{
-    AccountInfoUser, AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider,
-    GetAccountInfoResponse, MfaEnrollmentInfo, ProviderUserInfo, SignInWithCustomTokenRequest,
-    SignInWithCustomTokenResponse, SignInWithEmailLinkRequest, SignInWithEmailLinkResponse,
-    SignInWithPasswordRequest, SignInWithPasswordResponse, SignUpRequest, SignUpResponse, User,
-    UserCredential, UserInfo,
+    AccountInfoUser, AuthConfig, AuthCredential, AuthStateListeners, EmailAuthProvider, GetAccountInfoResponse,
+    MfaEnrollmentInfo, ProviderUserInfo, SignInWithCustomTokenRequest, SignInWithCustomTokenResponse,
+    SignInWithEmailLinkRequest, SignInWithEmailLinkResponse, SignInWithPasswordRequest, SignInWithPasswordResponse,
+    SignUpRequest, SignUpResponse, User, UserCredential, UserInfo,
 };
 
 #[doc(inline)]
@@ -41,28 +40,21 @@ pub use oauth::{
     pkce::PkcePair,
     provider::OAuthProvider,
     providers::{
-        oauth_access_token_map, AppleAuthProvider, FacebookAuthProvider, GitHubAuthProvider,
-        GoogleAuthProvider, MicrosoftAuthProvider, OAuthProviderFactory, TwitterAuthProvider,
-        YahooAuthProvider,
+        oauth_access_token_map, AppleAuthProvider, FacebookAuthProvider, GitHubAuthProvider, GoogleAuthProvider,
+        MicrosoftAuthProvider, OAuthProviderFactory, TwitterAuthProvider, YahooAuthProvider,
     },
-    redirect::{
-        InMemoryRedirectPersistence, PendingRedirectEvent, RedirectOperation, RedirectPersistence,
-    },
+    redirect::{InMemoryRedirectPersistence, PendingRedirectEvent, RedirectOperation, RedirectPersistence},
     OAuthPopupHandler, OAuthRedirectHandler, OAuthRequest,
 };
 
 #[doc(inline)]
 pub use persistence::{
-    AuthPersistence, ClosurePersistence, InMemoryPersistence, PersistedAuthState,
-    PersistenceListener, PersistenceSubscription,
+    AuthPersistence, ClosurePersistence, InMemoryPersistence, PersistedAuthState, PersistenceListener,
+    PersistenceSubscription,
 };
 
 // persistence::indexed_db::IndexedDbPersistence;
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 #[doc(inline)]
 pub use persistence::indexed_db::IndexedDbPersistence;
 
@@ -77,9 +69,7 @@ pub use persistence::file::FilePersistence;
 pub use persistence::web::{WebStorageDriver, WebStoragePersistence};
 
 #[doc(inline)]
-pub use phone::{
-    PhoneAuthCredential, PhoneAuthProvider, PhoneMultiFactorGenerator, PHONE_PROVIDER_ID,
-};
+pub use phone::{PhoneAuthCredential, PhoneAuthProvider, PhoneMultiFactorGenerator, PHONE_PROVIDER_ID};
 
 //#![cfg(feature = "firestore")]
 #[doc(inline)]
@@ -87,13 +77,12 @@ pub use token_provider::{auth_token_provider_arc, AuthTokenProvider};
 
 #[doc(inline)]
 pub use types::{
-    get_multi_factor_resolver, ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation,
-    ActionCodeSettings, ActionCodeUrl, AdditionalUserInfo, AndroidSettings, ApplicationVerifier,
-    AuthSettings, AuthStateListener, ConfirmationResult, FirebaseAuth, IdTokenResult, IosSettings,
-    MultiFactorAssertion, MultiFactorError, MultiFactorInfo, MultiFactorOperation,
-    MultiFactorResolver, MultiFactorSession, MultiFactorSessionType, MultiFactorUser, Observer,
-    PhoneMultiFactorAssertion, TotpMultiFactorAssertion, TotpMultiFactorGenerator, TotpSecret,
-    UserMetadata, WebAuthnAssertionKind, WebAuthnAssertionResponse, WebAuthnAttestationResponse,
+    get_multi_factor_resolver, ActionCodeInfo, ActionCodeInfoData, ActionCodeOperation, ActionCodeSettings,
+    ActionCodeUrl, AdditionalUserInfo, AndroidSettings, ApplicationVerifier, AuthSettings, AuthStateListener,
+    ConfirmationResult, FirebaseAuth, IdTokenResult, IosSettings, MultiFactorAssertion, MultiFactorError,
+    MultiFactorInfo, MultiFactorOperation, MultiFactorResolver, MultiFactorSession, MultiFactorSessionType,
+    MultiFactorUser, Observer, PhoneMultiFactorAssertion, TotpMultiFactorAssertion, TotpMultiFactorGenerator,
+    TotpSecret, UserMetadata, WebAuthnAssertionKind, WebAuthnAssertionResponse, WebAuthnAttestationResponse,
     WebAuthnCredentialDescriptor, WebAuthnEnrollmentChallenge, WebAuthnMultiFactorAssertion,
     WebAuthnMultiFactorGenerator, WebAuthnSignInChallenge, WebAuthnTransport, WEBAUTHN_FACTOR_ID,
 };

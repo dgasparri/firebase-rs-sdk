@@ -1,18 +1,13 @@
 //! Lightweight IndexedDB helpers shared across browser-facing modules.
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 mod wasm {
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
     use wasm_bindgen::JsValue;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::{
-        DomStringList, Event, IdbDatabase, IdbOpenDbRequest, IdbRequest, IdbTransactionMode,
-        IdbVersionChangeEvent,
+        DomStringList, Event, IdbDatabase, IdbOpenDbRequest, IdbRequest, IdbTransactionMode, IdbVersionChangeEvent,
     };
 
     #[derive(Debug)]
@@ -37,11 +32,7 @@ mod wasm {
     const UNSUPPORTED: &str = "IndexedDB APIs are not available in this environment";
 
     /// Opens (or creates) an IndexedDB database, ensuring that the provided object store exists.
-    pub async fn open_database_with_store(
-        name: &str,
-        version: u32,
-        store: &str,
-    ) -> IndexedDbResult<IdbDatabase> {
+    pub async fn open_database_with_store(name: &str, version: u32, store: &str) -> IndexedDbResult<IdbDatabase> {
         let window = web_sys::window().ok_or(IndexedDbError::Unsupported(UNSUPPORTED))?;
         let factory = window
             .indexed_db()
@@ -76,11 +67,7 @@ mod wasm {
     }
 
     /// Reads a UTF-8 string value from the specified store and key.
-    pub async fn get_string(
-        db: &IdbDatabase,
-        store: &str,
-        key: &str,
-    ) -> IndexedDbResult<Option<String>> {
+    pub async fn get_string(db: &IdbDatabase, store: &str, key: &str) -> IndexedDbResult<Option<String>> {
         let tx = db
             .transaction_with_str_and_mode(store, IdbTransactionMode::Readonly)
             .map_err(|err| IndexedDbError::Operation(js_value_to_string(&err)))?;
@@ -98,19 +85,12 @@ mod wasm {
         } else if let Some(value) = result.as_string() {
             Ok(Some(value))
         } else {
-            Err(IndexedDbError::Operation(
-                "Stored value is not a string".into(),
-            ))
+            Err(IndexedDbError::Operation("Stored value is not a string".into()))
         }
     }
 
     /// Writes a UTF-8 string value into the specified store/key.
-    pub async fn put_string(
-        db: &IdbDatabase,
-        store: &str,
-        key: &str,
-        value: &str,
-    ) -> IndexedDbResult<()> {
+    pub async fn put_string(db: &IdbDatabase, store: &str, key: &str, value: &str) -> IndexedDbResult<()> {
         let tx = db
             .transaction_with_str_and_mode(store, IdbTransactionMode::Readwrite)
             .map_err(|err| IndexedDbError::Operation(js_value_to_string(&err)))?;
@@ -184,36 +164,30 @@ mod wasm {
             let resolve_fn = resolve.clone();
             let reject_for_success = reject.clone();
             let success_request_clone = success_request.clone();
-            let success =
-                Closure::once(
-                    Box::new(move |_event: Event| match success_request_clone.result() {
-                        Ok(result) => {
-                            let _ = resolve_fn.call1(&JsValue::UNDEFINED, &result);
-                        }
-                        Err(err) => {
-                            let _ = reject_for_success.call1(&JsValue::UNDEFINED, &err);
-                        }
-                    }) as Box<dyn FnMut(_)>,
-                );
+            let success = Closure::once(Box::new(move |_event: Event| match success_request_clone.result() {
+                Ok(result) => {
+                    let _ = resolve_fn.call1(&JsValue::UNDEFINED, &result);
+                }
+                Err(err) => {
+                    let _ = reject_for_success.call1(&JsValue::UNDEFINED, &err);
+                }
+            }) as Box<dyn FnMut(_)>);
             request.set_onsuccess(Some(success.as_ref().unchecked_ref()));
             success.forget();
 
             let reject_fn = reject.clone();
             let error_request_clone = error_request.clone();
-            let error =
-                Closure::once(
-                    Box::new(move |_event: Event| match error_request_clone.error() {
-                        Ok(Some(err)) => {
-                            let _ = reject_fn.call1(&JsValue::UNDEFINED, &err);
-                        }
-                        Ok(None) => {
-                            let _ = reject_fn.call1(&JsValue::UNDEFINED, &JsValue::NULL);
-                        }
-                        Err(js_err) => {
-                            let _ = reject_fn.call1(&JsValue::UNDEFINED, &js_err);
-                        }
-                    }) as Box<dyn FnMut(_)>,
-                );
+            let error = Closure::once(Box::new(move |_event: Event| match error_request_clone.error() {
+                Ok(Some(err)) => {
+                    let _ = reject_fn.call1(&JsValue::UNDEFINED, &err);
+                }
+                Ok(None) => {
+                    let _ = reject_fn.call1(&JsValue::UNDEFINED, &JsValue::NULL);
+                }
+                Err(js_err) => {
+                    let _ = reject_fn.call1(&JsValue::UNDEFINED, &js_err);
+                }
+            }) as Box<dyn FnMut(_)>);
             request.set_onerror(Some(error.as_ref().unchecked_ref()));
             error.forget();
         })
@@ -236,18 +210,10 @@ mod wasm {
     pub use IndexedDbError as Error;
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub use wasm::*;
 
-#[cfg(not(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-)))]
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")))]
 mod stub {
 
     #[derive(Debug)]
@@ -267,28 +233,15 @@ mod stub {
 
     pub type IdbDatabase = ();
 
-    pub async fn open_database_with_store(
-        _name: &str,
-        _version: u32,
-        _store: &str,
-    ) -> IndexedDbResult<IdbDatabase> {
+    pub async fn open_database_with_store(_name: &str, _version: u32, _store: &str) -> IndexedDbResult<IdbDatabase> {
         Err(IndexedDbError::Unsupported)
     }
 
-    pub async fn get_string(
-        _db: &IdbDatabase,
-        _store: &str,
-        _key: &str,
-    ) -> IndexedDbResult<Option<String>> {
+    pub async fn get_string(_db: &IdbDatabase, _store: &str, _key: &str) -> IndexedDbResult<Option<String>> {
         Err(IndexedDbError::Unsupported)
     }
 
-    pub async fn put_string(
-        _db: &IdbDatabase,
-        _store: &str,
-        _key: &str,
-        _value: &str,
-    ) -> IndexedDbResult<()> {
+    pub async fn put_string(_db: &IdbDatabase, _store: &str, _key: &str, _value: &str) -> IndexedDbResult<()> {
         Err(IndexedDbError::Unsupported)
     }
 
@@ -303,9 +256,5 @@ mod stub {
     pub use IndexedDbError as Error;
 }
 
-#[cfg(not(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-)))]
+#[cfg(not(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db")))]
 pub use stub::*;

@@ -56,9 +56,7 @@ pub mod auth {
 }
 
 pub mod firestore {
-    use crate::firestore::{
-        get_firestore, register_firestore_component, Firestore, FirestoreClient,
-    };
+    use crate::firestore::{get_firestore, register_firestore_component, Firestore, FirestoreClient};
     use std::sync::Arc;
 
     pub async fn get_mock_firestore(app: Option<super::FirebaseApp>) -> Arc<Firestore> {
@@ -75,7 +73,6 @@ pub mod firestore {
 
     pub async fn get_mock_client(app: Option<super::FirebaseApp>) -> FirestoreClient {
         let firestore = get_mock_firestore(app).await;
-        FirestoreClient::with_http_datastore(Firestore::from_arc(firestore))
-            .expect("failed to create FirestoreClient")
+        FirestoreClient::with_http_datastore(Firestore::from_arc(firestore)).expect("failed to create FirestoreClient")
     }
 }

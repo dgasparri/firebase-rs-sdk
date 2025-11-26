@@ -13,9 +13,7 @@ impl FieldPath {
     {
         let segments: Vec<String> = segments.into_iter().map(Into::into).collect();
         if segments.is_empty() {
-            return Err(invalid_argument(
-                "FieldPath must contain at least one segment",
-            ));
+            return Err(invalid_argument("FieldPath must contain at least one segment"));
         }
         Ok(Self { segments })
     }

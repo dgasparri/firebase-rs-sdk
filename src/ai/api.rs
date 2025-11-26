@@ -7,9 +7,7 @@ use serde_json::{json, Value};
 
 use crate::ai::backend::{Backend, BackendType};
 use crate::ai::constants::AI_COMPONENT_NAME;
-use crate::ai::error::{
-    internal_error, invalid_argument, AiError, AiErrorCode, AiResult, CustomErrorData,
-};
+use crate::ai::error::{internal_error, invalid_argument, AiError, AiErrorCode, AiResult, CustomErrorData};
 use crate::ai::helpers::{decode_instance_identifier, encode_instance_identifier};
 use crate::ai::public_types::{AiOptions, AiRuntimeOptions};
 use crate::ai::requests::{ApiSettings, PreparedRequest, RequestFactory, RequestOptions, Task};
@@ -17,9 +15,7 @@ use crate::app;
 use crate::app::{FirebaseApp, FirebaseOptions};
 use crate::app_check::FirebaseAppCheckInternal;
 use crate::auth::Auth;
-use crate::component::types::{
-    ComponentError, DynService, InstanceFactoryOptions, InstantiationMode,
-};
+use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType, Provider};
 
 #[derive(Clone)]
@@ -63,8 +59,7 @@ impl CacheKey {
     }
 }
 
-static AI_OVERRIDES: LazyLock<Mutex<HashMap<CacheKey, Arc<AiService>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static AI_OVERRIDES: LazyLock<Mutex<HashMap<CacheKey, Arc<AiService>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -100,21 +95,14 @@ impl AiHttpTransport for ReqwestTransport {
             .into_reqwest(&self.client)
             .map_err(|err| internal_error(format!("failed to encode AI request: {err}")))?;
 
-        let response = builder.send().await.map_err(|err| {
-            AiError::new(
-                AiErrorCode::FetchError,
-                format!("failed to send AI request: {err}"),
-                None,
-            )
-        })?;
+        let response = builder
+            .send()
+            .await
+            .map_err(|err| AiError::new(AiErrorCode::FetchError, format!("failed to send AI request: {err}"), None))?;
 
         let status = response.status();
         let bytes = response.bytes().await.map_err(|err| {
-            AiError::new(
-                AiErrorCode::FetchError,
-                format!("failed to read AI response body: {err}"),
-                None,
-            )
+            AiError::new(AiErrorCode::FetchError, format!("failed to read AI response body: {err}"), None)
         })?;
 
         let parsed = serde_json::from_slice::<Value>(&bytes);
@@ -129,11 +117,7 @@ impl AiHttpTransport for ReqwestTransport {
                 Ok(json) => {
                     let message = AiService::extract_error_message(&json)
                         .unwrap_or_else(|| format!("AI endpoint returned HTTP {status}"));
-                    Err(AiError::new(
-                        AiErrorCode::FetchError,
-                        message,
-                        Some(data.with_response(json)),
-                    ))
+                    Err(AiError::new(AiErrorCode::FetchError, message, Some(data.with_response(json))))
                 }
                 Err(_) => {
                     let raw = String::from_utf8_lossy(&bytes).to_string();
@@ -210,10 +194,7 @@ impl AiService {
 
     /// Returns the Vertex AI location when using that backend.
     pub fn location(&self) -> Option<&str> {
-        self.inner
-            .backend
-            .as_vertex_ai()
-            .map(|backend| backend.location())
+        self.inner.backend.as_vertex_ai().map(|backend| backend.location())
     }
 
     /// Returns the runtime options currently applied to this AI service.
@@ -249,34 +230,21 @@ impl AiService {
             return Ok(Some(token));
         }
 
-        let auth = match self
-            .inner
-            .auth_provider
-            .get_immediate_with_options::<Auth>(None, true)
-        {
+        let auth = match self.inner.auth_provider.get_immediate_with_options::<Auth>(None, true) {
             Ok(Some(auth)) => auth,
             Ok(None) => return Ok(None),
-            Err(err) => {
-                return Err(internal_error(format!(
-                    "failed to resolve auth provider: {err}"
-                )))
-            }
+            Err(err) => return Err(internal_error(format!("failed to resolve auth provider: {err}"))),
         };
 
         match auth.get_token(false).await {
             Ok(Some(token)) if token.is_empty() => Ok(None),
             Ok(Some(token)) => Ok(Some(token)),
             Ok(None) => Ok(None),
-            Err(err) => Err(internal_error(format!(
-                "failed to obtain auth token: {err}"
-            ))),
+            Err(err) => Err(internal_error(format!("failed to obtain auth token: {err}"))),
         }
     }
 
-    async fn fetch_app_check_credentials(
-        &self,
-        limited_use: bool,
-    ) -> AiResult<(Option<String>, Option<String>)> {
+    async fn fetch_app_check_credentials(&self, limited_use: bool) -> AiResult<(Option<String>, Option<String>)> {
         #[cfg(test)]
         {
             let overrides = self.inner.test_tokens.lock().unwrap();
@@ -296,11 +264,7 @@ impl AiService {
         {
             Ok(Some(app_check)) => app_check,
             Ok(None) => return Ok((None, None)),
-            Err(err) => {
-                return Err(internal_error(format!(
-                    "failed to resolve App Check provider: {err}"
-                )))
-            }
+            Err(err) => return Err(internal_error(format!("failed to resolve App Check provider: {err}"))),
         };
 
         let token = match if limited_use {
@@ -319,11 +283,10 @@ impl AiService {
             return Ok((None, None));
         }
 
-        let heartbeat = app_check.heartbeat_header().await.map_err(|err| {
-            internal_error(format!(
-                "failed to obtain App Check heartbeat header: {err}"
-            ))
-        })?;
+        let heartbeat = app_check
+            .heartbeat_header()
+            .await
+            .map_err(|err| internal_error(format!("failed to obtain App Check heartbeat header: {err}")))?;
 
         Ok((Some(token), heartbeat))
     }
@@ -418,10 +381,7 @@ impl AiService {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn generate_text(
-        &self,
-        request: GenerateTextRequest,
-    ) -> AiResult<GenerateTextResponse> {
+    pub async fn generate_text(&self, request: GenerateTextRequest) -> AiResult<GenerateTextResponse> {
         if request.prompt.trim().is_empty() {
             return Err(invalid_argument("Prompt must not be empty"));
         }
@@ -470,10 +430,7 @@ impl AiService {
     }
 
     fn extract_text_from_response(response: &Value) -> Option<String> {
-        if let Some(candidates) = response
-            .get("candidates")
-            .and_then(|value| value.as_array())
-        {
+        if let Some(candidates) = response.get("candidates").and_then(|value| value.as_array()) {
             for candidate in candidates {
                 if let Some(text) = Self::extract_text_from_candidate(candidate) {
                     if !text.trim().is_empty() {
@@ -536,13 +493,9 @@ impl Cache {
 }
 
 static AI_COMPONENT: LazyLock<()> = LazyLock::new(|| {
-    let component = Component::new(
-        AI_COMPONENT_NAME,
-        Arc::new(ai_factory),
-        ComponentType::Public,
-    )
-    .with_instantiation_mode(InstantiationMode::Lazy)
-    .with_multiple_instances(true);
+    let component = Component::new(AI_COMPONENT_NAME, Arc::new(ai_factory), ComponentType::Public)
+        .with_instantiation_mode(InstantiationMode::Lazy)
+        .with_multiple_instances(true);
     let _ = app::register_component(component);
 });
 
@@ -550,12 +503,12 @@ fn ai_factory(
     container: &crate::component::ComponentContainer,
     options: InstanceFactoryOptions,
 ) -> Result<DynService, ComponentError> {
-    let app = container.root_service::<FirebaseApp>().ok_or_else(|| {
-        ComponentError::InitializationFailed {
+    let app = container
+        .root_service::<FirebaseApp>()
+        .ok_or_else(|| ComponentError::InitializationFailed {
             name: AI_COMPONENT_NAME.to_string(),
             reason: "Firebase app not attached to component container".to_string(),
-        }
-    })?;
+        })?;
 
     let identifier_backend = options
         .instance_identifier
@@ -574,16 +527,10 @@ fn ai_factory(
             })
         }
         None => {
-            if let Some(encoded) = options
-                .options
-                .get("backend")
-                .and_then(|value| value.as_str())
-            {
-                decode_instance_identifier(encoded).map_err(|err| {
-                    ComponentError::InitializationFailed {
-                        name: AI_COMPONENT_NAME.to_string(),
-                        reason: err.to_string(),
-                    }
+            if let Some(encoded) = options.options.get("backend").and_then(|value| value.as_str()) {
+                decode_instance_identifier(encoded).map_err(|err| ComponentError::InitializationFailed {
+                    name: AI_COMPONENT_NAME.to_string(),
+                    reason: err.to_string(),
                 })?
             } else {
                 Backend::default()
@@ -658,10 +605,7 @@ pub fn register_ai_component() {
 /// .unwrap();
 /// # }
 /// ```
-pub async fn get_ai(
-    app: Option<FirebaseApp>,
-    options: Option<AiOptions>,
-) -> AiResult<Arc<AiService>> {
+pub async fn get_ai(app: Option<FirebaseApp>, options: Option<AiOptions>) -> AiResult<Arc<AiService>> {
     ensure_registered();
     let app = match app {
         Some(app) => app,
@@ -813,9 +757,7 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let ai = get_ai_service(Some(app)).await.unwrap();
         ai.set_transport_for_tests(Arc::new(transport.clone()));
         let response = ai
@@ -832,10 +774,7 @@ mod tests {
 
         let requests = transport.take_requests();
         assert_eq!(requests.len(), 1);
-        assert!(requests[0]
-            .url
-            .as_str()
-            .ends_with("models/gemini-pro:generateContent"));
+        assert!(requests[0].url.as_str().ends_with("models/gemini-pro:generateContent"));
         assert_eq!(requests[0].header("x-goog-api-key"), Some("api"));
     }
 
@@ -860,9 +799,7 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
 
         let ai = get_ai(
             Some(app),
@@ -875,11 +812,7 @@ mod tests {
         .unwrap();
 
         ai.set_transport_for_tests(Arc::new(transport.clone()));
-        ai.override_tokens_for_tests(
-            None,
-            Some("standard-token".into()),
-            Some("limited-token".into()),
-        );
+        ai.override_tokens_for_tests(None, Some("standard-token".into()), Some("limited-token".into()));
 
         let response = ai
             .generate_text(GenerateTextRequest {
@@ -894,10 +827,7 @@ mod tests {
 
         let requests = transport.take_requests();
         assert_eq!(requests.len(), 1);
-        assert_eq!(
-            requests[0].header("x-firebase-appcheck"),
-            Some("limited-token")
-        );
+        assert_eq!(requests[0].header("x-firebase-appcheck"), Some("limited-token"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -908,9 +838,7 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let ai = get_ai_service(Some(app)).await.unwrap();
         let err = ai
             .generate_text(GenerateTextRequest {
@@ -929,9 +857,7 @@ mod tests {
             project_id: Some("project".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
 
         let google = get_ai(
             Some(app.clone()),
@@ -966,9 +892,7 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
 
         let first = get_ai_service(Some(app.clone())).await.unwrap();
         first
@@ -987,9 +911,7 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let ai = get_ai_service(Some(app)).await.unwrap();
         let err = ai.api_settings().await.unwrap_err();
         assert_eq!(err.code(), AiErrorCode::NoProjectId);
@@ -1003,16 +925,10 @@ mod tests {
             app_id: Some("app".into()),
             ..Default::default()
         };
-        let app = initialize_app(options, Some(unique_settings()))
-            .await
-            .unwrap();
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
         let ai = get_ai_service(Some(app)).await.unwrap();
         let prepared = ai
-            .prepare_generate_content_request(
-                "models/gemini-1.5-flash",
-                json!({ "contents": [] }),
-                None,
-            )
+            .prepare_generate_content_request("models/gemini-1.5-flash", json!({ "contents": [] }), None)
             .await
             .unwrap();
         assert_eq!(

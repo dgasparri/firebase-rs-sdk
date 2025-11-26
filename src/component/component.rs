@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 
-use crate::component::types::{
-    ComponentType, InstanceFactory, InstantiationMode, OnInstanceCreatedCallback,
-};
+use crate::component::types::{ComponentType, InstanceFactory, InstantiationMode, OnInstanceCreatedCallback};
 
 #[derive(Clone)]
 pub struct Component {
@@ -19,11 +17,7 @@ pub struct Component {
 }
 
 impl Component {
-    pub fn new(
-        name: impl Into<String>,
-        instance_factory: InstanceFactory,
-        ty: ComponentType,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, instance_factory: InstanceFactory, ty: ComponentType) -> Self {
         Self {
             name: Arc::from(name.into()),
             instance_factory,
@@ -76,11 +70,8 @@ impl Component {
 
     pub fn with_instance_created_callback<F>(mut self, callback: F) -> Self
     where
-        F: Fn(
-                &crate::component::container::ComponentContainer,
-                &str,
-                &crate::component::types::DynService,
-            ) + Send
+        F: Fn(&crate::component::container::ComponentContainer, &str, &crate::component::types::DynService)
+            + Send
             + Sync
             + 'static,
     {

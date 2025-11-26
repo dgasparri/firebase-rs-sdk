@@ -24,10 +24,7 @@ impl OAuthProviderFactory for GoogleAuthProvider {
     }
 
     fn new() -> OAuthProvider {
-        let mut provider = OAuthProvider::new(
-            Self::provider_id(),
-            "https://accounts.google.com/o/oauth2/v2/auth",
-        );
+        let mut provider = OAuthProvider::new(Self::provider_id(), "https://accounts.google.com/o/oauth2/v2/auth");
         provider.add_scope("profile");
         provider.add_scope("email");
         provider.set_custom_parameters(
@@ -48,10 +45,7 @@ impl OAuthProviderFactory for FacebookAuthProvider {
     }
 
     fn new() -> OAuthProvider {
-        let mut provider = OAuthProvider::new(
-            Self::provider_id(),
-            "https://www.facebook.com/v12.0/dialog/oauth",
-        );
+        let mut provider = OAuthProvider::new(Self::provider_id(), "https://www.facebook.com/v12.0/dialog/oauth");
         provider.add_scope("email");
         provider.enable_pkce();
         provider
@@ -75,10 +69,7 @@ impl OAuthProviderFactory for GitHubAuthProvider {
     }
 
     fn new() -> OAuthProvider {
-        let mut provider = OAuthProvider::new(
-            Self::provider_id(),
-            "https://github.com/login/oauth/authorize",
-        );
+        let mut provider = OAuthProvider::new(Self::provider_id(), "https://github.com/login/oauth/authorize");
         provider.add_scope("read:user");
         provider.enable_pkce();
         provider
@@ -93,10 +84,7 @@ impl OAuthProviderFactory for TwitterAuthProvider {
     }
 
     fn new() -> OAuthProvider {
-        let mut provider = OAuthProvider::new(
-            Self::provider_id(),
-            "https://twitter.com/i/oauth2/authorize",
-        );
+        let mut provider = OAuthProvider::new(Self::provider_id(), "https://twitter.com/i/oauth2/authorize");
         provider.add_scope("tweet.read");
         provider.add_scope("users.read");
         provider.enable_pkce();
@@ -141,10 +129,7 @@ impl OAuthProviderFactory for AppleAuthProvider {
     }
 
     fn new() -> OAuthProvider {
-        let mut provider = OAuthProvider::new(
-            Self::provider_id(),
-            "https://appleid.apple.com/auth/authorize",
-        );
+        let mut provider = OAuthProvider::new(Self::provider_id(), "https://appleid.apple.com/auth/authorize");
         provider.add_scope("email");
         provider.add_scope("name");
         provider.enable_pkce();
@@ -177,19 +162,12 @@ impl OAuthProviderFactory for YahooAuthProvider {
     }
 
     fn new() -> OAuthProvider {
-        let mut provider = OAuthProvider::new(
-            Self::provider_id(),
-            "https://api.login.yahoo.com/oauth2/request_auth",
-        );
+        let mut provider = OAuthProvider::new(Self::provider_id(), "https://api.login.yahoo.com/oauth2/request_auth");
         provider.add_scope("openid");
         provider.add_scope("email");
         provider.add_scope("profile");
         provider.enable_pkce();
-        provider.set_custom_parameters(
-            [("prompt".to_string(), "login".to_string())]
-                .into_iter()
-                .collect(),
-        );
+        provider.set_custom_parameters([("prompt".to_string(), "login".to_string())].into_iter().collect());
         provider
     }
 }
@@ -220,10 +198,7 @@ mod tests {
     fn github_login_hint() {
         let mut provider = GitHubAuthProvider::new();
         GitHubAuthProvider::set_login_hint(&mut provider, "octocat");
-        assert_eq!(
-            provider.custom_parameters().get("login"),
-            Some(&"octocat".to_string())
-        );
+        assert_eq!(provider.custom_parameters().get("login"), Some(&"octocat".to_string()));
     }
 
     #[test]
@@ -248,10 +223,7 @@ mod tests {
     fn yahoo_defaults_include_prompt_login() {
         let provider = YahooAuthProvider::new();
         assert_eq!(provider.provider_id(), "yahoo.com");
-        assert_eq!(
-            provider.custom_parameters().get("prompt"),
-            Some(&"login".to_string())
-        );
+        assert_eq!(provider.custom_parameters().get("prompt"), Some(&"login".to_string()));
         assert!(provider.pkce_enabled());
     }
 }

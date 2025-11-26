@@ -1,8 +1,4 @@
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 mod wasm {
     use js_sys::Reflect;
     use wasm_bindgen::JsCast;
@@ -10,8 +6,7 @@ mod wasm {
     use wasm_bindgen_futures::JsFuture;
 
     use crate::messaging::constants::{
-        DEFAULT_REGISTRATION_TIMEOUT_MS, DEFAULT_SW_PATH, DEFAULT_SW_SCOPE,
-        REGISTRATION_POLL_INTERVAL_MS,
+        DEFAULT_REGISTRATION_TIMEOUT_MS, DEFAULT_SW_PATH, DEFAULT_SW_SCOPE, REGISTRATION_POLL_INTERVAL_MS,
     };
     use crate::messaging::error::{
         available_in_window, failed_default_registration, unsupported_browser, MessagingResult,
@@ -64,49 +59,36 @@ mod wasm {
         }
 
         /// Registers the default Firebase Messaging service worker and waits until it activates.
-        pub async fn register_default(
-            &mut self,
-        ) -> MessagingResult<ServiceWorkerRegistrationHandle> {
+        pub async fn register_default(&mut self) -> MessagingResult<ServiceWorkerRegistrationHandle> {
             if let Some(handle) = &self.registration {
                 return Ok(handle.clone());
             }
 
-            let window = web_sys::window().ok_or_else(|| {
-                available_in_window("Service worker registration requires a Window context")
-            })?;
+            let window = web_sys::window()
+                .ok_or_else(|| available_in_window("Service worker registration requires a Window context"))?;
             let navigator = window.navigator();
             let navigator_js = JsValue::from(navigator.clone());
             let container_value = Reflect::get(&navigator_js, &JsValue::from_str("serviceWorker"))
-                .map_err(|_| {
-                    unsupported_browser(
-                        "Service workers are not available in this browser environment.",
-                    )
-                })?;
+                .map_err(|_| unsupported_browser("Service workers are not available in this browser environment."))?;
             if container_value.is_undefined() || container_value.is_null() {
                 return Err(unsupported_browser(
                     "Service workers are not available in this browser environment.",
                 ));
             }
-            let container: web_sys::ServiceWorkerContainer =
-                container_value.dyn_into().map_err(|_| {
-                    unsupported_browser(
-                        "Service workers are not available in this browser environment.",
-                    )
-                })?;
+            let container: web_sys::ServiceWorkerContainer = container_value
+                .dyn_into()
+                .map_err(|_| unsupported_browser("Service workers are not available in this browser environment."))?;
 
             let options = web_sys::RegistrationOptions::new();
             options.set_scope(DEFAULT_SW_SCOPE);
 
             let promise = container.register_with_options(DEFAULT_SW_PATH, &options);
-            let registration_js = JsFuture::from(promise).await.map_err(|err| {
-                failed_default_registration(format_js_error("serviceWorker.register", err))
-            })?;
-            let registration: web_sys::ServiceWorkerRegistration =
-                registration_js.dyn_into().map_err(|_| {
-                    failed_default_registration(
-                        "Unexpected return value from serviceWorker.register",
-                    )
-                })?;
+            let registration_js = JsFuture::from(promise)
+                .await
+                .map_err(|err| failed_default_registration(format_js_error("serviceWorker.register", err)))?;
+            let registration: web_sys::ServiceWorkerRegistration = registration_js
+                .dyn_into()
+                .map_err(|_| failed_default_registration("Unexpected return value from serviceWorker.register"))?;
 
             if let Ok(update_promise) = registration.update() {
                 let _ = JsFuture::from(update_promise).await;
@@ -120,9 +102,7 @@ mod wasm {
         }
     }
 
-    async fn wait_for_registration_active(
-        registration: &web_sys::ServiceWorkerRegistration,
-    ) -> MessagingResult<()> {
+    async fn wait_for_registration_active(registration: &web_sys::ServiceWorkerRegistration) -> MessagingResult<()> {
         if registration.active().is_some() {
             return Ok(());
         }
@@ -167,11 +147,7 @@ mod wasm {
     pub use ServiceWorkerRegistrationHandle as Handle;
 }
 
-#[cfg(all(
-    feature = "wasm-web",
-    target_arch = "wasm32",
-    feature = "experimental-indexed-db"
-))]
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 pub use wasm::{Handle as ServiceWorkerRegistrationHandle, Manager as ServiceWorkerManager};
 
 #[cfg(any(

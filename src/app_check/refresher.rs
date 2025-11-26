@@ -159,9 +159,7 @@ mod tests {
             Box::pin(async move {
                 let count = attempts.fetch_add(1, Ordering::SeqCst);
                 if count < 2 {
-                    Err(AppCheckError::TokenFetchFailed {
-                        message: "fail".into(),
-                    })
+                    Err(AppCheckError::TokenFetchFailed { message: "fail".into() })
                 } else {
                     Ok(())
                 }

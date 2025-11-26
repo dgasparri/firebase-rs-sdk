@@ -46,9 +46,7 @@ mod tests {
     fn map_values_transforms_entries() {
         let input = json!({"a": 1, "b": 2}).as_object().unwrap().clone();
         let mapped = map_values(&input, |value, _key, _| match value {
-            Value::Number(num) => {
-                Value::Number(serde_json::Number::from(num.as_i64().unwrap() * 2))
-            }
+            Value::Number(num) => Value::Number(serde_json::Number::from(num.as_i64().unwrap() * 2)),
             other => other.clone(),
         });
         assert_eq!(mapped.get("a").unwrap(), &json!(2));

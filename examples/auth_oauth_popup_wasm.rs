@@ -16,8 +16,8 @@ mod wasm_demo {
         fn open_popup(&self, request: OAuthRequest) -> AuthResult<AuthCredential> {
             let js_value = bindings::open_popup_via_js(&request.auth_url)
                 .map_err(|err| AuthError::InvalidCredential(js_error_to_string(err)))?;
-            let token_response: Value = from_value(js_value)
-                .map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
+            let token_response: Value =
+                from_value(js_value).map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
 
             Ok(AuthCredential {
                 provider_id: request.provider_id.clone(),
@@ -53,8 +53,7 @@ mod wasm_demo {
     }
 
     fn configure_provider() -> OAuthProvider {
-        let mut provider =
-            OAuthProvider::new("google.com", "https://accounts.google.com/o/oauth2/v2/auth");
+        let mut provider = OAuthProvider::new("google.com", "https://accounts.google.com/o/oauth2/v2/auth");
         provider.add_scope("profile");
         provider.add_scope("email");
         provider.enable_pkce();
@@ -87,18 +86,14 @@ mod wasm_demo {
         // Demonstrates how a host app could forward passkey conditional UI results back to the resolver.
         // The helper is unused by default because it requires a Firebase backend to produce challenges.
         #[allow(dead_code)]
-        async fn resolve_passkey_with_conditional_ui(
-            resolver: MultiFactorResolver,
-        ) -> AuthResult<UserCredential> {
+        async fn resolve_passkey_with_conditional_ui(resolver: MultiFactorResolver) -> AuthResult<UserCredential> {
             let hint = resolver
                 .hints()
                 .iter()
                 .find(|info| info.factor_id == WEBAUTHN_FACTOR_ID)
                 .cloned()
                 .ok_or_else(|| {
-                    AuthError::InvalidCredential(
-                        "Resolver does not include a WebAuthn passkey factor".into(),
-                    )
+                    AuthError::InvalidCredential("Resolver does not include a WebAuthn passkey factor".into())
                 })?;
 
             let challenge = resolver.start_passkey_sign_in(&hint).await?;
@@ -126,21 +121,17 @@ mod wasm_demo {
                 "mediation": "conditional",
             });
 
-            let js_request = to_value(&request_payload)
-                .map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
+            let js_request = to_value(&request_payload).map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
             let promise = bindings::start_passkey_conditional_ui(js_request)
                 .map_err(|err| AuthError::InvalidCredential(js_error_to_string(err)))?;
             let assertion_value = JsFuture::from(promise)
                 .await
                 .map_err(|err| AuthError::InvalidCredential(js_error_to_string(err)))?;
-            let assertion_json: Value = from_value(assertion_value)
-                .map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
+            let assertion_json: Value =
+                from_value(assertion_value).map_err(|err| AuthError::InvalidCredential(err.to_string()))?;
 
             let assertion_response = WebAuthnAssertionResponse::try_from(assertion_json)?;
-            let assertion = WebAuthnMultiFactorGenerator::assertion_for_sign_in(
-                hint.uid.clone(),
-                assertion_response,
-            );
+            let assertion = WebAuthnMultiFactorGenerator::assertion_for_sign_in(hint.uid.clone(), assertion_response);
             resolver.resolve_sign_in(assertion).await
         }
         Ok(())

@@ -314,14 +314,7 @@ pub async fn start_phone_mfa_enrollment(
     api_key: &str,
     request: &StartPhoneMfaEnrollmentRequest,
 ) -> AuthResult<StartPhoneMfaEnrollmentResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaEnrollment:start",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaEnrollment:start", api_key, request).await
 }
 
 pub async fn start_totp_mfa_enrollment(
@@ -330,14 +323,7 @@ pub async fn start_totp_mfa_enrollment(
     api_key: &str,
     request: &StartTotpMfaEnrollmentRequest,
 ) -> AuthResult<StartTotpMfaEnrollmentResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaEnrollment:start",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaEnrollment:start", api_key, request).await
 }
 
 pub async fn start_passkey_mfa_enrollment(
@@ -346,14 +332,7 @@ pub async fn start_passkey_mfa_enrollment(
     api_key: &str,
     request: &StartPasskeyMfaEnrollmentRequest,
 ) -> AuthResult<StartPasskeyMfaEnrollmentResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaEnrollment:start",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaEnrollment:start", api_key, request).await
 }
 
 pub async fn finalize_phone_mfa_enrollment(
@@ -362,14 +341,7 @@ pub async fn finalize_phone_mfa_enrollment(
     api_key: &str,
     request: &FinalizePhoneMfaEnrollmentRequest,
 ) -> AuthResult<FinalizeMfaEnrollmentResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaEnrollment:finalize",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaEnrollment:finalize", api_key, request).await
 }
 
 pub async fn finalize_totp_mfa_enrollment(
@@ -378,14 +350,7 @@ pub async fn finalize_totp_mfa_enrollment(
     api_key: &str,
     request: &FinalizeTotpMfaEnrollmentRequest,
 ) -> AuthResult<FinalizeTotpMfaEnrollmentResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaEnrollment:finalize",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaEnrollment:finalize", api_key, request).await
 }
 
 pub async fn finalize_passkey_mfa_enrollment(
@@ -394,14 +359,7 @@ pub async fn finalize_passkey_mfa_enrollment(
     api_key: &str,
     request: &FinalizePasskeyMfaEnrollmentRequest,
 ) -> AuthResult<FinalizePasskeyMfaEnrollmentResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaEnrollment:finalize",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaEnrollment:finalize", api_key, request).await
 }
 
 pub async fn withdraw_mfa(
@@ -410,14 +368,7 @@ pub async fn withdraw_mfa(
     api_key: &str,
     request: &WithdrawMfaRequest,
 ) -> AuthResult<WithdrawMfaResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaEnrollment:withdraw",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaEnrollment:withdraw", api_key, request).await
 }
 
 pub async fn start_phone_mfa_sign_in(
@@ -426,14 +377,7 @@ pub async fn start_phone_mfa_sign_in(
     api_key: &str,
     request: &StartPhoneMfaSignInRequest,
 ) -> AuthResult<StartPhoneMfaSignInResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaSignIn:start",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaSignIn:start", api_key, request).await
 }
 
 pub async fn start_passkey_mfa_sign_in(
@@ -442,14 +386,7 @@ pub async fn start_passkey_mfa_sign_in(
     api_key: &str,
     request: &StartPasskeyMfaSignInRequest,
 ) -> AuthResult<StartPasskeyMfaSignInResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaSignIn:start",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaSignIn:start", api_key, request).await
 }
 
 pub async fn finalize_phone_mfa_sign_in(
@@ -458,14 +395,7 @@ pub async fn finalize_phone_mfa_sign_in(
     api_key: &str,
     request: &FinalizePhoneMfaSignInRequest,
 ) -> AuthResult<FinalizeMfaSignInResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaSignIn:finalize",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaSignIn:finalize", api_key, request).await
 }
 
 pub async fn finalize_totp_mfa_sign_in(
@@ -474,14 +404,7 @@ pub async fn finalize_totp_mfa_sign_in(
     api_key: &str,
     request: &FinalizeTotpMfaSignInRequest,
 ) -> AuthResult<FinalizeTotpMfaSignInResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaSignIn:finalize",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaSignIn:finalize", api_key, request).await
 }
 
 pub async fn finalize_passkey_mfa_sign_in(
@@ -490,14 +413,7 @@ pub async fn finalize_passkey_mfa_sign_in(
     api_key: &str,
     request: &FinalizePasskeyMfaSignInRequest,
 ) -> AuthResult<FinalizeMfaSignInResponse> {
-    post_json(
-        client,
-        endpoint,
-        "accounts/mfaSignIn:finalize",
-        api_key,
-        request,
-    )
-    .await
+    post_json(client, endpoint, "accounts/mfaSignIn:finalize", api_key, request).await
 }
 
 async fn post_json<TRequest, TResponse>(
@@ -537,8 +453,6 @@ where
                 }
             }
         }
-        Err(AuthError::InvalidCredential(format!(
-            "MFA request failed ({status}): {body}"
-        )))
+        Err(AuthError::InvalidCredential(format!("MFA request failed ({status}): {body}")))
     }
 }

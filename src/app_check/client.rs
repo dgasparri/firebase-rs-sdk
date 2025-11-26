@@ -17,11 +17,9 @@ const EXCHANGE_RECAPTCHA_ENTERPRISE_METHOD: &str = "exchangeRecaptchaEnterpriseT
 
 type ExchangeFuture = Pin<Box<dyn Future<Output = AppCheckResult<AppCheckToken>> + Send + 'static>>;
 
-type ExchangeHandler =
-    Arc<dyn Fn(ExchangeRequest, Option<Arc<dyn HeartbeatService>>) -> ExchangeFuture + Send + Sync>;
+type ExchangeHandler = Arc<dyn Fn(ExchangeRequest, Option<Arc<dyn HeartbeatService>>) -> ExchangeFuture + Send + Sync>;
 
-static EXCHANGE_OVERRIDE: LazyLock<Mutex<Option<ExchangeHandler>>> =
-    LazyLock::new(|| Mutex::new(None));
+static EXCHANGE_OVERRIDE: LazyLock<Mutex<Option<ExchangeHandler>>> = LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone, Debug)]
 pub struct ExchangeRequest {
@@ -48,13 +46,12 @@ pub async fn exchange_token(
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
     if let Some(service) = heartbeat {
-        if let Some(header) =
-            service
-                .heartbeats_header()
-                .await
-                .map_err(|err| AppCheckError::FetchNetworkError {
-                    message: err.to_string(),
-                })?
+        if let Some(header) = service
+            .heartbeats_header()
+            .await
+            .map_err(|err| AppCheckError::FetchNetworkError {
+                message: err.to_string(),
+            })?
         {
             headers.insert(
                 "X-Firebase-Client",
@@ -83,13 +80,9 @@ pub async fn exchange_token(
         });
     }
 
-    let body: AppCheckResponse =
-        response
-            .json()
-            .await
-            .map_err(|err| AppCheckError::FetchParseError {
-                message: err.to_string(),
-            })?;
+    let body: AppCheckResponse = response.json().await.map_err(|err| AppCheckError::FetchParseError {
+        message: err.to_string(),
+    })?;
 
     let ttl = parse_protobuf_duration(&body.ttl)?;
     AppCheckToken::with_ttl(body.token, ttl)
@@ -99,12 +92,7 @@ pub fn get_exchange_recaptcha_v3_request(
     app: &FirebaseApp,
     recaptcha_token: String,
 ) -> AppCheckResult<ExchangeRequest> {
-    build_exchange_request(
-        app,
-        EXCHANGE_RECAPTCHA_V3_METHOD,
-        "recaptcha_v3_token",
-        recaptcha_token,
-    )
+    build_exchange_request(app, EXCHANGE_RECAPTCHA_V3_METHOD, "recaptcha_v3_token", recaptcha_token)
 }
 
 pub fn get_exchange_recaptcha_enterprise_request(
@@ -126,21 +114,15 @@ fn build_exchange_request(
     token: String,
 ) -> AppCheckResult<ExchangeRequest> {
     let options = app.options();
-    let project_id = options
-        .project_id
-        .ok_or_else(|| AppCheckError::InvalidConfiguration {
-            message: "Firebase options must include project_id for App Check".into(),
-        })?;
-    let app_id = options
-        .app_id
-        .ok_or_else(|| AppCheckError::InvalidConfiguration {
-            message: "Firebase options must include app_id for App Check".into(),
-        })?;
-    let api_key = options
-        .api_key
-        .ok_or_else(|| AppCheckError::InvalidConfiguration {
-            message: "Firebase options must include api_key for App Check".into(),
-        })?;
+    let project_id = options.project_id.ok_or_else(|| AppCheckError::InvalidConfiguration {
+        message: "Firebase options must include project_id for App Check".into(),
+    })?;
+    let app_id = options.app_id.ok_or_else(|| AppCheckError::InvalidConfiguration {
+        message: "Firebase options must include app_id for App Check".into(),
+    })?;
+    let api_key = options.api_key.ok_or_else(|| AppCheckError::InvalidConfiguration {
+        message: "Firebase options must include api_key for App Check".into(),
+    })?;
 
     let url = format!("{BASE_ENDPOINT}/projects/{project_id}/apps/{app_id}:{method}?key={api_key}");
     let body = json!({ field: token });
@@ -154,8 +136,7 @@ where
     F: Fn(ExchangeRequest, Option<Arc<dyn HeartbeatService>>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = AppCheckResult<AppCheckToken>> + Send + 'static,
 {
-    let handler: ExchangeHandler =
-        Arc::new(move |request, heartbeat| Box::pin(override_fn(request, heartbeat)));
+    let handler: ExchangeHandler = Arc::new(move |request, heartbeat| Box::pin(override_fn(request, heartbeat)));
     *EXCHANGE_OVERRIDE.lock().unwrap() = Some(handler);
 }
 
@@ -183,10 +164,7 @@ mod tests {
         );
 
         let result = build_exchange_request(&app, "method", "field", "token".into());
-        assert!(matches!(
-            result,
-            Err(AppCheckError::InvalidConfiguration { .. })
-        ));
+        assert!(matches!(result, Err(AppCheckError::InvalidConfiguration { .. })));
     }
 
     #[tokio::test(flavor = "current_thread")]

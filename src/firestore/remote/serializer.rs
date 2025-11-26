@@ -35,11 +35,7 @@ impl JsonProtoSerializer {
     }
 
     pub fn document_name(&self, key: &DocumentKey) -> String {
-        format!(
-            "{}/documents/{}",
-            self.database_name(),
-            key.path().canonical_string()
-        )
+        format!("{}/documents/{}", self.database_name(), key.path().canonical_string())
     }
 
     pub fn encode_document_fields(&self, map: &MapValue) -> JsonValue {
@@ -146,12 +142,7 @@ impl JsonProtoSerializer {
         Some(encoded)
     }
 
-    pub fn encode_set_write(
-        &self,
-        key: &DocumentKey,
-        map: &MapValue,
-        transforms: &[FieldTransform],
-    ) -> JsonValue {
+    pub fn encode_set_write(&self, key: &DocumentKey, map: &MapValue, transforms: &[FieldTransform]) -> JsonValue {
         JsonValue::Object(self.build_update_write_map(key, map, transforms))
     }
 
@@ -163,10 +154,7 @@ impl JsonProtoSerializer {
         transforms: &[FieldTransform],
     ) -> JsonValue {
         let mut write = self.build_update_write_map(key, map, transforms);
-        let mask: Vec<String> = field_paths
-            .iter()
-            .map(FieldPath::canonical_string)
-            .collect();
+        let mask: Vec<String> = field_paths.iter().map(FieldPath::canonical_string).collect();
         write.insert("updateMask".to_string(), json!({ "fieldPaths": mask }));
         JsonValue::Object(write)
     }
@@ -180,10 +168,7 @@ impl JsonProtoSerializer {
     ) -> JsonValue {
         let mut write = self.build_update_write_map(key, map, transforms);
         if !field_paths.is_empty() {
-            let mask: Vec<String> = field_paths
-                .iter()
-                .map(FieldPath::canonical_string)
-                .collect();
+            let mask: Vec<String> = field_paths.iter().map(FieldPath::canonical_string).collect();
             write.insert("updateMask".to_string(), json!({ "fieldPaths": mask }));
         }
         write.insert("currentDocument".to_string(), json!({ "exists": true }));
@@ -329,8 +314,9 @@ fn decode_value(value: &JsonValue) -> FirestoreResult<FirestoreValue> {
     }
     if let Some(integer_value) = object.get("integerValue") {
         let parsed = match integer_value {
-            JsonValue::String(value) => i64::from_str(value)
-                .map_err(|err| invalid_argument(format!("Invalid integerValue: {err}")))?,
+            JsonValue::String(value) => {
+                i64::from_str(value).map_err(|err| invalid_argument(format!("Invalid integerValue: {err}")))?
+            }
             JsonValue::Number(number) => number
                 .as_i64()
                 .ok_or_else(|| invalid_argument("Integer out of range"))?,
@@ -340,9 +326,7 @@ fn decode_value(value: &JsonValue) -> FirestoreResult<FirestoreValue> {
     }
     if let Some(double_value) = object.get("doubleValue") {
         let parsed = match double_value {
-            JsonValue::Number(number) => number
-                .as_f64()
-                .ok_or_else(|| invalid_argument("Invalid doubleValue"))?,
+            JsonValue::Number(number) => number.as_f64().ok_or_else(|| invalid_argument("Invalid doubleValue"))?,
             JsonValue::String(value) => value
                 .parse::<f64>()
                 .map_err(|err| invalid_argument(format!("Invalid doubleValue: {err}")))?,
@@ -354,9 +338,7 @@ fn decode_value(value: &JsonValue) -> FirestoreResult<FirestoreValue> {
         let timestamp_str = timestamp_value
             .as_str()
             .ok_or_else(|| invalid_argument("timestampValue must be string"))?;
-        return Ok(FirestoreValue::from_timestamp(parse_timestamp(
-            timestamp_str,
-        )?));
+        return Ok(FirestoreValue::from_timestamp(parse_timestamp(timestamp_str)?));
     }
     if let Some(string_value) = object.get("stringValue") {
         let str_value = string_value
@@ -388,17 +370,12 @@ fn decode_value(value: &JsonValue) -> FirestoreResult<FirestoreValue> {
             .get("longitude")
             .and_then(|value| value.as_f64())
             .ok_or_else(|| invalid_argument("geoPointValue.longitude must be f64"))?;
-        return Ok(FirestoreValue::from_geo_point(GeoPoint::new(
-            latitude, longitude,
-        )?));
+        return Ok(FirestoreValue::from_geo_point(GeoPoint::new(latitude, longitude)?));
     }
     if let Some(array_value) = object.get("arrayValue") {
         let decoded = if let Some(values) = array_value.get("values") {
             match values.as_array() {
-                Some(entries) => entries
-                    .iter()
-                    .map(decode_value)
-                    .collect::<FirestoreResult<Vec<_>>>()?,
+                Some(entries) => entries.iter().map(decode_value).collect::<FirestoreResult<Vec<_>>>()?,
                 None => Vec::new(),
             }
         } else {
@@ -422,8 +399,8 @@ fn encode_timestamp(timestamp: &Timestamp) -> String {
 }
 
 fn parse_timestamp(value: &str) -> FirestoreResult<Timestamp> {
-    let datetime = DateTime::parse_from_rfc3339(value)
-        .map_err(|err| invalid_argument(format!("Invalid timestamp: {err}")))?;
+    let datetime =
+        DateTime::parse_from_rfc3339(value).map_err(|err| invalid_argument(format!("Invalid timestamp: {err}")))?;
     let datetime_utc = datetime.with_timezone(&Utc);
     Ok(Timestamp::new(
         datetime_utc.timestamp(),
@@ -454,13 +431,7 @@ mod tests {
         let decoded = serializer.decode_document_fields(&encoded).unwrap();
         assert!(decoded.is_some());
         let decoded_map = decoded.unwrap();
-        assert_eq!(
-            decoded_map.fields().get("name"),
-            Some(&FirestoreValue::from_string("Ada"))
-        );
-        assert_eq!(
-            decoded_map.fields().get("age"),
-            Some(&FirestoreValue::from_integer(42))
-        );
+        assert_eq!(decoded_map.fields().get("name"), Some(&FirestoreValue::from_string("Ada")));
+        assert_eq!(decoded_map.fields().get("age"), Some(&FirestoreValue::from_integer(42)));
     }
 }

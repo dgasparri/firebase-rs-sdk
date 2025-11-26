@@ -55,16 +55,11 @@ impl PhoneAuthProvider {
         phone_number: &str,
         verifier: Arc<dyn ApplicationVerifier>,
     ) -> AuthResult<String> {
-        self.auth
-            .send_phone_verification_code(phone_number, verifier)
-            .await
+        self.auth.send_phone_verification_code(phone_number, verifier).await
     }
 
     /// Builds a credential from a verification ID/code pair.
-    pub fn credential(
-        verification_id: impl Into<String>,
-        verification_code: impl Into<String>,
-    ) -> PhoneAuthCredential {
+    pub fn credential(verification_id: impl Into<String>, verification_code: impl Into<String>) -> PhoneAuthCredential {
         PhoneAuthCredential::new(verification_id, verification_code)
     }
 
@@ -97,9 +92,7 @@ impl PhoneAuthProvider {
         &self,
         credential: PhoneAuthCredential,
     ) -> AuthResult<Arc<crate::auth::User>> {
-        self.auth
-            .reauthenticate_with_phone_credential(credential)
-            .await
+        self.auth.reauthenticate_with_phone_credential(credential).await
     }
 }
 

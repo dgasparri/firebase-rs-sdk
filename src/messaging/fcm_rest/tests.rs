@@ -1,9 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod native_tests {
     use crate::messaging::error::token_subscribe_no_token;
-    use crate::messaging::fcm_rest::{
-        FcmClient, FcmRegistrationRequest, FcmSubscription, FcmUpdateRequest,
-    };
+    use crate::messaging::fcm_rest::{FcmClient, FcmRegistrationRequest, FcmSubscription, FcmUpdateRequest};
     use httpmock::prelude::*;
     use serde_json::json;
 

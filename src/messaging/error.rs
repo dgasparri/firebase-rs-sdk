@@ -28,12 +28,8 @@ impl MessagingErrorCode {
             MessagingErrorCode::AvailableInWindow => "messaging/available-in-window",
             MessagingErrorCode::AvailableInServiceWorker => "messaging/available-in-sw",
             MessagingErrorCode::UnsupportedBrowser => "messaging/unsupported-browser",
-            MessagingErrorCode::FailedDefaultRegistration => {
-                "messaging/failed-service-worker-registration"
-            }
-            MessagingErrorCode::InvalidServiceWorkerRegistration => {
-                "messaging/invalid-sw-registration"
-            }
+            MessagingErrorCode::FailedDefaultRegistration => "messaging/failed-service-worker-registration",
+            MessagingErrorCode::InvalidServiceWorkerRegistration => "messaging/invalid-sw-registration",
             MessagingErrorCode::TokenSubscribeFailed => "messaging/token-subscribe-failed",
             MessagingErrorCode::TokenUnsubscribeFailed => "messaging/token-unsubscribe-failed",
             MessagingErrorCode::TokenSubscribeNoToken => "messaging/token-subscribe-no-token",
@@ -105,10 +101,7 @@ pub fn failed_default_registration(message: impl Into<String>) -> MessagingError
 }
 
 pub fn invalid_service_worker_registration(message: impl Into<String>) -> MessagingError {
-    MessagingError::new(
-        MessagingErrorCode::InvalidServiceWorkerRegistration,
-        message,
-    )
+    MessagingError::new(MessagingErrorCode::InvalidServiceWorkerRegistration, message)
 }
 
 pub fn token_subscribe_failed(message: impl Into<String>) -> MessagingError {

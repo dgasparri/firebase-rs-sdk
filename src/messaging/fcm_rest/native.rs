@@ -2,13 +2,12 @@ use reqwest::header::{HeaderMap as ReqHeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Response, Url};
 
 use super::{
-    backoff_delay_ms, build_body, build_headers, is_retriable_status, map_subscribe_response,
-    map_update_response, FcmRegistrationRequest, FcmResponse, FcmUpdateRequest, FCM_API_URL,
+    backoff_delay_ms, build_body, build_headers, is_retriable_status, map_subscribe_response, map_update_response,
+    FcmRegistrationRequest, FcmResponse, FcmUpdateRequest, FCM_API_URL,
 };
 use crate::messaging::constants::FCM_MAX_RETRIES;
 use crate::messaging::error::{
-    internal_error, token_subscribe_failed, token_unsubscribe_failed, token_update_failed,
-    MessagingResult,
+    internal_error, token_subscribe_failed, token_unsubscribe_failed, token_update_failed, MessagingResult,
 };
 
 #[derive(Clone, Debug)]
@@ -20,33 +19,23 @@ pub struct FcmClient {
 impl FcmClient {
     #[allow(dead_code)]
     pub fn new() -> MessagingResult<Self> {
-        let base = std::env::var("FIREBASE_MESSAGING_FCM_ENDPOINT")
-            .unwrap_or_else(|_| FCM_API_URL.to_string());
+        let base = std::env::var("FIREBASE_MESSAGING_FCM_ENDPOINT").unwrap_or_else(|_| FCM_API_URL.to_string());
         Self::with_base_url(&base)
     }
 
     pub fn with_base_url(base_url: &str) -> MessagingResult<Self> {
-        let url = Url::parse(base_url)
-            .map_err(|err| internal_error(format!("Invalid FCM endpoint '{base_url}': {err}")))?;
+        let url =
+            Url::parse(base_url).map_err(|err| internal_error(format!("Invalid FCM endpoint '{base_url}': {err}")))?;
         let http = Client::builder()
             .user_agent(format!("firebase-rs-sdk/{}", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|err| internal_error(format!("Failed to build HTTP client: {err}")))?;
-        Ok(Self {
-            http,
-            base_url: url,
-        })
+        Ok(Self { http, base_url: url })
     }
 
-    pub async fn register_token(
-        &self,
-        request: &FcmRegistrationRequest<'_>,
-    ) -> MessagingResult<String> {
+    pub async fn register_token(&self, request: &FcmRegistrationRequest<'_>) -> MessagingResult<String> {
         let url = self.registration_endpoint(request.project_id)?;
-        let headers = header_map(build_headers(
-            request.api_key,
-            request.installation_auth_token,
-        )?)?;
+        let headers = header_map(build_headers(request.api_key, request.installation_auth_token)?)?;
         let body = build_body(&request.subscription);
         let mut attempt = 0u32;
 
@@ -89,10 +78,7 @@ impl FcmClient {
     }
 
     pub async fn update_token(&self, request: &FcmUpdateRequest<'_>) -> MessagingResult<String> {
-        let url = self.registration_instance_endpoint(
-            request.registration.project_id,
-            request.registration_token,
-        )?;
+        let url = self.registration_instance_endpoint(request.registration.project_id, request.registration_token)?;
         let headers = header_map(build_headers(
             request.registration.api_key,
             request.registration.installation_auth_token,
@@ -150,13 +136,7 @@ impl FcmClient {
         let mut attempt = 0u32;
 
         loop {
-            match self
-                .http
-                .delete(url.clone())
-                .headers(headers.clone())
-                .send()
-                .await
-            {
+            match self.http.delete(url.clone()).headers(headers.clone()).send().await {
                 Ok(response) => {
                     let status = response.status();
                     let parsed = self.parse_response(response).await?;
@@ -179,9 +159,7 @@ impl FcmClient {
                         .error
                         .map(|err| token_unsubscribe_failed(err.message))
                         .unwrap_or_else(|| {
-                            token_unsubscribe_failed(format!(
-                                "FCM delete failed with status {status}"
-                            ))
+                            token_unsubscribe_failed(format!("FCM delete failed with status {status}"))
                         }));
                 }
                 Err(err) => {
@@ -207,11 +185,7 @@ impl FcmClient {
         Ok(url)
     }
 
-    fn registration_instance_endpoint(
-        &self,
-        project_id: &str,
-        registration_token: &str,
-    ) -> MessagingResult<Url> {
+    fn registration_instance_endpoint(&self, project_id: &str, registration_token: &str) -> MessagingResult<Url> {
         let mut url = self.registration_endpoint(project_id)?;
         {
             let mut segments = url
@@ -228,11 +202,8 @@ impl FcmClient {
             .bytes()
             .await
             .map_err(|err| internal_error(format!("Failed to read FCM response: {err}")))?;
-        serde_json::from_slice::<FcmResponse>(&bytes).map_err(|err| {
-            internal_error(format!(
-                "Failed to parse FCM response (status {status}): {err}"
-            ))
-        })
+        serde_json::from_slice::<FcmResponse>(&bytes)
+            .map_err(|err| internal_error(format!("Failed to parse FCM response (status {status}): {err}")))
     }
 }
 
@@ -241,8 +212,8 @@ fn header_map(headers: Vec<(String, String)>) -> MessagingResult<ReqHeaderMap> {
     for (name, value) in headers {
         let header_name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|err| internal_error(format!("Invalid header name: {err}")))?;
-        let header_value = HeaderValue::from_str(&value)
-            .map_err(|err| internal_error(format!("Invalid header value: {err}")))?;
+        let header_value =
+            HeaderValue::from_str(&value).map_err(|err| internal_error(format!("Invalid header value: {err}")))?;
         map.append(header_name, header_value);
     }
     Ok(map)

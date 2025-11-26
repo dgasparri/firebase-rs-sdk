@@ -56,8 +56,7 @@ pub struct ObjectMetadata {
 
 impl ObjectMetadata {
     pub fn from_value(value: Value) -> Self {
-        let mut metadata: ObjectMetadata =
-            serde_json::from_value(value.clone()).unwrap_or_default();
+        let mut metadata: ObjectMetadata = serde_json::from_value(value.clone()).unwrap_or_default();
         metadata.raw = value;
         metadata
     }
@@ -167,9 +166,7 @@ where
                     .map_err(|err| D::Error::custom(format!("invalid u64 value '{s}': {err}")))
             }
         }
-        Some(other) => Err(D::Error::custom(format!(
-            "unexpected numeric value: {other}"
-        ))),
+        Some(other) => Err(D::Error::custom(format!("unexpected numeric value: {other}"))),
     }
 }
 
@@ -217,19 +214,12 @@ where
                 Some(values)
             }
         }
-        Some(other) => {
-            return Err(D::Error::custom(format!(
-                "unexpected downloadTokens format: {other}"
-            )))
-        }
+        Some(other) => return Err(D::Error::custom(format!("unexpected downloadTokens format: {other}"))),
     };
     Ok(tokens)
 }
 
-fn serialize_download_tokens<S>(
-    tokens: &Option<Vec<String>>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
+fn serialize_download_tokens<S>(tokens: &Option<Vec<String>>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {

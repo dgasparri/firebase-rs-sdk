@@ -31,10 +31,7 @@ pub struct PreparedString {
 
 impl PreparedString {
     fn new(bytes: Vec<u8>, content_type: Option<String>) -> Self {
-        Self {
-            bytes,
-            content_type,
-        }
+        Self { bytes, content_type }
     }
 }
 
@@ -64,14 +61,12 @@ fn decode_base64_url(value: &str) -> StorageResult<PreparedString> {
 
 fn decode_data_url(value: &str) -> StorageResult<PreparedString> {
     if !value.starts_with("data:") {
-        return Err(invalid_argument(
-            "Data URL must start with the 'data:' scheme.",
-        ));
+        return Err(invalid_argument("Data URL must start with the 'data:' scheme."));
     }
 
-    let comma = value.find(',').ok_or_else(|| {
-        invalid_argument("Data URL must contain a comma separating metadata and data segments.")
-    })?;
+    let comma = value
+        .find(',')
+        .ok_or_else(|| invalid_argument("Data URL must contain a comma separating metadata and data segments."))?;
 
     let metadata = &value[5..comma];
     let data_part = &value[comma + 1..];
@@ -136,9 +131,7 @@ mod tests {
 
     #[test]
     fn data_url_extracts_content_type() {
-        let prepared =
-            prepare_string_upload("data:text/plain;base64,aGVsbG8=", StringFormat::DataUrl)
-                .unwrap();
+        let prepared = prepare_string_upload("data:text/plain;base64,aGVsbG8=", StringFormat::DataUrl).unwrap();
         assert_eq!(prepared.bytes, b"hello");
         assert_eq!(prepared.content_type.as_deref(), Some("text/plain"));
     }

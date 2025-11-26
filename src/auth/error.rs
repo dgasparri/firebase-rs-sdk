@@ -66,21 +66,11 @@ pub enum MultiFactorAuthErrorCode {
 impl MultiFactorAuthErrorCode {
     fn default_message(self) -> &'static str {
         match self {
-            MultiFactorAuthErrorCode::MissingSession => {
-                "Multi-factor session is required to continue the challenge"
-            }
-            MultiFactorAuthErrorCode::InvalidSession => {
-                "The supplied multi-factor session is no longer valid"
-            }
-            MultiFactorAuthErrorCode::MissingInfo => {
-                "Required multi-factor enrollment information is missing"
-            }
-            MultiFactorAuthErrorCode::InfoNotFound => {
-                "The requested multi-factor enrollment could not be found"
-            }
-            MultiFactorAuthErrorCode::ChallengeRequired => {
-                "Multi-factor challenge required to complete the operation"
-            }
+            MultiFactorAuthErrorCode::MissingSession => "Multi-factor session is required to continue the challenge",
+            MultiFactorAuthErrorCode::InvalidSession => "The supplied multi-factor session is no longer valid",
+            MultiFactorAuthErrorCode::MissingInfo => "Required multi-factor enrollment information is missing",
+            MultiFactorAuthErrorCode::InfoNotFound => "The requested multi-factor enrollment could not be found",
+            MultiFactorAuthErrorCode::ChallengeRequired => "Multi-factor challenge required to complete the operation",
         }
     }
 }
@@ -95,10 +85,7 @@ pub struct MultiFactorAuthError {
 impl MultiFactorAuthError {
     /// Creates a new error with the provided code and optional server-supplied message detail.
     pub fn new(code: MultiFactorAuthErrorCode, server_message: Option<String>) -> Self {
-        Self {
-            code,
-            server_message,
-        }
+        Self { code, server_message }
     }
 
     /// Returns the structured multi-factor error code.
@@ -159,10 +146,7 @@ pub(crate) fn map_mfa_error_code(message: &str) -> Option<AuthError> {
             Some(raw_code.to_string())
         }
     });
-    Some(AuthError::MultiFactor(MultiFactorAuthError::new(
-        code,
-        server_message,
-    )))
+    Some(AuthError::MultiFactor(MultiFactorAuthError::new(code, server_message)))
 }
 
 fn split_error_message(message: &str) -> (&str, Option<&str>) {
@@ -175,10 +159,7 @@ fn split_error_message(message: &str) -> (&str, Option<&str>) {
 fn normalize_error_code(code: &str) -> Cow<'_, str> {
     let stripped = code.trim();
     let without_prefix = stripped.strip_prefix("auth/").unwrap_or(stripped);
-    if without_prefix
-        .chars()
-        .all(|c| c.is_ascii_uppercase() || c == '_')
-    {
+    if without_prefix.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
         Cow::Borrowed(without_prefix)
     } else {
         let mut candidate = without_prefix
