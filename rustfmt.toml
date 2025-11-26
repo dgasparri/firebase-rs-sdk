@@ -1,0 +1,21 @@
+# Use spaces instead of tabs
+hard_tabs = false
+
+# Set a consistent line width
+max_width = 120
+
+# Group imports and format them alphabetically
+group_imports = "StdExternalCrate"
+reorder_imports = true
+reorder_modules = true
+
+# Use trailing commas where appropriate (cleaner diffs)
+trailing_comma = "Vertical"
+
+# Always format imports and struct fields vertically when long
+imports_granularity = "Crate"
+struct_field_align_threshold = 20
+
+# Force consistent indentation and alignment
+indent_style = "Block"
+fn_call_width = 80
