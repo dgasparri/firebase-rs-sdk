@@ -143,9 +143,63 @@ tokio = { version = "1", features = ["macros", "rt", "fs", "io-util"] }
 [package.metadata.docs.rs]
 all-features = true
 
-# If you need the docs to compile with certain cfgs:
-# rustdoc-args = ["--cfg", "docsrs"]
-
 # Cross-targets if needed (WASM, etc.)
 # default-target = "x86_64-unknown-linux-gnu"
 # targets = ["wasm32-unknown-unknown", "x86_64-unknown-linux-gnu"]
+
+[[example]]
+name = "ai_generate_text_basic"
+
+[[example]]
+name = "ai_vertex_generate_text"
+
+[[example]]
+name = "ai_prepare_generate_content"
+
+[[example]]
+name = "app_basic"
+
+[[example]]
+name = "app_check_custom_provider"
+
+[[example]]
+name = "auth_email_password"
+
+[[example]]
+name = "auth_oauth_popup_wasm"
+
+[[example]]
+name = "auth_oauth_redirect_desktop"
+
+[[example]]
+name = "auth_passkey_roundtrip"
+
+[[example]]
+name = "database_child_events"
+
+[[example]]
+name = "database_priority_server_values"
+
+[[example]]
+name = "database_realtime_auth"
+
+[[example]]
+name = "firestore_insert_document"
+
+[[example]]
+name = "firestore_select_documents"
+
+[[example]]
+name = "firestore_with_converter"
+
+[[example]]
+name = "installations_get_id_and_token"
+
+[[example]]
+name = "installations_internal_component"
+
+[[example]]
+name = "storage_get_stream"
+
+[[example]]
+name = "storage_upload_string"
