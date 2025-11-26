@@ -11,11 +11,11 @@ use firebase_rs_sdk::messaging::{
     self, PermissionState, PushSubscriptionManager, ServiceWorkerManager,
 };
 
-#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web", feature = "experimental-indexed-db"))]
 // Requires building with `--features wasm-web,experimental-indexed-db`.
-async fn initialise_messaging() -> messaging::error::MessagingResult<()> {
+async fn initialise_messaging() -> messaging::MessagingResult<()> {
     if !messaging::is_supported() {
-        return Err(messaging::error::unsupported_browser(
+        return Err(messaging::unsupported_browser(
             "Browser is missing push APIs",
         ));
     }

@@ -16,6 +16,9 @@ use firebase_rs_sdk::app::initialize_app;
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
 use firebase_rs_sdk::performance::{get_performance, HttpMethod, TransportOptions};
 
+# #[cfg(target_arch = "wasm32")]
+# fn main() {}
+#[cfg(not(target_arch = "wasm32"))]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FirebaseOptions {
