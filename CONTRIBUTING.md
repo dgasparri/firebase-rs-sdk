@@ -32,6 +32,16 @@ To install the library:
 
 > cargo install wasm-bindgen-cli
 
+To install the WebDrivers:
+
+- Mozilla Geckodriver (might need to install Firefox for it to work properly): 
+  - https://github.com/mozilla/geckodriver/releases or 
+  - `cargo install geckodriver` or
+  - `sudo apt update` and `sudo apt install firefox-esr geckodriver`
+- Chromedriver: https://chromedriver.chromium.org/downloads or `sudo apt install chromium-browser chromium-chromedriver`
+- Msedgedriver: https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/
+
+
 ### WASM build and test quickstart
 
 The Rust crate exposes browser-specific functionality behind the `wasm-web` feature flag. Contributors should validate changes against the `wasm32-unknown-unknown` target with the following commands:
