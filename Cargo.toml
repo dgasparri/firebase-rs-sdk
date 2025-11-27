@@ -193,6 +193,15 @@ name = "database_priority_server_values"
 name = "database_realtime_auth"
 
 [[example]]
+name = "functions_basic_callable"
+
+[[example]]
+name = "functions_custom_domain_or_emulator"
+
+[[example]]
+name = "functions_typed_payload"
+
+[[example]]
 name = "firestore_insert_document"
 
 [[example]]
