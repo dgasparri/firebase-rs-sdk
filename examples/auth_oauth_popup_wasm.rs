@@ -1,3 +1,4 @@
+//! WASM-only OAuth popup flow example showing custom JS popup handling and passkey resolver wiring.
 #[cfg(target_arch = "wasm32")]
 mod wasm_demo {
     use std::sync::Arc;

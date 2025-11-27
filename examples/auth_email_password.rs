@@ -1,3 +1,4 @@
+//! Basic email/password sign-in against Firebase Auth using the modular API.
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::auth::*;
 use std::error::Error;

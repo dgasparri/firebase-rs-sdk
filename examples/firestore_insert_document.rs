@@ -1,3 +1,4 @@
+//! Minimal Firestore example that inserts two documents using the HTTP datastore client.
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::firestore::*;
 use std::collections::BTreeMap;

@@ -1,3 +1,4 @@
+//! Realtime Database read/write demo that authenticates with email/password first.
 use std::error::Error;
 use std::io::{self, Write};
 use std::sync::Arc;

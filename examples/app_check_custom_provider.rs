@@ -1,3 +1,4 @@
+//! Demonstrates registering App Check with a custom token provider and refresh listeners.
 use firebase_rs_sdk::app::*;
 use firebase_rs_sdk::app_check::*;
 use std::error::Error;

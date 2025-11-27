@@ -1,3 +1,4 @@
+//! Demonstrates querying Firestore with an in-memory datastore and mapping results.
 use std::collections::BTreeMap;
 use std::error::Error;
 
