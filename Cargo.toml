@@ -163,6 +163,15 @@ name = "app_basic"
 name = "app_check_custom_provider"
 
 [[example]]
+name = "analytics_log_event"
+
+[[example]]
+name = "analytics_measurement_protocol"
+
+[[example]]
+name = "analytics_consent_and_defaults"
+
+[[example]]
 name = "auth_email_password"
 
 [[example]]
