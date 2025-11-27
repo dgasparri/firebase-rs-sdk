@@ -1,3 +1,4 @@
+//! Desktop redirect handler example for OAuth sign-in using a system browser.
 use std::fs;
 use std::sync::Arc;
 

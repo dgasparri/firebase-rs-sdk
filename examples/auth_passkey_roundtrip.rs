@@ -1,3 +1,4 @@
+//! Passkey sign-in roundtrip demonstration using mocked WebAuthn challenge/response payloads.
 use firebase_rs_sdk::auth::{WebAuthnAssertionResponse, WebAuthnMultiFactorGenerator, WebAuthnSignInChallenge};
 use serde_json::json;
 

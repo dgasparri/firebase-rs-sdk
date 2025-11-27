@@ -163,6 +163,15 @@ name = "app_basic"
 name = "app_check_custom_provider"
 
 [[example]]
+name = "analytics_log_event"
+
+[[example]]
+name = "analytics_measurement_protocol"
+
+[[example]]
+name = "analytics_consent_and_defaults"
+
+[[example]]
 name = "auth_email_password"
 
 [[example]]
@@ -182,6 +191,15 @@ name = "database_priority_server_values"
 
 [[example]]
 name = "database_realtime_auth"
+
+[[example]]
+name = "functions_basic_callable"
+
+[[example]]
+name = "functions_custom_domain_or_emulator"
+
+[[example]]
+name = "functions_typed_payload"
 
 [[example]]
 name = "firestore_insert_document"

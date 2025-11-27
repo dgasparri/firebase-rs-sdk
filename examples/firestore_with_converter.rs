@@ -1,3 +1,4 @@
+//! Shows how to attach a typed data converter to a Firestore collection.
 use firebase_rs_sdk::firestore::*;
 use std::collections::BTreeMap;
 

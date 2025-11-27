@@ -1,3 +1,4 @@
+//! Minimal Firebase app lifecycle: initialize, resolve, list, then delete.
 use firebase_rs_sdk::app::*;
 
 #[tokio::main(flavor = "current_thread")]
