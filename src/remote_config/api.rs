@@ -127,7 +127,7 @@ impl RemoteConfig {
     /// # Examples
     ///
     /// ```
-    /// use firebase_rs_sdk::remote_config::settings::RemoteConfigSettingsUpdate;
+    /// use firebase_rs_sdk::remote_config::RemoteConfigSettingsUpdate;
     /// # use firebase_rs_sdk::remote_config::get_remote_config;
     /// # use firebase_rs_sdk::app::initialize_app;
     /// # use firebase_rs_sdk::app::{FirebaseOptions, FirebaseAppSettings};

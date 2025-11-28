@@ -1,20 +1,39 @@
+//! Native-only example: file-backed Remote Config storage is unavailable in wasm targets.
+//!
 //! Persist Remote Config data across runs using the file-backed storage helper.
 //!
 //! This example swaps in a static fetch client so it works offline; replace it with the
 //! default HTTP client (by removing `set_fetch_client`) to reach the real backend.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))]
 use async_trait::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
 use firebase_rs_sdk::app::initialize_app;
+#[cfg(not(target_arch = "wasm32"))]
 use firebase_rs_sdk::app::{FirebaseAppSettings, FirebaseOptions};
+#[cfg(not(target_arch = "wasm32"))]
 use firebase_rs_sdk::remote_config::FileRemoteConfigStorage;
+#[cfg(not(target_arch = "wasm32"))]
 use firebase_rs_sdk::remote_config::RemoteConfig;
+#[cfg(not(target_arch = "wasm32"))]
 use firebase_rs_sdk::remote_config::RemoteConfigResult;
+#[cfg(not(target_arch = "wasm32"))]
 use firebase_rs_sdk::remote_config::{FetchRequest, FetchResponse, RemoteConfigFetchClient};
 
+/// Stub main for wasm builds so `cargo check --all-targets` succeeds.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    panic!("This example requires a non-wasm target because it uses file-backed storage.");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = FirebaseOptions {
@@ -41,13 +60,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let message = remote_config.get_string("message_of_the_day");
     let source = remote_config.get_value("message_of_the_day").source().as_str();
     println!("message_of_the_day ({source}): {message}");
-    println!("Restart the program to reuse cached values from {}", storage_path.display());
+    println!(
+        "Restart the program to reuse cached values from {}",
+        storage_path.display()
+    );
 
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct StaticFetchClient;
 
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl RemoteConfigFetchClient for StaticFetchClient {
     async fn fetch(&self, _request: FetchRequest) -> RemoteConfigResult<FetchResponse> {
