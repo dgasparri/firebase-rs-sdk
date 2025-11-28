@@ -217,6 +217,15 @@ name = "installations_get_id_and_token"
 name = "installations_internal_component"
 
 [[example]]
+name = "remote_config_fetch_and_activate"
+
+[[example]]
+name = "remote_config_custom_signals"
+
+[[example]]
+name = "remote_config_file_storage"
+
+[[example]]
 name = "storage_get_stream"
 
 [[example]]
