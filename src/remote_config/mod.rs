@@ -1,10 +1,51 @@
 #![doc = include_str!("README.md")]
 mod api;
 mod constants;
-pub mod error;
-pub mod fetch;
-pub mod settings;
-pub mod storage;
-pub mod value;
+mod error;
+mod fetch;
+mod settings;
+mod storage;
+mod value;
 
-pub use api::{get_remote_config, register_remote_config_component, CustomSignals, RemoteConfig};
+#[doc(inline)]
+pub use api::{get_remote_config, register_remote_config_component, RemoteConfig};
+
+#[doc(inline)]
+pub use fetch::{FetchRequest, FetchResponse, RemoteConfigFetchClient, NoopFetchClient, 
+    InstallationsTokenProvider};
+
+
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(inline)]
+pub use fetch::{HttpRemoteConfigFetchClient};
+
+#[cfg(all(target_arch = "wasm32", feature = "wasm-web"))]
+#[doc(inline)]
+pub use fetch::{WasmRemoteConfigFetchClient};
+
+#[doc(inline)]
+pub use error::{internal_error, invalid_argument, RemoteConfigError, RemoteConfigErrorCode, RemoteConfigResult};
+
+#[doc(inline)]
+pub use settings::{DEFAULT_FETCH_TIMEOUT_MILLIS, DEFAULT_MINIMUM_FETCH_INTERVAL_MILLIS, RemoteConfigSettings, 
+    RemoteConfigSettingsUpdate};
+
+#[allow(unused_imports)]
+#[doc(inline)]
+pub(crate) use settings::{validate_fetch_timeout, validate_minimum_fetch_interval};
+
+#[doc(inline)]
+pub use storage::{CustomSignals, FetchStatus,  InMemoryRemoteConfigStorage, RemoteConfigStorageCache, RemoteConfigStorage, 
+     };
+
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(inline)]
+pub use storage::{FileRemoteConfigStorage};
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+#[doc(inline)]
+pub use storage::{IndexedDbRemoteConfigStorage};
+
+#[doc(inline)]
+pub use value::{RemoteConfigValue, RemoteConfigValueSource};
+
