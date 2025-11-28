@@ -1,41 +1,36 @@
 # Firebase rs SDK Unofficial
 
-This is an unofficial port of Google's Firebase JS SDK. The goal is to mirror the features offered by the JavaScript SDK while exposing idiomatic Rust APIs. Although Firebase was launched in 2011, Google has still not released an official Rust SDK for it. This is an attempt to fill that gap.
+This is an unofficial Rust SDK for Firebase.
 
 ## Modules
 
-The Firebase rs SDK is composed of 14 modules to be used to access each service of Firebase. Here is a list of each module with its porting completion estimate. Those estimates are based on the extent the module can be considered stable: the main features are ported, the API calls are documented, the code is tested and working examples are provided.
+The Firebase Rust SDK includes 14 modules, each mapping to a Firebase service:
 
+| Module                                                                                    |
+|-------------------------------------------------------------------------------------------|
+| [ai]                       |
+| [analytics]         |
+| [app]                     |
+| [app_check]         |
+| [auth]                   |
+| [data_connect]   |
+| [database]           |
+| [firestore]         |
+| [functions]         |
+| [installations] |
+| [messaging]         |
+| [performance]     |
+| [remote_config] |
+| [storage]             |
 
-| Module | % porting completed  | |
-|--------|----------------------|-|
-| [ai]                       | 30% | `[######              ]` |
-| [analytics]         | 20% | `[####                ]` |
-| [app]                     | 80% | `[################    ]` |
-| [app_check]         | 70% | `[##############      ]` |
-| [auth]                   | 85% | `[#################   ]` |
-| [data_connect]   | 80% | `[################    ]` |
-| [database]           | 30% | `[######              ]` |
-| [firestore]         | 85% | `[#################   ]` |
-| [functions]         | 25% | `[#####               ]` |
-| [installations] | 45% | `[#########           ]` |
-| [messaging]         | 40% | `[########            ]` |
-| [performance]     | 70%  | `[##############     ]` |
-| [remote_config] | 25% | `[#####               ]` |
-| [storage]             | 60% | `[############        ]` |
-
-
-The following modules are used internally by the library and have no direct public API. Only the features required internally have been ported.
+The following modules are used internally by the library and have no direct public API.
 
 - [component]
 - [logger]
 - [platform]
 - [util]
 
-
-
-Note that this library is provided _as is__. Even the more developed modules have not yet been exhaustively tested. All the code published passes `cargo test` and the original tests of the JS SDK are being ported, but we are still verifying that all relevant tests from the JS SDK have been ported and that the test coverage is complete.
-
+Note that this library is provided _as is_. Even the more mature modules have not been exhaustively tested. All the code published passes `cargo test`. There is an effort to port the tests of the official JavaScript SDK, but there is no guarantee that the test coverage is complete.
 
 ## Feature Flags
 
@@ -51,7 +46,7 @@ To enable those features in `Cargo.toml`:
 firebase-rs-sdk = { version = "X.XX", features = ["wasm-web", "experimental-indexed-db"] }
 ```
 
-To run commands with the features
+To build or test with these features
 
 ```bash
 cargo check --target wasm32-unknown-unknown --features wasm-web,experimental-indexed-db
@@ -61,51 +56,25 @@ cargo build --target wasm32-unknown-unknown --features wasm-web,experimental-ind
 
 If you only need the wasm bindings and not IndexedDB persistence, omit `experimental-indexed-db` from the list.
 
-##  Why the JS SDK as a source?
+## Connection to Google's official JavaScript SDK
 
-Firebase has several official SDKs. The JS SDK is one of the few that implements the services from scratch without depending on external Java libraries. Moreover, it offers one of the most complete and well-documented APIs. 
+Because Firebase APIs are not fully documented, we relied heavily on the official JavaScript SDK (and, to a lesser extent on the C++ SDK) to implement the functions. The JavaScript SDK appears as one of the most complete in terms of functions and calls to the service, and it is one of the few that implements the services from scratch without depending on external Java libraries. Moreover, it offers one of the most complete and well-documented APIs.
 
-Resources for the Firebase JS SDK:
+There are often direct and clear parallels between the TypeScript methods of the JS SDK (initializeApp(), getFirestore(), collection(), getDocs()) and their counterparts in this Rust SDK (initialize_app(), get_firestore(), collection(), get_docs()).
+
+For that reason, sometimes for calls and features it might be useful to refer directly to the JavaScript SDK:
 
 - Quickstart Guide: <https://firebase.google.com/docs/web/setup>
 - API references: <https://firebase.google.com/docs/reference/js/>
 - SDK Github repo: <https://github.com/firebase/firebase-js-sdk>
 
-This material is from Google and the Community.
-
-There is an effort to match closely the structure and names of the JS SDK, so its documentation might be of help to understand the Rust porting library.
+(These resources are maintained by Google and the community.)
 
 If you want to contribute, donating your time and AI resources is the most valuable way to support this project. See the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) page on how to help.
 
+## Example
 
-# Example
-
-This is an example provided by the Quickstart guide for the official Firebase Javascript SDK:
-
-```ts
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, getDocs } from 'firebase/firestore/lite';
-// Follow this pattern to import other Firebase services
-// import { } from 'firebase/<service>';
-
-// TODO: Replace the following with your app's Firebase configuration
-const firebaseConfig = {
-  //...
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-// Get a list of cities from your database
-async function getCities(db) {
-  const citiesCol = collection(db, 'cities');
-  const citySnapshot = await getDocs(citiesCol);
-  const cityList = citySnapshot.docs.map(doc => doc.data());
-  return cityList;
-}
-```
-
-Here is the equivalent example using the Rust port of the SDK:
+Connects to the Firestore service, populates an in-memory-only document with some mock values, and retrieves them.
 
 ```rust,no_run
 use std::collections::BTreeMap;
@@ -182,16 +151,14 @@ fn field_as_i64(data: &BTreeMap<String, FirestoreValue>, field: &str) -> Option<
 }
 ```
 
-There are clear parallels between the TypeScript methods (initializeApp(), getFirestore(), collection(), getDocs()) and their Rust counterparts (initialize_app(), get_firestore(), collection(), get_docs()). 
-
 For further details, refer to the example [`./examples/firestore_select_documents.rs`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/examples/firestore_select_documents.rs) or run `cargo run --example firestore_select_documents`.
 
 ## Copyright
 
-The Firebase JS SDK is the property of Google and is licensed under the Apache License, Version 2.0. This library does not contain any code from that SDK, and it is licensed under the Apache License, Version 2.0.
+This library is licensed under the Apache License, Version 2.0.
 
-Please be aware that this library is distributed "as is", and the author(s) offer no guarantees, nor warranties or conditions of any kind.
+This library is distributed ‘as is’ without warranties or conditions of any kind.
 
 ## How to contribute
 
-We welcome contributions from everyone. The porting process is time and AI intensive, if you have any or both of those, your help is appreciated! Please refer to the [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) for the details. 
+The porting process is time- and AI-intensive; any help is appreciated. See [`CONTRIBUTING.md`](https://github.com/dgasparri/firebase-rs-sdk/blob/main/CONTRIBUTING.md) for details.
