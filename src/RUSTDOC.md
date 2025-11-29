@@ -6,22 +6,20 @@ This is an unofficial Rust SDK for Firebase.
 
 The Firebase Rust SDK includes 14 modules, each mapping to a Firebase service:
 
-| Module                                                                                    |
-|-------------------------------------------------------------------------------------------|
-| [ai]                       |
-| [analytics]         |
-| [app]                     |
-| [app_check]         |
-| [auth]                   |
-| [data_connect]   |
-| [database]           |
-| [firestore]         |
-| [functions]         |
-| [installations] |
-| [messaging]         |
-| [performance]     |
-| [remote_config] |
-| [storage]             |
+- [ai]
+- [analytics]
+- [app]
+- [app_check]
+- [auth]
+- [data_connect]  
+- [database]
+- [firestore]
+- [functions]
+- [installations]
+- [messaging]
+- [performance]
+- [remote_config]
+- [storage]
 
 The following modules are used internally by the library and have no direct public API.
 

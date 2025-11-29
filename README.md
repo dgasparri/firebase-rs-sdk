@@ -6,22 +6,20 @@ This is an unofficial Rust SDK for Firebase.
 
 The Firebase Rust SDK includes 14 modules, each mapping to a Firebase service:
 
-| Module                                                                                    |
-|-------------------------------------------------------------------------------------------|
-| [ai](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/ai)                       |
-| [analytics](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/analytics)         |
-| [app](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app)                     |
-| [app_check](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check)         |
-| [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)                   |
-| [data_connect](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/data_connect)   |
-| [database](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/database)           |
-| [firestore](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore)         |
-| [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)         |
-| [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations) |
-| [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)         |
-| [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)     |
-| [remote_config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config) |
-| [storage](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage)             |
+- [ai](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/ai)
+- [analytics](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/analytics)
+- [app](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app)
+- [app_check](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/app_check)
+- [auth](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/auth)
+- [data_connect](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/data_connect)  
+- [database](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/database)
+- [firestore](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/firestore)
+- [functions](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/functions)
+- [installations](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/installations)
+- [messaging](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/messaging)
+- [performance](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/performance)
+- [remote_config](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/remote_config)
+- [storage](https://github.com/dgasparri/firebase-rs-sdk/tree/main/src/storage)
 
 The following modules are used internally by the library and have no direct public API.
 
