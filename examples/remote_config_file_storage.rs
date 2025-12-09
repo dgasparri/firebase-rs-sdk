@@ -60,10 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let message = remote_config.get_string("message_of_the_day");
     let source = remote_config.get_value("message_of_the_day").source().as_str();
     println!("message_of_the_day ({source}): {message}");
-    println!(
-        "Restart the program to reuse cached values from {}",
-        storage_path.display()
-    );
+    println!("Restart the program to reuse cached values from {}", storage_path.display());
 
     Ok(())
 }
