@@ -1,3 +1,5 @@
+#[cfg(test)]
+use async_lock::Mutex as AsyncMutex;
 use std::collections::HashMap;
 #[cfg(test)]
 use std::collections::VecDeque;
@@ -127,6 +129,9 @@ static MOCK_HTTP_RESPONSES: LazyLock<Mutex<HashMap<String, VecDeque<MockHttpResp
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(test)]
+static MOCK_HTTP_GUARD: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
+
+#[cfg(test)]
 pub(crate) fn reset_mock_http_responses() {
     MOCK_HTTP_RESPONSES.lock().unwrap().clear();
 }
@@ -135,6 +140,16 @@ pub(crate) fn reset_mock_http_responses() {
 pub(crate) fn enqueue_mock_response(app_id: &str, response: MockHttpResponse) {
     let mut guard = MOCK_HTTP_RESPONSES.lock().unwrap();
     guard.entry(app_id.to_string()).or_default().push_back(response);
+}
+
+#[cfg(test)]
+async fn with_mock_guard<F, Fut>(f: F) -> Fut::Output
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future,
+{
+    let _guard = MOCK_HTTP_GUARD.lock().await;
+    f().await
 }
 
 /// Fetches remote dynamic configuration for the provided Firebase app using the REST endpoint
@@ -411,100 +426,109 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn falls_back_to_local_measurement_id_when_api_key_missing() {
-        reset_retry_state();
-        reset_mock_http_responses();
-        let options = FirebaseOptions {
-            app_id: Some("1:123:web:abc".into()),
-            measurement_id: Some("G-LOCALMID".into()),
-            ..Default::default()
-        };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        with_mock_guard(|| async {
+            reset_retry_state();
+            reset_mock_http_responses();
+            let options = FirebaseOptions {
+                app_id: Some("1:123:web:abc".into()),
+                measurement_id: Some("G-LOCALMID".into()),
+                ..Default::default()
+            };
+            let app = initialize_app(options, Some(unique_settings())).await.unwrap();
 
-        let config = fetch_dynamic_config_with_retry(&app).await.unwrap();
-        assert_eq!(config.measurement_id(), "G-LOCALMID");
-        assert_eq!(config.app_id(), Some("1:123:web:abc"));
+            let config = fetch_dynamic_config_with_retry(&app).await.unwrap();
+            assert_eq!(config.measurement_id(), "G-LOCALMID");
+            assert_eq!(config.app_id(), Some("1:123:web:abc"));
+        })
+        .await
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn retries_on_transient_error_then_succeeds() {
-        reset_retry_state();
-        reset_mock_http_responses();
-        enqueue_mock_response(
-            "1:retry:web:abc",
-            MockHttpResponse {
-                status: 503,
-                body: Some("{}".to_string()),
-                delay: Duration::from_millis(0),
-            },
-        );
-        enqueue_mock_response(
-            "1:retry:web:abc",
-            MockHttpResponse {
-                status: 200,
-                body: Some(r#"{"measurementId":"G-REMOTE123","appId":"1:retry:web:abc"}"#.to_string()),
-                delay: Duration::from_millis(0),
-            },
-        );
+        with_mock_guard(|| async {
+            reset_retry_state();
+            reset_mock_http_responses();
+            enqueue_mock_response(
+                "1:retry:web:abc",
+                MockHttpResponse {
+                    status: 503,
+                    body: Some("{}".to_string()),
+                    delay: Duration::from_millis(0),
+                },
+            );
+            enqueue_mock_response(
+                "1:retry:web:abc",
+                MockHttpResponse {
+                    status: 200,
+                    body: Some(r#"{"measurementId":"G-REMOTE123","appId":"1:retry:web:abc"}"#.to_string()),
+                    delay: Duration::from_millis(0),
+                },
+            );
 
-        let options = FirebaseOptions {
-            app_id: Some("1:retry:web:abc".into()),
-            api_key: Some("api-key".into()),
-            ..Default::default()
-        };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+            let options = FirebaseOptions {
+                app_id: Some("1:retry:web:abc".into()),
+                api_key: Some("api-key".into()),
+                ..Default::default()
+            };
+            let app = initialize_app(options, Some(unique_settings())).await.unwrap();
 
-        let config = fetch_dynamic_config_with_settings(
-            &app,
-            FetchRetrySettings {
-                fetch_timeout: Duration::from_millis(200),
-                base_retry_interval: Duration::from_millis(10),
-                retry_factor: 2,
-                long_retry_factor: 3,
-                max_attempts: Some(3),
-            },
-        )
+            let config = fetch_dynamic_config_with_settings(
+                &app,
+                FetchRetrySettings {
+                    fetch_timeout: Duration::from_millis(200),
+                    base_retry_interval: Duration::from_millis(10),
+                    retry_factor: 2,
+                    long_retry_factor: 3,
+                    max_attempts: Some(3),
+                },
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(config.measurement_id(), "G-REMOTE123");
+            assert_eq!(config.app_id(), Some("1:retry:web:abc"));
+        })
         .await
-        .unwrap();
-
-        assert_eq!(config.measurement_id(), "G-REMOTE123");
-        assert_eq!(config.app_id(), Some("1:retry:web:abc"));
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn times_out_and_falls_back_to_local_measurement_id() {
-        reset_retry_state();
-        reset_mock_http_responses();
-        enqueue_mock_response(
-            "1:timeout:web:abc",
-            MockHttpResponse {
-                status: 200,
-                body: Some(r#"{"measurementId":"G-REMOTE999","appId":"1:timeout:web:abc"}"#.to_string()),
-                delay: Duration::from_millis(200),
-            },
-        );
+        with_mock_guard(|| async {
+            reset_retry_state();
+            reset_mock_http_responses();
+            enqueue_mock_response(
+                "1:timeout:web:abc",
+                MockHttpResponse {
+                    status: 200,
+                    body: Some(r#"{"measurementId":"G-REMOTE999","appId":"1:timeout:web:abc"}"#.to_string()),
+                    delay: Duration::from_millis(200),
+                },
+            );
 
-        let options = FirebaseOptions {
-            app_id: Some("1:timeout:web:abc".into()),
-            api_key: Some("api-key".into()),
-            measurement_id: Some("G-FALLBACK".into()),
-            ..Default::default()
-        };
-        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+            let options = FirebaseOptions {
+                app_id: Some("1:timeout:web:abc".into()),
+                api_key: Some("api-key".into()),
+                measurement_id: Some("G-FALLBACK".into()),
+                ..Default::default()
+            };
+            let app = initialize_app(options, Some(unique_settings())).await.unwrap();
 
-        let config = fetch_dynamic_config_with_settings(
-            &app,
-            FetchRetrySettings {
-                fetch_timeout: Duration::from_millis(50),
-                base_retry_interval: Duration::from_millis(5),
-                retry_factor: 2,
-                long_retry_factor: 2,
-                max_attempts: Some(2),
-            },
-        )
+            let config = fetch_dynamic_config_with_settings(
+                &app,
+                FetchRetrySettings {
+                    fetch_timeout: Duration::from_millis(50),
+                    base_retry_interval: Duration::from_millis(5),
+                    retry_factor: 2,
+                    long_retry_factor: 2,
+                    max_attempts: Some(2),
+                },
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(config.measurement_id(), "G-FALLBACK");
+            assert_eq!(config.app_id(), Some("1:timeout:web:abc"));
+        })
         .await
-        .unwrap();
-
-        assert_eq!(config.measurement_id(), "G-FALLBACK");
-        assert_eq!(config.app_id(), Some("1:timeout:web:abc"));
     }
 }

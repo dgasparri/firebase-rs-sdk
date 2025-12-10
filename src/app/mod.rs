@@ -62,6 +62,9 @@ pub(crate) use registry::{
     register_component, remove_service_instance, APPS, SERVER_APPS,
 };
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) use registry::lock_component_test_guard;
+
 // pub(crate) also in registry.rs
 #[doc(inline)]
 #[allow(unused_imports)]

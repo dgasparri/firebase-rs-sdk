@@ -27,7 +27,9 @@ use crate::messaging::error::{
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 use crate::messaging::fcm_rest::{FcmClient, FcmRegistrationRequest, FcmSubscription, FcmUpdateRequest};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
-use crate::messaging::token_store::{self, InstallationInfo, SubscriptionInfo, TokenRecord};
+use crate::messaging::token_store::{
+    self, InstallationInfo, RefreshLock, SubscriptionInfo, TokenRecord, REFRESH_LOCK_TTL_MS, REFRESH_WAIT_TIMEOUT_MS,
+};
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
 use crate::messaging::token_store::{self, InstallationInfo, TokenRecord};
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32"))]
@@ -449,6 +451,7 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
 
     let store_key = app_store_key(messaging);
     let now_ms = current_timestamp_ms();
+    let mut refresh_lock = RefreshLock::new(&store_key);
     let subscription_payload = FcmSubscription {
         endpoint: &subscription_info.endpoint,
         auth: &subscription_info.auth,
@@ -466,6 +469,13 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
                 let installation_needs_refresh = record.installation.auth_token_expired(now_ms);
                 if !record.is_expired(now_ms, TOKEN_EXPIRATION_MS) && !installation_needs_refresh {
                     return Ok(record.token);
+                }
+
+                if !refresh_lock.try_acquire(REFRESH_LOCK_TTL_MS) {
+                    if let Some(updated) = wait_for_valid_shared_token(&store_key, &subscription_info, now_ms).await? {
+                        return Ok(updated);
+                    }
+                    let _ = refresh_lock.try_acquire(REFRESH_LOCK_TTL_MS);
                 }
 
                 let installation_info = fetch_installation_info(messaging, installation_needs_refresh).await?;
@@ -491,6 +501,13 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
             }
         }
 
+        if !refresh_lock.try_acquire(REFRESH_LOCK_TTL_MS) {
+            if let Some(updated) = wait_for_valid_shared_token(&store_key, &subscription_info, now_ms).await? {
+                return Ok(updated);
+            }
+            let _ = refresh_lock.try_acquire(REFRESH_LOCK_TTL_MS);
+        }
+
         let installation_info = fetch_installation_info(messaging, true).await?;
         let _ = fcm_client
             .delete_token(
@@ -501,6 +518,13 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
             )
             .await;
         let _ = token_store::remove_token(&store_key).await?;
+    }
+
+    if !refresh_lock.is_acquired() && !refresh_lock.try_acquire(REFRESH_LOCK_TTL_MS) {
+        if let Some(updated) = wait_for_valid_shared_token(&store_key, &subscription_info, now_ms).await? {
+            return Ok(updated);
+        }
+        let _ = refresh_lock.try_acquire(REFRESH_LOCK_TTL_MS);
     }
 
     let installation_info = fetch_installation_info(messaging, true).await?;
@@ -520,6 +544,26 @@ async fn get_token_wasm(messaging: &Messaging, vapid_key: Option<&str>) -> Messa
     };
     token_store::write_token(&store_key, &record).await?;
     Ok(token)
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+async fn wait_for_valid_shared_token(
+    store_key: &str,
+    subscription_info: &SubscriptionInfo,
+    now_ms: u64,
+) -> MessagingResult<Option<String>> {
+    if let Some(record) = token_store::wait_for_token_update(store_key, REFRESH_WAIT_TIMEOUT_MS).await? {
+        if let Some(existing) = &record.subscription {
+            if existing == subscription_info
+                && !record.is_expired(now_ms, TOKEN_EXPIRATION_MS)
+                && !record.installation.auth_token_expired(now_ms)
+            {
+                return Ok(Some(record.token));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 #[cfg(all(
