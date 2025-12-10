@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.34.1
+## v1.34.2
 
 - messaging: add multi-tab coordination for service worker registration and token refresh to avoid duplicate registrations/FCM calls, plus cross-tab waits when another tab is refreshing.
 - messaging: bump module porting status to 45% in docs/status to reflect the new cross-tab work.
