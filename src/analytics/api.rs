@@ -5,7 +5,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use async_trait::async_trait;
 
-use crate::analytics::config::{fetch_dynamic_config, from_app_options, DynamicConfig};
+use crate::analytics::config::{fetch_dynamic_config_with_retry, DynamicConfig};
 use crate::analytics::constants::ANALYTICS_COMPONENT_NAME;
 use crate::analytics::error::{internal_error, invalid_argument, AnalyticsResult};
 use crate::analytics::gtag::{GlobalGtagRegistry, GtagState};
@@ -16,6 +16,7 @@ use crate::app;
 use crate::app::FirebaseApp;
 use crate::component::types::{ComponentError, DynService, InstanceFactoryOptions, InstantiationMode};
 use crate::component::{Component, ComponentType};
+use crate::platform::runtime;
 
 #[derive(Clone)]
 pub struct Analytics {
@@ -102,7 +103,9 @@ impl Analytics {
             collection_enabled: AtomicBool::new(true),
             gtag,
         };
-        Self { inner: Arc::new(inner) }
+        let analytics = Self { inner: Arc::new(inner) };
+        analytics.bootstrap_initialization();
+        analytics
     }
 
     pub fn app(&self) -> &FirebaseApp {
@@ -245,24 +248,19 @@ impl Analytics {
             return Ok(cached);
         }
 
-        if let Some(local) = from_app_options(&self.inner.app) {
+        let fetched = fetch_dynamic_config_with_retry(&self.inner.app).await?;
+        {
             let mut guard = self.inner.config.lock().unwrap();
-            *guard = Some(local.clone());
-            self.inner
-                .gtag
-                .inner()
-                .set_measurement_id(Some(local.measurement_id().to_string()));
-            return Ok(local);
+            *guard = Some(fetched.clone());
         }
-
-        // Fetch without holding the config mutex to avoid blocking other readers while awaiting.
-        let fetched = fetch_dynamic_config(&self.inner.app).await?;
-        let mut guard = self.inner.config.lock().unwrap();
-        *guard = Some(fetched.clone());
         self.inner
             .gtag
             .inner()
             .set_measurement_id(Some(fetched.measurement_id().to_string()));
+        self.inner
+            .gtag
+            .inner()
+            .set_collection_enabled(fetched.measurement_id().to_string(), self.collection_enabled());
         Ok(fetched)
     }
 
@@ -278,6 +276,23 @@ impl Analytics {
     /// but are not dispatched through the configured transport.
     pub fn set_collection_enabled(&self, enabled: bool) {
         self.inner.collection_enabled.store(enabled, Ordering::SeqCst);
+        if let Some(config) = self.inner.config.lock().unwrap().clone() {
+            self.inner
+                .gtag
+                .inner()
+                .set_collection_enabled(config.measurement_id().to_string(), enabled);
+        } else {
+            let analytics = self.clone();
+            runtime::spawn_detached(async move {
+                if let Ok(config) = analytics.ensure_dynamic_config().await {
+                    analytics
+                        .inner
+                        .gtag
+                        .inner()
+                        .set_collection_enabled(config.measurement_id().to_string(), enabled);
+                }
+            });
+        }
     }
 
     /// Returns whether analytics collection is currently enabled.
@@ -288,6 +303,19 @@ impl Analytics {
     #[cfg(test)]
     fn set_transport_for_tests(&self, transport: Arc<dyn AnalyticsTransport>) {
         *self.inner.transport.lock().unwrap() = Some(transport);
+    }
+
+    fn bootstrap_initialization(&self) {
+        let analytics = self.clone();
+        runtime::spawn_detached(async move {
+            if let Err(err) = analytics.ensure_dynamic_config().await {
+                log::warn!(
+                    "Failed to initialize analytics for app `{}`: {}",
+                    analytics.inner.app.name(),
+                    err
+                );
+            }
+        });
     }
 }
 
@@ -366,6 +394,7 @@ mod tests {
     use crate::analytics::gtag::GlobalGtagRegistry;
     use crate::app::initialize_app;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
+    use crate::platform::runtime;
     use std::collections::BTreeMap;
     use std::sync::{Arc, LazyLock, Mutex};
 
@@ -430,6 +459,7 @@ mod tests {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-LOCAL123".into()),
+            app_id: Some("1:record:web:abc".into()),
             ..Default::default()
         };
         let app = initialize_app(options, Some(unique_settings())).await.unwrap();
@@ -450,6 +480,7 @@ mod tests {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-LOCAL789".into()),
+            app_id: Some("1:defaults:web:abc".into()),
             ..Default::default()
         };
         let app = initialize_app(options, Some(unique_settings())).await.unwrap();
@@ -473,6 +504,7 @@ mod tests {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-LOCAL990".into()),
+            app_id: Some("1:override:web:abc".into()),
             ..Default::default()
         };
         let app = initialize_app(options, Some(unique_settings())).await.unwrap();
@@ -510,11 +542,30 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn initialization_fetches_config_in_background() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            measurement_id: Some("G-BACKGROUND".into()),
+            app_id: Some("1:bg:web:abc".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
+
+        runtime::yield_now().await;
+        let state = analytics.gtag_state();
+        assert_eq!(state.measurement_id, Some("G-BACKGROUND".to_string()));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn configure_with_secret_requires_measurement_context() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
+            app_id: Some("1:secret:web:abc".into()),
             ..Default::default()
         };
         let app = initialize_app(options, Some(unique_settings())).await.unwrap();
@@ -534,6 +585,7 @@ mod tests {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-LOCALCOLLECT".into()),
+            app_id: Some("1:collect:web:abc".into()),
             ..Default::default()
         };
         let app = initialize_app(options, Some(unique_settings())).await.unwrap();
@@ -547,12 +599,36 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn set_collection_enabled_updates_gtag_state() {
+        let _guard = gtag_test_guard();
+        reset_gtag_state();
+        let options = FirebaseOptions {
+            project_id: Some("project".into()),
+            measurement_id: Some("G-GTAG-COLLECT".into()),
+            app_id: Some("1:collect:gtag:web:abc".into()),
+            ..Default::default()
+        };
+        let app = initialize_app(options, Some(unique_settings())).await.unwrap();
+        let analytics = get_analytics(Some(app)).await.unwrap();
+        analytics.measurement_config().await.unwrap();
+
+        analytics.set_collection_enabled(false);
+        let state = analytics.gtag_state();
+        assert_eq!(state.collection_overrides.get("G-GTAG-COLLECT"), Some(&true));
+
+        analytics.set_collection_enabled(true);
+        let state = analytics.gtag_state();
+        assert_eq!(state.collection_overrides.get("G-GTAG-COLLECT"), Some(&false));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn gtag_state_tracks_defaults_and_config() {
         let _guard = gtag_test_guard();
         reset_gtag_state();
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-GTAGTEST".into()),
+            app_id: Some("1:gtagtest:web:abc".into()),
             ..Default::default()
         };
         let app = initialize_app(options, Some(unique_settings())).await.unwrap();
@@ -579,6 +655,7 @@ mod tests {
         );
         assert_eq!(state.send_page_view, Some(false));
         assert_eq!(state.config.get("send_page_view"), Some(&"false".to_string()));
+        assert_eq!(state.collection_overrides.get("G-GTAGTEST"), Some(&false));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -589,6 +666,7 @@ mod tests {
         let options = FirebaseOptions {
             project_id: Some("project".into()),
             measurement_id: Some("G-TEST123".into()),
+            app_id: Some("1:dispatch:web:abc".into()),
             ..Default::default()
         };
         let app = initialize_app(options, Some(unique_settings())).await.unwrap();

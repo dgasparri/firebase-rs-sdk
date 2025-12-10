@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+use tokio::sync::Mutex as AsyncMutex;
+
 use crate::app::component::{self, Component, Provider};
 use crate::app::heartbeat::HeartbeatServiceImpl;
 use crate::app::logger::LOGGER;
@@ -25,6 +28,14 @@ pub(crate) fn registered_components_guard() -> MutexGuard<'static, HashMap<Arc<s
     component::global_components()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+static COMPONENT_TEST_GUARD: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) async fn lock_component_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    COMPONENT_TEST_GUARD.lock().await
 }
 
 /// Attaches a component to the given app, logging failures for debugging.
@@ -117,7 +128,7 @@ pub fn is_firebase_server_app(app: &FirebaseApp) -> bool {
     server_apps_guard().contains_key(app.name())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::app::api;
@@ -126,12 +137,9 @@ mod tests {
     use crate::component::types::{ComponentType, DynService, InstanceFactory, InstantiationMode};
     use crate::component::Component;
     use crate::platform::runtime;
-    use futures::lock::Mutex as AsyncMutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, LazyLock};
+    use std::sync::Arc;
     use std::time::Duration;
-
-    static TEST_GUARD: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
     fn reset() {
         {
@@ -155,7 +163,7 @@ mod tests {
         F: FnOnce() -> Fut,
         Fut: std::future::Future,
     {
-        let _guard = TEST_GUARD.lock().await;
+        let _guard = super::lock_component_test_guard().await;
         reset();
         f().await
     }

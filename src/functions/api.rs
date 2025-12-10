@@ -345,6 +345,7 @@ pub async fn get_functions(
 mod tests {
     use super::*;
     use crate::app::initialize_app;
+    use crate::app::lock_component_test_guard;
     use crate::app::{FirebaseAppSettings, FirebaseOptions};
     use httpmock::Method::POST;
     use httpmock::MockServer;
@@ -361,6 +362,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn https_callable_invokes_backend() {
+        let _guard = lock_component_test_guard().await;
         let server = match panic::catch_unwind(|| MockServer::start()) {
             Ok(server) => server,
             Err(_) => {
@@ -394,6 +396,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn https_callable_includes_context_headers() {
+        let _guard = lock_component_test_guard().await;
         let server = match panic::catch_unwind(|| MockServer::start()) {
             Ok(server) => server,
             Err(_) => {

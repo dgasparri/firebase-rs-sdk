@@ -156,6 +156,12 @@ const DATABASE_VERSION: u32 = 1;
 const STORE_NAME: &str = "firebase-messaging-store";
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 const BROADCAST_CHANNEL_NAME: &str = "firebase-messaging-token-updates";
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+const REFRESH_LOCK_PREFIX: &str = "firebase-messaging-refresh-lock-";
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+pub const REFRESH_LOCK_TTL_MS: u64 = 30_000;
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+pub const REFRESH_WAIT_TIMEOUT_MS: u64 = 5_000;
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -172,10 +178,25 @@ enum BroadcastPayload {
 }
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct RefreshLockState {
+    owner: String,
+    timestamp_ms: u64,
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+#[derive(Debug)]
+struct TokenWaiter {
+    app_key: String,
+    sender: futures::channel::oneshot::Sender<()>,
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
 thread_local! {
     static TOKEN_CACHE: RefCell<HashMap<String, Option<TokenRecord>>> = RefCell::new(HashMap::new());
     static BROADCAST_CHANNEL: RefCell<Option<BroadcastChannel>> = RefCell::new(None);
     static BROADCAST_HANDLER: RefCell<Option<Closure<dyn FnMut(MessageEvent)>>> = RefCell::new(None);
+    static TOKEN_WAITERS: RefCell<Vec<TokenWaiter>> = RefCell::new(Vec::new());
 }
 
 #[cfg(not(all(feature = "wasm-web", target_arch = "wasm32")))]
@@ -237,6 +258,7 @@ pub async fn write_token(app_key: &str, record: &TokenRecord) -> MessagingResult
         .await
         .map_err(|err| internal_error(err.to_string()))?;
     cache_set(app_key, Some(record.clone()));
+    notify_waiters(app_key);
     broadcast_update(app_key, BroadcastPayload::Set(record.clone()));
     Ok(())
 }
@@ -277,6 +299,7 @@ pub async fn remove_token(app_key: &str) -> MessagingResult<bool> {
             .await
             .map_err(|err| internal_error(err.to_string()))?;
         cache_set(app_key, None);
+        notify_waiters(app_key);
         broadcast_update(app_key, BroadcastPayload::Remove);
     }
     Ok(existed)
@@ -353,6 +376,7 @@ fn handle_broadcast_message(message: BroadcastMessage) {
         BroadcastPayload::Set(record) => cache_set(&message.app_key, Some(record)),
         BroadcastPayload::Remove => cache_set(&message.app_key, None),
     }
+    notify_waiters(&message.app_key);
 }
 
 #[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
@@ -384,5 +408,140 @@ fn log_warning(message: &str, err: Option<&JsValue>) {
         web_sys::console::warn_2(&JsValue::from_str(message), err);
     } else {
         web_sys::console::warn_1(&JsValue::from_str(message));
+    }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+fn notify_waiters(app_key: &str) {
+    TOKEN_WAITERS.with(|waiters| {
+        let mut waiters = waiters.borrow_mut();
+        let mut idx = 0;
+        while idx < waiters.len() {
+            if waiters[idx].app_key == app_key {
+                let waiter = waiters.remove(idx);
+                let _ = waiter.sender.send(());
+            } else {
+                idx += 1;
+            }
+        }
+    });
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+fn cleanup_waiters() {
+    TOKEN_WAITERS.with(|waiters| {
+        waiters.borrow_mut().retain(|waiter| !waiter.sender.is_canceled());
+    });
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+fn register_waiter(app_key: &str) -> futures::channel::oneshot::Receiver<()> {
+    let (sender, receiver) = futures::channel::oneshot::channel();
+    TOKEN_WAITERS.with(|waiters| {
+        waiters.borrow_mut().push(TokenWaiter {
+            app_key: app_key.to_string(),
+            sender,
+        });
+    });
+    receiver
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+pub async fn wait_for_token_update(app_key: &str, timeout_ms: u64) -> MessagingResult<Option<TokenRecord>> {
+    use std::time::Duration;
+
+    ensure_broadcast_channel();
+    let receiver = register_waiter(app_key);
+    let _ = crate::platform::runtime::with_timeout(receiver, Duration::from_millis(timeout_ms)).await;
+    cleanup_waiters();
+    Ok(cache_get(app_key).flatten())
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+pub struct RefreshLock {
+    key: String,
+    owner: String,
+    acquired: bool,
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+impl RefreshLock {
+    pub fn new(app_key: &str) -> Self {
+        let owner = format!("{}-{}", js_sys::Date::now(), (js_sys::Math::random() * 1_000_000.0) as u64);
+        Self {
+            key: format!("{REFRESH_LOCK_PREFIX}{app_key}"),
+            owner,
+            acquired: false,
+        }
+    }
+
+    pub fn try_acquire(&mut self, ttl_ms: u64) -> bool {
+        self.acquired = false;
+        let window = match web_sys::window() {
+            Some(window) => window,
+            None => {
+                self.acquired = true;
+                return true;
+            }
+        };
+        let storage = match window.local_storage() {
+            Ok(Some(storage)) => storage,
+            _ => {
+                self.acquired = true;
+                return true;
+            }
+        };
+
+        let now = js_sys::Date::now() as u64;
+        if let Ok(Some(raw)) = storage.get_item(&self.key) {
+            if let Ok(existing) = serde_json::from_str::<RefreshLockState>(&raw) {
+                if now < existing.timestamp_ms.saturating_add(ttl_ms) {
+                    return false;
+                }
+            }
+        }
+
+        let state = RefreshLockState {
+            owner: self.owner.clone(),
+            timestamp_ms: now,
+        };
+        if let Ok(serialized) = serde_json::to_string(&state) {
+            let _ = storage.set_item(&self.key, &serialized);
+            self.acquired = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn release(&mut self) {
+        if !self.acquired {
+            return;
+        }
+
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                if let Ok(Some(raw)) = storage.get_item(&self.key) {
+                    if let Ok(existing) = serde_json::from_str::<RefreshLockState>(&raw) {
+                        if existing.owner == self.owner {
+                            let _ = storage.remove_item(&self.key);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.acquired = false;
+    }
+
+    pub fn is_acquired(&self) -> bool {
+        self.acquired
+    }
+}
+
+#[cfg(all(feature = "wasm-web", target_arch = "wasm32", feature = "experimental-indexed-db"))]
+impl Drop for RefreshLock {
+    fn drop(&mut self) {
+        self.release();
     }
 }

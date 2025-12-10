@@ -17,6 +17,7 @@ pub struct GtagState {
     pub default_event_parameters: BTreeMap<String, String>,
     pub config: BTreeMap<String, String>,
     pub send_page_view: Option<bool>,
+    pub collection_overrides: BTreeMap<String, bool>,
 }
 
 #[derive(Debug, Default)]
@@ -56,6 +57,11 @@ impl GtagRegistry {
 
     pub fn set_send_page_view(&self, value: Option<bool>) {
         self.state.lock().unwrap().send_page_view = value;
+    }
+
+    pub fn set_collection_enabled(&self, measurement_id: impl Into<String>, enabled: bool) {
+        let mut guard = self.state.lock().unwrap();
+        guard.collection_overrides.insert(measurement_id.into(), !enabled);
     }
 
     pub fn snapshot(&self) -> GtagState {
